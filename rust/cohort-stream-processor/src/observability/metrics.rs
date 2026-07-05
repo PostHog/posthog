@@ -62,7 +62,7 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
-/// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
+/// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
 /// Owned partitions that had at least one `cf_pending_transfers` entry re-produced by the eager boot
@@ -118,8 +118,10 @@ pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
-/// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
-pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
+/// Stores destroyed and recreated at open because the on-disk schema version did not match, under the
+/// `COHORT_WIPE_ON_SCHEMA_MISMATCH` opt-in (counter). Non-zero means a store layout revision wiped
+/// durable state; expected only on a deliberate schema migration.
+pub const STORE_SCHEMA_MISMATCH_WIPES_TOTAL: &str = "store_schema_mismatch_wipes_total";
 
 /// Time an offloaded store op waited to acquire its read-lane permit on the async side, before it
 /// was ever spawned, labelled by `op` (histogram, seconds). Recorded only when the lane is bounded.
@@ -255,25 +257,30 @@ pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
-/// (`person_memo_hit`|`event_name_gate`) (counter).
+/// (`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
-/// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
-pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";
+/// Person side of an event resolved against the durable [`crate::stage1::PersonRecord`], labelled by
+/// `result` (`fresh`|`stale_props`|`stale_catalog`|`stale_both`|`absent`|`corrupt`|`argmax_stale`|
+/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` are
+/// labelled from the prior-record classification (an evaluation from nothing), not from the freshness
+/// axis, so they are not folded into `stale_both`.
+pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
+/// Encoded byte size of a [`crate::stage1::PersonRecord`] at each write (histogram). Watches record
+/// growth on hot persons; the TTL backstop bounds it.
+pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
+/// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
+pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
-/// `cf_stage1` records written, labelled by `variant` (counter).
+/// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
-/// First-time `cf_person_index` appends, one per newly-seen `(person, leaf_state_key)` (counter).
-pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
 /// Applies skipped because the source `(partition, offset)` was already folded in, labelled by
 /// `variant` (counter).
 pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
-/// Person-property applies dropped by the event-time argMax tiebreaker (counter).
-pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
 /// Applies skipped because the leaf's resolved variant is unsupported, labelled by `variant`
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
-/// Stored `cf_stage1` values that failed to decode; the key is skipped, not panicked (counter).
+/// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
@@ -411,6 +418,11 @@ pub const MERGE_HELD_OFFSET_GAUGE: &str = "merge_held_offset";
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
+/// Behavioral rows enumerated for P_old on one merge drain — the drain-scan cost distribution
+/// (histogram). Recorded once per non-replay drain. After the `cf_person_index` deletion the drain
+/// enumerates P_old's leaves with a prefix scan rather than an index read, so this is the visibility
+/// into how many rows that scan touches.
+pub const MERGE_DRAIN_LEAVES_SCANNED: &str = "merge_drain_leaves_scanned";
 
 /// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
 pub const MERGE_GC_KEYS_SCANNED_TOTAL: &str = "merge_gc_keys_scanned_total";
@@ -610,6 +622,16 @@ mod tests {
     }
 
     #[test]
+    fn person_record_metric_names_are_stable() {
+        assert_eq!(STAGE1_PERSON_RECORD_TOTAL, "stage1_person_record_total");
+        assert_eq!(
+            STAGE1_PERSON_RECORD_SIZE_BYTES,
+            "stage1_person_record_size_bytes",
+        );
+        assert_eq!(STAGE1_BEHAVIORAL_APPLIES, "stage1_behavioral_applies");
+    }
+
+    #[test]
     fn stage2_orphan_gc_metric_names_are_stable() {
         assert_eq!(
             STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
@@ -627,5 +649,16 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+    }
+
+    #[test]
+    fn schema_guard_and_drain_scan_metric_names_are_stable() {
+        // Dashboard/runbook contract for the schema-wipe counter and the post-index-deletion drain-scan
+        // histogram; a rename must be deliberate, not accidental.
+        assert_eq!(
+            STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
+            "store_schema_mismatch_wipes_total",
+        );
+        assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
     }
 }

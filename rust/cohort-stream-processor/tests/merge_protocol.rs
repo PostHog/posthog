@@ -22,11 +22,13 @@ use cohort_stream_processor::merge::transfer::{
 };
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
+use cohort_stream_processor::stage1::person_record::{MatchedSet, PersonRecord};
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig, OffloadMode,
-    PendingTransferKey, Stage1Key, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
+    BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig,
+    OffloadMode, PendingTransferKey, PersonRecordKey, PersonRecords, Stage2Key, StoreConfig,
+    StoreHandle, TombstoneKey,
 };
 use cohort_stream_processor::workers::{
     compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
@@ -200,14 +202,9 @@ fn leaf_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
@@ -562,11 +559,11 @@ fn fast_path_equals_the_cross_partition_result() {
         effects
             .schedules
             .iter()
-            .all(|(key, _)| key.person_id == p_new),
+            .all(|(key, _)| key.person_id() == p_new),
         "every scheduled key belongs to the survivor P_new",
     );
     assert!(
-        effects.cancels.iter().all(|key| key.person_id == p_old),
+        effects.cancels.iter().all(|key| key.person_id() == p_old),
         "the cancelled keys are P_old's drained keys",
     );
 
@@ -1939,5 +1936,285 @@ fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re
     assert!(
         only_pending(&restored, p_old_part).is_empty(),
         "the replayed merge did not stage a duplicate pending transfer",
+    );
+}
+
+// --- PersonRecord merge dedup carry (Slice B2) ---
+//
+// The person side no longer transfers per-leaf rows: a merge carries only P_old's replay-dedup
+// (`transfer.person_dedup`), which P_new's record absorbs as an ancestor. These pins cover the
+// record-only transfer (the empty-transfer predicate fix), the absent/corrupt-target arms (write
+// nothing, byte-parity with the old per-leaf `keep_new` absent arm), redelivery idempotence, and the
+// straggler that dedups against the carried ancestor.
+
+const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
+
+/// A team with one person-only cohort, so a drain packages no behavioral leaves — only the record.
+fn person_only_filters() -> TeamFilters {
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(CohortId(1), TeamId(TEAM), &cohort(vec![person_leaf()]))
+        .unwrap();
+    builder.freeze(UTC)
+}
+
+fn record_at(store: &CohortStore, partition_id: u16, person: Uuid) -> Option<PersonRecord> {
+    store
+        .get_person_record(&PersonRecordKey::new(partition_id, TEAM as u64, person))
+        .unwrap()
+        .map(|bytes| PersonRecord::decode(&bytes).unwrap())
+}
+
+/// A record that matches the person leaf, with `applied` on the main map.
+fn seed_member_record(store: &CohortStore, partition_id: u16, person: Uuid) {
+    let mut record = PersonRecord::absent();
+    record.matched = MatchedSet::from_iter([PERSON_HASH]);
+    store
+        .write_batch(|b| {
+            b.put::<PersonRecords>(
+                &PersonRecordKey::new(partition_id, TEAM as u64, person),
+                &record.encode(),
+            )
+        })
+        .unwrap();
+}
+
+/// Fold one matching person event for `person` on its partition under person-only filters, writing a
+/// member record.
+fn fold_person(store: &CohortStore, filters: &TeamFilters, person: Uuid, source_offset: i64) {
+    let partition_id = part(person);
+    process_event(
+        partition_id,
+        store,
+        filters,
+        &pageview_event(person, 5, source_offset),
+    )
+    .unwrap();
+}
+
+#[test]
+fn record_only_person_transfers_its_dedup_and_a_straggler_dedups_against_the_ancestor() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = person_only_filters();
+
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    // P_old has ONLY a person record (no behavioral rows) folded from a source event at (5, 40).
+    fold_person(&store, &filters, p_old, 40);
+    assert!(
+        record_at(&store, p_old_part, p_old)
+            .unwrap()
+            .applied_offsets
+            .is_replay(5, 40),
+        "P_old's record recorded its source offset",
+    );
+    // P_new already exists as a member so it can absorb the ancestor.
+    seed_member_record(&store, p_new_part, p_new);
+
+    // Drain P_old cross-partition: no leaves, but a person_dedup — so the transfer is still produced.
+    let drained = handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    let transfer = match drained {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected a cross-partition Drained, got {other:?}"),
+    };
+    assert!(
+        transfer.leaves.is_empty(),
+        "a person-only drain carries no leaves"
+    );
+    assert!(
+        transfer.person_dedup.is_some(),
+        "the person-only drain still carries P_old's record dedup (the empty-transfer fix)",
+    );
+    assert!(
+        record_at(&store, p_old_part, p_old).is_none(),
+        "P_old's record was reclaimed by the drain",
+    );
+
+    // Apply into P_new: its present record absorbs P_old as an ancestor at the carried high-water 40.
+    let applied = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (7, 200),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    let ApplyOutcome::Applied { transitions, .. } = applied else {
+        panic!("expected Applied, got {applied:?}");
+    };
+    assert!(
+        transitions.is_empty(),
+        "a record merge produces no person transition (P_new was already a member; keep_new yields no flip)",
+    );
+    let p_new_record = record_at(&store, p_new_part, p_new).unwrap();
+    assert!(
+        p_new_record.redirect_dedup[&p_old].is_replay(5, 40),
+        "P_new absorbed P_old's offsets under redirect_dedup[P_old]",
+    );
+    assert!(
+        !p_new_record.applied_offsets.is_replay(5, 40),
+        "the ancestor's offsets never fold into P_new's main map",
+    );
+
+    // A straggler for P_old (redirected to P_new) at offset 40 ≤ the carried ancestor max is a replay.
+    let mut straggler = pageview_event(p_new, 5, 40);
+    straggler.redirected_from = Some(p_old.to_string());
+    let out = process_event(p_new_part, &store, &filters, &straggler).unwrap();
+    assert!(
+        out.transitions.is_empty(),
+        "the straggler dedups against the carried ancestor high-water and flips nothing",
+    );
+}
+
+#[test]
+fn record_merge_into_absent_or_corrupt_target_writes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = person_only_filters();
+
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    fold_person(&store, &filters, p_old, 40);
+    // P_new has NO record.
+    let drained = handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    let transfer = match drained {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected Drained, got {other:?}"),
+    };
+
+    // Absent target: nothing written (byte-parity with the per-leaf absent-new arm).
+    handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (7, 200),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    assert!(
+        record_at(&store, p_new_part, p_new).is_none(),
+        "an absent target record is not created by the merge",
+    );
+
+    // Corrupt target: a new drain (fresh coords so it is not a replay) applying into a corrupt record
+    // writes nothing rather than clobbering it.
+    let p_new2 = (p_new.as_u128() + 1..)
+        .map(Uuid::from_u128)
+        .find(|p| part(*p) == p_new_part && *p != p_new)
+        .unwrap();
+    store
+        .write_batch(|b| {
+            b.put::<PersonRecords>(
+                &PersonRecordKey::new(p_new_part, TEAM as u64, p_new2),
+                b"not a record",
+            )
+        })
+        .unwrap();
+    let mut corrupt_transfer = transfer.clone();
+    corrupt_transfer.new_person_uuid = p_new2;
+    corrupt_transfer.source_offset = 101;
+    handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &corrupt_transfer,
+        (7, 201),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    assert_eq!(
+        store
+            .get_person_record(&PersonRecordKey::new(p_new_part, TEAM as u64, p_new2))
+            .unwrap()
+            .as_deref(),
+        Some(b"not a record".as_slice()),
+        "a corrupt target record is left untouched, not overwritten",
+    );
+}
+
+#[test]
+fn redelivered_record_merge_is_idempotent_via_merge_max() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = person_only_filters();
+
+    let p_old = Uuid::from_u128(0xA11CE);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+
+    fold_person(&store, &filters, p_old, 40);
+    seed_member_record(&store, p_new_part, p_new);
+    let drained = handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    let transfer = match drained {
+        DrainOutcome::Drained { transfer, .. } => transfer,
+        other => panic!("expected Drained, got {other:?}"),
+    };
+
+    handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (7, 200),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    let after_first = record_at(&store, p_new_part, p_new).unwrap();
+
+    // A duplicate transfer copy (fresh transfer coords, same source coords) is short-circuited by the
+    // apply marker, so the record is byte-identical — merge_max would also be idempotent, but the
+    // marker means the second apply does not even touch the record.
+    let second = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (7, 999),
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
+    assert_eq!(
+        second,
+        ApplyOutcome::AlreadyApplied,
+        "the redelivery is deduped by the marker"
+    );
+    assert_eq!(
+        record_at(&store, p_new_part, p_new).unwrap(),
+        after_first,
+        "the redelivered merge left P_new's record byte-identical",
     );
 }

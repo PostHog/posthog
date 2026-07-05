@@ -6,6 +6,7 @@ use super::{CheckpointDownloader, CheckpointMetadata, DirCleanupGuard, STORE_TOP
 use crate::observability::metrics::{
     CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS, CHECKPOINT_IMPORT_DURATION_SECONDS,
 };
+use crate::store::STORE_SCHEMA_VERSION;
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -138,6 +139,25 @@ impl CheckpointImporter {
                     continue;
                 }
             };
+
+            // Skip a checkpoint written under a different store schema before the bulk data-file
+            // download or any local dir mutation (only the small metadata.json above has been
+            // fetched — reading the version requires it): an incompatible on-disk layout must never
+            // be imported (the open-time CF-set/version guard is only the backstop). A
+            // pre-versioning metadata.json decodes `store_schema = 0` (serde default), which never
+            // matches, so it is skipped here. Skipping (not failing) falls through to the next,
+            // older candidate, and a fully-skipped list downgrades to a cold start in
+            // `restore_from_s3`.
+            if attempt.store_schema != STORE_SCHEMA_VERSION {
+                warn!(
+                    store = STORE_TOPIC,
+                    checkpoint = %remote_key,
+                    found = attempt.store_schema,
+                    expected = STORE_SCHEMA_VERSION,
+                    "Skipping checkpoint written under a different store schema version",
+                );
+                continue;
+            }
 
             let attempt_tag = attempt.get_attempt_path();
 
@@ -538,6 +558,64 @@ mod tests {
         assert!(
             loaded_metadata.updated_at.timestamp_millis() <= after_import.timestamp_millis(),
             "updated_at should be <= after_import"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_skips_a_schema_mismatched_checkpoint_and_uses_the_next() {
+        // Newest candidate carries an incompatible store schema; the next (older) one is current.
+        // The mismatched candidate must be skipped without downloading its files, and the import must
+        // succeed on the current-era one — proving the skip falls through to the next source.
+        let tmp_dir = TempDir::new().unwrap();
+        let target_path = tmp_dir.path().join("store");
+
+        let mut newest = create_test_metadata(13);
+        newest.store_schema = STORE_SCHEMA_VERSION + 1; // incompatible
+        let current = create_test_metadata(12); // stamped with STORE_SCHEMA_VERSION by `new`
+        assert_eq!(current.store_schema, STORE_SCHEMA_VERSION);
+
+        // Newest first, matching the S3 listing order.
+        let downloader = CancellationTestDownloader::new(vec![newest.clone(), current.clone()]);
+        let importer = CheckpointImporter::new(Box::new(downloader), 3, Duration::from_secs(60));
+
+        let import_path = importer
+            .import_checkpoint(&target_path)
+            .await
+            .expect("import should skip the mismatched candidate and use the current one");
+
+        let loaded = CheckpointMetadata::load_from_dir(&import_path)
+            .await
+            .expect("metadata.json written for the accepted candidate");
+        assert_eq!(
+            loaded.store_schema, STORE_SCHEMA_VERSION,
+            "the imported checkpoint is the current-era one, not the mismatched newest",
+        );
+        assert_eq!(
+            loaded.id, current.id,
+            "the accepted attempt is the older, schema-matching candidate",
+        );
+    }
+
+    #[tokio::test]
+    async fn import_fails_when_every_candidate_has_a_mismatched_schema() {
+        // The only candidate is old-era (schema absent ⇒ 0 after a serde round-trip); with nothing
+        // usable the importer errors, which `restore_from_s3` maps to a cold-start downgrade.
+        let tmp_dir = TempDir::new().unwrap();
+        let target_path = tmp_dir.path().join("store");
+
+        let mut old_era = create_test_metadata(12);
+        old_era.store_schema = 0; // pre-versioning metadata.json decodes to this
+        let downloader = CancellationTestDownloader::new(vec![old_era]);
+        let importer = CheckpointImporter::new(Box::new(downloader), 3, Duration::from_secs(60));
+
+        let result = importer.import_checkpoint(&target_path).await;
+        assert!(
+            result.is_err(),
+            "an all-mismatched candidate list yields no usable checkpoint",
+        );
+        assert!(
+            !target_path.exists(),
+            "a skipped candidate must not create or leave any local store directory",
         );
     }
 

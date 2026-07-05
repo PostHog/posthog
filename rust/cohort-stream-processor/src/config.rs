@@ -13,7 +13,7 @@ use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
-use crate::workers::{CascadeConfig, EventNameGating, PersonMemoConfig, TransferRetryPolicy};
+use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -57,15 +57,6 @@ pub struct Config {
     /// Teams the filter catalog is scoped to. Set `all` to disable the gate. See [`TeamAllowlist`].
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
-
-    /// Memoize person-property results per `(team, person)`, skipping re-evaluation when a person's
-    /// properties are unchanged. Default on.
-    #[envconfig(from = "COHORT_PERSON_MEMO_ENABLED", default = "true")]
-    pub cohort_person_memo_enabled: bool,
-
-    /// Per-worker LRU capacity (entries) for the person-property result memo.
-    #[envconfig(from = "COHORT_PERSON_MEMO_CAPACITY", default = "20000")]
-    pub cohort_person_memo_capacity: usize,
 
     /// Evaluate only the behavioral conditions whose event name matches the incoming event. Default on.
     #[envconfig(from = "COHORT_EVENT_NAME_GATING_ENABLED", default = "true")]
@@ -296,6 +287,12 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
 
+    /// On a store-schema version mismatch, destroy and recreate the store instead of failing fast.
+    /// Off by default: a mismatch is an operator decision (wipe or roll back), not something to eat
+    /// silently. Set true for PoC deploys where the runbook is wipe-and-replay.
+    #[envconfig(from = "COHORT_WIPE_ON_SCHEMA_MISMATCH", default = "false")]
+    pub cohort_wipe_on_schema_mismatch: bool,
+
     /// Enable RocksDB statistics so the store-stats publisher can report cache tickers and per-CF
     /// sizes. See [`StoreConfig::statistics_enabled`].
     #[envconfig(from = "COHORT_STORE_STATISTICS_ENABLED", default = "true")]
@@ -326,6 +323,19 @@ pub struct Config {
     /// Cap on RocksDB background compaction/flush jobs. Non-positive leaves RocksDB's default.
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
+
+    /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
+    /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
+    /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
+    /// stays the sweep's contract.
+    ///
+    /// In production this MUST be `>= 30` days: comfortably beyond the 7-day replay horizon of the
+    /// merge / `clickhouse_events_json` topics, so a live-again person's replayed events cannot arrive
+    /// after their record was reclaimed. A TTL-dropped dormant person re-derives on their next event
+    /// and re-emits `Entered` for single-leaf person cohorts (at-least-once across dormancy);
+    /// composable cohorts are suppressed by the surviving `cf_stage2` bit.
+    #[envconfig(from = "COHORT_PERSON_RECORD_TTL_DAYS", default = "0")]
+    pub cohort_person_record_ttl_days: u32,
 
     /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller — the
     /// operator kill switch), `maintenance` (only maintenance-lane reads, the WAL fsync, and sections
@@ -543,13 +553,6 @@ impl Config {
         }
     }
 
-    pub fn person_memo_config(&self) -> PersonMemoConfig {
-        PersonMemoConfig {
-            enabled: self.cohort_person_memo_enabled,
-            capacity: self.cohort_person_memo_capacity,
-        }
-    }
-
     pub fn event_name_gating(&self) -> EventNameGating {
         EventNameGating::from_enabled(self.cohort_event_name_gating_enabled)
     }
@@ -643,6 +646,7 @@ impl Config {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
+            wipe_on_schema_mismatch: self.cohort_wipe_on_schema_mismatch,
             statistics_enabled: self.store_statistics_enabled,
             read_sample_ratio: self.store_read_sample_ratio,
             block_cache_bytes: self.cohort_block_cache_bytes,
@@ -650,6 +654,7 @@ impl Config {
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
+            person_record_ttl_days: self.cohort_person_record_ttl_days,
             ..StoreConfig::default()
         }
     }
@@ -809,8 +814,6 @@ mod tests {
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
             team_allowlist: TeamAllowlist::All,
-            cohort_person_memo_enabled: true,
-            cohort_person_memo_capacity: 20000,
             cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 128,
             partition_intake_max_events: 1024,
@@ -859,6 +862,7 @@ mod tests {
             stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            cohort_wipe_on_schema_mismatch: false,
             store_statistics_enabled: true,
             store_read_sample_ratio: 64,
             cohort_block_cache_bytes: 134_217_728,
@@ -866,6 +870,7 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_person_record_ttl_days: 0,
             cohort_store_offload_mode: OffloadMode::All,
             cohort_store_event_read_permits: 16,
             cohort_store_maintenance_permits: 6,
@@ -1041,6 +1046,45 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn wipe_on_schema_mismatch_defaults_off_and_threads_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.cohort_wipe_on_schema_mismatch,
+            "a schema mismatch must fail fast unless the operator opts in",
+        );
+        assert!(!defaults.store_config().wipe_on_schema_mismatch);
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_WIPE_ON_SCHEMA_MISMATCH".to_owned(),
+            "true".to_owned(),
+        )]))
+        .unwrap();
+        assert!(enabled.store_config().wipe_on_schema_mismatch);
+    }
+
+    #[test]
+    fn person_record_ttl_defaults_off_and_threads_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            defaults.cohort_person_record_ttl_days, 0,
+            "the person-record TTL defaults off (no compaction filter)",
+        );
+        assert_eq!(defaults.store_config().person_record_ttl_days, 0);
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_PERSON_RECORD_TTL_DAYS".to_owned(),
+            "30".to_owned(),
+        )]))
+        .unwrap();
+        assert_eq!(enabled.cohort_person_record_ttl_days, 30);
+        assert_eq!(
+            enabled.store_config().person_record_ttl_days,
+            30,
+            "the TTL reaches StoreConfig",
+        );
     }
 
     #[test]
@@ -1514,35 +1558,6 @@ mod tests {
             !config.stage2_orphan_gc_enabled,
             "the kill-switch disables the cf_stage2 orphan GC",
         );
-    }
-
-    #[test]
-    fn person_memo_defaults_on_and_overrides_from_env() {
-        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
-        assert!(
-            defaults.cohort_person_memo_enabled,
-            "the person memo defaults on",
-        );
-        assert_eq!(defaults.cohort_person_memo_capacity, 20000);
-        assert!(
-            defaults.person_memo_config().enabled,
-            "person_memo_config threads the enabled flag",
-        );
-        assert_eq!(defaults.person_memo_config().capacity, 20000);
-
-        let env: std::collections::HashMap<String, String> = [
-            ("COHORT_PERSON_MEMO_ENABLED", "false"),
-            ("COHORT_PERSON_MEMO_CAPACITY", "5000"),
-        ]
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect();
-        let config = Config::init_from_hashmap(&env).unwrap();
-        assert!(
-            !config.cohort_person_memo_enabled,
-            "the kill-switch disables the memo",
-        );
-        assert_eq!(config.cohort_person_memo_capacity, 5000);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::PersonDedup;
 use crate::stage1::state::StatefulRecord;
 
 pub const MERGE_EVENT_SCHEMA_VERSION: u32 = 1;
@@ -64,6 +65,13 @@ pub struct MergeStateTransfer {
     /// without the field decodes to `0`, so the field is JSON-compatible both ways.
     #[serde(default)]
     pub forward_hops: u8,
+    /// P_old's person-record replay-dedup, carried so a straggler routed to P_new after the merge
+    /// deduplicates against P_old's high-water marks. Only the offsets travel — never P_old's matched
+    /// set, fingerprints, or stamp (P_new re-evaluates the person lazily on its next event, mirroring
+    /// the per-leaf `keep_new` arm's "drop P_old's bit"). `#[serde(default, skip_serializing_if)]`:
+    /// wire-compatible both ways, and a person with no record contributes no field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_dedup: Option<PersonDedup>,
 }
 
 /// Staged transfer in `cf_pending_transfers`. Survives a crash between the drain batch and the
@@ -235,6 +243,8 @@ mod tests {
             source_offset: 12_345,
             leaves: vec![TransferLeaf::new(LeafStateKey([0xAB; 16]), single_record())],
             forward_hops: 0,
+
+            person_dedup: None,
         };
         let decoded = MergeStateTransfer::decode(&transfer.encode()).unwrap();
         assert_eq!(decoded, transfer);
@@ -275,6 +285,8 @@ mod tests {
             source_offset: 4,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         };
         let pending = PendingTransfer {
             transfer,

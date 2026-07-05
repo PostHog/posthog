@@ -16,7 +16,9 @@ use crate::observability::metrics::MERGE_LEAVES_DROPPED_TOTAL;
 use crate::stage1::bucket_tz::{daily_bucket_len, now_day_for_window};
 use crate::stage1::compressed_history::{compressed_eviction_deadline, slide_window_forward};
 use crate::stage1::daily::daily_eviction_deadline;
-use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
+#[cfg(test)]
+use crate::stage1::state::StateVariant;
+use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
 use crate::stage1::transition::TransitionKind;
 use crate::stage2::evaluator::leaf_membership;
 
@@ -40,16 +42,13 @@ pub fn merge_records(
     meta: &LeafStateMeta,
     tz: Tz,
 ) -> MergedRecord {
-    // Variant mismatch is a desync — keep P_new untouched.
+    // Variant mismatch is a desync — keep P_new untouched. This also guards a person-property leaf
+    // (whose state no longer lives in `cf_behavioral`): a transfer never carries one, but if a stale
+    // catalog ever paired a person-property meta with a behavioral leaf, this keeps P_new's row.
     if old.state.variant() != meta.variant
         || new.is_some_and(|record| record.state.variant() != meta.variant)
     {
         counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "variant_mismatch").increment(1);
-        return keep_new(old_person, old, new);
-    }
-
-    // Person properties: drop P_old's bit; P_new re-evaluates lazily on its next event.
-    if matches!(meta.variant, StateVariant::PersonProperty) {
         return keep_new(old_person, old, new);
     }
 
@@ -289,16 +288,6 @@ mod tests {
         }
     }
 
-    fn person_meta() -> LeafStateMeta {
-        LeafStateMeta {
-            variant: StateVariant::PersonProperty,
-            condition_hash: [0; 16],
-            window: None,
-            window_days: None,
-            predicate_op: None,
-        }
-    }
-
     fn single(last: i64, deadline: i64) -> StatefulRecord {
         StatefulRecord::new(
             Stage1State::BehavioralSingle {
@@ -329,17 +318,6 @@ mod tests {
                 window_start_day,
                 last_event_at_ms: 1_000,
                 earliest_eviction_at_ms: i64::MAX,
-            },
-            AppliedOffsets::default(),
-        )
-    }
-
-    fn person(matches: bool, last: i64) -> StatefulRecord {
-        StatefulRecord::new(
-            Stage1State::PersonProperty {
-                matches,
-                last_updated_at_ms: last,
-                last_updated_offset: 0,
             },
             AppliedOffsets::default(),
         )
@@ -548,29 +526,6 @@ mod tests {
     }
 
     #[test]
-    fn person_property_keeps_new_and_drops_old() {
-        let merged = merge_records(
-            uuid(1),
-            &person(true, 100),
-            Some(&person(false, 200)),
-            &person_meta(),
-            TZ,
-        );
-        assert_eq!(merged.flip, None);
-        assert!(matches!(
-            merged.record.unwrap().state,
-            Stage1State::PersonProperty { matches: false, .. }
-        ));
-    }
-
-    #[test]
-    fn person_property_with_absent_new_writes_nothing() {
-        let merged = merge_records(uuid(1), &person(true, 100), None, &person_meta(), TZ);
-        assert_eq!(merged.record, None, "no state migrated for P_new");
-        assert_eq!(merged.flip, None);
-    }
-
-    #[test]
     fn merged_record_keeps_p_news_main_map_and_adds_an_ancestor_entry() {
         let mut old = single(100, 500);
         old.applied_offsets = applied(&[(5, 100), (6, 7)]);
@@ -611,9 +566,11 @@ mod tests {
 
     #[test]
     fn variant_mismatch_keeps_new_defensively() {
+        // P_old's state is a daily-bucket state but the leaf's meta says single: a desync keeps P_new's
+        // single untouched rather than migrating the mismatched state.
         let merged = merge_records(
             uuid(1),
-            &person(true, 100),
+            &daily(vec![0u32; 8], 100),
             Some(&single(200, 400)),
             &single_meta(),
             TZ,

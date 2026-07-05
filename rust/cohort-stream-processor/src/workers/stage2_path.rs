@@ -17,13 +17,16 @@ use crate::observability::metrics::{
     STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR, STAGE2_TRANSITIONS,
 };
 use crate::producer::{CohortMembershipChange, MembershipStatus};
-use crate::stage1::key::{LeafStateKey, Stage1Key};
-use crate::stage1::state::{Stage1State, StatefulRecord};
+use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::PersonRecord;
+use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::LeafTransition;
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
 use crate::stage2::CohortEligibility;
-use crate::store::{ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle};
+use crate::store::{
+    BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
+};
 
 pub async fn compose_stage2(
     partition_id: u16,
@@ -156,25 +159,8 @@ async fn evaluate_cohort(
     let mut lsks = Vec::new();
     collect_leaf_state_keys(&tree.root, &mut lsks);
 
-    let keys: Vec<Stage1Key> = lsks
-        .iter()
-        .map(|&lsk| Stage1Key {
-            partition_id,
-            team_id,
-            leaf_state_key: lsk,
-            person_id,
-        })
-        .collect();
-    let raw = handle.multi_get_stage1(keys, ReadLane::Event).await?;
-
-    let mut membership: HashMap<LeafStateKey, bool> = HashMap::with_capacity(lsks.len());
-    for (lsk, bytes) in lsks.iter().zip(raw) {
-        let Some(meta) = filters.by_lsk.get(lsk) else {
-            continue;
-        };
-        let state = decode_stage1_state(bytes);
-        membership.insert(*lsk, leaf_membership(state.as_ref(), meta));
-    }
+    let resolver = LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle);
+    let membership = resolver.resolve(&lsks).await?;
 
     let ref_membership =
         resolve_ref_membership(partition_id, team_id, person_id, tree, filters, handle).await?;
@@ -182,8 +168,123 @@ async fn evaluate_cohort(
     Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
 }
 
+/// The one seam that turns a person's leaf-state keys into per-leaf membership bits.
+///
+/// It partitions the requested keys by their leaf's [`StateVariant`]: behavioral leaves resolve from
+/// `cf_behavioral` rows via [`leaf_membership`] (so each leaf's comparator applies), and person-property
+/// leaves resolve from the durable [`PersonRecord`](crate::stage1::PersonRecord) — a person LSK *is* its
+/// condition hash, so membership is `record.matched.contains(hash)`. The person arm is isolated so it is
+/// the only thing the person-record collapse changed. Keys whose leaf is absent from the frozen catalog
+/// are skipped (non-member).
+struct LeafMembershipResolver<'a> {
+    partition_id: u16,
+    team_id: u64,
+    person_id: Uuid,
+    filters: &'a TeamFilters,
+    handle: &'a StoreHandle,
+}
+
+impl<'a> LeafMembershipResolver<'a> {
+    fn new(
+        partition_id: u16,
+        team_id: u64,
+        person_id: Uuid,
+        filters: &'a TeamFilters,
+        handle: &'a StoreHandle,
+    ) -> Self {
+        Self {
+            partition_id,
+            team_id,
+            person_id,
+            filters,
+            handle,
+        }
+    }
+
+    async fn resolve(
+        &self,
+        lsks: &[LeafStateKey],
+    ) -> Result<HashMap<LeafStateKey, bool>, StoreError> {
+        let mut behavioral_lsks = Vec::new();
+        let mut person_lsks = Vec::new();
+        for &lsk in lsks {
+            match self.filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
+                // Leaf not in the frozen catalog: skip it (reads as non-member downstream).
+                None => continue,
+                Some(StateVariant::PersonProperty) => person_lsks.push(lsk),
+                Some(_) => behavioral_lsks.push(lsk),
+            }
+        }
+
+        let mut membership = HashMap::with_capacity(behavioral_lsks.len() + person_lsks.len());
+        self.read_behavioral_into(&behavioral_lsks, &mut membership)
+            .await?;
+        self.read_person_into(&person_lsks, &mut membership).await?;
+        Ok(membership)
+    }
+
+    /// Read `lsks` from `cf_behavioral` and insert each leaf's membership bit into `out`.
+    async fn read_behavioral_into(
+        &self,
+        lsks: &[LeafStateKey],
+        out: &mut HashMap<LeafStateKey, bool>,
+    ) -> Result<(), StoreError> {
+        if lsks.is_empty() {
+            return Ok(());
+        }
+        let keys: Vec<BehavioralKey> = lsks
+            .iter()
+            .map(|&lsk| BehavioralKey::new(self.partition_id, self.team_id, self.person_id, lsk))
+            .collect();
+        let raw = self
+            .handle
+            .multi_get_behavioral(keys, ReadLane::Event)
+            .await?;
+        for (&lsk, bytes) in lsks.iter().zip(raw) {
+            let Some(meta) = self.filters.by_lsk.get(&lsk) else {
+                continue;
+            };
+            let state = decode_stage1_state(bytes);
+            out.insert(lsk, leaf_membership(state.as_ref(), meta));
+        }
+        Ok(())
+    }
+
+    /// Resolve person-property `lsks` from the person's one durable record: a person LSK is its
+    /// condition hash, so its bit is `record.matched.contains(hash)`. One point read serves every
+    /// person leaf. An absent record reads every person leaf as a non-member; a corrupt record counts
+    /// (the same `STAGE2_STATE_DECODE_ERROR` a row decode failure counts) and reads non-member.
+    async fn read_person_into(
+        &self,
+        lsks: &[LeafStateKey],
+        out: &mut HashMap<LeafStateKey, bool>,
+    ) -> Result<(), StoreError> {
+        if lsks.is_empty() {
+            return Ok(());
+        }
+        let key = PersonRecordKey::new(self.partition_id, self.team_id, self.person_id);
+        let matched = match self.handle.get_person_record(&key).await? {
+            None => None,
+            Some(bytes) => match PersonRecord::decode(&bytes) {
+                Ok(record) => Some(record.matched),
+                Err(_) => {
+                    counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
+                    None
+                }
+            },
+        };
+        for &lsk in lsks {
+            let member = matched
+                .as_ref()
+                .is_some_and(|matched| matched.contains(&lsk.0));
+            out.insert(lsk, member);
+        }
+        Ok(())
+    }
+}
+
 /// Resolve each referenced cohort's membership for one person, keyed by referenced cohort id.
-/// A `SingleLeaf` referent is read from `cf_stage1` via [`leaf_membership`] (so its comparator
+/// A `SingleLeaf` referent is read from `cf_behavioral` via [`leaf_membership`] (so its comparator
 /// applies); a composable referent from its stored `cf_stage2` bit; anything else as non-member.
 /// One batched read per store.
 async fn resolve_ref_membership(
@@ -217,23 +318,14 @@ async fn resolve_ref_membership(
     }
 
     if !single_leaf_refs.is_empty() {
-        let keys: Vec<Stage1Key> = single_leaf_refs
-            .iter()
-            .map(|(_, lsk)| Stage1Key {
-                partition_id,
-                team_id,
-                leaf_state_key: *lsk,
-                person_id,
-            })
-            .collect();
-        let raw = handle.multi_get_stage1(keys, ReadLane::Event).await?;
-        for ((ref_id, lsk), bytes) in single_leaf_refs.iter().zip(raw) {
-            let bit = filters
-                .by_lsk
-                .get(lsk)
-                .map(|meta| leaf_membership(decode_stage1_state(bytes).as_ref(), meta))
-                .unwrap_or(false);
-            ref_membership.insert(*ref_id, bit);
+        // A single-leaf referent's membership is its one leaf's bit, resolved through the same seam as
+        // the cohort's own leaves so both apply the leaf's comparator identically.
+        let resolver =
+            LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle);
+        let lsks: Vec<LeafStateKey> = single_leaf_refs.iter().map(|(_, lsk)| *lsk).collect();
+        let membership = resolver.resolve(&lsks).await?;
+        for (ref_id, lsk) in &single_leaf_refs {
+            ref_membership.insert(*ref_id, membership.get(lsk).copied().unwrap_or(false));
         }
     }
 
@@ -256,7 +348,7 @@ async fn resolve_ref_membership(
     Ok(ref_membership)
 }
 
-/// Decode a `cf_stage1` value, or [`None`] for absent/undecodable rows.
+/// Decode a `cf_behavioral` value, or [`None`] for absent/undecodable rows.
 fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     let bytes = bytes?;
     match StatefulRecord::decode(&bytes) {
@@ -328,9 +420,13 @@ mod tests {
     use uuid::Uuid;
 
     use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
+    use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::transition::TransitionKind;
-    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig};
+    use crate::store::{
+        Behavioral, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey, PersonRecords,
+        StoreConfig,
+    };
 
     const TEAM: u64 = 7;
     const PARTITION: u16 = 0;
@@ -420,24 +516,22 @@ mod tests {
         }
     }
 
-    fn person_state(matches: bool) -> Stage1State {
-        Stage1State::PersonProperty {
-            matches,
-            last_updated_at_ms: EVENT_MS,
-            last_updated_offset: 0,
-        }
-    }
-
-    fn write_stage1(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
-        let key = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM,
-            leaf_state_key: lsk,
-            person_id: who,
-        };
+    fn write_behavioral(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
+        let key = BehavioralKey::new(PARTITION, TEAM, who, lsk);
         let record = StatefulRecord::new(state, AppliedOffsets::default());
         store
-            .write_batch(|b| b.put_stage1(&key, &record.encode()))
+            .write_batch(|b| b.put::<Behavioral>(&key, &record.encode()))
+            .unwrap();
+    }
+
+    /// Write a person's durable record with `matched` holding the given person-condition hashes (a
+    /// person LSK is its condition hash), the analog of writing per-leaf person-property rows.
+    fn write_person_record(store: &CohortStore, who: Uuid, matched: &[[u8; 16]]) {
+        let key = PersonRecordKey::new(PARTITION, TEAM, who);
+        let mut record = PersonRecord::absent();
+        record.matched = MatchedSet::from_iter(matched.iter().copied());
+        store
+            .write_batch(|b| b.put::<PersonRecords>(&key, &record.encode()))
             .unwrap();
     }
 
@@ -480,11 +574,11 @@ mod tests {
     async fn entered_when_the_and_is_satisfied() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
-        let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
+        let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let changes = compose_stage2(
             PARTITION,
@@ -513,7 +607,7 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
         let phase_a = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -531,7 +625,7 @@ mod tests {
             "no bit written on a non-flip"
         );
 
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let phase_b = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -559,8 +653,8 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let entered = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -574,7 +668,7 @@ mod tests {
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
 
-        write_stage1(&store, per_lsk, alice, person_state(false));
+        write_person_record(&store, alice, &[]);
         let left = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -603,10 +697,10 @@ mod tests {
     async fn idempotent_re_evaluation_emits_once() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
-        let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
+        let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let first = compose_stage2(
             PARTITION,
@@ -643,8 +737,8 @@ mod tests {
         let lsks = &filters.by_condition_to_lsk[&HASH];
         assert_eq!(lsks.len(), 2, "two windows fan out to two LSKs");
         let alice = person(1);
-        write_stage1(&store, lsks[0], alice, behavioral_match());
-        write_stage1(&store, lsks[1], alice, behavioral_match());
+        write_behavioral(&store, lsks[0], alice, behavioral_match());
+        write_behavioral(&store, lsks[1], alice, behavioral_match());
 
         let changes = compose_stage2(
             PARTITION,
@@ -673,10 +767,9 @@ mod tests {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 2), person_leaf()]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
-        write_stage1(&store, beh_lsk, alice, daily_state(2));
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, beh_lsk, alice, daily_state(2));
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let changes = compose_stage2(
             PARTITION,
@@ -697,8 +790,8 @@ mod tests {
         assert_eq!(changes[0].cohort_id, 1);
 
         let (_dir2, store2) = temp_store();
-        write_stage1(&store2, beh_lsk, alice, daily_state(1)); // 1 < gte 2
-        write_stage1(&store2, per_lsk, alice, person_state(true));
+        write_behavioral(&store2, beh_lsk, alice, daily_state(1)); // 1 < gte 2
+        write_person_record(&store2, alice, &[PERSON_HASH]);
         let below = compose_stage2(
             PARTITION,
             &handle(&store2),
@@ -721,7 +814,7 @@ mod tests {
         let filters = freeze(vec![behavioral_leaf(7)]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
         let alice = person(1);
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
 
         let changes = compose_stage2(
             PARTITION,
@@ -755,7 +848,7 @@ mod tests {
         let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
 
         let changes = compose_stage2(
             PARTITION,
@@ -778,7 +871,7 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        write_stage1(&store, beh_lsk, alice, behavioral_match());
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
         let entered = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -792,7 +885,7 @@ mod tests {
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
 
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let left = compose_stage2(
             PARTITION,
             &handle(&store),
@@ -882,7 +975,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn composable_ref_reads_a_single_leaf_referent_from_cf_stage1_via_its_op() {
+    async fn composable_ref_reads_a_single_leaf_referent_from_cf_behavioral_via_its_op() {
         let filters = freeze_cascade(
             vec![
                 (2, vec![daily_leaf(7, "gte", 2)]),
@@ -895,13 +988,12 @@ mod tests {
             CohortEligibility::Stage2ComposableRef,
         );
         let ref2_lsk = single_leaf_lsk(&filters, 2);
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
 
         // Count 2 ≥ gte 2: referent 2 is a member.
         let (_dir, store) = temp_store();
-        write_stage1(&store, ref2_lsk, alice, daily_state(2));
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, ref2_lsk, alice, daily_state(2));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].cohort_id, 1);
@@ -909,8 +1001,8 @@ mod tests {
 
         // Count 1 < gte 2: the referent's comparator applies, so it is a non-member.
         let (_dir2, store2) = temp_store();
-        write_stage1(&store2, ref2_lsk, alice, daily_state(1));
-        write_stage1(&store2, per_lsk, alice, person_state(true));
+        write_behavioral(&store2, ref2_lsk, alice, daily_state(1));
+        write_person_record(&store2, alice, &[PERSON_HASH]);
         let below = compose_referrer_on_own_leaf(&handle(&store2), &filters, alice).await;
         assert!(
             below.is_empty(),
@@ -932,14 +1024,13 @@ mod tests {
             filters.eligibility[&CohortId(2)],
             CohortEligibility::Stage2Composable,
         );
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
 
         let (_dir, store) = temp_store();
-        // cohort 2's cf_stage1 is left absent: a recompute would read non-member, so Entered proves
+        // cohort 2's cf_behavioral is left absent: a recompute would read non-member, so Entered proves
         // the stored cf_stage2 bit is read.
         write_stage2(&store, 2, alice, true);
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
@@ -956,11 +1047,10 @@ mod tests {
             ],
             true,
         );
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
 
         let (_dir, store) = temp_store();
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let changes = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert!(
             changes.is_empty(),
@@ -981,12 +1071,11 @@ mod tests {
             filters.eligibility[&CohortId(1)],
             CohortEligibility::Stage2ComposableRef,
         );
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
 
         // Referent 2 absent → negated ref reads true → Entered.
         let (_dir, store) = temp_store();
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].cohort_id, 1);
@@ -1005,12 +1094,11 @@ mod tests {
             false,
         );
         let ref2_lsk = single_leaf_lsk(&filters, 2);
-        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let alice = person(1);
 
         let (_dir, store) = temp_store();
-        write_stage1(&store, ref2_lsk, alice, daily_state(2));
-        write_stage1(&store, per_lsk, alice, person_state(true));
+        write_behavioral(&store, ref2_lsk, alice, daily_state(2));
+        write_person_record(&store, alice, &[PERSON_HASH]);
         let changes = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert!(
             changes.is_empty(),

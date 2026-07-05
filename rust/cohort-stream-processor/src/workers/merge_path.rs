@@ -30,9 +30,8 @@ use crate::producer::{
     map_transition, CaptureCascadeSink, CaptureStreamEventSink, CaptureTransferSink, CascadeSink,
     CohortMembershipChange, MembershipSink, StreamEventSink, TransferSink,
 };
-use crate::stage1::key::Stage1Key;
 use crate::stage1::transition::LeafTransition;
-use crate::store::{PendingTransferKey, StoreHandle};
+use crate::store::{BehavioralKey, PendingTransferKey, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
@@ -146,7 +145,7 @@ pub(crate) async fn handle_merge(
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
     last_updated: &str,
     event: &PersonMergeEvent,
     offset: i64,
@@ -241,7 +240,10 @@ pub(crate) async fn handle_merge(
         }
         Ok(DrainOutcome::Drained { transfer, effects }) => {
             effects.apply_to(queue);
-            if transfer.leaves.is_empty() {
+            // A transfer with no leaves AND no person-record dedup carries nothing to apply: skip the
+            // produce. A record-only transfer (person_dedup set) still produces so P_new absorbs the
+            // ancestry — matching the drain's staging predicate.
+            if transfer.leaves.is_empty() && transfer.person_dedup.is_none() {
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);
                 return;
@@ -315,7 +317,7 @@ pub(crate) async fn handle_apply(
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<Stage1Key>,
+    queue: &mut EvictionQueue<BehavioralKey>,
     last_updated: &str,
     transfer: &MergeStateTransfer,
     offset: i64,
@@ -805,6 +807,8 @@ mod tests {
             source_offset: 0,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         };
 
         let acked =
@@ -831,6 +835,8 @@ mod tests {
             source_offset: 0,
             leaves: vec![],
             forward_hops: 0,
+
+            person_dedup: None,
         };
 
         let acked =
@@ -888,6 +894,8 @@ mod tests {
                 ),
             )],
             forward_hops: 0,
+
+            person_dedup: None,
         };
         let key = PendingTransferKey {
             partition_id: REDRIVE_PARTITION,
@@ -1073,6 +1081,8 @@ mod tests {
             source_offset: 100,
             leaves: vec![],
             forward_hops: 1,
+
+            person_dedup: None,
         }
     }
 
