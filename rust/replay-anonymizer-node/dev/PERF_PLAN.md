@@ -205,7 +205,8 @@ Conclusions:
 
 Shipped as `AnonymizeOpts.cv_zstd` -> `SESSION_RECORDING_ML_CV_ZSTD`, default **on**: the ML prep
 loader runs manually, so its magic-byte dispatch just has to land before the next run over zstd
-blocks — the switch is an operational fallback to gzip output, not a rollout gate. Design
+blocks — the switch is an operational fallback to gzip output, not a rollout gate. The loader
+change is PostHog/MLHog#32. Design
 decisions, both measured on the corpus:
 
 - **Uniform output, not keep-verbatim**: zstd mode re-compresses every gzipped cv payload,
