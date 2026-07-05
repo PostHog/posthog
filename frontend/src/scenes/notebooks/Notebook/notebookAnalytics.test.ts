@@ -1,7 +1,7 @@
 import { AccessControlLevel, UserType } from '~/types'
 
 import { NotebookType } from '../types'
-import { buildNotebookOpenedEvent } from './notebookAnalytics'
+import { NotebookOpenedProperties, buildNotebookOpenedEvent } from './notebookAnalytics'
 
 describe('buildNotebookOpenedEvent', () => {
     const user = { uuid: 'user-1' } as UserType
@@ -15,25 +15,37 @@ describe('buildNotebookOpenedEvent', () => {
             ...overrides,
         }) as NotebookType
 
-    it('flags the creator and counts top-level nodes for a direct open', () => {
-        expect(buildNotebookOpenedEvent(notebook(), user, false)).toEqual({
-            short_id: 'abc123',
-            is_creator: true,
-            user_access_level: AccessControlLevel.Editor,
-            access_source: 'direct',
-            node_count: 3,
-        })
-    })
-
-    it('marks a viewer of another user’s notebook via shared link', () => {
-        const event = buildNotebookOpenedEvent(notebook({ created_by: { uuid: 'other' } as UserType }), user, true)
-        expect(event).toMatchObject({ is_creator: false, access_source: 'shared_link' })
-    })
-
-    it('handles a notebook with no content and no creator', () => {
-        const event = buildNotebookOpenedEvent(notebook({ content: null, created_by: null }), user, false)
-        expect(event).toMatchObject({ is_creator: false, node_count: 0 })
-    })
+    it.each([
+        [
+            'the creator opening directly (counts top-level nodes)',
+            {},
+            false,
+            {
+                short_id: 'abc123',
+                is_creator: true,
+                user_access_level: AccessControlLevel.Editor,
+                access_source: 'direct',
+                node_count: 3,
+            },
+        ],
+        [
+            'a viewer of another user’s notebook via shared link',
+            { created_by: { uuid: 'other' } as UserType },
+            true,
+            { is_creator: false, access_source: 'shared_link' },
+        ],
+        [
+            'a notebook with no content and no creator',
+            { content: null, created_by: null },
+            false,
+            { is_creator: false, node_count: 0 },
+        ],
+    ] as [string, Partial<NotebookType>, boolean, Partial<NotebookOpenedProperties>][])(
+        'builds the event for %s',
+        (_label, overrides, isShared, expected) => {
+            expect(buildNotebookOpenedEvent(notebook(overrides), user, isShared)).toMatchObject(expected)
+        }
+    )
 
     it.each([
         ['scratchpad', 'scratchpad'],
