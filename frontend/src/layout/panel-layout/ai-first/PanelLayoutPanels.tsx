@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useCallback } from 'react'
 
 import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -24,6 +24,13 @@ export function PanelLayoutPanels(): JSX.Element | null {
     const { activePanelIdentifier, visitedPanels } = useValues(panelLayoutLogic)
     const { clearActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
 
+    // Stable reference: the chat panel stays mounted now, so a fresh closure here would re-render
+    // NavTabChat's memoized internals on every re-render of this component.
+    const onChatItemClick = useCallback(() => {
+        clearActivePanelIdentifier()
+        showLayoutPanel(false)
+    }, [clearActivePanelIdentifier, showLayoutPanel])
+
     const panelContent: Partial<Record<PanelLayoutNavIdentifier, JSX.Element>> = {
         DataAndPeople: <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />,
         Project: (
@@ -44,13 +51,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
                         </div>
                     }
                 >
-                    <NavTabChat
-                        inPanel
-                        onItemClick={() => {
-                            clearActivePanelIdentifier()
-                            showLayoutPanel(false)
-                        }}
-                    />
+                    <NavTabChat inPanel onItemClick={onChatItemClick} />
                 </Suspense>
             </div>
         ),
