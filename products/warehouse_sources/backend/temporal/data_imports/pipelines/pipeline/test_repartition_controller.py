@@ -321,6 +321,7 @@ class TestRepartitionActivity:
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         # Cancellation must reschedule cleanly: no failed attempt recorded, nothing sent to error tracking.
         schema.refresh_from_db()
+        assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
         assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         capture_exc.assert_not_called()
