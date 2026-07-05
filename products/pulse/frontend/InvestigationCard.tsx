@@ -4,8 +4,9 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
+import { CitationTag } from './CitationTag'
 import type { InvestigationFindingApi } from './generated/api.schemas'
-import { pulseLogic } from './pulseLogic'
+import { parseCitation, pulseLogic } from './pulseLogic'
 
 /** The goal-investigation findings of the shown brief: per finding the planner's question, the
  * deterministic result summary, and the raw HogQL behind an expandable panel. The "Query <n>"
@@ -28,6 +29,7 @@ export function InvestigationCard(): JSX.Element | null {
 }
 
 function InvestigationFindingRow({ finding, index }: { finding: InvestigationFindingApi; index: number }): JSX.Element {
+    const citations = finding.citations ?? []
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -37,16 +39,26 @@ function InvestigationFindingRow({ finding, index }: { finding: InvestigationFin
             </div>
             {/* Result summaries are preformatted query output — keep the executor's line structure. */}
             <p className="mb-0 text-sm whitespace-pre-wrap">{finding.result_summary}</p>
-            <LemonCollapse
-                size="small"
-                panels={[
-                    {
-                        key: 'hogql',
-                        header: 'HogQL',
-                        content: <CodeSnippet language={Language.SQL}>{finding.hogql}</CodeSnippet>,
-                    },
-                ]}
-            />
+            {citations.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                    {citations.map((citation) => (
+                        <CitationTag key={citation} citation={parseCitation(citation)} />
+                    ))}
+                </div>
+            )}
+            {/* Replay-pattern findings carry no HogQL — only query findings get the expandable SQL. */}
+            {finding.hogql && (
+                <LemonCollapse
+                    size="small"
+                    panels={[
+                        {
+                            key: 'hogql',
+                            header: 'HogQL',
+                            content: <CodeSnippet language={Language.SQL}>{finding.hogql}</CodeSnippet>,
+                        },
+                    ]}
+                />
+            )}
         </div>
     )
 }

@@ -348,11 +348,26 @@ describe('pulseLogic', () => {
             investigation: [
                 { question: 'What is the CTR?', hogql: 'SELECT 1', result_summary: '0.42', succeeded: true },
                 { question: 42, succeeded: 'yes' },
+                // A replay finding: session citations narrowed to strings, non-strings dropped.
+                {
+                    question: 'Why the drop?',
+                    hogql: '',
+                    result_summary: 'Watched 12 sessions',
+                    succeeded: true,
+                    citations: ['session:s1', 42, 'session:s2'],
+                },
             ],
         } as unknown as ProductBriefApi)
         expect(logic.values.briefDetailInvestigation).toEqual([
-            { question: 'What is the CTR?', hogql: 'SELECT 1', result_summary: '0.42', succeeded: true },
-            { question: '', hogql: '', result_summary: '', succeeded: false },
+            { question: 'What is the CTR?', hogql: 'SELECT 1', result_summary: '0.42', succeeded: true, citations: [] },
+            { question: '', hogql: '', result_summary: '', succeeded: false, citations: [] },
+            {
+                question: 'Why the drop?',
+                hogql: '',
+                result_summary: 'Watched 12 sessions',
+                succeeded: true,
+                citations: ['session:s1', 'session:s2'],
+            },
         ])
     })
 
@@ -516,6 +531,8 @@ describe('pulseLogic', () => {
         // Empty-string and "0" are finite numbers but not real ids — must not link to resource 0.
         ['flag', '', undefined],
         ['experiment', '0', undefined],
+        // Session refs are opaque strings (no numeric guard) linking to the replay player.
+        ['session', 'abc-123', '/replay/abc-123'],
     ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
         expect(CITATION_TYPES[type].url?.(ref)).toEqual(expected)
     })

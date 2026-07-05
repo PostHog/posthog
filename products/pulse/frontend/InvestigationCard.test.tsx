@@ -74,6 +74,26 @@ describe('InvestigationCard', () => {
         expect(screen.getByText('HogQL')).toBeInTheDocument()
     })
 
+    it('renders a replay finding with session citation chips and no HogQL panel', () => {
+        logic.actions.loadBriefDetailSuccess({
+            ...baseBrief,
+            investigation: [
+                {
+                    question: 'Why did signups drop?',
+                    hogql: '',
+                    result_summary: 'Watched 12 sessions. Recurring patterns:',
+                    succeeded: true,
+                    citations: ['session:abc-123'],
+                },
+            ],
+        } as unknown as ProductBriefApi)
+        renderCard()
+        expect(screen.getByText('Why did signups drop?')).toBeInTheDocument()
+        // The session chip links to the replay player; a replay finding has no HogQL to expand.
+        expect(screen.getByText('Session abc-123')).toBeInTheDocument()
+        expect(screen.queryByText('HogQL')).toBeNull()
+    })
+
     it('marks failed steps so a gap is legible, not presented as data', () => {
         logic.actions.loadBriefDetailSuccess({
             ...baseBrief,

@@ -133,6 +133,13 @@ class InvestigationFindingSerializer(serializers.Serializer):
     succeeded = serializers.BooleanField(
         help_text="Whether the query executed successfully. Failed steps are gaps, never data."
     )
+    citations = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Code-generated evidence refs for this finding, as `type:ref` strings "
+            "(e.g. `session:<id>` linking to the session replay player). Empty for HogQL findings."
+        ),
+    )
 
 
 class ProductBriefSerializer(FeedbackFieldsSerializerMixin, serializers.ModelSerializer):

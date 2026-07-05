@@ -67,7 +67,7 @@ export interface BriefSection {
     confidence: number
 }
 
-function parseCitation(citation: string): BriefCitation {
+export function parseCitation(citation: string): BriefCitation {
     const separatorIndex = citation.indexOf(':')
     if (separatorIndex <= 0) {
         return { type: '', ref: citation }
@@ -105,6 +105,9 @@ export const CITATION_TYPES: Record<
     // numbering in the goal-investigation card on the same page (anchor links were judged
     // disproportionate for v1).
     query: { label: 'Query' },
+    // Replay-pattern findings cite the sessions behind them; the ref is a recording id linking
+    // straight to the player. Session ids are opaque strings, so no numeric guard applies here.
+    session: { label: 'Session', url: (ref) => urls.replaySingle(ref) },
 }
 
 export type PulseTab = 'briefs' | 'opportunities'
@@ -157,6 +160,9 @@ function parseInvestigationFinding(finding: InvestigationFindingApi): Investigat
         hogql: typeof finding.hogql === 'string' ? finding.hogql : '',
         result_summary: typeof finding.result_summary === 'string' ? finding.result_summary : '',
         succeeded: finding.succeeded === true,
+        citations: Array.isArray(finding.citations)
+            ? finding.citations.filter((citation): citation is string => typeof citation === 'string')
+            : [],
     }
 }
 

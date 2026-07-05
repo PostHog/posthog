@@ -108,7 +108,7 @@ class TestPulseAPI(APIBaseTest):
     def test_investigation_ships_on_retrieve_but_not_on_list(
         self, _mock_connect: MagicMock, _mock_flag: MagicMock
     ) -> None:
-        finding = {"question": "q", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True}
+        finding = {"question": "q", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True, "citations": []}
         with team_scope(self.team.pk, canonical=True):
             brief = ProductBrief.objects.create(
                 team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7, investigation=[finding]
