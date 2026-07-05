@@ -29,7 +29,6 @@ export function InvestigationCard(): JSX.Element | null {
 }
 
 function InvestigationFindingRow({ finding, index }: { finding: InvestigationFindingApi; index: number }): JSX.Element {
-    const citations = finding.citations ?? []
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -39,9 +38,9 @@ function InvestigationFindingRow({ finding, index }: { finding: InvestigationFin
             </div>
             {/* Result summaries are preformatted query output — keep the executor's line structure. */}
             <p className="mb-0 text-sm whitespace-pre-wrap">{finding.result_summary}</p>
-            {citations.length > 0 && (
+            {finding.citations.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1">
-                    {citations.map((citation) => (
+                    {finding.citations.map((citation) => (
                         <CitationTag key={citation} citation={parseCitation(citation)} />
                     ))}
                 </div>

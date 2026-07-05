@@ -89,8 +89,11 @@ describe('InvestigationCard', () => {
         } as unknown as ProductBriefApi)
         renderCard()
         expect(screen.getByText('Why did signups drop?')).toBeInTheDocument()
-        // The session chip links to the replay player; a replay finding has no HogQL to expand.
-        expect(screen.getByText('Session abc-123')).toBeInTheDocument()
+        // The session chip links to the replay player (hideRef: the UUID stays out of the label);
+        // a replay finding has no HogQL to expand.
+        const chip = screen.getByText('Session')
+        // Link renders the current project prefix in tests — assert the player path suffix.
+        expect(chip.closest('a')?.getAttribute('href')).toContain('/replay/abc-123')
         expect(screen.queryByText('HogQL')).toBeNull()
     })
 

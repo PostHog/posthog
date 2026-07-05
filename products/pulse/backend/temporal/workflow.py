@@ -53,7 +53,11 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             except Exception:
                 # Best-effort: a slow or failed replay analysis must never fail the brief — it
                 # ships without the replay findings rather than landing in FAILED.
-                temporalio.workflow.logger.warning("pulse_replay_activity_degraded", exc_info=True)
+                temporalio.workflow.logger.warning(
+                    "pulse_replay_activity_degraded",
+                    exc_info=True,
+                    extra={"team_id": inputs.team_id, "brief_id": inputs.brief_id},
+                )
             return await temporalio.workflow.execute_activity(
                 synthesize_brief_activity,
                 SynthesizeActivityInputs(

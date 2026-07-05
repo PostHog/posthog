@@ -101,11 +101,15 @@ async def investigate_replay_patterns_activity(inputs: ReplayPatternsActivityInp
     because group summarization runs minutes, past the HogQL investigate stage deadline.
 
     Goal-briefs only (the cost rail): returns [] unless the brief has a non-blank goal, a creating
-    user for LLM attribution, and at least one movement to anchor to. Best-effort — a planner or
-    summary failure returns [], never fails the brief (the workflow ships the brief without it).
+    user for LLM attribution, session recording enabled on the team, and at least one movement to
+    anchor to. Best-effort — a planner or summary failure returns [], never fails the brief (the
+    workflow ships the brief without it).
     """
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     if brief.config is None or not brief.has_goal or brief.created_by is None:
+        return []
+    # Free pre-gate before the billable planner call: no recordings, nothing to watch.
+    if not brief.team.session_recording_opt_in:
         return []
     items = [SourceItem(**item) for item in inputs.items]
     movements = [item for item in items if item.kind == "movement"]

@@ -694,3 +694,45 @@ async def execute_summarize_session_group(
     # Yield status updates and final result
     async for update in _start_session_group_summary_workflow(inputs=session_group_input, workflow_id=workflow_id):
         yield update
+
+
+async def drain_group_summary_patterns(
+    *,
+    session_ids: list[str],
+    user: User,
+    team: Team,
+    min_timestamp: datetime,
+    max_timestamp: datetime,
+    summary_title: str | None,
+    extra_summary_context: ExtraSummaryContext | None = None,
+) -> tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]]:
+    """Run the group-summary workflow to completion, ignoring progress updates, and return the
+    FINAL_RESULT payload: (patterns, group summary id, failed sessions).
+
+    For consumers that only want the outcome, not the stream. Raises ValueError when the stream
+    ends without a final result or with an unexpected payload shape.
+    """
+    final: tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | None = None
+    async for update_type, payload in execute_summarize_session_group(
+        session_ids=session_ids,
+        user=user,
+        team=team,
+        min_timestamp=min_timestamp,
+        max_timestamp=max_timestamp,
+        summary_title=summary_title,
+        extra_summary_context=extra_summary_context,
+    ):
+        if update_type != SessionSummaryStreamUpdate.FINAL_RESULT:
+            continue
+        if not (
+            isinstance(payload, tuple)
+            and len(payload) == 3
+            and isinstance(payload[0], EnrichedSessionGroupSummaryPatternsList)
+        ):
+            raise ValueError(
+                f"Unexpected final result payload ({type(payload).__name__}) from session group summarization"
+            )
+        final = payload
+    if final is None:
+        raise ValueError("Session group summarization stream produced no final result")
+    return final

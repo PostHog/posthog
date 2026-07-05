@@ -21,7 +21,8 @@ from products.pulse.backend.generation.investigate import (
     HogQLRepair,
     InvestigationPlan,
     PlannedStep,
-    _apply_plan_gates,
+    ReplayPlan,
+    ReplayStep,
     _apply_replay_plan_gates,
     _build_replay_recording_filters,
     _render_replay_patterns,
@@ -349,14 +350,8 @@ class TestPlannerMetricLine:
 
 def _replay_step(
     n: int = 0, url_pattern: str = "/billing", event_name: str = "", justification: str = "watch the signup drop"
-) -> PlannedStep:
-    return PlannedStep(
-        tool="replay_patterns",
-        question=f"q{n}",
-        justification=justification,
-        url_pattern=url_pattern,
-        event_name=event_name,
-    )
+) -> ReplayStep:
+    return ReplayStep(question=f"q{n}", justification=justification, url_pattern=url_pattern, event_name=event_name)
 
 
 def _pattern(
@@ -376,15 +371,6 @@ def _patterns_list(patterns: list[SimpleNamespace]) -> SimpleNamespace:
     return SimpleNamespace(patterns=patterns)
 
 
-class TestApplyPlanGatesDropsReplay:
-    def test_replay_steps_never_run_inline(self) -> None:
-        # A replay step in the main plan must be dropped — it runs in its own activity, never in
-        # the inline HogQL executor (which would blow the stage deadline on a minutes-long summary).
-        kept = _apply_plan_gates(MagicMock(id=1), [_step(0), _replay_step(1), _clicks_step(2)])
-
-        assert [s.tool for s in kept] == ["hogql", "clicks"]
-
-
 class TestApplyReplayPlanGates:
     @parameterized.expand(
         [
@@ -401,9 +387,6 @@ class TestApplyReplayPlanGates:
 
         assert (len(steps) == 1) is kept_expected
 
-    def test_non_replay_steps_are_dropped(self) -> None:
-        assert _apply_replay_plan_gates(MagicMock(id=1), [_step(0), _clicks_step(1)]) == []
-
     def test_capped_at_max_replay_steps(self) -> None:
         steps = _apply_replay_plan_gates(MagicMock(id=1), [_replay_step(n) for n in range(MAX_REPLAY_STEPS + 3)])
 
@@ -411,9 +394,7 @@ class TestApplyReplayPlanGates:
 
     @parameterized.expand([("blank_question", "q", "  "), ("blank_justification", "  ", "j")])
     def test_unjustified_or_unquestioned_steps_dropped(self, _name: str, question: str, justification: str) -> None:
-        step = PlannedStep(
-            tool="replay_patterns", question=question, justification=justification, url_pattern="/billing"
-        )
+        step = ReplayStep(question=question, justification=justification, url_pattern="/billing")
 
         assert _apply_replay_plan_gates(MagicMock(id=1), [step]) == []
 
@@ -428,7 +409,7 @@ class TestPlanReplayPatterns:
 
     @patch(_LLM_PATH)
     def test_happy_path_returns_gated_steps(self, mock_llm: MagicMock) -> None:
-        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = InvestigationPlan(
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = ReplayPlan(
             steps=[_replay_step(0), _replay_step(1)]
         )
 
@@ -438,7 +419,7 @@ class TestPlanReplayPatterns:
 
         # Capped at MAX_REPLAY_STEPS even when the model proposes more.
         assert len(steps) == MAX_REPLAY_STEPS
-        assert steps[0].tool == "replay_patterns"
+        assert steps[0].question == "q0"
 
     @parameterized.expand([("llm_error", RuntimeError("down"), None), ("malformed", None, "not a plan")])
     @patch(_LLM_PATH)

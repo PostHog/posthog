@@ -40,8 +40,8 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
-from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
-from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo
+from posthog.temporal.session_replay.session_summary_group.workflow import drain_group_summary_patterns
 from posthog.utils import relative_date_parse
 
 from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
@@ -232,39 +232,18 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> tuple[EnrichedSessionGroupSummaryPatternsList, list[FailedSessionInfo]]:
         """Consume the workflow stream and return (patterns, failed_sessions) for the response."""
-        results: list[
-            tuple[
-                SessionSummaryStreamUpdate,
-                tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str,
-            ]
-        ] = []
-        async for update_type, data in execute_summarize_session_group(
-            session_ids=session_ids,
-            user=user,
-            team=team,
-            min_timestamp=min_timestamp,
-            max_timestamp=max_timestamp,
-            summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
-            extra_summary_context=extra_summary_context,
-        ):
-            if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
-                continue  # The old consumers of this API don't expect this update type, as it's a PostHog AI chat feature
-            assert not isinstance(data, dict)
-            results.append((update_type, data))
-        if not results:
-            error_message = f"No summaries were generated for the provided sessions (session ids: {logging_session_ids(session_ids)})"
-            logger.exception(error_message)
-            raise exceptions.APIException(error_message)
-        # The last item in the result should be the summary, if not - raise an exception
-        last_result = results[-1]
-        summary_iteration = last_result[-1]
-        if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 3:
-            error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
-            logger.exception(error_message)
-            raise exceptions.APIException(error_message)
-        summary, _, failed_sessions = summary_iteration
-        if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-            error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
+        try:
+            summary, _, failed_sessions = await drain_group_summary_patterns(
+                session_ids=session_ids,
+                user=user,
+                team=team,
+                min_timestamp=min_timestamp,
+                max_timestamp=max_timestamp,
+                summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
+                extra_summary_context=extra_summary_context,
+            )
+        except ValueError as err:
+            error_message = f"No usable summary was generated for the provided sessions (session ids: {logging_session_ids(session_ids)}): {err}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
         return summary, failed_sessions

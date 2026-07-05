@@ -107,7 +107,8 @@ export const CITATION_TYPES: Record<
     query: { label: 'Query' },
     // Replay-pattern findings cite the sessions behind them; the ref is a recording id linking
     // straight to the player. Session ids are opaque strings, so no numeric guard applies here.
-    session: { label: 'Session', url: (ref) => urls.replaySingle(ref) },
+    // hideRef: the ref is a full recording UUID, meaningless in a tag label.
+    session: { label: 'Session', url: (ref) => urls.replaySingle(ref), hideRef: true },
 }
 
 export type PulseTab = 'briefs' | 'opportunities'

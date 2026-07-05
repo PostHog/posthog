@@ -96,7 +96,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.capture_session_summary_generated")
     @patch("ee.api.session_summaries.capture_session_summary_started")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
-    @patch("ee.api.session_summaries.execute_summarize_session_group")
+    @patch("posthog.temporal.session_replay.session_summary_group.workflow.execute_summarize_session_group")
     def test_create_summaries_success(
         self,
         mock_execute: Mock,
@@ -256,7 +256,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("nonexistent_session", str(error))
 
     @patch("ee.api.session_summaries.find_sessions_timestamps")
-    @patch("ee.api.session_summaries.execute_summarize_session_group")
+    @patch("posthog.temporal.session_replay.session_summary_group.workflow.execute_summarize_session_group")
     def test_create_summaries_execution_failure(
         self,
         mock_execute: Mock,
@@ -327,7 +327,7 @@ class TestSessionSummariesAPI(APIBaseTest):
                 return_value=(datetime(2024, 1, 1, 10, 0, 0), datetime(2024, 1, 1, 11, 0, 0)),
             )
             executor_patch = patch(
-                "ee.api.session_summaries.execute_summarize_session_group",
+                "posthog.temporal.session_replay.session_summary_group.workflow.execute_summarize_session_group",
                 return_value=self._create_async_generator((self.create_mock_result(), "session-group-summary-id")),
             )
         else:

@@ -10,6 +10,7 @@ third synthesis-shaped call.
 
 import time
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
@@ -81,7 +82,6 @@ _TRUNCATION_SENTINEL = "\n…(truncated)"
 _HOGQL_MAX_LENGTH = 5000
 _URL_PATTERN_MAX_LENGTH = 500
 _SELECTOR_HINT_MAX_LENGTH = 200
-_EVENT_NAME_MAX_LENGTH = 200
 # Row cap for the clicks tool's query — the summary is a top-elements digest, not a dump.
 _CLICKS_TOP_ROWS = 15
 
@@ -89,12 +89,11 @@ QUERY_FAILED_PREFIX = "Query failed to run"
 
 
 class PlannedStep(BaseModel):
-    tool: Literal["hogql", "clicks", "replay_patterns"] = Field(
+    tool: Literal["hogql", "clicks"] = Field(
         default="hogql",
         description=(
             "Which tool runs this step: 'hogql' executes the step's own hogql; 'clicks' summarizes "
-            "click density (top clicked elements) for pages matching url_pattern; 'replay_patterns' "
-            "extracts behavioral patterns from real sessions around a movement (own workflow activity)."
+            "click density (top clicked elements) for pages matching url_pattern."
         ),
     )
     question: str = Field(max_length=500, description="The plain-English question this query answers for the team.")
@@ -123,20 +122,50 @@ class PlannedStep(BaseModel):
             "substring (e.g. a CSS class or tag name)."
         ),
     )
-    event_name: str = Field(
-        default="",
-        max_length=_EVENT_NAME_MAX_LENGTH,
-        description=(
-            "Optional, 'replay_patterns' steps only: require this event in a session for it to be "
-            "sampled (e.g. '$rageclick'). Combine with url_pattern, or use either alone."
-        ),
-    )
 
 
 class InvestigationPlan(BaseModel):
     # No schema-level cap: the cap is enforced in code so a non-compliant model output degrades
     # to a truncated plan instead of a failed structured-output parse.
     steps: list[PlannedStep] = Field(description=f"At most {MAX_INVESTIGATION_STEPS} justified investigation steps.")
+
+
+class ReplayStep(BaseModel):
+    """One planned replay-patterns step — its own schema (not PlannedStep) because the replay
+    planner has exactly one tool and its own anchor grammar."""
+
+    question: str = Field(
+        max_length=500, description="The plain-English question watching these sessions answers for the team."
+    )
+    justification: str = Field(
+        max_length=500,
+        description=(
+            "Which movement this investigates and why sessions would explain it. "
+            "Required — steps without it are dropped."
+        ),
+    )
+    url_pattern: str = Field(
+        default="",
+        max_length=_URL_PATTERN_MAX_LENGTH,
+        description=(
+            "A substring of the page URL the sampled sessions must have visited, e.g. '/billing'. "
+            "At least one of url_pattern / event_name is required."
+        ),
+    )
+    event_name: str = Field(
+        default="",
+        max_length=200,
+        description=(
+            "A single event the sampled sessions must contain (e.g. '$rageclick'). "
+            "Combine with url_pattern, or use either alone."
+        ),
+    )
+
+
+class ReplayPlan(BaseModel):
+    # Like InvestigationPlan, the cap is code-enforced so non-compliant output degrades to a
+    # truncated plan instead of a failed structured-output parse.
+    steps: list[ReplayStep] = Field(description=f"At most {MAX_REPLAY_STEPS} anchored replay step(s).")
 
 
 class HogQLRepair(BaseModel):
@@ -172,25 +201,22 @@ async def run_investigation(
     return await execute_investigation(team=team, user=user, steps=steps, period_days=period_days)
 
 
-def plan_investigation(
-    *, team: Team, user: User, goal_status: GoalStatus, items: list[SourceItem], period_days: int
-) -> list[PlannedStep]:
-    """One planner LLM call proposing goal-grounded HogQL questions — the investigate stage's
-    only unconditional LLM call; synthesis stays the pipeline's other one.
+def _invoke_planner[PlanT: BaseModel](
+    *,
+    team: Team,
+    user: User,
+    render_prompt: Callable[[], str],
+    output_schema: type[PlanT],
+    ai_feature: str,
+    log_name: str,
+) -> PlanT | None:
+    """One structured-output planner LLM call, shared by both planners.
 
-    Best-effort by design: any planner failure (prompt rendering, LLM error, malformed output)
-    degrades to an empty plan so the brief ships without an investigation, never fails because
-    of one.
+    Best-effort by design: any failure (prompt rendering, LLM error, malformed output) degrades
+    to None so the brief ships without that stage, never fails because of one.
     """
     try:
-        rendered = INVESTIGATION_PLAN_PROMPT.format(
-            goal_text=sanitize_for_prompt(goal_status.goal),
-            metric_line=_render_metric_line(goal_status),
-            max_steps=MAX_INVESTIGATION_STEPS,
-            max_clicks_steps=MAX_CLICKS_STEPS,
-            period_days=period_days,
-            items_block=_render_items_for_planner(items),
-        )
+        rendered = render_prompt()
         llm = MaxChatOpenAI(
             model=INVESTIGATION_MODEL,
             timeout=_PLANNER_TIMEOUT_SECONDS,
@@ -198,16 +224,41 @@ def plan_investigation(
             user=user,
             team=team,
             billable=True,
-            posthog_properties={"ai_product": "pulse", "ai_feature": "goal_investigation_plan"},
-        ).with_structured_output(InvestigationPlan, method="json_schema", include_raw=False)
+            posthog_properties={"ai_product": "pulse", "ai_feature": ai_feature},
+        ).with_structured_output(output_schema, method="json_schema", include_raw=False)
         result = llm.invoke([("system", rendered)])
     except Exception:
-        logger.exception("pulse_investigation_plan_failed", team_id=team.id)
+        logger.exception(f"{log_name}_failed", team_id=team.id)
+        return None
+    if not isinstance(result, output_schema):
+        logger.error(f"{log_name}_malformed", team_id=team.id, output_type=type(result).__name__)
+        return None
+    return result
+
+
+def plan_investigation(
+    *, team: Team, user: User, goal_status: GoalStatus, items: list[SourceItem], period_days: int
+) -> list[PlannedStep]:
+    """One planner LLM call proposing goal-grounded HogQL questions — the investigate stage's
+    only unconditional LLM call; synthesis stays the pipeline's other one."""
+    plan = _invoke_planner(
+        team=team,
+        user=user,
+        render_prompt=lambda: INVESTIGATION_PLAN_PROMPT.format(
+            goal_text=sanitize_for_prompt(goal_status.goal),
+            metric_line=_render_metric_line(goal_status),
+            max_steps=MAX_INVESTIGATION_STEPS,
+            max_clicks_steps=MAX_CLICKS_STEPS,
+            period_days=period_days,
+            items_block=_render_items_for_planner(items),
+        ),
+        output_schema=InvestigationPlan,
+        ai_feature="goal_investigation_plan",
+        log_name="pulse_investigation_plan",
+    )
+    if plan is None:
         return []
-    if not isinstance(result, InvestigationPlan):
-        logger.error("pulse_investigation_plan_malformed", team_id=team.id, output_type=type(result).__name__)
-        return []
-    return _apply_plan_gates(team, result.steps)
+    return _apply_plan_gates(team, plan.steps)
 
 
 def _step_tool_input(step: PlannedStep) -> str:
@@ -218,13 +269,10 @@ def _step_tool_input(step: PlannedStep) -> str:
 def _apply_plan_gates(team: Team, steps: list[PlannedStep]) -> list[PlannedStep]:
     # The hard caps are code-enforced regardless of model output. The blank-field check is only a
     # backstop — the justification gate proper is the prompt-side forcing function (a model that
-    # pads justifications sails through here; the eval loop is what catches that). replay_patterns
-    # steps are dropped: they run in their own activity via plan_replay_patterns, never inline.
+    # pads justifications sails through here; the eval loop is what catches that).
     kept: list[PlannedStep] = []
     clicks_kept = 0
     for step in steps:
-        if step.tool == "replay_patterns":
-            continue
         if not (step.question.strip() and step.justification.strip() and _step_tool_input(step).strip()):
             continue
         if step.tool == "clicks":
@@ -237,14 +285,12 @@ def _apply_plan_gates(team: Team, steps: list[PlannedStep]) -> list[PlannedStep]
     return kept[:MAX_INVESTIGATION_STEPS]
 
 
-def _apply_replay_plan_gates(team: Team, steps: list[PlannedStep]) -> list[PlannedStep]:
-    # The replay planner's own gate: keep only anchored replay_patterns steps, capped at
-    # MAX_REPLAY_STEPS. A step needs a question, a justification, and at least one anchor
-    # (url_pattern or event_name) — the surface the sessions are sampled around.
-    kept: list[PlannedStep] = []
+def _apply_replay_plan_gates(team: Team, steps: list[ReplayStep]) -> list[ReplayStep]:
+    # The replay planner's own gate: capped at MAX_REPLAY_STEPS. A step needs a question, a
+    # justification, and at least one anchor (url_pattern or event_name) — the surface the
+    # sessions are sampled around.
+    kept: list[ReplayStep] = []
     for step in steps:
-        if step.tool != "replay_patterns":
-            continue
         if not (step.question.strip() and step.justification.strip()):
             continue
         if not (step.url_pattern.strip() or step.event_name.strip()):
@@ -477,45 +523,37 @@ async def run_replay_investigation(
 
 def plan_replay_patterns(
     *, team: Team, user: User, goal_text: str, movements: list[SourceItem], period_days: int
-) -> list[PlannedStep]:
+) -> list[ReplayStep]:
     """One planner LLM call deciding whether watching sessions around a movement would explain it.
-    Best-effort: any failure (prompt rendering, LLM error, malformed output) degrades to an empty
-    plan so the brief ships without a replay analysis, never fails because of one."""
+    Best-effort like the HogQL planner: any failure degrades to an empty plan so the brief ships
+    without a replay analysis, never fails because of one."""
     if not movements:
         return []
-    try:
-        rendered = REPLAY_PLAN_PROMPT.format(
+    plan = _invoke_planner(
+        team=team,
+        user=user,
+        render_prompt=lambda: REPLAY_PLAN_PROMPT.format(
             goal_text=sanitize_for_prompt(goal_text),
             period_days=period_days,
             max_steps=MAX_REPLAY_STEPS,
             movements_block=_render_items_for_planner(movements),
-        )
-        llm = MaxChatOpenAI(
-            model=INVESTIGATION_MODEL,
-            timeout=_PLANNER_TIMEOUT_SECONDS,
-            max_retries=1,
-            user=user,
-            team=team,
-            billable=True,
-            posthog_properties={"ai_product": "pulse", "ai_feature": "goal_replay_plan"},
-        ).with_structured_output(InvestigationPlan, method="json_schema", include_raw=False)
-        result = llm.invoke([("system", rendered)])
-    except Exception:
-        logger.exception("pulse_replay_plan_failed", team_id=team.id)
+        ),
+        output_schema=ReplayPlan,
+        ai_feature="goal_replay_plan",
+        log_name="pulse_replay_plan",
+    )
+    if plan is None:
         return []
-    if not isinstance(result, InvestigationPlan):
-        logger.error("pulse_replay_plan_malformed", team_id=team.id, output_type=type(result).__name__)
-        return []
-    return _apply_replay_plan_gates(team, result.steps)
+    return _apply_replay_plan_gates(team, plan.steps)
 
 
-def _replay_gap(step: PlannedStep, note: str) -> InvestigationFinding:
+def _replay_gap(step: ReplayStep, note: str) -> InvestigationFinding:
     # A failed/empty replay step is a gap, not data — distinct from a successful pattern finding.
-    return InvestigationFinding(question=step.question, hogql="", result_summary=note, succeeded=False, citations=[])
+    return InvestigationFinding(question=step.question, hogql="", result_summary=note, succeeded=False)
 
 
 async def _run_replay_patterns_step(
-    *, team: Team, user: User, step: PlannedStep, period_days: int
+    *, team: Team, user: User, step: ReplayStep, period_days: int
 ) -> InvestigationFinding:
     try:
         session_ids = await database_sync_to_async(_resolve_replay_session_ids, thread_sensitive=False)(
@@ -560,7 +598,7 @@ def _build_replay_recording_filters(url_pattern: str, event_name: str) -> dict:
     }
 
 
-def _resolve_replay_session_ids(team: Team, step: PlannedStep, period_days: int) -> list[str]:
+def _resolve_replay_session_ids(team: Team, step: ReplayStep, period_days: int) -> list[str]:
     # noqa keeps the session-replay/temporal stack off the pulse import path — loaded only when a replay step runs.
     from posthog.temporal.session_replay.summarization_sweep.session_candidates import (  # noqa: PLC0415
         fetch_recent_session_ids,
@@ -580,29 +618,23 @@ async def _summarize_session_group(
     *, session_ids: list[str], user: User, team: Team, period_days: int, title: str
 ) -> "EnrichedSessionGroupSummaryPatternsList":
     # noqa keeps the heavy session-summary/temporal stack off the pulse import path — loaded only when a replay step runs.
-    from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate  # noqa: PLC0415
     from posthog.temporal.session_replay.session_summary_group.workflow import (  # noqa: PLC0415
-        execute_summarize_session_group,
+        drain_group_summary_patterns,
     )
 
     max_timestamp = datetime.now(tz=UTC)
     min_timestamp = max_timestamp - timedelta(days=period_days)
-    patterns: EnrichedSessionGroupSummaryPatternsList | None = None
-    # The generator starts a group-summary workflow and streams progress; the FINAL_RESULT payload
-    # is (patterns, group_summary_id, failed). The activity's own timeout is the hard ceiling —
-    # group summaries are upstream-throttled and cached, so no second cache is added here.
-    async for update, payload in execute_summarize_session_group(
+    # The activity's own timeout is the hard ceiling. Per-session summaries are Postgres-cached
+    # across regenerations; the cross-session pattern pass recomputes whenever the session set
+    # changes, so a rerun pays the pattern extraction but not the per-session passes.
+    patterns, _group_summary_id, _failed_sessions = await drain_group_summary_patterns(
         session_ids=session_ids,
         user=user,
         team=team,
         min_timestamp=min_timestamp,
         max_timestamp=max_timestamp,
         summary_title=title,
-    ):
-        if update == SessionSummaryStreamUpdate.FINAL_RESULT and isinstance(payload, tuple):
-            patterns = payload[0]
-    if patterns is None:
-        raise RuntimeError("session group summary produced no final result")
+    )
     return patterns
 
 

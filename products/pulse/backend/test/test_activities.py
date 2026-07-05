@@ -621,6 +621,12 @@ def _movement_item() -> SourceItem:
     return SourceItem(source="stub", kind="movement", title="Signups dropped", description="d", fingerprint_hint="m:0")
 
 
+@sync_to_async
+def _enable_session_recording(team) -> None:
+    team.session_recording_opt_in = True
+    team.save(update_fields=["session_recording_opt_in"])
+
+
 async def test_synthesize_activity_appends_replay_findings_to_the_investigation(team, user) -> None:
     config = await _create_config(team, goal="Increase subscription usage")
     brief = await _create_brief(team, user, config=config)
@@ -653,6 +659,7 @@ async def test_synthesize_activity_appends_replay_findings_to_the_investigation(
 
 
 async def test_replay_activity_runs_for_goal_brief_with_a_movement(team, user) -> None:
+    await _enable_session_recording(team)
     config = await _create_config(team, goal="Increase subscription usage")
     brief = await _create_brief(team, user, config=config)
     env = ActivityEnvironment()
@@ -686,7 +693,25 @@ async def test_replay_activity_skips_goalless_brief(team, user) -> None:
     replay_mock.assert_not_called()
 
 
+async def test_replay_activity_skips_recording_disabled_team(team, user) -> None:
+    # session_recording_opt_in defaults to False on the fixture team — the free pre-gate must
+    # return [] before spending the planner LLM call.
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.run_replay_investigation") as replay_mock:
+        result = await env.run(
+            investigate_replay_patterns_activity,
+            ReplayPatternsActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(_movement_item())]
+            ),
+        )
+    assert result == []
+    replay_mock.assert_not_called()
+
+
 async def test_replay_activity_skips_when_no_movements(team, user) -> None:
+    await _enable_session_recording(team)
     config = await _create_config(team, goal="Increase subscription usage")
     brief = await _create_brief(team, user, config=config)
     env = ActivityEnvironment()
@@ -705,6 +730,7 @@ async def test_replay_activity_skips_when_no_movements(team, user) -> None:
 
 
 async def test_replay_activity_survives_a_stage_failure(team, user) -> None:
+    await _enable_session_recording(team)
     config = await _create_config(team, goal="Increase subscription usage")
     brief = await _create_brief(team, user, config=config)
     env = ActivityEnvironment()
