@@ -98,11 +98,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         // Panels opened at least once this session. PanelLayoutPanels keeps these mounted (hidden)
         // so switching panels doesn't tear down and rebuild whole trees on every toggle.
+        // Notifications is excluded: its logic drives unread/read semantics that must only run
+        // while the panel is active, so keeping it mounted would be incorrect.
         visitedPanels: [
             [] as PanelLayoutNavIdentifier[],
             {
                 setActivePanelIdentifier: (state, { identifier }) =>
-                    state.includes(identifier) ? state : [...state, identifier],
+                    identifier === 'Notifications' || state.includes(identifier) ? state : [...state, identifier],
             },
         ],
         mainContentRef: [
@@ -286,6 +288,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         },
     })),
     afterMount(({ actions, cache, values }) => {
+        // visitedPanels is not persisted, but activePanelIdentifier is. Seed visitedPanels from
+        // the rehydrated identifier so the panel that was open on the previous session starts
+        // keep-mounted — without this, the first switch after reload tears the panel down once.
+        if (values.activePanelIdentifier) {
+            actions.setActivePanelIdentifier(values.activePanelIdentifier as PanelLayoutNavIdentifier)
+        }
+
         // Watch for window resize
         if (typeof window !== 'undefined') {
             cache.disposables.add(() => {

@@ -1112,8 +1112,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         projectTreeRef: (newRef: ProjectTreeRef | null) => {
+            // Only the project:// tree navigates to breadcrumb-driven items. Other roots
+            // (data-and-people, products, shortcuts) don't contain project file-system items,
+            // so subscribing on those instances would fire duplicate api.fileSystem.list calls
+            // for every navigation when those panels are keep-mounted.
+            if (!props.root?.startsWith('project://') && props.root !== undefined) {
+                return
+            }
             if (newRef) {
                 if (newRef.ref === null) {
                     if (typeof values.lastNewFolder === 'string') {
@@ -1133,7 +1140,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         } else {
             actions.loadFolder('')
         }
-        if (values.projectTreeRef) {
+        // Same gate as the subscription: only project:// trees handle breadcrumb-driven visibility.
+        if (values.projectTreeRef && (props.root?.startsWith('project://') || props.root === undefined)) {
             actions.assureVisibility(values.projectTreeRef)
         }
         if (typeof props.defaultOnlyFolders !== 'undefined') {
