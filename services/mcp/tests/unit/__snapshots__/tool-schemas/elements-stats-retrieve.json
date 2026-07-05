@@ -14,7 +14,7 @@
             "type": "string"
         },
         "filter_test_accounts": {
-            "description": "When true, applies the project's internal-and-test-account filters to the underlying events.",
+            "description": "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.",
             "type": "boolean"
         },
         "include": {
