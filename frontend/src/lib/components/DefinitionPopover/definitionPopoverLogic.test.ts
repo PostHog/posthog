@@ -224,6 +224,29 @@ describe('definitionPopoverLogic', () => {
                     }
                 })
             })
+
+            it('saves a name-only property against the id recovered from the model', async () => {
+                // A pinned/default property arrives as { name } with no id; Save used to PATCH
+                // /property_definitions/undefined. resolvedDefinition hydrates the recovered id.
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    [`event/${mockEventPropertyDefinition.name}`]: mockEventPropertyDefinition as PropertyDefinition,
+                })
+
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, async () => {
+                    logic.actions.setDefinition({ name: mockEventPropertyDefinition.name })
+                    logic.actions.setPopoverState(DefinitionPopoverState.Edit)
+                    logic.actions.setLocalDefinition({ description: 'edited' })
+                    logic.actions.handleSave({})
+                }).toDispatchActions(['handleSaveSuccess'])
+
+                expect(api.update).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_TEAM_ID}/property_definitions/${mockEventPropertyDefinition.id}`,
+                    expect.objectContaining({ description: 'edited' })
+                )
+            })
         })
 
         it('add tags', async () => {

@@ -69,8 +69,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         return {}
                     }
 
+                    // resolvedDefinition carries the recovered id for name-only pinned/default
+                    // property items, so Save PATCHes the real definition instead of /undefined.
                     let definition = {
-                        ...values.definition,
+                        ...values.resolvedDefinition,
                         ...values.localDefinition,
                     } as TaxonomicDefinitionTypes
                     cache.startTime = performance.now()
@@ -232,27 +234,40 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (s) => [s.type],
             (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
-        viewFullDetailUrl: [
-            (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort, s.type, s.getPropertyDefinition],
-            (definition, isAction, isEvent, isProperty, isCohort, type, getPropertyDefinition) => {
-                if (isAction) {
-                    const id = (definition as ActionType).id
-                    return id != null ? urls.action(id) : undefined
-                } else if (isEvent) {
-                    const id = (definition as EventDefinition).id
-                    return id ? urls.eventDefinition(id) : undefined
-                } else if (isProperty) {
-                    // Pinned/default property items are stored as { name } only, so recover the
-                    // saved definition id from propertyDefinitionsModel rather than linking to
-                    // /data-management/properties/undefined.
+        resolvedDefinition: [
+            (s) => [s.definition, s.isProperty, s.type, s.getPropertyDefinition],
+            (definition, isProperty, type, getPropertyDefinition): Partial<TaxonomicDefinitionTypes> => {
+                // Pinned/default property items are stored as { name } only. Hydrate them with the
+                // saved definition id recovered from propertyDefinitionsModel so View, Edit and Save
+                // all operate on a complete definition (and self-heal as the model loads) rather
+                // than hitting /data-management/properties/undefined.
+                if (isProperty && definition && !(definition as PropertyDefinition).id) {
                     const id = resolvePropertyDefinitionId(
                         definition as PropertyDefinition,
                         type as TaxonomicFilterGroupType,
                         getPropertyDefinition
                     )
+                    if (id) {
+                        return { ...definition, id }
+                    }
+                }
+                return definition
+            },
+        ],
+        viewFullDetailUrl: [
+            (s) => [s.resolvedDefinition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
+            (resolvedDefinition, isAction, isEvent, isProperty, isCohort) => {
+                if (isAction) {
+                    const id = (resolvedDefinition as ActionType).id
+                    return id != null ? urls.action(id) : undefined
+                } else if (isEvent) {
+                    const id = (resolvedDefinition as EventDefinition).id
+                    return id ? urls.eventDefinition(id) : undefined
+                } else if (isProperty) {
+                    const id = (resolvedDefinition as PropertyDefinition).id
                     return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
-                    const id = (definition as CohortType).id
+                    const id = (resolvedDefinition as CohortType).id
                     return id != null ? urls.cohort(id) : undefined
                 }
                 return undefined
