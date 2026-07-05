@@ -17,6 +17,7 @@ import {
     matchEventToElementUsingIndex,
     matchEventToElementUsingSelectors,
 } from '~/toolbar/elements/domElementIndex'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -25,6 +26,7 @@ import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import {
     elementIsVisible,
     elementToActionStep,
+    getParent,
     getToolbarRootElement,
     invalidateZoomCache,
     trimElement,
@@ -39,7 +41,8 @@ const ELEMENT_STATS_PAGE_LIMIT = 5000
 
 // when picking an area to filter to, hovering snaps to the nearest of these semantic
 // containers so "the nav" or "the main content" is one click; anything else falls back
-// to the hovered element itself
+// to the hovered element itself. The role variants cover framework/legacy markup that
+// skips the semantic tags.
 export const AREA_TARGET_SELECTOR = [
     'nav',
     'main',
@@ -90,16 +93,60 @@ export function buildElementStatsProperties(
     return properties
 }
 
+// mirrors how posthog-js decides target_fixed when recording heatmap points, so an area
+// and its points classify the same way
+export function isInFixedContainer(element: HTMLElement): boolean {
+    let current: HTMLElement | null = element
+    while (current) {
+        const position = window.getComputedStyle(current).position
+        if (position === 'fixed' || position === 'sticky') {
+            return true
+        }
+        current = getParent(current)
+    }
+    return false
+}
+
+// containment that follows shadow boundaries, unlike Node.contains — the clickmap matcher
+// deliberately matches elements inside shadow roots
+export function containsInComposedTree(container: HTMLElement, element: HTMLElement): boolean {
+    let current: HTMLElement | null = element
+    while (current) {
+        if (current === container) {
+            return true
+        }
+        current = getParent(current)
+    }
+    return false
+}
+
+function findElementBySelector(selector: string | null): HTMLElement | null {
+    if (!selector) {
+        return null
+    }
+    try {
+        return document.querySelector(selector) as HTMLElement | null
+    } catch {
+        // toolbar-derived selectors are not guaranteed to be valid querySelector input
+        return null
+    }
+}
+
 export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
     const rect = element.getBoundingClientRect()
+    const areaFixed = isInFixedContainer(element)
     return {
-        viewportBounds: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
-        documentBounds: {
-            left: rect.left + window.scrollX,
-            right: rect.right + window.scrollX,
-            top: rect.top + window.scrollY,
-            bottom: rect.bottom + window.scrollY,
-        },
+        areaFixed,
+        // fixed/sticky areas compare against viewport-recorded points, so keep the viewport
+        // rect; static areas compare against document-recorded points, so add the scroll offset
+        bounds: areaFixed
+            ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+            : {
+                  left: rect.left + window.scrollX,
+                  right: rect.right + window.scrollX,
+                  top: rect.top + window.scrollY,
+                  bottom: rect.bottom + window.scrollY,
+              },
     }
 }
 // the follow-up fetch re-reads from offset 0 with a bigger limit rather than paginating:
@@ -259,13 +306,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
+        // exits picking mode only — an already-applied filter is cleared separately via
+        // selectHeatmapAreaFilter(null) (the snack's close button)
         areaSelectionActive: [
             false,
             {
                 startAreaSelection: () => true,
                 cancelAreaSelection: () => false,
                 setHeatmapAreaFilter: () => false,
-                disableHeatmap: () => false,
             },
         ],
         areaHoverElement: [
@@ -277,11 +325,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 setHeatmapAreaFilter: () => null,
             },
         ],
+        // cleared on disableHeatmap and navigation via the listeners dispatching
+        // setHeatmapAreaFilter(null, null), which also clears the pushed bounds
         heatmapAreaFilter: [
             null as { element: HTMLElement; selector: string | null } | null,
             {
                 setHeatmapAreaFilter: (_, { element, selector }) => (element ? { element, selector } : null),
-                disableHeatmap: () => null,
             },
         ],
         lastElementStatsRequest: [
@@ -600,11 +649,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         const trimmed = trimElement(matched.element, { cursorPointerCache })
                         // the server already filters chains by the area selector, but chains can
                         // match DOM nodes outside the chosen area (stale markup, repeated
-                        // components), so keep the display honest with a containment check
+                        // components), so keep the display honest with a containment check —
+                        // composed-tree containment, since matches can live inside shadow roots
                         const withinArea =
                             !trimmed ||
                             !heatmapAreaFilter?.element.isConnected ||
-                            heatmapAreaFilter.element.contains(trimmed)
+                            containsInComposedTree(heatmapAreaFilter.element, trimmed)
                         if (
                             trimmed &&
                             withinArea &&
@@ -655,8 +705,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         disableHeatmap: () => {
             actions.resetElementStats()
             actions.resetHeatmapData()
-            actions.setHeatmapBoundsFilter(null)
+            if (values.areaSelectionActive) {
+                actions.cancelAreaSelection()
+            }
+            // route the clear through the one action whose listener owns the
+            // "filter null => pushed bounds null" invariant
+            if (values.heatmapAreaFilter) {
+                actions.setHeatmapAreaFilter(null, null)
+            }
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        // the feature flag gates only the menu button; the whole selection machine stays
+        // dormant because startAreaSelection is that button's only caller — a second caller
+        // would silently un-gate the feature
+        startAreaSelection: () => {
+            // product tours' picker also listens for document clicks; two armed pickers
+            // would both consume the same page click
+            const productTours = productToursLogic.findMounted()
+            if (productTours?.values.isSelecting) {
+                productTours.actions.setEditorState({ mode: 'idle' })
+            }
+            toolbarPosthogJS.capture('toolbar heatmap area selection started')
         },
 
         selectHeatmapAreaFilter: ({ element }) => {
@@ -677,15 +747,29 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             } else {
                 actions.setHeatmapBoundsFilter(null)
             }
-            // the area selector is part of the stats request, so the clickmap needs fresh data
+            // apply the containment check to the already-loaded stats immediately so the
+            // selection feels instant, then fetch the server-filtered data
+            actions.processElements('toggle')
             actions.maybeLoadClickmap()
         },
 
         updateAreaBounds: () => {
-            const element = values.heatmapAreaFilter?.element
-            if (element?.isConnected) {
-                actions.setHeatmapBoundsFilter(computeAreaBounds(element))
+            const filter = values.heatmapAreaFilter
+            if (!filter) {
+                return
             }
+            if (!filter.element.isConnected) {
+                // a re-render replaced the node; re-resolve via the stored selector so the
+                // filter follows the page, or clear it visibly rather than degrade silently
+                const requeried = findElementBySelector(filter.selector)
+                if (requeried) {
+                    actions.setHeatmapAreaFilter(requeried, filter.selector)
+                } else {
+                    actions.selectHeatmapAreaFilter(null)
+                }
+                return
+            }
+            actions.setHeatmapBoundsFilter(computeAreaBounds(filter.element))
         },
 
         startElementObservation: () => {
@@ -728,6 +812,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (values.heatmapEnabled) {
                 actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
                 actions.setDataHref(href)
+            }
+            // the area filter describes an element on the page it was picked on; carrying it
+            // across navigation would filter the new page by the old page's selector and bounds
+            if (values.areaSelectionActive) {
+                actions.cancelAreaSelection()
+            }
+            if (values.heatmapAreaFilter) {
+                actions.setHeatmapAreaFilter(null, null)
             }
             actions.maybeLoadClickmap()
         },
@@ -837,6 +929,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 debounceTimer = setTimeout(() => {
                     invalidatePageElementsCache(cache as ElementProcessingCache)
                     invalidateZoomCache()
+                    // layout shifts move the filtered area; this also re-resolves or clears
+                    // the filter when the picked node was replaced by a re-render
+                    if (values.heatmapAreaFilter) {
+                        actions.updateAreaBounds()
+                    }
                     debounceTimer = null
                 }, 500)
             })

@@ -198,7 +198,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         <span className="text-muted text-xs">Filtered to</span>
                         <LemonSnack
                             className="font-mono text-xs shrink min-w-0 truncate"
-                            title={heatmapAreaFilter.selector ?? undefined}
+                            title={
+                                heatmapAreaFilter.selector ??
+                                'No unique selector could be derived for this element, so the clickmap is filtered client-side only and may be limited to the loaded data.'
+                            }
                             onClose={() => selectHeatmapAreaFilter(null)}
                         >
                             {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}

@@ -46,12 +46,14 @@ export type HeatmapBounds = {
     bottom: number
 }
 
-// pixel bounds of a page element the heatmap is filtered to; fixed-position points are
-// recorded in viewport coordinates and everything else in document coordinates, so a
-// single element needs both rects to test either kind of point
+// pixel bounds of a page element the heatmap is filtered to. Fixed/sticky targets are
+// recorded in viewport coordinates and everything else in document coordinates (posthog-js's
+// target_fixed rule), so points are only comparable to an area of the same kind: a filter
+// carries the one rect that matches its area's kind, and points of the other kind are
+// excluded rather than compared across coordinate spaces (where they'd go stale on scroll)
 export type HeatmapBoundsFilter = {
-    documentBounds: HeatmapBounds
-    viewportBounds: HeatmapBounds
+    bounds: HeatmapBounds
+    areaFixed: boolean
 }
 
 export type HeatmapAreaPoint = {

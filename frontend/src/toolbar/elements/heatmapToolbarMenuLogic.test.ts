@@ -9,6 +9,7 @@ import {
     buildElementStatsProperties,
     dedupeByChainIdentity,
     heatmapToolbarMenuLogic,
+    isInFixedContainer,
     resolveAreaTarget,
 } from './heatmapToolbarMenuLogic'
 
@@ -104,6 +105,10 @@ describe('heatmapToolbarMenuLogic', () => {
     })
 
     describe('resolveAreaTarget', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
         it.each([
             ['snaps to the nearest semantic container', '<nav id="n"><ul><li id="leaf">x</li></ul></nav>', 'leaf', 'n'],
             ['keeps a semantic container that is hovered directly', '<main id="m">x</main>', 'm', 'm'],
@@ -118,6 +123,26 @@ describe('heatmapToolbarMenuLogic', () => {
             document.body.innerHTML = html
             const hovered = document.getElementById(hoveredId) as HTMLElement
             expect(resolveAreaTarget(hovered).id).toBe(expectedId)
+        })
+    })
+
+    describe('isInFixedContainer', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        it.each([
+            ['a fixed element itself', 'fixed', 'self', true],
+            ['a sticky element itself', 'sticky', 'self', true],
+            ['a child of a fixed container', 'fixed', 'child', true],
+            ['a static element', 'static', 'self', false],
+        ])('detects %s', (_name, position, which, expected) => {
+            const container = document.createElement('div')
+            container.style.position = position
+            const child = document.createElement('span')
+            container.appendChild(child)
+            document.body.appendChild(container)
+            expect(isInFixedContainer(which === 'self' ? container : child)).toBe(expected)
         })
     })
 
@@ -205,21 +230,29 @@ describe('heatmapToolbarMenuLogic', () => {
             const area = document.createElement('nav')
             area.id = 'main-nav'
             document.body.appendChild(area)
-            await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(area)).toDispatchActions([
-                'setHeatmapAreaFilter',
-                'getElementStatsSuccess',
-            ])
+            try {
+                await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(area)).toDispatchActions([
+                    'setHeatmapAreaFilter',
+                    'getElementStatsSuccess',
+                ])
 
-            const lastCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
-            expect(lastCall.properties).toContainEqual(
-                expect.objectContaining({ key: 'selector', type: 'element', value: expect.stringContaining('nav') })
-            )
+                const lastCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+                expect(lastCall.properties).toContainEqual(
+                    expect.objectContaining({
+                        key: 'selector',
+                        type: 'element',
+                        value: expect.stringContaining('nav'),
+                    })
+                )
 
-            await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(null)).toDispatchActions([
-                'getElementStatsSuccess',
-            ])
-            const clearedCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
-            expect(clearedCall.properties).toHaveLength(1)
+                await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(null)).toDispatchActions([
+                    'getElementStatsSuccess',
+                ])
+                const clearedCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+                expect(clearedCall.properties).toHaveLength(1)
+            } finally {
+                area.remove()
+            }
         })
 
         it('retries the initial load via load more after a stats fetch failure', async () => {

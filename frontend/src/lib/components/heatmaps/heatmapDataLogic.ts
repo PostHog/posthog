@@ -89,8 +89,12 @@ export function isWithinBounds(
     if (!boundsFilter) {
         return true
     }
-    // fixed-position targets record viewport coordinates; everything else document coordinates
-    const bounds = point.targetFixed ? boundsFilter.viewportBounds : boundsFilter.documentBounds
+    // points and areas live in different coordinate spaces depending on fixedness, so a
+    // point of the other kind can't be meaningfully tested against this area — exclude it
+    if (point.targetFixed !== boundsFilter.areaFixed) {
+        return false
+    }
+    const { bounds } = boundsFilter
     return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom
 }
 
