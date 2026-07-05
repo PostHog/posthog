@@ -1,5 +1,6 @@
 import { urls } from 'scenes/urls'
 
+import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { PropertyDefinition } from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
@@ -16,8 +17,10 @@ describe('resolveViewUrl', () => {
         ({ item, group: { type } as TaxonomicFilterGroup, name: String(item.name ?? '') }) as MenuFilterEntry
 
     it('builds the property URL from the recovered id for a name-only item', () => {
-        const getPropertyDefinition = (name: string): PropertyDefinition | null =>
-            name === '$current_url' ? ({ name, id: 'event-url-id' } as PropertyDefinition) : null
+        const getPropertyDefinition = ((name) =>
+            name === '$current_url'
+                ? ({ name, id: 'event-url-id' } as PropertyDefinition)
+                : null) as propertyDefinitionsModelType['values']['getPropertyDefinition']
 
         const url = resolveViewUrl(
             entry(TaxonomicFilterGroupType.EventProperties, { name: '$current_url' }),

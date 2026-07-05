@@ -248,7 +248,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         getPropertyDefinition
                     )
                     if (id) {
-                        return { ...definition, id }
+                        // Cast because the union has numeric-id members (ActionType/CohortType);
+                        // this branch only runs for property definitions (string id).
+                        return { ...definition, id } as Partial<TaxonomicDefinitionTypes>
                     }
                 }
                 return definition
