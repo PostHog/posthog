@@ -1827,9 +1827,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // Segments can reshape under a stale currentSegment (e.g. a trailing buffer resolving into real window segments) — re-derive so playback continues in the right segment with the right replayer.
+            // Only kind/windowId changes matter: boundary drift is constant on live recordings and re-committing the segment would trigger a full rrweb re-seek per poll.
             if (values.currentTimestamp != null && values.currentSegment) {
                 const freshSegment = values.segmentForTimestamp(values.currentTimestamp)
-                if (freshSegment && !objectsEqual(freshSegment, values.currentSegment)) {
+                if (
+                    freshSegment &&
+                    (freshSegment.kind !== values.currentSegment.kind ||
+                        freshSegment.windowId !== values.currentSegment.windowId)
+                ) {
                     actions.setCurrentSegment(freshSegment)
                 }
             }

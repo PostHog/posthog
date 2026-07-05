@@ -682,6 +682,22 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentSegment).toMatchObject({ kind: 'window', windowId: 1 })
         })
 
+        it('does not recommit the current segment when only its boundaries drift', async () => {
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 5000)
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'gap', windowId: 1 })
+
+            // live recordings drift segment boundaries on every poll; recommitting would re-seek rrweb each time
+            coordinator.actions.setProcessedSnapshots([fs(START), inc(START + 1000), inc(START + 13000)])
+            await new Promise((r) => setTimeout(r, 400))
+
+            // the stale boundary is retained, proving no recommit (and no rrweb re-seek) happened
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'gap', endTimestamp: START + 11000 })
+        })
+
         it('revives a dead loading chain from syncPlayerState while still buffering', async () => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             seedRecording(null, [inc(START + 61000), inc(START + 62000)])
