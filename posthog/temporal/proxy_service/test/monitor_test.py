@@ -47,6 +47,7 @@ class TestCheckProxyIsLive(TestCase):
 
         # Mock successful HTTP response
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
@@ -152,6 +153,7 @@ class TestCheckProxyIsLive(TestCase):
 
         # Mock successful HTTP response
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
