@@ -129,8 +129,8 @@ export function ObservationLabelControl({
     const thumbsUp = label?.is_correct === true
     const thumbsDown = label?.is_correct === false
     const editDisabledReason = useEditAccess()
-    const canEdit = !editDisabledReason
 
+    // Clicking the active thumb again removes the rating.
     const buttons = (
         <div className="flex items-center gap-1">
             <LemonButton
@@ -139,8 +139,8 @@ export function ObservationLabelControl({
                 icon={thumbsUp ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                 loading={saving}
                 disabledReason={editDisabledReason ?? undefined}
-                tooltip="Scanner got this right"
-                onClick={() => rate(true, feedbackDraft)}
+                tooltip={thumbsUp ? 'Remove rating' : 'Scanner got this right'}
+                onClick={() => (thumbsUp ? clearRating() : rate(true, feedbackDraft))}
                 data-attr="replay-vision-label-thumbs-up"
             />
             <LemonButton
@@ -149,20 +149,10 @@ export function ObservationLabelControl({
                 icon={thumbsDown ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 loading={saving}
                 disabledReason={editDisabledReason ?? undefined}
-                tooltip="Scanner got this wrong"
-                onClick={() => rate(false, feedbackDraft)}
+                tooltip={thumbsDown ? 'Remove rating' : 'Scanner got this wrong'}
+                onClick={() => (thumbsDown ? clearRating() : rate(false, feedbackDraft))}
                 data-attr="replay-vision-label-thumbs-down"
             />
-            {label && canEdit && (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={() => clearRating()}
-                    disabledReason={saving ? 'Saving…' : undefined}
-                >
-                    Clear
-                </LemonButton>
-            )}
         </div>
     )
 
