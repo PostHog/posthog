@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime
 import tempfile
 
@@ -9,6 +10,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -294,3 +296,31 @@ class TestRepartitionActivity:
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    # Temporal's own CancelledError subclasses Exception (asyncio's subclasses BaseException), so a
+    # worker-shutdown cancel would land in the broad failure handler unless explicitly re-raised.
+    @pytest.mark.parametrize("cancel_error", [TemporalCancelledError("cancelled"), asyncio.CancelledError()])
+    def test_cancellation_propagates_without_recording_failure(self, team, cancel_error):
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "test",
+                "attempts": 0,
+            }
+        )
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=AsyncMock(side_effect=cancel_error)),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "capture_exception") as capture_exc,
+            pytest.raises(type(cancel_error)),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        # Cancellation must reschedule cleanly: no failed attempt recorded, nothing sent to error tracking.
+        schema.refresh_from_db()
+        assert schema.repartition_pending["attempts"] == 0
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+        capture_exc.assert_not_called()

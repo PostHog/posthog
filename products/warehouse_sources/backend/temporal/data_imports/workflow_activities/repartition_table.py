@@ -8,6 +8,7 @@ just proceeds on the old layout (status quo) and the table is retried on a later
 """
 
 import time
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -17,6 +18,7 @@ from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import is_cancelled_exception
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -229,7 +231,17 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="skipped").inc()
         capture_exception(e)
         return
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # Bare cancellation from the async layer (BaseException-derived) — never a repartition
+        # failure. Let it propagate so Temporal reschedules the activity cleanly.
+        raise
     except Exception as e:
+        # On worker shutdown/deploy, Temporal raises its own CancelledError into the sync activity
+        # thread; unlike asyncio's, that one subclasses Exception, so it lands here rather than in
+        # the handler above. It is still cancellation, not a defect — re-raise so Temporal
+        # reschedules us cleanly instead of recording a failed attempt and capturing it as an error.
+        if is_cancelled_exception(e):
+            raise
         # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
         # later run, on the old layout in the meantime.
         _handle_failure(inputs, schema, pending, trigger_reason, e)
