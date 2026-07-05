@@ -98,14 +98,15 @@ export function RecordingClickmapOverlay({
     }
 
     // render smaller boxes on top so high-count nested elements stay reachable
-    const renderOrder = [...clickmapBoxes].sort((a, b) => b.width * b.height - a.width * a.height)
+    const renderOrder = clickmapBoxes
+        .map((box, i) => ({ box, i }))
+        .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
 
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
-                {renderOrder.map((box) => {
-                    const originalIndex = clickmapBoxes.indexOf(box)
-                    const key = `${box.top}:${box.left}:${originalIndex}`
+                {renderOrder.map(({ box, i: originalIndex }) => {
+                    const key = String(originalIndex)
                     const isSelected = key === selectedBoxKey
                     const boxElement = (
                         <div

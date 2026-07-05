@@ -19,27 +19,7 @@ export function ClickmapSettings({
     const { clickmapEnabled, matchLinksByHref, clickmapBoxes, totalClickCount, elementStatsLoading } = useValues(logic)
     const { setClickmapEnabled, setMatchLinksByHref } = useActions(logic)
 
-    function foundLine(): JSX.Element | null {
-        if (!clickmapEnabled) {
-            return null
-        }
-        if (elementStatsLoading) {
-            return (
-                <div className="text-xs text-muted flex items-center gap-1">
-                    <Spinner /> Loading...
-                </div>
-            )
-        }
-        if (clickmapBoxes.length === 0) {
-            return <div className="text-xs text-muted">No elements matched.</div>
-        }
-        const elementWord = clickmapBoxes.length === 1 ? 'element' : 'elements'
-        return (
-            <div className="text-xs text-muted">
-                Found: {clickmapBoxes.length} {elementWord} / {humanFriendlyLargeNumber(totalClickCount)} clicks
-            </div>
-        )
-    }
+    const elementWord = clickmapBoxes.length === 1 ? 'element' : 'elements'
 
     return (
         <Popover
@@ -66,7 +46,22 @@ export function ClickmapSettings({
                             bordered
                         />
                     </Tooltip>
-                    {foundLine()}
+                    {clickmapEnabled && (
+                        <div className="text-xs text-muted flex items-center gap-1">
+                            {elementStatsLoading ? (
+                                <>
+                                    <Spinner /> Loading...
+                                </>
+                            ) : clickmapBoxes.length === 0 ? (
+                                'No elements matched.'
+                            ) : (
+                                <>
+                                    Found: {clickmapBoxes.length} {elementWord} /{' '}
+                                    {humanFriendlyLargeNumber(totalClickCount)} clicks
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
             }
             visible={isOpen}
