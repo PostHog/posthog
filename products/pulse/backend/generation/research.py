@@ -126,7 +126,6 @@ class ResearchRunResult:
     report: ResearchReport
     web_call_count: int
     internal_query_count: int
-    model: str
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -204,7 +203,6 @@ async def run_research(
                 report=_fallback_report(f"Research LLM loop failed: {err}"),
                 web_call_count=web_call_count,
                 internal_query_count=internal_query_count,
-                model=RESEARCH_MODEL,
             )
         messages.append(response)
         web_call_count += _count_web_searches(response)
@@ -216,7 +214,6 @@ async def run_research(
                 report=report,
                 web_call_count=web_call_count,
                 internal_query_count=internal_query_count,
-                model=RESEARCH_MODEL,
             )
         if not tool_calls:
             break
@@ -259,7 +256,6 @@ async def run_research(
             report=_fallback_report(f"Research finalize call failed: {err}"),
             web_call_count=web_call_count,
             internal_query_count=internal_query_count,
-            model=RESEARCH_MODEL,
         )
     web_call_count += _count_web_searches(final)
     report = _report_from_tool_calls(getattr(final, "tool_calls", None) or [])
@@ -267,7 +263,6 @@ async def run_research(
         report=report if report is not None else _fallback_report("The model did not return a valid research report."),
         web_call_count=web_call_count,
         internal_query_count=internal_query_count,
-        model=RESEARCH_MODEL,
     )
 
 

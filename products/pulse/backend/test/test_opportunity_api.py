@@ -235,13 +235,20 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED
 
     def test_serializes_research_notebook_short_id(self) -> None:
-        notebook = Notebook.objects.create(team=self.team, short_id="nbshort1", title="Research", created_by=self.user)
-        opportunity = self._opportunity()
-        Opportunity.objects.for_team(self.team.pk).filter(pk=opportunity.pk).update(research_notebook_id=notebook.id)
+        expected: dict[str, str | None] = {}
+        for short_id in ("nbshort1", "nbshort2"):
+            notebook = Notebook.objects.create(
+                team=self.team, short_id=short_id, title="Research", created_by=self.user
+            )
+            opportunity = self._opportunity()
+            Opportunity.objects.for_team(self.team.pk).filter(pk=opportunity.pk).update(
+                research_notebook_id=notebook.id
+            )
+            expected[str(opportunity.id)] = short_id
+        expected[str(self._opportunity().id)] = None
 
         response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/")
 
         assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(opportunity.id))
-        assert row["research_notebook_id"] == str(notebook.id)
-        assert row["research_notebook_short_id"] == "nbshort1"
+        by_id = {row["id"]: row["research_notebook_short_id"] for row in response.json()["results"]}
+        assert by_id == expected

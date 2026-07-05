@@ -1,3 +1,4 @@
+import uuid
 import asyncio
 from datetime import timedelta
 from typing import cast
@@ -127,13 +128,21 @@ class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSeri
     def get_research_notebook_short_id(self, obj: Opportunity) -> str | None:
         if not obj.research_notebook_id:
             return None
-        # Memoized per request so a list page resolves each distinct notebook id at most once; the
-        # notebook lives in a different product, so we go through its facade.
-        cache = self.context.setdefault("_notebook_short_ids", {})
-        if obj.research_notebook_id not in cache:
+        # One facade query per serialization: the first row with a notebook resolves the whole
+        # page's ids at once (notebooks live in another product, so this goes through its facade).
+        cache = self.context.get("_notebook_short_ids")
+        if cache is None:
             team = self.context["get_team"]()
-            cache.update(notebooks.get_notebook_short_ids_by_ids(team.id, [obj.research_notebook_id]))
+            cache = self.context["_notebook_short_ids"] = notebooks.get_notebook_short_ids_by_ids(
+                team.id, self._page_notebook_ids(obj)
+            )
         return cache.get(obj.research_notebook_id)
+
+    def _page_notebook_ids(self, obj: Opportunity) -> list[uuid.UUID]:
+        instances = self.parent.instance if isinstance(self.parent, serializers.ListSerializer) else [obj]
+        if instances is None or not hasattr(instances, "__iter__"):
+            instances = [obj]
+        return [row.research_notebook_id for row in instances if row.research_notebook_id]
 
 
 class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):

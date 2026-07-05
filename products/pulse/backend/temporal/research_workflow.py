@@ -10,7 +10,6 @@ from __future__ import annotations
 import time
 import datetime as dt
 
-import structlog
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
@@ -28,8 +27,6 @@ from products.pulse.backend.generation.research import run_research
 from products.pulse.backend.generation.research_notebook import build_research_notebook
 from products.pulse.backend.models import Opportunity
 from products.pulse.backend.temporal.inputs import RESEARCH_OPPORTUNITY_WORKFLOW_NAME, ResearchOpportunityWorkflowInputs
-
-logger = structlog.get_logger(__name__)
 
 RESEARCH_ACTIVITY_START_TO_CLOSE_SECONDS = 20 * 60
 RESEARCH_ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS = 5 * 60
