@@ -38,7 +38,8 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             },
         ],
         activeTab: [
-            DEFAULT_TAB,
+            // The explicit cast keeps kea-typegen inferring the whole enum, not just this member.
+            DEFAULT_TAB as ReplayScannerTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
