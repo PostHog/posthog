@@ -669,7 +669,7 @@ class TestSQLV2RunContract(APIBaseTest):
         delivered: dict = {}
         with (
             patch(
-                "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
                 return_value=(["a"], [(1,)], [["a", "Int64"]]),
             ),
             patch.object(
@@ -698,7 +698,7 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
     # The kernel HTTP layer (routing, auth wiring, async-run vs sync-page split) has no
     # other CI coverage — it only runs inside the sandbox. Loopback-only, stubbed runner.
     def test_routes_auth_and_dispatch(self):
-        from products.notebooks.backend.kernel import server as kernel_server
+        from products.notebooks.backend.sandbox.kernel import server as kernel_server
 
         original_config = dict(kernel_server._config)
         kernel_server._config.update({"secret": "test-secret", "version": "vtest"})
@@ -807,7 +807,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
             "cache_limit": cache_limit,
         }
         mock_fetch = patch(
-            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
             return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
         )
         with mock_fetch as fetch:
@@ -819,7 +819,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         payload, result, _ = self._run_and_cache("r-cache-1", rows_returned=301)
         self.assertEqual(len(result["first_page"]), 50)
         self.assertTrue(result["has_more"])
-        with patch("products.notebooks.backend.kernel.data_plane.fetch_query_page") as fetch:
+        with patch("products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page") as fetch:
             page = kernel_runner.fetch_page({**payload, "offset": 250, "limit": 50})
         fetch.assert_not_called()
         self.assertEqual(page["rows"][0], [250])
@@ -829,7 +829,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
     def test_page_beyond_incomplete_cache_falls_back_to_requery(self):
         payload, _result, _ = self._run_and_cache("r-cache-2", rows_returned=301)
         with patch(
-            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
             return_value=(["n"], [(i,) for i in range(10)], [["n", "Int64"]]),
         ) as fetch:
             kernel_runner.fetch_page({**payload, "offset": 290, "limit": 50})
@@ -838,7 +838,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
     def test_complete_cache_reports_no_more_rows(self):
         payload, result, _ = self._run_and_cache("r-cache-3", rows_returned=120)
         self.assertTrue(result["has_more"])  # 120 rows > the 50-row first page
-        with patch("products.notebooks.backend.kernel.data_plane.fetch_query_page") as fetch:
+        with patch("products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page") as fetch:
             page = kernel_runner.fetch_page({**payload, "offset": 100, "limit": 50})
         fetch.assert_not_called()
         self.assertEqual(len(page["rows"]), 20)
@@ -854,7 +854,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
     def test_fetch_page_has_more_via_limit_plus_one(self, _name, rows_returned, expected_has_more, expected_rows):
         payload = {"code": "select 1", "data_plane_url": "u", "data_plane_token": "t", "offset": 10, "limit": 5}
         with patch(
-            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
             return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
         ) as mock_fetch:
             page = kernel_runner.fetch_page(payload)
@@ -866,7 +866,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
     def test_kernel_polls_until_the_arrow_result_arrives(self):
         # The kernel must follow the enqueue → poll protocol: accept the 202 query_id,
         # keep polling through "running" responses, and decode the eventual Arrow 200.
-        from products.notebooks.backend.kernel import data_plane as kernel_data_plane
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
 
         class _FakeResponse(io.BytesIO):
             def __init__(self, content_type: str, body: bytes):
