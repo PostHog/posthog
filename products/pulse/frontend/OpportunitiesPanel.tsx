@@ -87,6 +87,7 @@ export function OpportunitiesPanel(): JSX.Element {
             width: 0,
             render: (_, opportunity) => (
                 <div className="flex items-center gap-2 justify-end">
+                    <ResearchControl opportunity={opportunity} />
                     <OpportunityRowActions opportunity={opportunity} />
                     <HelpfulnessVote
                         item={opportunity}
@@ -105,6 +106,41 @@ export function OpportunitiesPanel(): JSX.Element {
             rowKey="id"
             emptyState="No opportunities yet — run a brief to surface some"
         />
+    )
+}
+
+// Research is useful on open opportunities and after acting on them, so it's offered on both.
+const RESEARCHABLE_STATUSES: OpportunityStatusEnumApi[] = [
+    OpportunityStatusEnumApi.Open,
+    OpportunityStatusEnumApi.Acted,
+]
+
+function ResearchControl({ opportunity }: { opportunity: OpportunityApi }): JSX.Element | null {
+    const { researchInFlight } = useValues(pulseLogic)
+    const { researchOpportunity } = useActions(pulseLogic)
+
+    if (opportunity.research_notebook_short_id) {
+        return (
+            <LemonButton size="small" type="secondary" to={urls.notebook(opportunity.research_notebook_short_id)}>
+                Research
+            </LemonButton>
+        )
+    }
+    if (!RESEARCHABLE_STATUSES.includes(opportunity.status)) {
+        return null
+    }
+    const inFlight = opportunity.id in researchInFlight
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            loading={inFlight}
+            disabledReason={inFlight ? 'Researching…' : undefined}
+            tooltip="Research solutions from the web and your own data, written to a notebook."
+            onClick={() => researchOpportunity(opportunity.id)}
+        >
+            Research solutions
+        </LemonButton>
     )
 }
 

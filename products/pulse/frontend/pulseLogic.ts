@@ -39,6 +39,7 @@ import {
     pulseOpportunitiesFeedbackCreate,
     pulseOpportunitiesList,
     pulseOpportunitiesReopenCreate,
+    pulseOpportunitiesResearchCreate,
 } from './generated/api'
 import type {
     BriefConfigApi,
@@ -190,6 +191,11 @@ export const BRIEF_POLL_INTERVAL_MS = 3000
 /** Stop polling and surface an error after this many consecutive rounds where every retrieve failed. */
 export const MAX_CONSECUTIVE_POLL_FAILURES = 5
 
+/** Research runs on a Temporal workflow (minutes); the opportunities list is polled until the
+ * notebook appears. Bounded so a slow/failed run clears the spinner instead of spinning forever. */
+export const RESEARCH_POLL_INTERVAL_MS = 5000
+export const MAX_RESEARCH_POLL_ROUNDS = 90
+
 /** First page only — deliberate for alpha; load-more is a follow-up. */
 const LIST_PAGE_SIZE = 100
 
@@ -269,6 +275,14 @@ export const pulseLogic = kea<pulseLogicType>([
             transition,
         }),
         createExperimentFromOpportunity: (opportunityId: string) => ({ opportunityId }),
+        researchOpportunity: (opportunityId: string) => ({ opportunityId }),
+        researchStarted: (opportunityId: string) => ({ opportunityId }),
+        researchRequested: (opportunity: OpportunityApi) => ({ opportunity }),
+        researchFailed: (opportunityId: string) => ({ opportunityId }),
+        researchCompleted: (opportunityId: string) => ({ opportunityId }),
+        startResearchPolling: true,
+        stopResearchPolling: true,
+        pollResearchingOpportunities: true,
         opportunityTransitionStarted: (opportunityId: string, transition: OpportunityRowAction) => ({
             opportunityId,
             transition,
@@ -437,6 +451,23 @@ export const pulseLogic = kea<pulseLogicType>([
                 },
             },
         ],
+        // Opportunities with a research run in flight — set optimistically on click so the button
+        // spins immediately, cleared when the notebook lands (researchCompleted), the request fails
+        // (researchFailed), or the poll gives up.
+        researchInFlight: [
+            {} as Record<string, true>,
+            {
+                researchStarted: (state, { opportunityId }) => ({ ...state, [opportunityId]: true as const }),
+                researchFailed: (state, { opportunityId }) => {
+                    const { [opportunityId]: _, ...rest } = state
+                    return rest
+                },
+                researchCompleted: (state, { opportunityId }) => {
+                    const { [opportunityId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         // Keyed by brief/opportunity id (UUIDs — no cross-resource collision) so each vote
         // target guards independently.
         feedbackVotesInFlight: [
@@ -544,6 +575,9 @@ export const pulseLogic = kea<pulseLogicType>([
             opportunityTransitionSucceeded: (state, { opportunity }) =>
                 state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
             opportunityFeedbackUpdated: (state, { opportunity }) =>
+                state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
+            // Server-confirmed swap: the returned row carries the fresh research_requested_at.
+            researchRequested: (state, { opportunity }) =>
                 state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
         },
     }),
@@ -814,6 +848,68 @@ export const pulseLogic = kea<pulseLogicType>([
                 }
                 router.actions.push(urls.experiment('new'))
             },
+            researchOpportunity: async ({ opportunityId }) => {
+                if (opportunityId in values.researchInFlight) {
+                    return // state-level double-submission guard; the button is also disabled
+                }
+                // Optimistic spinner: the run is a Temporal workflow, so the button reflects intent
+                // immediately and the poll below swaps in the notebook link when it lands.
+                actions.researchStarted(opportunityId)
+                try {
+                    const updated = await pulseOpportunitiesResearchCreate(currentProjectId(), opportunityId)
+                    actions.researchRequested(updated)
+                    actions.startResearchPolling()
+                } catch (error) {
+                    actions.researchFailed(opportunityId)
+                    if (isAiConsentError(error)) {
+                        actions.setAiConsentRequired(true)
+                        return
+                    }
+                    if (error instanceof ApiError && error.status === 429) {
+                        lemonToast.info('Daily research limit reached for this team — try again later')
+                        return
+                    }
+                    if (error instanceof ApiError && error.status === 409) {
+                        lemonToast.info('Research is already running for this opportunity')
+                        return
+                    }
+                    lemonToast.error(
+                        error instanceof ApiError && error.detail ? error.detail : 'Starting research failed'
+                    )
+                }
+            },
+            startResearchPolling: () => {
+                cache.researchPollRounds = 0
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(
+                        () => actions.pollResearchingOpportunities(),
+                        RESEARCH_POLL_INTERVAL_MS
+                    )
+                    return () => clearInterval(intervalId)
+                }, 'researchPoll')
+            },
+            stopResearchPolling: () => {
+                cache.disposables.dispose('researchPoll')
+            },
+            pollResearchingOpportunities: () => {
+                if (Object.keys(values.researchInFlight).length === 0) {
+                    actions.stopResearchPolling()
+                    return
+                }
+                if ((cache.researchPollRounds ?? 0) >= MAX_RESEARCH_POLL_ROUNDS) {
+                    // Give up the spinner (the notebook may still land — a reload will show it) so a
+                    // slow or failed run doesn't spin forever.
+                    actions.stopResearchPolling()
+                    Object.keys(values.researchInFlight).forEach((id) => actions.researchFailed(id))
+                    lemonToast.info('Research is taking a while — reload to check for the notebook')
+                    return
+                }
+                if (values.opportunitiesLoading) {
+                    return // a slow previous refresh is still running — skip instead of stacking
+                }
+                cache.researchPollRounds = (cache.researchPollRounds ?? 0) + 1
+                actions.loadOpportunities()
+            },
             setActiveTab: ({ tab }) => {
                 // Lazy first load — briefs are the default landing surface, so the opportunities
                 // request waits until the tab is actually opened. The flag only latches on success,
@@ -827,8 +923,15 @@ export const pulseLogic = kea<pulseLogicType>([
                     actions.loadOpportunities()
                 }
             },
-            loadOpportunitiesSuccess: () => {
+            loadOpportunitiesSuccess: ({ opportunities }) => {
                 cache.opportunitiesLoaded = true
+                // Clear the research spinner for any opportunity whose notebook has now landed.
+                for (const opportunityId of Object.keys(values.researchInFlight)) {
+                    const fresh = opportunities.find((opportunity) => opportunity.id === opportunityId)
+                    if (fresh?.research_notebook_short_id) {
+                        actions.researchCompleted(opportunityId)
+                    }
+                }
             },
             loadOpportunitiesFailure: () => {
                 lemonToast.error('Loading opportunities failed — reopen the tab to retry')

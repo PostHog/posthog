@@ -77,6 +77,9 @@ const openOpportunity: OpportunityApi = {
     goal_relevant: false,
     proposed_experiment: null,
     first_seen_brief: null,
+    research_notebook_id: null,
+    research_notebook_short_id: null,
+    research_requested_at: null,
     my_vote: null,
     helpful_count: 0,
     not_helpful_count: 0,
@@ -706,6 +709,57 @@ describe('pulseLogic', () => {
         expect(warningSpy).toHaveBeenCalledWith('Could not copy the proposal — find it on the opportunity row')
         // The proposal survives on the row, so a failed copy must not block the experiment flow.
         expect(router.values.location.pathname.endsWith(urls.experiment('new'))).toBe(true)
+    })
+
+    it('starts research, marks the row in-flight, and swaps in the server row', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/research/': () => [
+                    202,
+                    { ...openOpportunity, research_requested_at: '2026-07-05T00:00:00Z' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.researchOpportunity('opp-1')
+        }).toDispatchActions(['researchStarted', 'researchRequested', 'startResearchPolling'])
+        expect(logic.values.researchInFlight).toEqual({ 'opp-1': true })
+        expect(logic.values.opportunities[0].research_requested_at).toEqual('2026-07-05T00:00:00Z')
+    })
+
+    it('clears the spinner and info-toasts when research is over the daily cap', async () => {
+        const infoSpy = jest.spyOn(lemonToast, 'info')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/research/': () => [
+                    429,
+                    { detail: 'Daily research limit reached for this team. Try again later.' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.researchOpportunity('opp-1')
+        }).toDispatchActions(['researchStarted', 'researchFailed'])
+        expect(logic.values.researchInFlight).toEqual({})
+        expect(infoSpy).toHaveBeenCalledWith('Daily research limit reached for this team — try again later')
+    })
+
+    it('clears the research spinner once the notebook lands on a list refresh', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+        logic.actions.researchStarted('opp-1')
+        expect(logic.values.researchInFlight).toEqual({ 'opp-1': true })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadOpportunitiesSuccess([{ ...openOpportunity, research_notebook_short_id: 'nb1' }])
+        }).toDispatchActions(['researchCompleted'])
+        expect(logic.values.researchInFlight).toEqual({})
     })
 
     it('stays on the scene and keeps the row open when the acted transition fails', async () => {
