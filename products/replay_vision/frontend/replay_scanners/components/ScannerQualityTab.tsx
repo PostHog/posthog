@@ -448,6 +448,7 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[]
 
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const theme = useMemo(() => buildTheme(), [])
     const [mode, setMode] = useState<ChartMode>('session')
@@ -478,6 +479,29 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
+    // Thumbs-up share per prompt version, from rated sessions only.
+    const versionAccuracy = useMemo(() => {
+        const markers = labelStats?.version_markers ?? []
+        return markers
+            .map((marker) => {
+                const rated = marker.up + marker.down
+                return {
+                    version: marker.version,
+                    rated,
+                    scanned: marker.total,
+                    pct: rated > 0 ? Math.round((marker.up / rated) * 100) : null,
+                }
+            })
+            .filter((entry) => entry.pct !== null)
+            .sort((a, b) => a.version - b.version)
+    }, [labelStats])
+    // A freshly applied prompt has no scans yet and no marker. Show it so the strip
+    // doesn't imply the previous version is still live.
+    const activeVersion = scanner?.scanner_version
+    const activeVersionUnscanned =
+        activeVersion !== undefined &&
+        versionAccuracy.length > 0 &&
+        !(labelStats?.version_markers ?? []).some((marker) => marker.version === activeVersion)
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -498,6 +522,40 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                     />
                 </div>
             </div>
+            {versionAccuracy.length >= 2 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
+                    {versionAccuracy.map((entry, index) => {
+                        const previous = index > 0 ? versionAccuracy[index - 1] : null
+                        const delta = previous?.pct != null && entry.pct != null ? entry.pct - previous.pct : null
+                        const isCurrent = activeVersionUnscanned
+                            ? false
+                            : activeVersion !== undefined
+                              ? entry.version === activeVersion
+                              : index === versionAccuracy.length - 1
+                        return (
+                            <span key={entry.version} className="flex items-center gap-1.5">
+                                {delta !== null && (
+                                    <span className={delta >= 0 ? 'text-success' : 'text-danger'}>
+                                        {delta >= 0 ? '↑' : '↓'}
+                                    </span>
+                                )}
+                                <Tooltip
+                                    title={`${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`}
+                                >
+                                    <LemonTag type={isCurrent ? 'highlight' : 'muted'}>
+                                        v{entry.version} · {entry.pct}% thumbs up ({entry.rated})
+                                    </LemonTag>
+                                </Tooltip>
+                            </span>
+                        )
+                    })}
+                    {activeVersionUnscanned && (
+                        <Tooltip title="This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker">
+                            <LemonTag type="highlight">v{activeVersion} · no scans yet</LemonTag>
+                        </Tooltip>
+                    )}
+                </div>
+            )}
             {labelStatsLoading && !labelStats ? (
                 <div className="flex items-center justify-center py-6 text-muted">
                     <Spinner />
@@ -597,6 +655,21 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                 </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
+        },
+        {
+            title: 'Confidence',
+            key: 'confidence',
+            width: 110,
+            tooltip:
+                'How sure the scanner was of this result. Rating low-confidence sessions first teaches the prompt the most.',
+            render: (_, obs) => {
+                const confidence = (obs.scanner_result as Record<string, any> | null)?.model_output?.confidence
+                if (typeof confidence !== 'number') {
+                    return <span className="text-muted">—</span>
+                }
+                return <span className="tabular-nums">{Math.round(confidence * 100)}%</span>
+            },
+            sorter: true,
         },
         {
             title: 'Scanner got it right?',

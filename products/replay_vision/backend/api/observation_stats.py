@@ -127,6 +127,7 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
             prompt=Max("snapshot_prompt"),
             up=Count("id", filter=Q(label__is_correct=True)),
             down=Count("id", filter=Q(label__is_correct=False)),
+            total=Count("id"),
         )
     )
     markers = []
@@ -142,6 +143,7 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
                 "prompt": row["prompt"] or "",
                 "up": row["up"],
                 "down": row["down"],
+                "total": row["total"],
             }
         )
     return sorted(markers, key=lambda marker: (marker["date"], marker["version"]))
