@@ -7,7 +7,9 @@ from datetime import date
 from typing import Any, Literal
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import psycopg
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
@@ -378,3 +380,52 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     ]
     assert len(completion_calls) == 1
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
+
+
+# DDL lock retry
+
+
+class _LockFlakyConn:
+    def __init__(self, failures: int, error: type[Exception]) -> None:
+        self.failures = failures
+        self.error = error
+        self.calls = 0
+
+    def execute(self, _sql: Any, _params: Any = None) -> MagicMock:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.error()
+        return MagicMock()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failures", "error", "expected_calls", "raises"),
+    [
+        # transient lock timeouts retry until the DDL goes through
+        (2, psycopg.errors.LockNotAvailable, 3, None),
+        # persistent lock timeouts give up after the attempt cap instead of retrying forever
+        (
+            99,
+            psycopg.errors.LockNotAvailable,
+            activities_module.DDL_LOCK_MAX_ATTEMPTS,
+            psycopg.errors.LockNotAvailable,
+        ),
+        # non-lock errors surface immediately — retrying would mask real failures
+        (99, psycopg.errors.UndefinedTable, 1, psycopg.errors.UndefinedTable),
+    ],
+)
+async def test_ddl_lock_retry(
+    failures: int, error: type[Exception], expected_calls: int, raises: type[Exception] | None
+) -> None:
+    conn = _LockFlakyConn(failures, error)
+    with patch("asyncio.sleep", new=AsyncMock()):
+        if raises is None:
+            await activities_module._execute_ddl_with_lock_retry(conn, "DROP TABLE IF EXISTS sourcebatch_20260101")  # type: ignore[arg-type]
+        else:
+            with pytest.raises(raises):
+                await activities_module._execute_ddl_with_lock_retry(
+                    conn,  # type: ignore[arg-type]
+                    "DROP TABLE IF EXISTS sourcebatch_20260101",
+                )
+    assert conn.calls == expected_calls
