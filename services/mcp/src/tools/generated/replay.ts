@@ -19,6 +19,32 @@ import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const SessionRecordingBulkDeleteSchema = SessionRecordingsBulkDeleteCreateBody
+
+const sessionRecordingBulkDelete = (): ToolBase<
+    typeof SessionRecordingBulkDeleteSchema,
+    Schemas.SessionRecordingBulkDeleteResponse
+> => ({
+    name: 'session-recording-bulk-delete',
+    schema: SessionRecordingBulkDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingBulkDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_recording_ids !== undefined) {
+            body['session_recording_ids'] = params.session_recording_ids
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        const result = await context.api.request<Schemas.SessionRecordingBulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
 const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema, unknown> => ({
@@ -219,32 +245,6 @@ const sessionRecordingSummaryGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
         })
         return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
-    },
-})
-
-const SessionRecordingBulkDeleteSchema = SessionRecordingsBulkDeleteCreateBody
-
-const sessionRecordingBulkDelete = (): ToolBase<
-    typeof SessionRecordingBulkDeleteSchema,
-    Schemas.SessionRecordingBulkDeleteResponse
-> => ({
-    name: 'session-recording-bulk-delete',
-    schema: SessionRecordingBulkDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingBulkDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.session_recording_ids !== undefined) {
-            body['session_recording_ids'] = params.session_recording_ids
-        }
-        if (params.date_from !== undefined) {
-            body['date_from'] = params.date_from
-        }
-        const result = await context.api.request<Schemas.SessionRecordingBulkDeleteResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/bulk_delete/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -690,6 +690,7 @@ const AssistantRecordingsQuery = z.object({
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'session-recording-bulk-delete': sessionRecordingBulkDelete,
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
@@ -698,7 +699,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
     'session-recording-summaries-list': sessionRecordingSummariesList,
     'session-recording-summary-get': sessionRecordingSummaryGet,
-    'session-recording-bulk-delete': sessionRecordingBulkDelete,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,
