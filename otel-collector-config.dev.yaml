@@ -97,9 +97,7 @@ exporters:
         headers:
             # special "local" token is automatically mapped to team_id 1 in dev environments
             authorization: Bearer phc_local
-        # Give up quickly when capture-logs is down (the tracing profile can run
-        # without the logs/metrics ingestion stack) rather than retrying into the
-        # 5 min default and holding the data that whole time.
+        # Give up in 30s (vs the 5 min default) when capture-logs is down.
         retry_on_failure:
             max_elapsed_time: 30s
     otlphttp/logs:
@@ -123,10 +121,8 @@ exporters:
             max_elapsed_time: 30s
 
 processors:
-    # Hard-cap the collector's memory and push backpressure onto the receivers
-    # (incl. the container filelog tailer) when an exporter's downstream is
-    # unreachable. Without this the in-memory queue grows without bound: an
-    # absent capture-logs made the collector balloon to multiple GB of RAM.
+    # Shed load instead of buffering to multiple GB of RAM when a downstream
+    # (e.g. capture-logs) is unreachable.
     memory_limiter:
         check_interval: 1s
         limit_mib: 512
