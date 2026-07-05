@@ -663,7 +663,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 read_source=read_source,
                 is_creator=instance.created_by_id == getattr(request.user, "id", None),
                 user_access_level=serializer.data.get("user_access_level"),
-                **source_props,
+                mcp_client=source_props.get("mcp_client"),
+                api_key_type=source_props.get("api_key_type"),
             )
 
         return Response(serializer.data)

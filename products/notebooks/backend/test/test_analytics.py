@@ -87,7 +87,7 @@ class TestNotebookAnalytics(BaseTest):
     @patch("products.notebooks.backend.analytics.report_user_action")
     def test_capture_notebook_read_builds_props_and_drops_none(self, mock_report):
         capture_notebook_read(
-            request=object(),
+            request=_fake_request(SessionAuthentication()),
             user=self.user,
             short_id="abc123",
             read_source=NotebookCreationSource.MCP,
