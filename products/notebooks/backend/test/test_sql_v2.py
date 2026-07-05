@@ -968,3 +968,79 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertIn("nb_kernel/server.py", names)
         self.assertIn("nb_kernel/__init__.py", names)
         self.assertEqual(len(version), 16)
+
+
+class TestSQLV2PythonNodeRun(SimpleTestCase):
+    def test_materialize_query_writes_a_readable_arrow_file(self):
+        # Journey 4 materialization: the server streams a CH result to a local Arrow *file* the
+        # kernel later mmaps. It must be an IPC file (open_file), and the temp must be renamed away.
+        import os
+        import tempfile
+
+        import pyarrow as pa
+
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        arrow_bytes = _rows_to_arrow_bytes(["id", "v"], [(1, 10), (2, 20)], [["id", "Int64"], ["v", "Int64"]])
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": "application/vnd.apache.arrow.stream"}
+
+            def __exit__(self, *args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            dest = os.path.join(directory, "df.arrow")
+            with patch.object(
+                kernel_data_plane.urllib.request,
+                "urlopen",
+                side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
+            ):
+                rows = kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", dest, limit=1000
+                )
+            self.assertEqual(rows, 2)
+            table = pa.ipc.open_file(dest).read_all()
+            self.assertEqual(table.num_rows, 2)
+            self.assertEqual(table.column_names, ["id", "v"])
+            self.assertFalse(os.path.exists(dest + ".partial"))
+
+    def test_execute_run_routes_python_nodes_to_the_executor(self):
+        result_envelope = {"status": "ok", "columns": ["a"]}
+        delivered: dict = {}
+        payload = {
+            "run_id": "r-py",
+            "node": {"type": "python", "code": "1 + 1"},
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_python_node", return_value=result_envelope) as run_python,
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+        ):
+            kernel_runner.execute_run(payload)
+        run_python.assert_called_once()
+        self.assertEqual(delivered["status"], "ok")
+
+    def test_execute_run_keeps_hogql_nodes_off_the_kernel(self):
+        # A pure-HogQL node must stay on the capped data-plane fetch — never spin up the kernel.
+        payload = {
+            "run_id": "r-hogql",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+            "data_plane_url": "u",
+            "data_plane_token": "t",
+        }
+        with (
+            patch.object(kernel_runner, "_run_python_node") as run_python,
+            patch.object(kernel_runner, "_post_callback"),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                return_value=(["n"], [(1,)], [["n", "Int64"]]),
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        run_python.assert_not_called()

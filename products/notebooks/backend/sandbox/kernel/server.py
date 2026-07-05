@@ -35,7 +35,7 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path not in ("/run", "/page"):
+        if self.path not in ("/run", "/page", "/interrupt"):
             self._respond(404, {"error": "Not found"})
             return
         try:
@@ -51,7 +51,17 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             threading.Thread(target=execute_run, args=(payload,), daemon=True).start()
             self._respond(202, {"accepted": True})
             return
+        if self.path == "/interrupt":
+            self._handle_interrupt()
+            return
         self._handle_page(payload)
+
+    def _handle_interrupt(self) -> None:
+        # Deferred so the server startup path never imports jupyter_client (sandbox-only).
+        from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
+
+        executor.get_executor().interrupt()
+        self._respond(200, {"interrupted": True})
 
     def _handle_page(self, payload: dict[str, Any]) -> None:
         from . import data_plane  # noqa: PLC0415 — keep pyarrow off the server startup path

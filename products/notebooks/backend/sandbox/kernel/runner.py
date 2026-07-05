@@ -36,9 +36,29 @@ _result_cache_lock = threading.Lock()
 
 
 def execute_run(payload: dict[str, Any]) -> None:
-    """Entry point for a /run request, invoked on a background thread."""
-    result = _build_envelope(payload)
+    """Entry point for a /run request, invoked on a background thread.
+
+    Routing rule (sql_v2_kernel_architecture.md): a Python node runs in the ipykernel
+    (materialize inputs, run code); a pure-HogQL display node stays a capped data-plane
+    fetch and never touches the kernel.
+    """
+    node = payload.get("node") or {}
+    if node.get("type") == "python":
+        result = _run_python_node(payload)
+    else:
+        result = _build_envelope(payload)
     _post_callback(payload["callback_url"], payload["callback_token"], result)
+
+
+def _run_python_node(payload: dict[str, Any]) -> dict[str, Any]:
+    # Deferred so the server startup path never imports jupyter_client (heavy, sandbox-only).
+    from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
+
+    try:
+        return executor.get_executor().run_python_node(payload)
+    except Exception as exc:  # noqa: BLE001 — a run must always produce a callback envelope
+        logger.exception("nb_kernel python node run failed")
+        return envelope.from_error(f"Python node failed in the sandbox: {exc}")
 
 
 def _fetch_capped_page(payload: dict[str, Any], limit: int, offset: int) -> dict[str, Any]:
