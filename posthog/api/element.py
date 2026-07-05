@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import datetime
 from typing import Literal, cast
@@ -32,6 +33,10 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
     "How long does it take to get element stats?",
 )
+
+# element properties that appear as string values in elements_chain; the numeric
+# fields on ElementSerializer are stored in a format the values regexes cannot match
+SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_class", "attr_id"}
 
 ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
     "element_stats_result_count",
@@ -131,7 +136,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "filter_test_accounts",
                 type=bool,
-                description="When true, applies the project's internal-and-test-account filters to the underlying events.",
+                description=(
+                    "When true, applies the project's internal-and-test-account filters to the underlying events. "
+                    "Pass the lowercase string true; other truthy spellings are ignored."
+                ),
             ),
         ],
         responses=ElementStatsResponseSerializer,
@@ -139,10 +147,9 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         """
-        The original version of this API always and only returned $autocapture elements
-        If no include query parameter is sent this remains true.
-        Now, you can pass a combination of include query parameters to get different types of elements
-        Currently only $autocapture and $rageclick and $dead_click are supported
+        Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+        they occurred on, ordered by count. Defaults to all three event types; narrow with the
+        include parameter.
         """
 
         with (
@@ -295,7 +302,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
                     raise ValidationError("include must be a valid JSON array when passed as one")
-                if not isinstance(parsed, list):
+                if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
                     raise ValidationError("include must be a JSON array of event names")
                 events_to_include.update(parsed)
             else:
@@ -334,27 +341,29 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             key = request.GET.get("key")
             value = request.GET.get("value")
 
+            if key not in SUPPORTED_VALUES_KEYS:
+                raise ValidationError(f"key must be one of {', '.join(sorted(SUPPORTED_VALUES_KEYS))}")
+
             span.set_attribute("team_id", self.team.pk)
-            span.set_attribute("property_key", key or "")
+            span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value is not None)
 
+            # the value is a user-typed substring, so escape it before it lands in a regex
+            escaped_value = re.escape(value) if value else None
+
             select_regex = '[:|"]{}="(.*?)"'.format(key)
-
-            # Make sure key exists, otherwise could lead to sql injection lower down
-            if key not in self.serializer_class.Meta.fields:
-                return response.Response([])
-
             if key == "tag_name":
                 select_regex = r"^([-_a-zA-Z0-9]*?)[\.|:]"
                 filter_regex = select_regex
-                if value:
-                    filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(value)
+                if escaped_value:
+                    filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(escaped_value)
             else:
-                if value:
-                    filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, value)
+                if escaped_value:
+                    filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, escaped_value)
                 else:
                     filter_regex = select_regex
 
+            # no explicit team filter: execute_hogql_query scopes the events table to self.team
             select = parse_select(
                 """
                 SELECT extract(elements_chain, {select_regex}) AS value, count() AS occurrences

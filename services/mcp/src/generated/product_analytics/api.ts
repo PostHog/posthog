@@ -9,10 +9,9 @@
 import * as zod from 'zod'
 
 /**
- * The original version of this API always and only returned $autocapture elements
- * If no include query parameter is sent this remains true.
- * Now, you can pass a combination of include query parameters to get different types of elements
- * Currently only $autocapture and $rageclick and $dead_click are supported
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
  */
 export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -37,7 +36,9 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     filter_test_accounts: zod
         .boolean()
         .optional()
-        .describe("When true, applies the project's internal-and-test-account filters to the underlying events."),
+        .describe(
+            "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored."
+        ),
     include: zod
         .array(zod.string())
         .optional()

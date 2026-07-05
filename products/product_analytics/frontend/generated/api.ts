@@ -294,10 +294,9 @@ export const getElementsStatsRetrieveUrl = (projectId: string, params?: Elements
 }
 
 /**
- * The original version of this API always and only returned $autocapture elements
- * If no include query parameter is sent this remains true.
- * Now, you can pass a combination of include query parameters to get different types of elements
- * Currently only $autocapture and $rageclick and $dead_click are supported
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
  */
 export const elementsStatsRetrieve = async (
     projectId: string,

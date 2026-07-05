@@ -149,6 +149,16 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response[0]["name"], "click here")
         self.assertEqual(len(response), 1)
 
+        # value is a substring, not a regex fragment: metacharacters match literally, never 500
+        response = self.client.get("/api/element/values/?key=text&value=click(")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+    @parameterized.expand(["", "key=order", "key=unknown"])
+    def test_event_property_values_rejects_unsupported_keys(self, query: str) -> None:
+        response = self.client.get(f"/api/element/values/?{query}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     # checking postgres, don't care about person on events
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
@@ -373,6 +383,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("non_numeric_offset", "offset=not-a-number"),
             ("unexpected_include", "include=$autocapture&include=$rageclick&include=$pageview"),
             ("malformed_json_include", "include=%5Bnot-json"),
+            ("non_string_members_in_json_include", "include=%5B%7B%7D%5D"),
             ("zero_limit", "limit=0"),
             ("negative_limit", "limit=-1"),
             ("limit_at_printer_cap", "limit=1000000"),

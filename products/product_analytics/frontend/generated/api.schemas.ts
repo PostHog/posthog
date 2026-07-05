@@ -7820,7 +7820,7 @@ export type ElementsStatsRetrieveParams = {
      */
     date_to?: string
     /**
-     * When true, applies the project's internal-and-test-account filters to the underlying events.
+     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
      */
     filter_test_accounts?: boolean
     /**
