@@ -62,6 +62,51 @@ export function resolveAreaTarget(target: HTMLElement): HTMLElement {
     return (target.closest(AREA_TARGET_SELECTOR) as HTMLElement | null) ?? target
 }
 
+function rectsMatch(a: DOMRect, b: DOMRect): boolean {
+    return (
+        Math.abs(a.top - b.top) < 1 &&
+        Math.abs(a.left - b.left) < 1 &&
+        Math.abs(a.width - b.width) < 1 &&
+        Math.abs(a.height - b.height) < 1
+    )
+}
+
+// arrow-key refinement of the hovered area: "up" grows the selection to the nearest
+// ancestor that is visibly bigger, "down" shrinks it back toward the exact hovered
+// element (the anchor). Same-size wrapper elements are skipped in both directions so
+// every step visibly changes the highlight on div-heavy pages.
+export function stepAreaCandidate(anchor: HTMLElement, candidate: HTMLElement, direction: 'up' | 'down'): HTMLElement {
+    const candidateRect = candidate.getBoundingClientRect()
+
+    if (direction === 'up') {
+        let next = getParent(candidate)
+        while (next && next !== document.body && rectsMatch(next.getBoundingClientRect(), candidateRect)) {
+            next = getParent(next)
+        }
+        return next && next !== document.body && next !== document.documentElement ? next : candidate
+    }
+
+    if (candidate === anchor) {
+        return candidate
+    }
+    // the anchor is always a descendant of (or equal to) the candidate, so the way down
+    // is the chain from the anchor up to just below the candidate
+    const path: HTMLElement[] = []
+    let current: HTMLElement | null = anchor
+    while (current && current !== candidate) {
+        path.push(current)
+        current = getParent(current)
+    }
+    if (current !== candidate || path.length === 0) {
+        return candidate
+    }
+    let index = path.length - 1
+    while (index > 0 && rectsMatch(path[index].getBoundingClientRect(), candidateRect)) {
+        index--
+    }
+    return path[index]
+}
+
 export function buildElementStatsProperties(
     href: string,
     wildcardHref: string,
@@ -296,7 +341,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
         startAreaSelection: true,
         cancelAreaSelection: true,
-        setAreaHoverElement: (element: HTMLElement | null) => ({ element }),
+        setAreaHover: (anchor: HTMLElement, candidate: HTMLElement) => ({ anchor, candidate }),
+        setAreaHoverCandidate: (candidate: HTMLElement) => ({ candidate }),
+        stepAreaHover: (direction: 'up' | 'down') => ({ direction }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
         // swap the tracked node for a re-resolved one without refetching: the selector is
@@ -320,13 +367,37 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 setHeatmapAreaFilter: () => false,
             },
         ],
-        areaHoverElement: [
+        // the raw element under the pointer; the fixed reference point arrow-key steps
+        // shrink back toward
+        areaHoverAnchor: [
             null as HTMLElement | null,
             {
-                setAreaHoverElement: (_, { element }) => element,
+                setAreaHover: (_, { anchor }) => anchor,
                 startAreaSelection: () => null,
                 cancelAreaSelection: () => null,
                 setHeatmapAreaFilter: () => null,
+            },
+        ],
+        // the currently highlighted candidate: the semantic snap of the anchor by default,
+        // moved along the ancestor chain by arrow keys
+        areaHoverElement: [
+            null as HTMLElement | null,
+            {
+                setAreaHover: (_, { candidate }) => candidate,
+                setAreaHoverCandidate: (_, { candidate }) => candidate,
+                startAreaSelection: () => null,
+                cancelAreaSelection: () => null,
+                setHeatmapAreaFilter: () => null,
+            },
+        ],
+        areaHoverStepped: [
+            false,
+            {
+                setAreaHoverCandidate: () => true,
+                setAreaHover: () => false,
+                startAreaSelection: () => false,
+                cancelAreaSelection: () => false,
+                setHeatmapAreaFilter: () => false,
             },
         ],
         // cleared on disableHeatmap and navigation via the listeners dispatching
@@ -733,16 +804,29 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             toolbarPosthogJS.capture('toolbar heatmap area selection started')
         },
 
+        stepAreaHover: ({ direction }) => {
+            const { areaHoverAnchor, areaHoverElement } = values
+            if (!areaHoverAnchor || !areaHoverElement) {
+                return
+            }
+            const next = stepAreaCandidate(areaHoverAnchor, areaHoverElement, direction)
+            if (next !== areaHoverElement) {
+                actions.setAreaHoverCandidate(next)
+            }
+        },
+
         selectHeatmapAreaFilter: ({ element }) => {
             const selector = element
                 ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes).selector || null
                 : null
+            const arrowStepped = values.areaHoverStepped
             actions.setHeatmapAreaFilter(element, selector)
             toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
                 enabled: !!element,
                 has_selector: !!selector,
                 tag_name: element?.tagName.toLowerCase() ?? null,
                 trigger: 'user',
+                arrow_stepped: arrowStepped,
             })
         },
 
@@ -980,7 +1064,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 if (!target || isToolbarElement(target)) {
                     return
                 }
-                actions.setAreaHoverElement(resolveAreaTarget(target))
+                // moving the mouse resets any arrow-key refinement to the new hover's snap
+                actions.setAreaHover(target, resolveAreaTarget(target))
             }
 
             const onClick = (e: MouseEvent): void => {
@@ -993,14 +1078,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 }
                 e.preventDefault()
                 e.stopPropagation()
-                actions.selectHeatmapAreaFilter(resolveAreaTarget(target))
+                // the highlighted candidate, not the click target: arrow keys may have
+                // grown or shrunk the selection away from what's under the pointer
+                actions.selectHeatmapAreaFilter(values.areaHoverElement ?? resolveAreaTarget(target))
+            }
+
+            const onKeyDown = (e: KeyboardEvent): void => {
+                if (!values.areaSelectionActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) {
+                    return
+                }
+                // arrows refine the selection, so they must not scroll the page mid-pick
+                e.preventDefault()
+                e.stopPropagation()
+                actions.stepAreaHover(e.key === 'ArrowUp' ? 'up' : 'down')
             }
 
             document.addEventListener('mouseover', onMouseOver, true)
             document.addEventListener('click', onClick, true)
+            document.addEventListener('keydown', onKeyDown, true)
             return () => {
                 document.removeEventListener('mouseover', onMouseOver, true)
                 document.removeEventListener('click', onClick, true)
+                document.removeEventListener('keydown', onKeyDown, true)
             }
         }, 'areaSelectionListeners')
 

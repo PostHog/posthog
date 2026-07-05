@@ -11,6 +11,7 @@ import {
     heatmapToolbarMenuLogic,
     isInFixedContainer,
     resolveAreaTarget,
+    stepAreaCandidate,
 } from './heatmapToolbarMenuLogic'
 
 function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
@@ -123,6 +124,41 @@ describe('heatmapToolbarMenuLogic', () => {
             document.body.innerHTML = html
             const hovered = document.getElementById(hoveredId) as HTMLElement
             expect(resolveAreaTarget(hovered).id).toBe(expectedId)
+        })
+    })
+
+    describe('stepAreaCandidate', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        function chain(rects: number[]): HTMLElement[] {
+            // builds body > el0 > el1 > ... where each element's mocked rect width is
+            // rects[i] (same-width neighbours simulate zero-layout wrapper divs)
+            const elements: HTMLElement[] = []
+            let parent: HTMLElement = document.body
+            rects.forEach((width, i) => {
+                const el = document.createElement('div')
+                el.id = `el${i}`
+                el.getBoundingClientRect = () =>
+                    ({ top: 0, left: 0, width, height: 100, right: width, bottom: 100 }) as DOMRect
+                parent.appendChild(el)
+                elements.push(el)
+                parent = el
+            })
+            return elements
+        }
+
+        it.each([
+            ['up steps to the parent when it is bigger', [300, 200, 100], 2, 2, 'up', 1],
+            ['up skips same-size wrapper parents', [300, 200, 200, 200, 100], 4, 3, 'up', 0],
+            ['up stops below body when nothing bigger remains', [300], 0, 0, 'up', 0],
+            ['down steps back toward the anchor', [300, 200, 100], 2, 0, 'down', 1],
+            ['down skips same-size wrappers next to the candidate', [300, 300, 300, 100], 3, 0, 'down', 3],
+            ['down at the anchor stays put', [300, 200, 100], 2, 2, 'down', 2],
+        ] as const)('%s', (_name, rects, anchorIdx, candidateIdx, direction, expectedIdx) => {
+            const els = chain([...rects])
+            expect(stepAreaCandidate(els[anchorIdx], els[candidateIdx], direction)).toBe(els[expectedIdx])
         })
     })
 
