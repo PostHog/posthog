@@ -9,17 +9,11 @@ export interface AllowListsInput {
     url: string[]
 }
 
-// Per-event flag bits in `AnonymizeEventMeta.flags` (see `snapshot.rs`).
-export const EVENT_FLAG_ACTIVE = 1
-export const EVENT_FLAG_CLICK = 2
-export const EVENT_FLAG_KEYPRESS = 4
-export const EVENT_FLAG_MOUSE_ACTIVITY = 8
-
 /** Per emitted JSONL line, in line order. */
 export interface AnonymizeEventMeta {
     /** The event's `timestamp` (epoch ms; can be fractional). */
     ts: number
-    /** Bitmask of the EVENT_FLAG_* bits. */
+    /** Bitmask of the FLAG_* bits in `snapshot.rs` (mirrored as PRE_SERIALIZED_FLAG_* in the consumer). */
     flags: number
     /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
     href?: string

@@ -60,7 +60,7 @@ export async function anonymizeParsedMessage(
     await runBlurJobs(blurJobs)
     const blurMs = performance.now() - blurStart
 
-    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', 'total', scrubMs + blurMs)
+    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', scrubMs + blurMs)
 
     if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
         logger.warn('🕒', 'anonymize_slow_breakdown', {

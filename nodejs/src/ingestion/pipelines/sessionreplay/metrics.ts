@@ -4,8 +4,6 @@ const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400
 
 /** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
 export type MlAnonymizeImpl = 'rust' | 'ts'
-/** `total` end-to-end, or a sub-phase of the FFI round-trip. */
-export type MlAnonymizePhase = 'stringify' | 'scrub' | 'parse' | 'total'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
 export type MlAnonymizeRoute = 'stream' | 'tree' | ''
 
@@ -62,8 +60,8 @@ export class SessionRecordingIngesterMetrics {
 
     private static readonly mlAnonymizeDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
-        help: 'Per-message ML mirror anonymize time in ms, by implementation, phase and route',
-        labelNames: ['impl', 'phase', 'route'],
+        help: 'Per-message ML mirror anonymize time in ms, by implementation and route',
+        labelNames: ['impl', 'route'],
         buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
     })
 
@@ -109,13 +107,8 @@ export class SessionRecordingIngesterMetrics {
         this.kafkaBatchSizeKb.observe(sizeKb)
     }
 
-    public static observeMlAnonymizeDuration(
-        impl: MlAnonymizeImpl,
-        phase: MlAnonymizePhase,
-        ms: number,
-        route: MlAnonymizeRoute = ''
-    ): void {
-        this.mlAnonymizeDuration.labels(impl, phase, route).observe(ms)
+    public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
+        this.mlAnonymizeDuration.labels(impl, route).observe(ms)
     }
 
     public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {

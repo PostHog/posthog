@@ -72,12 +72,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
         }
-        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration(
-            'rust',
-            'total',
-            performance.now() - t0,
-            result.route ?? ''
-        )
+        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
 
         if (result.failed) {
             if (result.reason && DLQ_REASONS.has(result.reason)) {
