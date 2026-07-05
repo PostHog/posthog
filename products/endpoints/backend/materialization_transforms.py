@@ -36,6 +36,17 @@ class VariableInHavingClauseError(MaterializationNotSupportedError):
     """Raised when a variable is used in a HAVING clause, which is not supported for materialization."""
 
 
+class VariableInLambdaError(MaterializationNotSupportedError):
+    """Raised when a variable is used inside a lambda/array function (e.g. arrayExists).
+
+    The transform lifts a variable's WHERE predicate into a materialized bucket column, but a
+    variable referenced inside a lambda body compares against a lambda-local argument rather than
+    a real table column, so there's no column to materialize on. Detected up front so both the
+    preview and status paths report can_materialize=False with a reason instead of the transform
+    crashing on the leftover placeholder.
+    """
+
+
 def inject_series_index(query_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:
     """Add a __series_index literal column to each sub-query in a UNION ALL.
 
@@ -301,6 +312,12 @@ def analyze_variables_for_materialization(
             all_usages = find_all_variable_usages(ast_node, placeholder)
         except VariableInHavingClauseError:
             return False, "Variable used in HAVING clause are not supported for materialization.", []
+        except VariableInLambdaError:
+            return (
+                False,
+                "Variable used inside a lambda/array function (e.g. arrayExists) is not supported for materialization.",
+                [],
+            )
         except ValueError as e:
             capture_exception(e)
             return False, "Invalid variable usage in WHERE clause.", []
@@ -1028,6 +1045,18 @@ class VariableInWhereFinder(TraversingVisitor):
             self.visit(expr)
         if track:
             self._or_depth -= 1
+
+    def visit_lambda(self, node: ast.Lambda):
+        # A variable inside a lambda body (e.g. arrayExists(x -> x = {variables.v}, arr)) compares
+        # against the lambda argument, not a real column, so it can't be lifted into a materialized
+        # bucket. Reject up front rather than recording the lambda arg as a bogus column and letting
+        # the transform crash on the leftover placeholder.
+        if self.in_where:
+            finder = VariablePlaceholderFinder()
+            finder.visit(node.expr)
+            if any(p.chain == self.target.chain for p in finder.variable_placeholders):
+                raise VariableInLambdaError()
+        super().visit_lambda(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         if not self.in_where:

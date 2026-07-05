@@ -356,6 +356,26 @@ class TestVariableAnalysis(APIBaseTest):
                 "OK",
                 1,
             ),
+            # A variable inside a lambda/array function compares against the lambda argument, not a
+            # real column — reject gracefully rather than 500ing when the transform can't lift it.
+            (
+                "variable_inside_array_lambda",
+                "SELECT count() FROM events WHERE arrayExists(x -> x = {variables.tag}, groupArray(properties.tag))",
+                {"var-1": {"code_name": "tag", "value": "beta"}},
+                False,
+                "lambda/array function",
+                0,
+            ),
+            # A lambda in WHERE that doesn't reference the variable must not trip the lambda guard.
+            (
+                "lambda_without_variable_allowed",
+                "SELECT count() FROM events WHERE event = {variables.event_name} "
+                "AND arrayExists(x -> x = 'beta', groupArray(properties.tag))",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+                True,
+                "OK",
+                1,
+            ),
         ]
     )
     def test_or_and_multi_column_variable_analysis(
