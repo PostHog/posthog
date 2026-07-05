@@ -16,6 +16,7 @@ import type {
     ColumnConfigurationsListParams,
     ElementApi,
     ElementStatsResponseApi,
+    ElementValueApi,
     ElementsListParams,
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
@@ -40,7 +41,6 @@ import type {
     InsightsViewedCreateParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
-    PaginatedElementValueListApi,
     PaginatedInsightListApi,
     PaginatedTrendingInsightListApi,
     PatchedColumnConfigurationApi,
@@ -329,8 +329,8 @@ export const elementsValuesList = async (
     projectId: string,
     params: ElementsValuesListParams,
     options?: RequestInit
-): Promise<PaginatedElementValueListApi> => {
-    return apiMutator<PaginatedElementValueListApi>(getElementsValuesListUrl(projectId, params), {
+): Promise<ElementValueApi[]> => {
+    return apiMutator<ElementValueApi[]>(getElementsValuesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

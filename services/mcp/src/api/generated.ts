@@ -31678,15 +31678,6 @@ export namespace Schemas {
       results: Element[];
     }
 
-    export interface PaginatedElementValueList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ElementValue[];
-    }
-
     export interface PaginatedEndpointResponseList {
       count: number;
       /** @nullable */
@@ -56537,14 +56528,6 @@ export namespace Schemas {
      */
     key: string;
     /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string;
@@ -62646,14 +62629,6 @@ export namespace Schemas {
      * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
      */
     key: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     /**
      * Optional substring to filter values by (case-sensitive contains match).
      */

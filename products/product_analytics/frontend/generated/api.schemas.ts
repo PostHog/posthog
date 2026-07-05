@@ -210,15 +210,6 @@ export interface ElementValueApi {
     name: string
 }
 
-export interface PaginatedElementValueListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ElementValueApi[]
-}
-
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -7850,14 +7841,6 @@ export type ElementsValuesListParams = {
      * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
      */
     key: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
     /**
      * Optional substring to filter values by (case-sensitive contains match).
      */
