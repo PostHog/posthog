@@ -367,6 +367,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("unexpected_include", "include=$autocapture&include=$rageclick&include=$pageview"),
             ("zero_limit", "limit=0"),
             ("negative_limit", "limit=-1"),
+            ("limit_at_printer_cap", "limit=1000000"),
             ("negative_offset", "offset=-1"),
             ("zero_sampling_factor", "sampling_factor=0"),
             ("sampling_factor_above_one", "sampling_factor=1.5"),
