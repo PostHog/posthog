@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data_attributes": {
+            "description": "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "End of the date range (e.g. 2024-01-31). Defaults to now.",
+            "type": "string"
+        },
+        "filter_test_accounts": {
+            "description": "When true, applies the project's internal-and-test-account filters to the underlying events.",
+            "type": "boolean"
+        },
+        "include": {
+            "description": "Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "limit": {
+            "description": "Maximum rows per page",
+            "type": "number"
+        },
+        "offset": {
+            "description": "Pagination offset",
+            "type": "number"
+        },
+        "properties": {
+            "description": "JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https://example.com/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.",
+            "type": "string"
+        },
+        "sampling_factor": {
+            "description": "Sampling factor between 0 and 1",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}
