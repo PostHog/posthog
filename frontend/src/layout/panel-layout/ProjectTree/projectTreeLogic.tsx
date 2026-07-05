@@ -1118,7 +1118,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             // (data-and-people, products, shortcuts) don't contain project file-system items,
             // so subscribing on those instances would fire duplicate api.fileSystem.list calls
             // for every navigation when those panels are keep-mounted.
-            if (!props.root?.startsWith('project://') && props.root !== undefined) {
+            if (props.root !== undefined && !props.root.startsWith('project://')) {
                 return
             }
             if (newRef) {
