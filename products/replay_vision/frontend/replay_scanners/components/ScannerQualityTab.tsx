@@ -1,9 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconChevronRight,
+    IconExpand45,
+    IconRefresh,
+    IconRewindPlay,
+    IconSparkles,
+} from '@posthog/icons'
 import {
     LemonButton,
+    LemonModal,
     LemonSegmentedButton,
     LemonTable,
     LemonTag,
@@ -31,7 +39,7 @@ import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { replayScannerSceneLogic } from '../replayScannerSceneLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
 import { versionTag } from './ScannerObservationsTable'
 
@@ -76,6 +84,63 @@ function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null
     )
 }
 
+/** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
+function SuggestionDiffPanes({
+    suggestion,
+    beforeLabel,
+    isDarkModeOn,
+    editorHeight,
+    onExpand,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+    beforeLabel: string
+    isDarkModeOn: boolean
+    editorHeight?: string
+    onExpand?: () => void
+}): JSX.Element {
+    return (
+        <div className="border rounded overflow-hidden">
+            <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
+                <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
+                <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
+                    <span>Suggested prompt</span>
+                    {onExpand && (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExpand45 />}
+                            tooltip="Expand diff to full screen"
+                            onClick={onExpand}
+                            data-attr="vision-quality-expand-diff"
+                        />
+                    )}
+                </div>
+            </div>
+            <MonacoDiffEditor
+                original={suggestion.base_prompt}
+                modified={suggestion.suggested_prompt}
+                language="markdown"
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                height={editorHeight}
+                options={{
+                    readOnly: true,
+                    renderSideBySide: true,
+                    useInlineViewWhenSpaceIsLimited: false,
+                    // Keep both panes at exactly half width on resize, in lockstep with the header row.
+                    enableSplitViewResizing: false,
+                    splitViewDefaultRatio: 0.5,
+                    automaticLayout: true,
+                    wordWrap: 'on',
+                    lineNumbers: 'off',
+                    folding: false,
+                    renderOverviewRuler: false,
+                    scrollBeyondLastLine: false,
+                    diffAlgorithm: 'advanced',
+                }}
+            />
+        </div>
+    )
+}
+
 /** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
 function SuggestionDetails({
     suggestion,
@@ -86,36 +151,39 @@ function SuggestionDetails({
     beforeLabel: string
     isDarkModeOn: boolean
 }): JSX.Element {
+    const [isDiffExpanded, setIsDiffExpanded] = useState(false)
     return (
         <>
             {suggestion.base_prompt ? (
-                <div className="border rounded overflow-hidden">
-                    <div className="flex border-b bg-surface-secondary text-xs font-medium">
-                        <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
-                        <div className="flex-1 px-3 py-1.5">Suggested prompt</div>
-                    </div>
-                    <MonacoDiffEditor
-                        original={suggestion.base_prompt}
-                        modified={suggestion.suggested_prompt}
-                        language="markdown"
-                        theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                        options={{
-                            readOnly: true,
-                            renderSideBySide: true,
-                            useInlineViewWhenSpaceIsLimited: false,
-                            // Keep both panes at exactly half width on resize, in lockstep with the header row.
-                            enableSplitViewResizing: false,
-                            splitViewDefaultRatio: 0.5,
-                            automaticLayout: true,
-                            wordWrap: 'on',
-                            lineNumbers: 'off',
-                            folding: false,
-                            renderOverviewRuler: false,
-                            scrollBeyondLastLine: false,
-                            diffAlgorithm: 'advanced',
-                        }}
+                <>
+                    <SuggestionDiffPanes
+                        suggestion={suggestion}
+                        beforeLabel={beforeLabel}
+                        isDarkModeOn={isDarkModeOn}
+                        onExpand={() => setIsDiffExpanded(true)}
                     />
-                </div>
+                    <LemonModal
+                        isOpen={isDiffExpanded}
+                        onClose={() => setIsDiffExpanded(false)}
+                        title="Prompt recommendation"
+                        fullScreen
+                    >
+                        <div className="space-y-4">
+                            <SuggestionDiffPanes
+                                suggestion={suggestion}
+                                beforeLabel={beforeLabel}
+                                isDarkModeOn={isDarkModeOn}
+                                editorHeight="calc(100vh - 16rem)"
+                            />
+                            {suggestion.rationale && (
+                                <div>
+                                    <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
+                                    <p className="text-sm text-muted m-0">{suggestion.rationale}</p>
+                                </div>
+                            )}
+                        </div>
+                    </LemonModal>
+                </>
             ) : (
                 <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
                     {suggestion.suggested_prompt}
@@ -478,7 +546,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                     <div
                                         className="absolute top-0 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
                                         style={{ left: badge.x, transform: 'translateX(-50%)' }}
-                                        onClick={() => setActiveTab('configuration')}
+                                        onClick={() => setActiveTab(ReplayScannerTab.Configuration)}
                                         data-attr="vision-quality-version-badge"
                                     >
                                         v{badge.version}
