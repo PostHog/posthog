@@ -186,6 +186,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 <>
                                     Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
                                     content. Click this, then click an area of the page. Press <kbd>Esc</kbd> to cancel.
+                                    Heatmap points on fixed or sticky elements are only included when the chosen area is
+                                    itself fixed or sticky.
                                 </>
                             }
                         >

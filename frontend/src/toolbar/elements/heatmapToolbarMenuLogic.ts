@@ -299,6 +299,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setAreaHoverElement: (element: HTMLElement | null) => ({ element }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
+        // swap the tracked node for a re-resolved one without refetching: the selector is
+        // unchanged, so the server response would be byte-identical
+        rebindAreaElement: (element: HTMLElement) => ({ element }),
         updateAreaBounds: true,
     }),
     windowValues(() => ({
@@ -332,6 +335,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             null as { element: HTMLElement; selector: string | null } | null,
             {
                 setHeatmapAreaFilter: (_, { element, selector }) => (element ? { element, selector } : null),
+                rebindAreaElement: (state, { element }) => (state ? { ...state, element } : state),
             },
         ],
         lastElementStatsRequest: [
@@ -738,6 +742,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 enabled: !!element,
                 has_selector: !!selector,
                 tag_name: element?.tagName.toLowerCase() ?? null,
+                trigger: 'user',
             })
         },
 
@@ -753,6 +758,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
 
+        rebindAreaElement: () => {
+            actions.updateAreaBounds()
+        },
+
         updateAreaBounds: () => {
             const filter = values.heatmapAreaFilter
             if (!filter) {
@@ -763,9 +772,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 // filter follows the page, or clear it visibly rather than degrade silently
                 const requeried = findElementBySelector(filter.selector)
                 if (requeried) {
-                    actions.setHeatmapAreaFilter(requeried, filter.selector)
+                    actions.rebindAreaElement(requeried)
                 } else {
-                    actions.selectHeatmapAreaFilter(null)
+                    actions.setHeatmapAreaFilter(null, null)
+                    toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
+                        enabled: false,
+                        trigger: 'element_lost',
+                    })
                 }
                 return
             }
