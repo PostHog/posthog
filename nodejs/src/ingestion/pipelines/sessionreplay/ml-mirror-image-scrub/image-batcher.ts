@@ -1,5 +1,3 @@
-/** Accumulates scrubbed images across Kafka batches, flushing one shard + parquet index on a time/size
- *  threshold. Stores offsets only after a successful write (like BlockMetadataBatcher) so failures replay. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
@@ -10,7 +8,6 @@ import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient } from './scrub-client'
 
-/** The subset of the Kafka consumer the batcher needs: storing offsets it has durably written. */
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
 }
@@ -41,15 +38,12 @@ export class ImageBatcher {
         this.scrubConcurrency = new ConcurrencyController(options.scrubConcurrency)
     }
 
-    /** Scrub a batch (bounded concurrency), buffer the results, and flush once old/large enough. Throws if
-     *  the sidecar is unavailable, leaving the window uncommitted so it replays (at-least-once). */
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
         for (const image of await this.scrubBatch(messages)) {
             this.buffer.push(image)
             this.bufferBytes += image.bytes.length
         }
-        // Track the next offset to read per partition (highest seen + 1) even for all-skipped batches, so
-        // those don't replay forever.
+        // Advance offsets even for all-skipped batches, or skipped messages replay forever.
         for (const offset of findOffsetsToCommit(messages)) {
             this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
         }
@@ -81,8 +75,6 @@ export class ImageBatcher {
         if (!ref || !isImageRef(ref) || !m.value) {
             return null
         }
-        // Reject bytes whose hash doesn't match the key's (content integrity); an internal producer-only
-        // topic, so a forged cross-team key is out of scope — this just guards corruption.
         const parsed = parseImageRef(ref)
         if (!parsed || hashImageBytes(m.value) !== parsed.hash) {
             ImageScrubConsumerMetrics.incMismatch()
@@ -105,8 +97,6 @@ export class ImageBatcher {
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
-    /** Store offsets only after the write lands: a failed write throws with offsets uncommitted, so the
-     *  window replays. */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {

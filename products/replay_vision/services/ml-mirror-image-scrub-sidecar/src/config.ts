@@ -1,9 +1,7 @@
 export interface Config {
     port: number
-    // Concurrent scrubs allowed before the server sheds load with 503.
     maxConcurrency: number
-    // Reject bodies larger than this (413) so the service owns its own memory bound, not the caller's Kafka
-    // limits. Default is above the ~10 MiB Kafka message ceiling; anything bigger is anomalous, skip it.
+    // 413 above the ~10 MiB Kafka message ceiling — bigger is anomalous. The service owns its own memory bound.
     maxBodyBytes: number
 }
 

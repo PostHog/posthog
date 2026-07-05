@@ -1,6 +1,5 @@
 import { Counter } from 'prom-client'
 
-/** Consumer-side scrub/shard metrics (the sidecar reports its own scrub timing separately). */
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrubbed_total',

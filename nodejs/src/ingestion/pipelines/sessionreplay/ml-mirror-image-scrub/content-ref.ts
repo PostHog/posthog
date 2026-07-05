@@ -1,16 +1,10 @@
-/**
- * Content reference for an inlined replay image, format `image:{pseudo_team}:{hash}`: the producer swaps a
- * raw image for one, the consumer stores the scrubbed bytes under it, training joins block -> image by it.
- * `pseudo_team` is the non-reversible HMAC team pseudonym (ml-mirror/pseudonymize.ts), `hash` a 22-char
- * base64url sha256 slice; the pseudonym keeps raw team ids out of the ML bucket while still scoping per-team dedup.
- */
+// The shared key between the producer, this consumer, and training joins; pseudo_team is the non-reversible
+// HMAC team pseudonym from ml-mirror/pseudonymize.ts (keeps raw team ids out of the ML bucket).
 import { createHash } from 'node:crypto'
 
 const PREFIX = 'image'
-// pseudo_team is pseudonymize()'s 32-char hex HMAC digest; hash is a 22-char base64url sha256 slice.
 const REF_RE = /^image:([0-9a-f]{32}):([A-Za-z0-9_-]{22})$/
 
-/** Content-only hash (not team-scoped); the reference's pseudo_team segment provides per-tenant separation. */
 export function hashImageBytes(bytes: Buffer): string {
     return createHash('sha256').update(bytes).digest('base64url').slice(0, 22)
 }

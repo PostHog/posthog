@@ -5,7 +5,6 @@ import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ScrubClient } from './scrub-client'
 
-// A fake 32-hex team pseudonym (real ones come from pseudonymize(); the consumer just treats it as opaque).
 const pt = (n: number): string => String(n).padStart(32, '0')
 
 function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
@@ -39,7 +38,6 @@ class FakeOffsets implements OffsetStore {
     }
 }
 
-// Prefixes the bytes so the output differs from the input (like a real scrub would).
 const scrubClient = {
     scrub: (b: Buffer) => Promise.resolve(Buffer.concat([Buffer.from('x'), b])),
 } as unknown as ScrubClient
@@ -59,9 +57,9 @@ describe('ImageBatcher', () => {
 
         await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(2), Buffer.from('b'))], 1)
 
-        expect(store.writes).toHaveLength(1) // one shard for the whole flush, not one per team
+        expect(store.writes).toHaveLength(1)
         expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)])
-        expect(offsets.stored).toBe(1) // committed only after the write landed
+        expect(offsets.stored).toBe(1)
     })
 
     it('drops a key/content mismatch without buffering it', async () => {
@@ -74,7 +72,6 @@ describe('ImageBatcher', () => {
             0
         )
 
-        // key claims a hash that doesn't match the value bytes
         const forged = imageRef(pt(1), hashImageBytes(Buffer.from('other')))
         await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), forged)], 1)
 
@@ -88,13 +85,12 @@ describe('ImageBatcher', () => {
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
 
         await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
-        expect(offsets.stored).toBe(0) // uncommitted → the window replays
+        expect(offsets.stored).toBe(0)
     })
 
     it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
-        // A sidecar that never answers: without a deadline handleBatch would hang the poll loop forever.
         const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
         const batcher = new ImageBatcher(
             store as unknown as ImageShardStore,
@@ -105,7 +101,7 @@ describe('ImageBatcher', () => {
         )
 
         await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow()
-        expect(offsets.stored).toBe(0) // uncommitted → the window replays instead of livelocking
+        expect(offsets.stored).toBe(0)
         expect(store.writes).toHaveLength(0)
     })
 })

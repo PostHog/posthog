@@ -1,5 +1,3 @@
-// Sidecar scrub metrics, served from the same HTTP server at /metrics (see server.ts). Shard/Kafka
-// metrics live with the consumer in the plugin-server, not here.
 import { Counter, Histogram, Registry } from 'prom-client'
 
 export const register = new Registry()

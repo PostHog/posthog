@@ -15,7 +15,6 @@ import {
     buildMlMirrorServerConfig,
 } from './ingestion-session-replay-ml-mirror-server'
 
-/** Scrubbed images are written unencrypted to the ML bucket, so an absent S3 client must fail loudly. */
 export function requireS3Client(client: S3Client | null): S3Client {
     if (!client) {
         throw new Error('SESSION_RECORDING_V2_S3_* must be configured for the image-scrub consumer')
@@ -23,8 +22,6 @@ export function requireS3Client(client: S3Client | null): S3Client {
     return client
 }
 
-/** Manual offsets + callEachBatchWhenEmpty: the batcher rolls images up across batches and stores offsets
- *  only after a shard lands in S3, so a failed write replays the window (at-least-once) and idle polls flush. */
 export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
     return {
         topic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
@@ -35,7 +32,6 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
     }
 }
 
-/** Drains the image-scrub topic: scrubs each image via the sidecar, batches the results into shard objects + a content-hash parquet index in the ML bucket. */
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
@@ -93,8 +89,6 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',
-            // Flush buffered images so a graceful restart doesn't re-process them, then disconnect.
-            // A failed final flush is non-fatal (the window replays) but must be visible.
             onShutdown: async () => {
                 try {
                     await batcher.flush(Date.now())

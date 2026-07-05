@@ -3,7 +3,6 @@ import type { AddressInfo } from 'node:net'
 
 import { startServer } from '../src/server.ts'
 
-// A real 40x40 PNG so sharp can actually decode + blur it.
 const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAR0lEQVR4nO3YsQkAIAxEUeu//1A3ljvY2DywD0iSR+6svryjcL56mivjlAUyKzNIhMWwGBaHxbAYFodF12IO80QRE770HDddvGtfTNaUfqIAAAAASUVORK5CYII=',
     'base64'
@@ -14,12 +13,12 @@ describe('image-scrub sidecar server', () => {
     let server: ReturnType<typeof startServer>
 
     beforeAll(async () => {
-        server = startServer(0, 4, 1024) // tiny body cap so a >1 KiB post triggers 413
+        server = startServer(0, 4, 1024)
         await once(server, 'listening')
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     })
     afterAll((done) => {
-        server.closeAllConnections() // drop fetch's keep-alive sockets so close() actually resolves
+        server.closeAllConnections()
         server.close(() => done())
     })
 

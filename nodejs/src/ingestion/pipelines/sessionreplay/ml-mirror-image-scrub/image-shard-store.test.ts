@@ -4,7 +4,6 @@ import { ImageShardStore } from './image-shard-store'
 
 describe('ImageShardStore', () => {
     it('aborts a shard write that exceeds the timeout so the flush throws and replays', async () => {
-        // A send that never resolves on its own: without the timeout, writeShard would hang the poll loop forever.
         const s3 = {
             send: (_cmd: unknown, opts: { abortSignal: AbortSignal }) =>
                 new Promise((_resolve, reject) => {

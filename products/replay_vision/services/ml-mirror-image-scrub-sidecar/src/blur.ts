@@ -1,17 +1,12 @@
-// Stage-1 scrub: downsample + gaussian blur, kept matching nodejs/.../anonymize/blur.ts so the mirror's
-// baseline equals the inline anonymizer's. Pure sharp (libvips), no ML deps, to keep the consumer image
-// lean; Stage 2 swaps this for advancedScrub in scrub.ts.
+// These params must stay in sync with nodejs/.../anonymize/blur.ts, or the mirror diverges from the inline anonymizer.
 import sharp from 'sharp'
 
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
-// Cap decoded pixels so one absurd image can't balloon libvips memory (compressed bytes decode to many
-// times their size). 50 MP is generous for real screenshots; larger inputs throw.
+// Cap decoded pixels: compressed bytes expand many-fold in libvips, so this guards RSS, not input size.
 const LIMIT_INPUT_PIXELS = 50_000_000
 
-/** Input that sharp can't decode (or has no readable dimensions): a permanent reject, never a transient
- *  failure — the caller maps this to a distinct HTTP status so the consumer drops it instead of replaying. */
 export class UndecodableImageError extends Error {}
 
 function targetDims(w: number, h: number): [number, number] {
@@ -30,7 +25,6 @@ export async function blurOnly(input: Buffer): Promise<Buffer> {
         throw new UndecodableImageError(String(e))
     }
     if (width === undefined || height === undefined) {
-        // Don't silently blur a 1x1: a header with no dimensions is undecodable, not a real image.
         throw new UndecodableImageError('image has no readable dimensions')
     }
     const [tw, th] = targetDims(width, height)

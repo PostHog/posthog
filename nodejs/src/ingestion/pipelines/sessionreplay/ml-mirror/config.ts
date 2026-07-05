@@ -27,15 +27,14 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
-    /** Buffered scrubbed bytes that force a flush. Real peak memory is ~2x this (the flush Buffer.concat copy). */
+    // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
-    /** Per-request timeout for each shard/index S3 write (the S3 client has no built-in request timeout). */
+    // The S3 client has no built-in per-request timeout, so we supply one.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    /** Caps the per-batch scrub phase; the S3 write is bounded separately (S3_WRITE_TIMEOUT_MS). Keep scrub +
-     *  write under max.poll.interval.ms (300s), or a hung sidecar/S3 gets us evicted mid-batch and livelocks. */
+    // Keep scrub + write under Kafka's max.poll.interval.ms (300s) or a hung sidecar/S3 evicts us mid-batch and livelocks.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
 }
 
