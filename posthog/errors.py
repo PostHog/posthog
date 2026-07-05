@@ -464,9 +464,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
-    207: ErrorCodeMeta(
-        "AMBIGUOUS_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
-    ),  # identifier resolves to multiple columns or aliases
+    207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
     210: ErrorCodeMeta("NETWORK_ERROR"),
@@ -581,7 +579,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
     349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
-    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", category=QueryErrorCategory.USER_ERROR),
+    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", user_safe=True),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),
