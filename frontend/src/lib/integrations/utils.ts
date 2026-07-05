@@ -53,6 +53,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
     linear: IconLinear,
+    'linear-agent': IconLinear,
     github: IconGitHub,
     gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
@@ -105,6 +106,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'linear-agent':
+            return 'Linear (PostHog Code)'
         case 'firebase':
             return 'Firebase'
         case 'postgresql':

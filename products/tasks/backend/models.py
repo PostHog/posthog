@@ -124,6 +124,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ticket's Code chat carry this origin (previously "support_queue", which
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
+        # Linear issue assigned to (or bot @mentioned by) the PostHog Code Linear agent.
+        LINEAR = "linear", "Linear"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1730,6 +1732,49 @@ class TaskPresence(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
+
+
+class LinearIssueTaskMapping(TeamScopedRootMixin):
+    """Maps a Linear issue to the PostHog Code task created for it.
+
+    Written when a webhook from the Linear agent app triggers task creation; read to
+    dedupe repeat triggers for the same issue and to route status updates (PR opened,
+    run failed) back to the issue as comments. Keyed by task rather than run so later
+    runs of the same task still report back to the issue.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `related_name="+"` on core-model FKs for the same reason as TaskPresence: mappings
+    # are only ever queried forward (by issue or by task).
+    # db_constraint=False: adding a DB-level FK takes a lock on the hot posthog_team table
+    # (HotTableAlterPolicy); Django still enforces the relation and cascades in Python.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The linear-agent Integration whose token is used to comment back on the issue.
+    integration = models.ForeignKey("posthog.Integration", on_delete=models.CASCADE, related_name="+")
+    linear_organization_id = models.CharField(max_length=64)
+    linear_issue_id = models.CharField(max_length=64)
+    linear_issue_identifier = models.CharField(max_length=64, blank=True)
+    linear_issue_url = models.CharField(max_length=1024, blank=True)
+    # Set when the trigger was a Linear agent session — lets status updates also emit
+    # agent activities into the session, not just plain comments.
+    linear_agent_session_id = models.CharField(max_length=64, null=True, blank=True)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="linear_issue_mappings")
+    task_run = models.ForeignKey("TaskRun", on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_linear_issue_mapping"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["integration", "linear_issue_id"],
+                name="linear_issue_task_mapping_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Linear issue {self.linear_issue_identifier or self.linear_issue_id} → task {self.task_id}"
 
 
 class CodeWorkflowConfig(TeamScopedRootMixin):

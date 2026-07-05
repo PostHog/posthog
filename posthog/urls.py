@@ -149,6 +149,18 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+@csrf_exempt
+def linear_agent_webhook(request: HttpRequest) -> HttpResponse:
+    """Linear app webhook for the PostHog Code agent.
+
+    Verification (HMAC signature) and dispatch live in the tasks product; auth is the
+    signature, so the route is csrf-exempt like the GitHub webhook above.
+    """
+    from products.tasks.backend.facade.webhooks import handle_linear_agent_webhook
+
+    return handle_linear_agent_webhook(request)
+
+
 @requires_csrf_token
 def handler500(request):
     """
@@ -476,6 +488,8 @@ urlpatterns = [
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
+    # Linear app webhook — PostHog Code agent (assign an issue to the bot)
+    opt_slash_path("webhooks/linear", linear_agent_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

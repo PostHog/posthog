@@ -31,6 +31,13 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRE
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
+# Separate Linear OAuth app for the PostHog Code agent (installed with actor=app, so it gets
+# its own bot user in the customer's workspace). LINEAR_AGENT_WEBHOOK_SECRET signs the
+# app-level webhooks Linear delivers for all workspaces that installed the app.
+LINEAR_AGENT_APP_CLIENT_ID = get_from_env("LINEAR_AGENT_APP_CLIENT_ID", "")
+LINEAR_AGENT_APP_CLIENT_SECRET = get_from_env("LINEAR_AGENT_APP_CLIENT_SECRET", "")
+LINEAR_AGENT_WEBHOOK_SECRET = get_from_env("LINEAR_AGENT_WEBHOOK_SECRET", "")
+
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
 # OAuth *secret* for the same GitHub App as above - generated in the App's settings

@@ -2,6 +2,7 @@ import time
 import base64
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import quote
 
 import pytest
 from freezegun import freeze_time
@@ -180,6 +181,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
+        "LINEAR_AGENT_APP_CLIENT_ID": "linear-agent-client-id",
+        "LINEAR_AGENT_APP_CLIENT_SECRET": "linear-agent-client-secret",
     }
 
     def create_integration(
@@ -373,6 +376,56 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
             }
+
+    def test_linear_agent_authorize_url_installs_as_app_actor(self):
+        # The agent app must install with actor=app (its own bot user) and the agent scopes —
+        # drift here breaks installs silently, surfacing only in manual install testing.
+        assert "linear-agent" in OauthIntegration.supported_kinds
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("linear-agent", token="state_token", next="/projects/test")
+
+        assert url.startswith("https://linear.app/oauth/authorize?")
+        assert "client_id=linear-agent-client-id" in url
+        assert "actor=app" in url
+        assert quote("app:assignable", safe="") in url
+        assert quote("app:mentionable", safe="") in url
+        assert quote("/integrations/linear-agent/callback", safe="") in url
+
+    @patch("posthog.models.integration.requests.post")
+    def test_linear_agent_integration_from_oauth_response(self, mock_post):
+        # The org id becomes integration_id (webhooks route on it) and the viewer id is the
+        # bot user — both come from the GraphQL token-info call, not the token exchange.
+        token_response = MagicMock(status_code=200)
+        token_response.json.return_value = {"access_token": "FAKE_ACCESS_TOKEN", "refresh_token": "FAKE_REFRESH_TOKEN"}
+        token_info_response = MagicMock(status_code=200)
+        token_info_response.json.return_value = {
+            "data": {
+                "viewer": {
+                    "id": "bot-user-1",
+                    "name": "PostHog Code",
+                    "organization": {"id": "linear-org-uuid", "name": "Acme", "urlKey": "acme"},
+                }
+            }
+        }
+        mock_post.side_effect = [token_response, token_info_response]
+
+        with self.settings(**self.mock_settings):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "linear-agent",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "next=/projects/test"},
+            )
+
+            assert integration.kind == "linear-agent"
+            assert integration.integration_id == "linear-org-uuid"
+            # display_name re-derives name_path from the OAuth config, so it needs settings too
+            assert integration.display_name == "Acme"
+            assert integration.created_by == self.user
+            assert integration.config["data.viewer.id"] == "bot-user-1"
+            assert integration.config["data.viewer.organization.id"] == "linear-org-uuid"
+            assert integration.sensitive_config["access_token"] == "FAKE_ACCESS_TOKEN"
+            assert integration.sensitive_config["refresh_token"] == "FAKE_REFRESH_TOKEN"
 
     @patch("posthog.models.integration.requests.post")
     def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):

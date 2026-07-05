@@ -236,6 +236,7 @@ class Integration(models.Model):
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
+        LINEAR_AGENT = "linear-agent"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
         PINTEREST_ADS = "pinterest-ads"
@@ -389,6 +390,7 @@ class OauthIntegration:
         "meta-ads",
         "intercom",
         "linear",
+        "linear-agent",
         "clickup",
         "jira",
         "pinterest-ads",
@@ -615,6 +617,32 @@ class OauthIntegration:
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
+                id_path="data.viewer.organization.id",
+                name_path="data.viewer.organization.name",
+            )
+        elif kind == "linear-agent":
+            if not settings.LINEAR_AGENT_APP_CLIENT_ID or not settings.LINEAR_AGENT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Linear agent app not configured")
+
+            return OauthConfig(
+                authorize_url="https://linear.app/oauth/authorize",
+                # actor=app installs the OAuth app's own bot user (assignable/mentionable in the
+                # workspace), unlike actor=application used by the data-warehouse "linear" kind.
+                additional_authorize_params={"actor": "app"},
+                token_url="https://api.linear.app/oauth/token",
+                token_info_url="https://api.linear.app/graphql",
+                # viewer here is the app's bot user — its id is what webhook assignee ids match against.
+                token_info_graphql_query="{ viewer { id name organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.id",
+                    "data.viewer.name",
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
+                client_id=settings.LINEAR_AGENT_APP_CLIENT_ID,
+                client_secret=settings.LINEAR_AGENT_APP_CLIENT_SECRET,
+                scope="read,write,comments:create,issues:create,app:assignable,app:mentionable",
                 id_path="data.viewer.organization.id",
                 name_path="data.viewer.organization.name",
             )

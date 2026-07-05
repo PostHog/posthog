@@ -20,6 +20,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
+import { LinearAgentIntegration } from 'scenes/integrations/components/Integrations'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -1478,7 +1479,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-other',
                 title: 'Other integrations',
                 description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear', 'linear-agent']} />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {
@@ -1488,6 +1489,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog Cloud uses static IP addresses for outbound traffic. Add these to your firewall allowlist if needed.',
                 component: <IPAllowListInfo />,
                 keywords: ['whitelist', 'firewall', 'allowlist', 'cidr', 'ip'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-posthog-code',
+        title: 'PostHog Code',
+        flag: 'POSTHOG_BOT_EVERYWHERE',
+        settings: [
+            {
+                id: 'posthog-code-linear',
+                title: 'Linear agent',
+                description:
+                    'Install the PostHog Code agent into your Linear workspace. Assign an issue to it and it will open a pull request, then report back on the issue.',
+                component: <LinearAgentIntegration />,
+                keywords: ['linear', 'agent', 'posthog code', 'issue', 'task', 'pr'],
             },
         ],
     },
