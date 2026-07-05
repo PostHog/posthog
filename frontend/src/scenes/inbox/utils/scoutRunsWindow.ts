@@ -6,6 +6,7 @@
 // "the recent window" with a "truncated" suffix when that walk hits its page cap.
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
 import { SignalScoutConfig, SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
@@ -294,6 +295,24 @@ function emptyRollup(): ScoutRollup {
         runningRun: null,
         runs: [],
     }
+}
+
+/**
+ * Reuse the previous poll's object reference for any item whose content is unchanged. The runs
+ * endpoint returns freshly parsed objects on every 60s poll, so without this every run reference
+ * changes each poll and every memoized row re-renders even when nothing changed. Matching by id and
+ * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
+ * `React.memo` on the rows can actually bite.
+ */
+export function reconcileById<T>(previous: T[], next: T[], getId: (item: T) => string): T[] {
+    if (previous.length === 0) {
+        return next
+    }
+    const previousById = new Map(previous.map((item) => [getId(item), item]))
+    return next.map((item) => {
+        const existing = previousById.get(getId(item))
+        return existing && objectsEqual(existing, item) ? existing : item
+    })
 }
 
 /**

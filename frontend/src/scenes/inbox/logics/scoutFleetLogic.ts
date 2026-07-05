@@ -20,6 +20,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     prettifyScoutSkillName,
+    reconcileById,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -68,7 +69,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startScoutChatTaskFailure: true,
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -155,7 +156,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         cursor = oldest.created_at
                     }
 
-                    return { runs, complete }
+                    // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
+                    // run's identity and needlessly re-render the memoized run/emission rows.
+                    return { runs: reconcileById(values.runsWindow.runs, runs, (run) => run.run_id), complete }
                 },
             },
         ],

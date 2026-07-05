@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -31,8 +31,12 @@ function MonoId({ label, value }: { label: string; value: string }): JSX.Element
  *
  * `isDeepLinked` marks the finding the current `/inbox/scouts/<skill>/<finding>` URL points at — it
  * auto-expands, highlights, and scrolls itself into view so a shared link lands on the right card.
+ *
+ * Memoized because the 60s runs-window poll re-renders the Signals list; the `emission` and `run`
+ * props keep stable references across polls (emissions don't refetch on no-op polls, and
+ * `loadRunsWindow` reconciles run identity), so unchanged cards skip re-rendering here.
  */
-export function ScoutEmissionCard({
+export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     skillName,
     emission,
     run,
@@ -165,4 +169,4 @@ export function ScoutEmissionCard({
             </div>
         </div>
     )
-}
+})

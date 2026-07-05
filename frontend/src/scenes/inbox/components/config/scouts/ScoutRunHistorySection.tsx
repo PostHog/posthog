@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -56,8 +56,11 @@ function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
  * One run in the history list. Shares the collapse/expand grammar of `ScoutEmissionCard`: a header
  * (chevron · glyph · timestamp · duration · failure · emitted count) that stays visible, the run
  * summary markdown (2-line preview collapsed, full expanded), and an id/task-run footer when open.
+ *
+ * Memoized because the 60s runs-window poll re-renders the whole history list; `loadRunsWindow`
+ * reconciles run identity (see `reconcileById`) so unchanged runs keep their reference and skip here.
  */
-function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
+const ScoutRunRow = memo(function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const now = new Date()
     const status = normalizeRunStatus(run.status)
@@ -154,7 +157,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
             )}
         </div>
     )
-}
+})
 
 /**
  * The Runs section on the scout detail surface: this scout's runs in the recent window, newest
