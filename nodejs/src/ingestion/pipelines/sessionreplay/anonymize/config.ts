@@ -26,14 +26,7 @@ export interface ScrubContext {
     blurCache?: BlurCache
     /** Optional diagnostic timing accumulator (see {@link ScrubTiming}). */
     timing?: ScrubTiming
-    /**
-     * When true, the ml-mirror pipeline replaces the parse + anonymize steps with the fused native
-     * step (`parse-and-anonymize-step.ts`, backed by `@posthog/replay-anonymizer`) instead of the TS
-     * scrubbers.
-     */
     useRustAnonymizer?: boolean
-    /** Native path only: re-emit `cv` payloads as zstd (see `SESSION_RECORDING_ML_CV_ZSTD`). */
-    cvZstd?: boolean
 }
 
 /** Shared non-null-object type guard used across the scrubbers. */

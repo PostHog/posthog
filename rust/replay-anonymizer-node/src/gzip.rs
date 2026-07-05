@@ -1,6 +1,6 @@
 //! One-shot compression codecs: gzip on libdeflate (~2-3x the throughput of the streaming flate2
 //! legs it replaced, at the cost of needing the output size up front — which gzip carries in its
-//! ISIZE footer), plus the zstd leg used to re-emit changed `cv` payloads.
+//! ISIZE footer), plus the zstd leg that re-emits `cv` payloads.
 
 use std::cell::RefCell;
 
@@ -60,12 +60,9 @@ pub fn gzip(payload: &[u8]) -> Result<Vec<u8>> {
     })
 }
 
-/// Re-compress a cv payload as zstd (else gzip). The consumer distinguishes the two by magic bytes
-/// alone (`1f 8b` gzip vs `28 b5 2f fd` zstd), so historical gzip blocks stay readable post-flip.
-pub fn compress_cv(zstd: bool, payload: &[u8]) -> Result<Vec<u8>> {
-    if !zstd {
-        return gzip(payload);
-    }
+/// Re-compress a cv payload as zstd. The consumer distinguishes formats by magic bytes alone
+/// (`1f 8b` gzip vs `28 b5 2f fd` zstd), so historical gzip blocks stay readable.
+pub fn compress_cv(payload: &[u8]) -> Result<Vec<u8>> {
     ZSTD_COMPRESSOR.with(|c| {
         c.borrow_mut()
             .compress(payload)
@@ -123,13 +120,10 @@ mod tests {
     }
 
     #[test]
-    fn compress_cv_formats_are_magic_byte_distinguishable() {
-        // Magic-byte dispatch is the consumer contract, so pin the emitted magics.
+    fn compress_cv_emits_a_zstd_frame() {
+        // Magic-byte dispatch is the consumer contract, so pin the emitted magic.
         let payload = b"payload".repeat(20);
-        let gz = compress_cv(false, &payload).unwrap();
-        assert_eq!(&gz[..2], &[0x1f, 0x8b]);
-        assert_eq!(gunzip(&gz).unwrap(), payload);
-        let zs = compress_cv(true, &payload).unwrap();
+        let zs = compress_cv(&payload).unwrap();
         assert_eq!(&zs[..4], &[0x28, 0xb5, 0x2f, 0xfd]);
         assert_eq!(
             zstd::bulk::decompress(&zs, payload.len() + 64).unwrap(),

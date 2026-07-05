@@ -77,12 +77,11 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * scrub, and the serialize; only the raw bytes cross the FFI boundary. CPU work — including the
  * decompression — runs off the Node event loop.
  *
- * `cvZstd` (default true) re-emits `cv` payloads as zstd; the reader dispatches on magic bytes.
+ * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,
-    contentEncoding?: string | null,
-    cvZstd?: boolean
+    contentEncoding?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
-    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined, cvZstd ?? true)
+    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined)
 }

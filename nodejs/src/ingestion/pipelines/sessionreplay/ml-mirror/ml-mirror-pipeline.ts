@@ -89,23 +89,15 @@ export function createMlMirrorReplayPipeline(
                             .teamAware((b) =>
                                 b
                                     .sequentially((b) => {
-                                        // The native path fuses parse+anonymize in one step (the addon
-                                        // owns parse, scrub and serialize); the TS path parses then
-                                        // anonymizes the parsed events in place. Either way events are
-                                        // anonymized before recording, so derived metadata is scrubbed too.
+                                        // The Rust native path fuses parse+anonymize in one step
                                         const parsed = scrubContext.useRustAnonymizer
                                             ? b.pipe(
-                                                  topHogWrapper(
-                                                      createParseAndAnonymizeMessageStep({
-                                                          cvZstd: scrubContext.cvZstd,
-                                                      }),
-                                                      [
-                                                          timer('parse_time_ms_by_session_id', (input) => ({
-                                                              token: input.headers.token ?? 'unknown',
-                                                              session_id: input.headers.session_id ?? 'unknown',
-                                                          })),
-                                                      ]
-                                                  )
+                                                  topHogWrapper(createParseAndAnonymizeMessageStep(), [
+                                                      timer('parse_time_ms_by_session_id', (input) => ({
+                                                          token: input.headers.token ?? 'unknown',
+                                                          session_id: input.headers.session_id ?? 'unknown',
+                                                      })),
+                                                  ])
                                               )
                                             : b
                                                   .pipe(

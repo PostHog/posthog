@@ -158,10 +158,6 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event.
     pub byte_walk: bool,
-    /// Re-emit *every* cv payload as zstd, changed or not, so output blocks are single-format
-    /// (uniform re-emit measured ~6% slower than keeping unchanged payloads verbatim — worth it to
-    /// avoid a mixed-format block). `false` is the gzip fallback for the loader rollout.
-    pub cv_zstd: bool,
 }
 
 impl Default for AnonymizeOpts {
@@ -169,7 +165,6 @@ impl Default for AnonymizeOpts {
         Self {
             adaptive_routing: true,
             byte_walk: true,
-            cv_zstd: true,
         }
     }
 }
@@ -378,7 +373,7 @@ pub fn anonymize_snapshot_data_opts(
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::new(allow).with_cv_zstd(opts.cv_zstd);
+    let ctx = Ctx::new(allow);
     match stream_message(&ctx, distinct_id, inner, opts)? {
         StreamOutcome::Done(msg) => Ok(msg),
         // Escaped/duplicate envelope keys (only a real parse resolves them) or a snapshot-dominated

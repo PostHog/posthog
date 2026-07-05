@@ -21,8 +21,6 @@ const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
-    /// See `AnonymizeOpts::cv_zstd`.
-    pub cv_zstd: bool,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
@@ -33,14 +31,8 @@ impl<'a> Ctx<'a> {
         Self {
             allow,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
-            cv_zstd: false,
             blur_cache: RefCell::new(HashMap::new()),
         }
-    }
-
-    pub fn with_cv_zstd(mut self, on: bool) -> Self {
-        self.cv_zstd = on;
-        self
     }
 
     /// The only budgeted cv decompression path — cv code must not call `gzip::gunzip` directly.

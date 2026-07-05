@@ -220,17 +220,14 @@ fn scrub_cv_snapshot_value(
     let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
     let decompressed = ctx.gunzip_cv(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
-    if !scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
-        if !ctx.cv_zstd {
-            out.extend_from_slice(&bytes[data.0..data.1]);
-            return Some(false);
-        }
-        let gz = crate::gzip::compress_cv(ctx.cv_zstd, &decompressed).ok()?;
-        write_latin1_json_string(&gz, out);
-        return Some(true);
-    }
-    let gz = crate::gzip::compress_cv(ctx.cv_zstd, &walked).ok()?;
-    write_latin1_json_string(&gz, out);
+    // Unchanged payloads re-emit too: the whole output is zstd, never mixed-format blocks.
+    let content = if scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
+        &walked
+    } else {
+        &decompressed
+    };
+    let zs = crate::gzip::compress_cv(content).ok()?;
+    write_latin1_json_string(&zs, out);
     Some(true)
 }
 
@@ -978,16 +975,14 @@ impl<'c, 'a> Walker<'c, 'a> {
                 let raw = latin1_from_wire(wire)?;
                 let decompressed = self.ctx.gunzip_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
-                let sub_changed =
-                    scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;
-                if sub_changed || self.ctx.cv_zstd {
-                    let content = if sub_changed { &walked } else { &decompressed };
-                    let gz = crate::gzip::compress_cv(self.ctx.cv_zstd, content).ok()?;
-                    write_latin1_json_string(&gz, out);
-                    self.changed = true;
+                let content = if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
+                    &walked
                 } else {
-                    out.extend_from_slice(&self.bytes[vstart..send]);
-                }
+                    &decompressed
+                };
+                let zs = crate::gzip::compress_cv(content).ok()?;
+                write_latin1_json_string(&zs, out);
+                self.changed = true;
                 Some(send)
             }
             _ => None,

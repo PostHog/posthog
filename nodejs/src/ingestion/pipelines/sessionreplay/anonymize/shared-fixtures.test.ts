@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { gunzipSync, gzipSync } from 'zlib'
+import { gzipSync, zstdDecompressSync } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -11,8 +11,7 @@ import { ScrubContext } from './config'
 import { scrubText } from './text'
 import { scrubUrl } from './url'
 
-// Same JSON fixtures the Rust `cargo test` runs against (single source of truth). If the two
-// implementations ever diverge, the assertions fail on whichever side drifted.
+// shared fixtures to guarantee identical behaviour between implementations
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
 
 interface AllowSpec {
@@ -48,8 +47,6 @@ function ctxOf(allow: AllowSpec): ScrubContext {
     return { allow: new AllowLists(allow.text, allow.url) }
 }
 
-// Mirrors the Rust `anonymize_message` whole-message walk: for each window that is an array, scrub each
-// event in place. This is the TS side of the full-message parity fixtures.
 function anonymizeMessageTs(allow: AllowSpec, message: Record<string, unknown[]>): Record<string, unknown> {
     const ctx = ctxOf(allow)
     const clone = structuredClone(message) as Record<string, unknown[]>
@@ -63,10 +60,6 @@ function anonymizeMessageTs(allow: AllowSpec, message: Record<string, unknown[]>
     return clone
 }
 
-// Try to load the native addon; it's built by turbo `^build` in CI. When it isn't (a dev who hasn't
-// run `pnpm build:replay-anonymizer`), skip only the addon block — the TS parity still runs. In CI the
-// addon is always built, so a load failure would silently drop all native parity coverage: fail loudly
-// there instead of skipping, so a broken addon can't turn the suite green with zero cross-impl checks.
 let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
 try {
     rustAddon = require('@posthog/replay-anonymizer')
@@ -107,9 +100,7 @@ describe('anonymize shared fixtures', () => {
     describeAddon('native rust addon matches the shared fixtures', () => {
         const TS0 = 1_700_000_000_000
 
-        // Wrap fixture events in the Kafka payload shape the addon consumes. The scrub fixtures don't
-        // carry timestamps (they only pin scrub behavior), so inject them — into the input and the
-        // expected side identically — since the fused parse step filters events without one.
+        // Wrap fixture events in the Kafka payload shape
         function payloadOf(windowId: string, events: unknown[]): Buffer {
             const items = structuredClone(events)
             items.forEach((ev, i) => {
@@ -128,8 +119,6 @@ describe('anonymize shared fixtures', () => {
             return typeof v === 'object' && v !== null && !Array.isArray(v)
         }
 
-        // The expected JSONL lines: the fixture's expected events with the same timestamps injected,
-        // minus non-object events (the parse step filters those out).
         function expectedLines(windowId: string, expected: unknown[]): unknown[] {
             const events = structuredClone(expected)
             events.forEach((ev, i) => {
@@ -149,9 +138,7 @@ describe('anonymize shared fixtures', () => {
         }
 
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
-            // The addon holds one process-global allow list (set once in prod, mirroring cyclotron's
-            // initManager). Re-initing per case is safe only because Jest runs this file with
-            // --runInBand: cases are sequential, so no case observes another's allow list.
+            // --runInBand is required to ensure cases are sequential
             rustAddon!.initAnonymizer(c.allow)
             const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [c.event]))
             expect(result.failed).toBe(false)
@@ -174,12 +161,16 @@ describe('anonymize shared fixtures', () => {
             }
         })
 
-        // cv payloads are raw gzip bytes, so they're gzipped here rather than authored as static
-        // fixtures; this is the only cv coverage that runs through the addon's production FFI.
+        // fixtures are plain text, convert to gzip bytes for this test
         describe('cv-compressed events through the production entry', () => {
-            // latin-1: each gzip byte is a U+00XX codepoint, matching the SDK wire format.
+            // latin-1: each compressed byte is a U+00XX codepoint, matching the SDK wire format.
             const gzipLatin1 = (json: string): string => Buffer.from(gzipSync(Buffer.from(json))).toString('latin1')
-            const gunzipLatin1 = (s: string): unknown => parseJSON(gunzipSync(Buffer.from(s, 'latin1')).toString())
+            const unzstdLatin1 = (s: string): unknown => {
+                const raw = Buffer.from(s, 'latin1')
+                // Magic-byte dispatch is the loader contract; pin the zstd frame magic on decode.
+                expect([...raw.subarray(0, 4)]).toEqual([0x28, 0xb5, 0x2f, 0xfd])
+                return parseJSON(zstdDecompressSync(raw).toString())
+            }
 
             const fullSnapshot = {
                 type: 2,
@@ -197,33 +188,22 @@ describe('anonymize shared fixtures', () => {
                 data: { source: 0, texts: gzipLatin1(JSON.stringify([{ id: 5, value: 'keep secret' }])) },
             }
 
-            // cvZstd:false so the output decodes with zlib; the scrub is codec-independent.
-            it('scrubs a cv full snapshot and re-emits a decodable payload', async () => {
-                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
-                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]), undefined, false)
-                expect(result.failed).toBe(false)
-                const line = parseLines(result.lines!)[0] as [string, { data: string }]
-                const decoded = gunzipLatin1(line[1].data) as { node: { childNodes: { textContent: string }[] } }
-                expect(decoded.node.childNodes[0].textContent).toBe('keep ******')
-            })
-
-            it('scrubs a cv mutation sub-field and re-emits a decodable payload', async () => {
-                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
-                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [mutation]), undefined, false)
-                expect(result.failed).toBe(false)
-                const line = parseLines(result.lines!)[0] as [string, { data: { texts: string } }]
-                const decoded = gunzipLatin1(line[1].data.texts) as { value: string }[]
-                expect(decoded[0].value).toBe('keep ******')
-            })
-
-            // Downstream dispatches on magic bytes, so pin the default's zstd frame magic.
-            it('emits zstd frames by default', async () => {
+            it('scrubs a cv full snapshot and re-emits a decodable zstd payload', async () => {
                 rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
                 const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]))
                 expect(result.failed).toBe(false)
                 const line = parseLines(result.lines!)[0] as [string, { data: string }]
-                const magic = Buffer.from(line[1].data, 'latin1').subarray(0, 4)
-                expect([...magic]).toEqual([0x28, 0xb5, 0x2f, 0xfd])
+                const decoded = unzstdLatin1(line[1].data) as { node: { childNodes: { textContent: string }[] } }
+                expect(decoded.node.childNodes[0].textContent).toBe('keep ******')
+            })
+
+            it('scrubs a cv mutation sub-field and re-emits a decodable zstd payload', async () => {
+                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [mutation]))
+                expect(result.failed).toBe(false)
+                const line = parseLines(result.lines!)[0] as [string, { data: { texts: string } }]
+                const decoded = unzstdLatin1(line[1].data.texts) as { value: string }[]
+                expect(decoded[0].value).toBe('keep ******')
             })
         })
     })

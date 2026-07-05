@@ -38,11 +38,6 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
     /** Route anonymization through the native Rust addon (`@posthog/replay-anonymizer`); off → the TS scrubbers. */
     SESSION_RECORDING_ML_RUST_ANONYMIZER: boolean
-    /**
-     * Native path only: re-emit `cv` payloads as zstd (same ratio, ~5x faster). The gzip fallback:
-     * the ML prep loader must read zstd via magic bytes before its next run over zstd blocks.
-     */
-    SESSION_RECORDING_ML_CV_ZSTD: boolean
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -69,6 +64,5 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
         SESSION_RECORDING_ML_RUST_ANONYMIZER: false,
-        SESSION_RECORDING_ML_CV_ZSTD: true,
     }
 }

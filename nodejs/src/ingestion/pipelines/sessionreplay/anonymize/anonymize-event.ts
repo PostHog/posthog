@@ -25,9 +25,6 @@ const ANON_SLOW_LOG_THRESHOLD_MS = 5000
  * Anonymizes every event in a parsed message in place, then awaits its blur jobs.
  * Fails closed: returns `failed: true` if any event errors, so the caller can drop
  * the message rather than write un-anonymized data to the unencrypted ML bucket.
- *
- * The native (Rust) path does not run through here: it fuses parse+anonymize in
- * `parse-and-anonymize-step.ts`, so the whole TS anonymize step is bypassed.
  */
 export async function anonymizeParsedMessage(
     scrubContext: ScrubContext,
@@ -63,7 +60,6 @@ export async function anonymizeParsedMessage(
     await runBlurJobs(blurJobs)
     const blurMs = performance.now() - blurStart
 
-    // Comparable to the Rust path's `total` (there's no stringify/parse round-trip on this path).
     SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', 'total', scrubMs + blurMs)
 
     if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
