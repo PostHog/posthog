@@ -19,7 +19,7 @@ import { insightLogic } from '../insightLogic'
 
 const PRESET_COLORS = getSeriesColorPalette()
 
-function DirectionColorPickers({
+export function DirectionColorPickers({
     increaseColor,
     decreaseColor,
     onIncrease,

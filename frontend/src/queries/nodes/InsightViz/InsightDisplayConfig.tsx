@@ -35,6 +35,7 @@ import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
+import { InsightDisplayOptionsMenuNext } from './InsightDisplayOptionsMenuNext'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -141,7 +142,8 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
             </div>
             <div className="flex items-center gap-x-2">
-                {advancedOptions.length > 0 && (
+                {quillDateFilterEnabled && <InsightDisplayOptionsMenuNext />}
+                {!quillDateFilterEnabled && advancedOptions.length > 0 && (
                     <>
                         <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
                             <LemonButton

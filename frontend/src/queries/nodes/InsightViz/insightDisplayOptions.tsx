@@ -4,7 +4,7 @@ import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
@@ -18,15 +18,25 @@ import { ChartDisplayType } from '~/types'
 import {
     BAR_DISPLAYS,
     displayMatches,
+    DisplayOptionKey,
     DisplayOptions,
     isDefaultTrendsLineDisplay,
     LINE_DISPLAYS,
     SectionHeader,
 } from './DisplayOptions'
 
-// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
-// active options, badged on the Options button.
-export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+export interface DisplayOptionsSection {
+    key: string
+    title: string
+    tooltip?: string
+    dataAttr?: string
+    items: DisplayOptionKey[]
+}
+
+// The structure of the "Options" menu in the insight editor's display config bar, shared between the
+// LemonMenu shell and the quill shell. `count` is the number of non-default active options, badged on
+// the Options button.
+export function useInsightDisplayOptionSections(): { sections: DisplayOptionsSection[]; count: number } {
     const { insightProps } = useValues(insightLogic)
     const {
         querySource,
@@ -103,14 +113,14 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
-    const getDisplayItems = (): LemonMenuItem[] => {
-        const displayItems: LemonMenuItem[] = []
+    const getDisplayItems = (): DisplayOptionKey[] => {
+        const displayItems: DisplayOptionKey[] = []
 
         if (isBoxPlot) {
             if (hasLegend) {
-                displayItems.push(DisplayOptions.Legend)
+                displayItems.push('Legend')
             }
-            displayItems.push(DisplayOptions.ExcludeOutliers)
+            displayItems.push('ExcludeOutliers')
             return displayItems
         }
 
@@ -118,123 +128,124 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             // A slope only shows the first vs last interval of each series — the legend (when there
             // are multiple series) is the only display option that applies.
             if (hasLegend) {
-                displayItems.push(DisplayOptions.Legend)
+                displayItems.push('Legend')
             }
             return displayItems
         }
 
         if (isMetric) {
-            displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+            displayItems.push('MetricSummary', 'MetricShowChange', 'MetricColor')
         }
         if (isLifecycle) {
-            displayItems.push(DisplayOptions.LifecycleStacking)
+            displayItems.push('LifecycleStacking')
         }
         if (supportsValueOnSeries) {
-            displayItems.push(DisplayOptions.ValueLabels)
+            displayItems.push('ValueLabels')
         }
         if (isLifecycle) {
-            displayItems.push(DisplayOptions.LifecyclePercentages)
+            displayItems.push('LifecyclePercentages')
         }
         if (supportsPercentStackView) {
-            displayItems.push(DisplayOptions.PercentStack)
+            displayItems.push('PercentStack')
         }
         if (supportsBarValueStacking) {
-            displayItems.push(DisplayOptions.StackBreakdown)
+            displayItems.push('StackBreakdown')
         }
         if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
-            displayItems.push(DisplayOptions.Legend)
+            displayItems.push('Legend')
         }
         if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
+            displayItems.push('PieTotal')
         }
         if (showAlertThresholdLinesConfig) {
-            displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
+            displayItems.push('AlertThresholdLines', 'AlertAnomalyPoints')
         }
         if (showMultipleYAxesConfig) {
-            displayItems.push(DisplayOptions.MultipleYAxes)
+            displayItems.push('MultipleYAxes')
         }
         if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions) {
-            displayItems.push(DisplayOptions.TrendLines)
+            displayItems.push('TrendLines')
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
-            displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
+            displayItems.push('HideIncompleteFunnelPeriods')
         }
         if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
-            displayItems.push(DisplayOptions.HideWeekends)
+            displayItems.push('HideWeekends')
         }
         if (showAnnotationsConfig) {
-            displayItems.push(DisplayOptions.Annotations)
+            displayItems.push('Annotations')
         }
         if (useQuillLegendOptions) {
-            displayItems.push(DisplayOptions.LegendOptions)
+            displayItems.push('LegendOptions')
         }
         return displayItems
     }
 
-    const items: LemonMenuItems = []
+    const sections: DisplayOptionsSection[] = []
 
     if (showSmoothing) {
-        items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
+        sections.push({ key: 'smoothing', title: 'Smoothing', items: ['Smoothing'] })
     }
 
     if (showDisplaySection) {
-        items.push({
-            title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
+        sections.push({
+            key: 'display',
+            title: 'Display',
+            dataAttr: 'options-display-section',
             items: getDisplayItems(),
         })
     }
 
     if (supportsResultCustomizationBy) {
-        items.push({
-            title: (
-                <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                    Color customization by
-                </SectionHeader>
-            ),
-            items: [DisplayOptions.ResultCustomizationBy],
+        sections.push({
+            key: 'result-customization',
+            title: 'Color customization by',
+            tooltip:
+                "You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).",
+            items: ['ResultCustomizationBy'],
         })
     }
 
     if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
-        items.push({
+        sections.push({
+            key: 'unit',
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [DisplayOptions.Unit],
+            items: ['Unit'],
         })
     }
 
     if (showYAxisScale) {
-        items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
+        sections.push({ key: 'y-axis-scale', title: 'Y-axis scale', items: ['Scale'] })
     }
 
     if (showYAxisScale && !isBoxPlot) {
-        const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
+        const statisticalItems: DisplayOptionKey[] = ['ConfidenceInterval']
         if (showConfidenceIntervals) {
-            statisticalItems.push(DisplayOptions.ConfidenceLevel)
+            statisticalItems.push('ConfidenceLevel')
         }
-        statisticalItems.push(DisplayOptions.MovingAverage)
+        statisticalItems.push('MovingAverage')
         if (showMovingAverage) {
-            statisticalItems.push(DisplayOptions.MovingAverageIntervals)
+            statisticalItems.push('MovingAverageIntervals')
         }
-        items.push({ title: 'Statistical analysis', items: statisticalItems })
+        sections.push({ key: 'statistical-analysis', title: 'Statistical analysis', items: statisticalItems })
     }
 
     if (showAxisLabelsConfig) {
-        items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
+        sections.push({ key: 'axis-labels', title: 'Axis labels', items: ['AxisLabels'] })
     }
 
     if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
-        items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
+        sections.push({ key: 'decimal-places', title: 'Decimal places', items: ['DecimalPrecision'] })
     }
 
     if (isRetention) {
-        items.push({ title: 'On dashboards', items: [DisplayOptions.RetentionDashboardDisplay] })
-        items.push({
-            title: (
-                <SectionHeader tooltip="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
-                    Cohort labels start at
-                </SectionHeader>
-            ),
-            items: [DisplayOptions.RetentionCohortLabelStart],
+        sections.push({ key: 'retention-dashboard', title: 'On dashboards', items: ['RetentionDashboardDisplay'] })
+        sections.push({
+            key: 'retention-cohort-label',
+            title: 'Cohort labels start at',
+            tooltip:
+                'Controls the starting index used to label cohort columns. Display only, does not affect the calculations.',
+            items: ['RetentionCohortLabelStart'],
         })
     }
 
@@ -259,6 +270,24 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
         (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
+
+    return { sections, count }
+}
+
+export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+    const { sections, count } = useInsightDisplayOptionSections()
+
+    const items: LemonMenuItems = sections.map((section) => ({
+        title:
+            section.tooltip || section.dataAttr ? (
+                <SectionHeader tooltip={section.tooltip} dataAttr={section.dataAttr}>
+                    {section.title}
+                </SectionHeader>
+            ) : (
+                section.title
+            ),
+        items: section.items.map((key) => DisplayOptions[key]),
+    }))
 
     return { items, count }
 }

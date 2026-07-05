@@ -69,7 +69,7 @@ export function isDefaultTrendsLineDisplay(
     return !display && isTrendsQuery(querySource)
 }
 
-function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
+export function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
     const { insightProps } = useValues(insightLogic)
     const { querySource, display, yAxisScaleType } = useValues(insightVizDataLogic(insightProps))
     const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
@@ -285,3 +285,5 @@ export const DisplayOptions = {
     RetentionDashboardDisplay: { label: () => <RetentionDashboardDisplayPicker /> },
     RetentionCohortLabelStart: { label: () => <RetentionCohortLabelStartIndexPicker /> },
 } satisfies Record<string, LemonMenuItem>
+
+export type DisplayOptionKey = keyof typeof DisplayOptions
