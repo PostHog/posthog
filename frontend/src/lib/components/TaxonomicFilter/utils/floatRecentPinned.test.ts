@@ -1,4 +1,4 @@
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SkeletonItem, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { floatRecentAndPinnedToTop } from './floatRecentPinned'
 
@@ -15,7 +15,7 @@ describe('floatRecentAndPinnedToTop', () => {
     const pinned = (value: string): TaxonomicDefinitionTypes =>
         ({ _pinnedContext: { sourceGroupType: G, value } }) as unknown as TaxonomicDefinitionTypes
 
-    const valuesOf = (items: TaxonomicDefinitionTypes[]): (string | undefined)[] =>
+    const valuesOf = (items: (TaxonomicDefinitionTypes | SkeletonItem)[]): (string | undefined)[] =>
         items.map((i) => (i as { value?: string }).value)
 
     it.each([
