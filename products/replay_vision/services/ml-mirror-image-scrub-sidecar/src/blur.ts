@@ -15,22 +15,20 @@ function targetDims(w: number, h: number): [number, number] {
 }
 
 export async function blurOnly(input: Buffer): Promise<Buffer> {
-    let width: number | undefined
-    let height: number | undefined
+    // Any libvips failure — bad header OR a corrupt/truncated body that fails mid-decode — is permanent for
+    // these bytes, so map it all to UndecodableImageError (422/skip). A 500 here would poison the partition.
     try {
         const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
-        width = meta.width
-        height = meta.height
+        if (!meta.width || !meta.height) {
+            throw new UndecodableImageError('image has invalid dimensions')
+        }
+        const [tw, th] = targetDims(meta.width, meta.height)
+        return await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
+            .resize(tw, th, { fit: 'fill' })
+            .blur(BLUR_SIGMA)
+            .png()
+            .toBuffer()
     } catch (e) {
-        throw new UndecodableImageError(String(e))
+        throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
     }
-    if (!width || !height) {
-        throw new UndecodableImageError('image has invalid dimensions')
-    }
-    const [tw, th] = targetDims(width, height)
-    return sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
-        .resize(tw, th, { fit: 'fill' })
-        .blur(BLUR_SIGMA)
-        .png()
-        .toBuffer()
 }

@@ -45,6 +45,11 @@ describe('image-scrub sidecar server', () => {
         expect(res.status).toBe(422)
     })
 
+    it('422s a truncated image (fails mid-decode, not just at the header)', async () => {
+        const res = await fetch(`${base}/scrub`, { method: 'POST', body: PNG.subarray(0, 40) })
+        expect(res.status).toBe(422)
+    })
+
     it('serves health + metrics', async () => {
         expect((await fetch(`${base}/_health`)).status).toBe(200)
         const metrics = await fetch(`${base}/metrics`)

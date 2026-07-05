@@ -3,7 +3,6 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { logger } from '~/common/utils/logger'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
@@ -14,6 +13,10 @@ import {
     IngestionSessionReplayMlMirrorServerConfig,
     buildMlMirrorServerConfig,
 } from './ingestion-session-replay-ml-mirror-server'
+
+// A scrub + S3-write batch blocks the poll loop (which only heartbeats once per batch) for up to minutes, so
+// we refresh the heartbeat this often during it. Must stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
+const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
 
 export function requireS3Client(client: S3Client | null): S3Client {
     if (!client) {
@@ -83,20 +86,16 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             Date.now()
         )
         await consumer.connect((messages) => {
-            consumer.heartbeat()
-            return batcher.handleBatch(messages, Date.now())
+            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
+            return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
         })
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',
-            onShutdown: async () => {
-                try {
-                    await batcher.flush(Date.now())
-                } catch (error) {
-                    logger.warn('🖼️', 'ml_image_scrub_shutdown_flush_failed', { error: String(error) })
-                }
-                await consumer.disconnect()
-            },
+            // disconnect() stops the poll loop and commits stored offsets. The un-flushed buffer's offsets were
+            // never stored, so those messages just replay on restart — a final flush here would only race the
+            // still-running loop over the shared buffer.
+            onShutdown: () => consumer.disconnect(),
             healthcheck: () => consumer.isHealthy(),
         })
     }
