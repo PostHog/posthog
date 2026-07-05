@@ -123,9 +123,9 @@ export function PropertyValue({
         />
     )
 
-    // Semver operators pair with a value the backend re-validates against `parse_semver`. Callers
-    // that persist and can 400 on a bad value (e.g. feature flag release conditions) gate the save
-    // with `isValidSemverValue` from lib/utils/operators so bad input is caught before submit.
+    // TODO: Add semver input validation when a semver operator is selected.
+    // This will require detecting isOperatorSemver(operator) and validating the input
+    // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
     // we first load a set of suggested values when there is no user input yet to avoid
     // options jumping around as the user types, we keep the initially loaded options

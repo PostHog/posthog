@@ -19,7 +19,8 @@ import api from 'lib/api'
 import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
-import { isOperatorSemver, isValidSemverValue } from 'lib/utils/operators'
+import { isOperatorSemver } from 'lib/utils/operators'
+import { isValidSemverValue } from 'lib/utils/semver'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -31,6 +32,7 @@ import {
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
+    PropertyOperator,
     UserBlastRadiusType,
 } from '~/types'
 
@@ -48,12 +50,11 @@ function getPropertyValueError(property: AnyPropertyFilter): string | undefined 
     if (isEmptyProperty(property)) {
         return "Property filters can't be empty"
     }
-    if (
-        isPropertyFilterWithOperator(property) &&
-        isOperatorSemver(property.operator) &&
-        !isValidSemverValue(property.value, property.operator)
-    ) {
-        return 'Enter a valid semver value (e.g. 1.2.3)'
+    if (isPropertyFilterWithOperator(property) && isOperatorSemver(property.operator)) {
+        const allowWildcard = property.operator === PropertyOperator.SemverWildcard
+        if (typeof property.value !== 'string' || !isValidSemverValue(property.value, { allowWildcard })) {
+            return 'Enter a valid semver value (e.g. 1.2.3)'
+        }
     }
     return undefined
 }
