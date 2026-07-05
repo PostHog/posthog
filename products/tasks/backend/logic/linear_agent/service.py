@@ -17,9 +17,9 @@ from posthog.git import extract_explicit_repo
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.tasks.backend.linear_agent.client import LinearAgentApiError, LinearAgentClient
-from products.tasks.backend.linear_agent.feature_flags import linear_agent_enabled
-from products.tasks.backend.linear_agent.parsing import LinearAgentTrigger, parse_agent_trigger
+from products.tasks.backend.logic.linear_agent.client import LinearAgentApiError, LinearAgentClient
+from products.tasks.backend.logic.linear_agent.feature_flags import linear_agent_enabled
+from products.tasks.backend.logic.linear_agent.parsing import LinearAgentTrigger, parse_agent_trigger
 from products.tasks.backend.models import LinearIssueTaskMapping, Task
 
 logger = structlog.get_logger(__name__)
@@ -31,6 +31,9 @@ RECONNECT_INTEGRATION_MESSAGE = (
 TASK_CREATION_FAILED_MESSAGE = (
     "Sorry — I couldn't create a PostHog Code task for this issue. "
     "Check the Linear integration in your PostHog settings and try again."
+)
+WORKFLOW_START_FAILED_MESSAGE = (
+    "Sorry — I created a PostHog Code task for this issue but couldn't start it. Reassign the issue to me to try again."
 )
 
 
@@ -154,14 +157,30 @@ def handle_linear_agent_event(payload: dict[str, Any]) -> None:
         execute_task_processing_workflow,
     )
 
-    execute_task_processing_workflow(
-        task_id=str(task.id),
-        run_id=str(run.id),
-        team_id=team.id,
-        user_id=user.id,
-        create_pr=True,
-        posthog_mcp_scopes="full",
-    )
+    try:
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=str(run.id),
+            team_id=team.id,
+            user_id=user.id,
+            create_pr=True,
+            posthog_mcp_scopes="full",
+        )
+    except Exception:
+        # Without this, the mapping would silently swallow every future trigger for the
+        # issue while pointing at a task whose workflow never started. Drop the mapping so
+        # reassigning the issue works, and tell the user; the orphaned run is picked up by
+        # the stale-queued-run reconciler.
+        logger.exception(
+            "linear_agent_workflow_start_failed",
+            task_id=str(task.id),
+            run_id=str(run.id),
+            team_id=team.id,
+            linear_issue_id=trigger.issue_id,
+        )
+        LinearIssueTaskMapping.objects.for_team(team.id).filter(task=task).delete()
+        _safe_comment(client, trigger.issue_id, WORKFLOW_START_FAILED_MESSAGE)
+        return
 
     _safe_comment(client, trigger.issue_id, _ack_body(team.id, task.id, repository))
 

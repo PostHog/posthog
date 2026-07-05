@@ -1375,7 +1375,7 @@ def _post_linear_update_for_pr(run: TaskRun) -> None:
     if not pr_url:
         return
 
-    from products.tasks.backend.linear_agent.sync import (  # noqa: PLC0415 — keep linear_agent off the api import path
+    from products.tasks.backend.logic.linear_agent.sync import (  # noqa: PLC0415 — keep linear_agent off the api import path
         dispatch_linear_update_for_run,
     )
 
@@ -1386,7 +1386,7 @@ def _post_linear_update_for_pr(run: TaskRun) -> None:
 
 
 def _post_linear_update_for_failure(run: TaskRun, error_message: str | None) -> None:
-    from products.tasks.backend.linear_agent.sync import (  # noqa: PLC0415 — keep linear_agent off the api import path
+    from products.tasks.backend.logic.linear_agent.sync import (  # noqa: PLC0415 — keep linear_agent off the api import path
         dispatch_linear_update_for_run,
     )
 

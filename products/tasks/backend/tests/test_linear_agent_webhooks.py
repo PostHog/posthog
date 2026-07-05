@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from products.tasks.backend.linear_agent.parsing import (
+from products.tasks.backend.logic.linear_agent.parsing import (
     parse_agent_trigger,
     verify_linear_signature,
     webhook_timestamp_valid,

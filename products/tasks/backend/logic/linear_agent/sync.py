@@ -12,7 +12,7 @@ from django.db import transaction
 
 import structlog
 
-from products.tasks.backend.linear_agent.client import LinearAgentClient
+from products.tasks.backend.logic.linear_agent.client import LinearAgentClient
 from products.tasks.backend.models import LinearIssueTaskMapping, TaskRun
 
 logger = structlog.get_logger(__name__)

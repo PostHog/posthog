@@ -7,9 +7,9 @@ from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.tasks.backend.linear_agent.client import LinearAgentApiError
-from products.tasks.backend.linear_agent.service import handle_linear_agent_event
-from products.tasks.backend.linear_agent.sync import post_linear_update_for_run_impl
+from products.tasks.backend.logic.linear_agent.client import LinearAgentApiError
+from products.tasks.backend.logic.linear_agent.service import handle_linear_agent_event
+from products.tasks.backend.logic.linear_agent.sync import post_linear_update_for_run_impl
 
 logger = structlog.get_logger(__name__)
 

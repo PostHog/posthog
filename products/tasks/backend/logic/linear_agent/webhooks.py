@@ -14,7 +14,7 @@ import structlog
 
 from posthog.utils import safe_cache_add
 
-from products.tasks.backend.linear_agent.parsing import (
+from products.tasks.backend.logic.linear_agent.parsing import (
     HANDLED_WEBHOOK_TYPES,
     verify_linear_signature,
     webhook_timestamp_valid,

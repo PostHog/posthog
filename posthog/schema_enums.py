@@ -2215,6 +2215,7 @@ class IntegrationKind(StrEnum):
     EMAIL = "email"
     TWILIO = "twilio"
     LINEAR = "linear"
+    LINEAR_AGENT = "linear-agent"
     GITHUB = "github"
     GITLAB = "gitlab"
     META_ADS = "meta-ads"

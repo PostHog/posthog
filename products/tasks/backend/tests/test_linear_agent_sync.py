@@ -8,8 +8,8 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade import api as facade
-from products.tasks.backend.linear_agent.client import LinearAgentApiError
-from products.tasks.backend.linear_agent.sync import post_linear_update_for_run_impl
+from products.tasks.backend.logic.linear_agent.client import LinearAgentApiError
+from products.tasks.backend.logic.linear_agent.sync import post_linear_update_for_run_impl
 from products.tasks.backend.models import LinearIssueTaskMapping, Task, TaskRun
 
 PR_URL = "https://github.com/posthog/posthog/pull/123"
@@ -108,7 +108,7 @@ class TestLinearUpdateDispatch(LinearAgentSyncTestBase):
         mock_task.delay.assert_called_once_with(run_id=str(run.id), kind="failed", error_message="boom")
 
     @patch(
-        "products.tasks.backend.linear_agent.sync.dispatch_linear_update_for_run",
+        "products.tasks.backend.logic.linear_agent.sync.dispatch_linear_update_for_run",
         side_effect=RuntimeError("sync exploded"),
     )
     def test_dispatch_failure_never_breaks_update_task_run(self, _mock_dispatch):
@@ -133,7 +133,7 @@ class TestPostLinearUpdateForRun(LinearAgentSyncTestBase):
     def _graphql_response(self, body: dict) -> MagicMock:
         return MagicMock(status_code=200, json=MagicMock(return_value=body))
 
-    @patch("products.tasks.backend.linear_agent.client.requests.post")
+    @patch("products.tasks.backend.logic.linear_agent.client.requests.post")
     def test_pr_opened_posts_comment_on_mapped_issue(self, mock_post):
         mock_post.return_value = self._graphql_response({"data": {"commentCreate": {"success": True}}})
         run = self._make_run(output={"pr_url": PR_URL})
@@ -146,7 +146,7 @@ class TestPostLinearUpdateForRun(LinearAgentSyncTestBase):
         self.assertEqual(request_json["variables"]["issueId"], "issue-uuid-1")
         self.assertIn(PR_URL, request_json["variables"]["body"])
 
-    @patch("products.tasks.backend.linear_agent.client.requests.post")
+    @patch("products.tasks.backend.logic.linear_agent.client.requests.post")
     def test_failed_run_posts_failure_comment_with_task_link(self, mock_post):
         mock_post.return_value = self._graphql_response({"data": {"commentCreate": {"success": True}}})
         run = self._make_run(status=TaskRun.Status.FAILED, error_message="agent crashed")
@@ -157,7 +157,7 @@ class TestPostLinearUpdateForRun(LinearAgentSyncTestBase):
         self.assertIn("agent crashed", body)
         self.assertIn(f"/project/{self.team.id}/tasks/{run.task_id}", body)
 
-    @patch("products.tasks.backend.linear_agent.client.requests.post")
+    @patch("products.tasks.backend.logic.linear_agent.client.requests.post")
     def test_agent_session_also_receives_activity(self, mock_post):
         mock_post.return_value = self._graphql_response({"data": {"ok": True}})
         run = self._make_run(agent_session_id="session-1", output={"pr_url": PR_URL})
@@ -169,7 +169,7 @@ class TestPostLinearUpdateForRun(LinearAgentSyncTestBase):
         self.assertIn("agentActivityCreate", activity_json["query"])
         self.assertEqual(activity_json["variables"]["input"]["agentSessionId"], "session-1")
 
-    @patch("products.tasks.backend.linear_agent.client.requests.post")
+    @patch("products.tasks.backend.logic.linear_agent.client.requests.post")
     def test_graphql_error_raises_for_celery_retry(self, mock_post):
         mock_post.return_value = self._graphql_response({"errors": [{"message": "rate limited"}]})
         run = self._make_run(output={"pr_url": PR_URL})
@@ -177,7 +177,7 @@ class TestPostLinearUpdateForRun(LinearAgentSyncTestBase):
         with self.assertRaises(LinearAgentApiError):
             post_linear_update_for_run_impl(str(run.id), "pr_opened", None)
 
-    @patch("products.tasks.backend.linear_agent.client.requests.post")
+    @patch("products.tasks.backend.logic.linear_agent.client.requests.post")
     def test_missing_pr_url_or_mapping_is_noop(self, mock_post):
         run_without_pr = self._make_run()
         post_linear_update_for_run_impl(str(run_without_pr.id), "pr_opened", None)

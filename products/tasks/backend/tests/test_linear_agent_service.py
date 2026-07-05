@@ -9,10 +9,11 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
-from products.tasks.backend.linear_agent.client import LinearAgentApiError
-from products.tasks.backend.linear_agent.parsing import parse_agent_trigger
-from products.tasks.backend.linear_agent.service import (
+from products.tasks.backend.logic.linear_agent.client import LinearAgentApiError
+from products.tasks.backend.logic.linear_agent.parsing import parse_agent_trigger
+from products.tasks.backend.logic.linear_agent.service import (
     RECONNECT_INTEGRATION_MESSAGE,
+    WORKFLOW_START_FAILED_MESSAGE,
     _resolve_repository,
     handle_linear_agent_event,
 )
@@ -58,13 +59,15 @@ class LinearAgentServiceTestBase(TestCase):
         patches = {
             "flag": flag_gate(True),
             "repo": patch(
-                "products.tasks.backend.linear_agent.service._resolve_repository", return_value="posthog/posthog"
+                "products.tasks.backend.logic.linear_agent.service._resolve_repository", return_value="posthog/posthog"
             ),
             "workflow": patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
-            "comment": patch("products.tasks.backend.linear_agent.client.LinearAgentClient.create_comment"),
-            "activity": patch("products.tasks.backend.linear_agent.client.LinearAgentClient.create_agent_activity"),
+            "comment": patch("products.tasks.backend.logic.linear_agent.client.LinearAgentClient.create_comment"),
+            "activity": patch(
+                "products.tasks.backend.logic.linear_agent.client.LinearAgentClient.create_agent_activity"
+            ),
             "description": patch(
-                "products.tasks.backend.linear_agent.client.LinearAgentClient.get_issue_description",
+                "products.tasks.backend.logic.linear_agent.client.LinearAgentClient.get_issue_description",
                 return_value="Fetched issue description",
             ),
         }
@@ -170,6 +173,22 @@ class TestHandleLinearAgentEvent(LinearAgentServiceTestBase):
         self.assertFalse(Task.objects.filter(team=self.team).exists())
         self.assertFalse(self._mappings().exists())
         self.mock_comment.assert_called_once()
+
+    def test_workflow_start_failure_unmaps_issue_so_retrigger_works(self):
+        self.mock_workflow.side_effect = RuntimeError("temporal down")
+
+        handle_linear_agent_event(notification_payload())
+
+        self.assertFalse(self._mappings().exists())
+        self.mock_comment.assert_called_once()
+        _issue_id, body = self.mock_comment.call_args.args
+        self.assertEqual(body, WORKFLOW_START_FAILED_MESSAGE)
+
+        # Reassigning the issue must start fresh now that the mapping is gone.
+        self.mock_workflow.side_effect = None
+        handle_linear_agent_event(notification_payload())
+        self.assertEqual(Task.objects.filter(team=self.team).count(), 2)
+        self.assertEqual(self._mappings().count(), 1)
 
     def test_ack_comment_failure_does_not_lose_the_task(self):
         self.mock_comment.side_effect = LinearAgentApiError("linear down")

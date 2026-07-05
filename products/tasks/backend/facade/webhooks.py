@@ -6,7 +6,7 @@ POST and routes pull-request events to the tasks handler. Core's ``/webhooks/lin
 delegates whole requests to ``handle_linear_agent_webhook`` (verification included).
 """
 
-from products.tasks.backend.linear_agent.webhooks import handle_linear_agent_webhook
+from products.tasks.backend.logic.linear_agent.webhooks import handle_linear_agent_webhook
 from products.tasks.backend.webhooks import (
     get_github_webhook_secret,
     handle_pull_request_event,
