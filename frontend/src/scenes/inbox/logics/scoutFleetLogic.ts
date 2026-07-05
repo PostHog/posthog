@@ -19,6 +19,7 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     FleetSummary,
+    normalizeRunStatus,
     prettifyScoutSkillName,
     reconcileById,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -157,8 +158,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     }
 
                     // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
-                    // run's identity and needlessly re-render the memoized run/emission rows.
-                    return { runs: reconcileById(values.runsWindow.runs, runs, (run) => run.run_id), complete }
+                    // run's identity and needlessly re-render the memoized run/emission rows. Live
+                    // (running/queued) runs are never reused: their rows show a wall-clock duration
+                    // that must keep advancing with each poll.
+                    return {
+                        runs: reconcileById(
+                            values.runsWindow.runs,
+                            runs,
+                            (run) => run.run_id,
+                            (run) => {
+                                const status = normalizeRunStatus(run.status)
+                                return status !== 'running' && status !== 'queued'
+                            }
+                        ),
+                        complete,
+                    }
                 },
             },
         ],

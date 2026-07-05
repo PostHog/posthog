@@ -132,5 +132,19 @@ describe('scoutRunsWindow report channel', () => {
             const next = [makeRun({ run_id: 'run-1' })]
             expect(reconcileById([], next, (run) => run.run_id)).toBe(next)
         })
+
+        it('never reuses items the isReusable predicate rejects, even when deep-equal', () => {
+            // A running run's row renders a wall-clock duration: reusing its reference would let the
+            // memoized row skip the poll re-render and freeze the ticking timer.
+            const prev = makeRun({ run_id: 'run-1', status: 'in_progress' })
+            const next = makeRun({ run_id: 'run-1', status: 'in_progress' })
+            const result = reconcileById(
+                [prev],
+                [next],
+                (run) => run.run_id,
+                (run) => run.status !== 'in_progress'
+            )
+            expect(result[0]).toBe(next)
+        })
     })
 })

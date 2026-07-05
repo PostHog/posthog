@@ -304,14 +304,21 @@ function emptyRollup(): ScoutRollup {
  * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
  * `React.memo` on the rows can actually bite.
  */
-export function reconcileById<T>(previous: T[], next: T[], getId: (item: T) => string): T[] {
+export function reconcileById<T>(
+    previous: T[],
+    next: T[],
+    getId: (item: T) => string,
+    // Items whose rendering depends on wall-clock time (e.g. a live run's ticking duration) must
+    // NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
+    isReusable: (item: T) => boolean = () => true
+): T[] {
     if (previous.length === 0) {
         return next
     }
     const previousById = new Map(previous.map((item) => [getId(item), item]))
     return next.map((item) => {
         const existing = previousById.get(getId(item))
-        return existing && objectsEqual(existing, item) ? existing : item
+        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
     })
 }
 
