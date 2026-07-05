@@ -120,6 +120,10 @@ export function RecordingClickmapOverlay({
         // The overlay div is pointer-events-none, but wheel events from the
         // pointer-events-auto boxes bubble through it natively, so this fires.
         const handler = (e: WheelEvent): void => {
+            // ctrl+wheel is how browsers dispatch trackpad pinch-zoom; let it through
+            if (e.ctrlKey) {
+                return
+            }
             e.preventDefault()
             const scale = e.deltaMode === 2 ? WHEEL_PAGE_HEIGHT_PX : e.deltaMode === 1 ? WHEEL_LINE_HEIGHT_PX : 1
             try {
