@@ -38,6 +38,12 @@ const duration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
     registers: [register],
 })
+const outputBytes = new Histogram({
+    name: 'ml_mirror_image_scrub_output_bytes',
+    help: 'Scrubbed output size — a collapse toward zero flags an output regression',
+    buckets: [64, 256, 1024, 4096, 16384, 65536],
+    registers: [register],
+})
 
 export const ScrubMetrics = {
     incScrubbed: () => scrubbed.inc(),
@@ -47,4 +53,5 @@ export const ScrubMetrics = {
     incTooLarge: () => tooLarge.inc(),
     incAborted: () => aborted.inc(),
     startTimer: (): (() => void) => duration.startTimer(),
+    observeOutputBytes: (n: number) => outputBytes.observe(n),
 }

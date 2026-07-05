@@ -25,7 +25,15 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_shard_bytes_total',
         help: 'Scrubbed image bytes written into shards',
     })
+    private static readonly batchFailed = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_batch_failed_total',
+        help: 'Batches that threw and will replay, by cause (scrub or write)',
+        labelNames: ['cause'],
+    })
 
+    public static incBatchFailed(cause: 'scrub' | 'write'): void {
+        this.batchFailed.labels(cause).inc()
+    }
     public static incScrubbed(): void {
         this.scrubbed.inc()
     }

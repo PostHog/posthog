@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'node:crypto'
 
@@ -58,7 +58,7 @@ export class ImageShardStore {
     }
 
     // S3 client has no request timeout; a hung write would stall the poll loop past Kafka's max.poll.interval.ms and evict us.
-    private async send(command: PutObjectCommand): Promise<void> {
+    private async send(command: PutObjectCommand | DeleteObjectCommand): Promise<void> {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs)
         try {
@@ -93,14 +93,20 @@ export class ImageShardStore {
                 ContentType: 'application/octet-stream',
             })
         )
-        await this.send(
-            new PutObjectCommand({
-                Bucket: this.bucket,
-                Key: `${this.prefix}/index/${stamp}.parquet`,
-                Body: indexBody,
-                ContentType: 'application/vnd.apache.parquet',
-            })
-        )
+        try {
+            await this.send(
+                new PutObjectCommand({
+                    Bucket: this.bucket,
+                    Key: `${this.prefix}/index/${stamp}.parquet`,
+                    Body: indexBody,
+                    ContentType: 'application/vnd.apache.parquet',
+                })
+            )
+        } catch (e) {
+            // Reclaim the orphaned shard so a repeatedly-failing index write doesn't leak a fresh blob per replay.
+            await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: shardKey })).catch(() => {})
+            throw e
+        }
         return { shard: shardKey, bytes: offset }
     }
 }

@@ -39,7 +39,14 @@ export class ImageBatcher {
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        for (const image of await this.scrubBatch(messages)) {
+        let scrubbed: ScrubbedImage[]
+        try {
+            scrubbed = await this.scrubBatch(messages)
+        } catch (e) {
+            ImageScrubConsumerMetrics.incBatchFailed('scrub')
+            throw e
+        }
+        for (const image of scrubbed) {
             this.buffer.push(image)
             this.bufferBytes += image.bytes.length
         }
@@ -48,7 +55,12 @@ export class ImageBatcher {
             this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
         }
         if (this.shouldFlush(nowMs)) {
-            await this.flush(nowMs)
+            try {
+                await this.flush(nowMs)
+            } catch (e) {
+                ImageScrubConsumerMetrics.incBatchFailed('write')
+                throw e
+            }
         }
     }
 
@@ -65,6 +77,9 @@ export class ImageBatcher {
                 )
             )
             return scrubbed.filter((image): image is ScrubbedImage => image !== null)
+        } catch (e) {
+            controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
+            throw e
         } finally {
             clearTimeout(timer)
         }

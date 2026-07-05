@@ -65,6 +65,7 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
                     return
                 }
                 ScrubMetrics.incScrubbed()
+                ScrubMetrics.observeOutputBytes(out.length)
                 res.set('Content-Type', 'application/octet-stream').send(out)
             })
             .catch(next)
@@ -76,7 +77,8 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
             ScrubMetrics.incAborted()
             return
         }
-        if (res.writableEnded) {
+        // Already responded, or the socket died after a partial success write: don't double-count as failed.
+        if (res.writableEnded || !res.writable) {
             return
         }
         // express.raw over-limit lands here as 413: permanent, the consumer skips it.
