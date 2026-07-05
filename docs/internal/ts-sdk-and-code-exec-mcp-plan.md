@@ -223,9 +223,14 @@ Extend the single-`exec` paradigm rather than adding many tools:
 - Contingent (if client transport behavior forces an async model, §3.7): `exec status <execution id>` / `exec cancel <execution id>` for long-running scripts, and `exec result <resource id>` for paging spilled results.
 
 **Compile gate.**
-`exec run` and `exec apply` typecheck the source against the pinned SDK `.d.ts` (warm `tsgo`/`tsc` instance on the Hono runtime, target well under a second) plus contract lints (must `export default`, no `require` of unavailable modules) before any sandbox is dispatched.
+`exec run` and `exec apply` typecheck the source against the pinned SDK `.d.ts` plus contract lints (must `export default`, no `require` of unavailable modules) before any sandbox is dispatched.
+Latency is validated: `tsgo` (already used by `services/mcp`) checks an agent script against the full ~4 MB `.d.ts` in **~180 ms cold**, and a warm `ts.createLanguageService` daemon does ~25 ms per check.
 Diagnostics return to the agent as structured, file/line-anchored errors — the same types it read during discovery, so the fix loop is immediate and costs no sandbox time.
-This is the cheapest quality lever in the whole design: most bad scripts die here in milliseconds instead of failing mid-execution with side effects.
+
+The gate is only as strong as the response schemas behind it.
+Today, response-side objects are weakly typed where serializers don't structure output (e.g. `FeatureFlag.filters` is `{ [key: string]: unknown }` while the _input_ filters type is fully structured) — enough that §3.1's own flagship script fails `tsc` against the current types, and agents blocked this way will learn to cast to `any`, eroding the gate.
+**Prerequisite workstream (Django, not SDK):** enrich serializer _response_ schemas for the objects agent scripts read most (feature flag `filters`, surveys, experiments), the same `help_text`/`@extend_schema_field` discipline already applied to inputs.
+Two SDK-side companions: export the generated `*Params` input types from the package root (currently unimportable, so agents can't type helper functions), and structurally type `query.run`'s body beyond `{ kind: string }` where feasible.
 
 **Scope awareness.**
 The session knows the token's resolved scopes (already resolved for tool gating today), and the classifier table (§3.6.2) knows each method's required scopes — so discovery is scope-annotated per session: every signature in `exec types` results carries `[requires <scope> ✓]` or `[requires <scope> — missing on this token]`, and search returns gated matches separately with the missing scopes named, mirroring the existing `exec search` `scope_gated_matches` behavior.
@@ -235,8 +240,11 @@ Agents therefore know before writing a script which methods will be denied, inst
 
 Three options, in recommended order:
 
-1. **Reuse `agent-sandbox-host` pools (Docker on k8s / Modal)** — recommended start. Already productionized for the agent platform: canonical image, per-invoke `dispatch.js` protocol, pool warm-keeping, no network by default. Add a "run user script" dispatch mode: write the script + a pinned `@posthog/sdk` bundle into the workdir, execute with hard CPU/memory/wall-clock limits, collect `response.json`. Cost: tens-to-hundreds of ms dispatch latency on a warm pool — acceptable for scripts that replace multi-call workflows.
-2. **V8 isolates in/beside the Hono runtime** (workerd sidecar, `isolated-vm`, or QuickJS-WASM) — lowest latency, but weaker isolation than a container and a larger security burden we own directly. Candidate optimization once usage patterns are known; the `exec run` contract doesn't change.
+1. **Reuse the `agent-sandbox-host` pools** — recommended start; already productionized for the agent platform (canonical image, per-invoke `dispatch.js` protocol). **Modal is the production substrate** (isolated microVMs outside PostHog's infrastructure); the Docker pool is local-dev only (`selectSandboxPool` enforces this split). Known work, validated by a dry-run spike against the real code:
+   - The dispatch protocol is hardwired to a CJS `tools/<id>/compiled.js` layout with no env-var injection on `exec` — running agent scripts needs a new dispatch mode (ESM + top-level await + `export default`), env plumbing (the credential story in §3.4 rides on two env vars), and an SDK bundle laid into the workdir. Changes couple to the image release cadence (GHCR publish → chart `SANDBOX_HOST_IMAGE` rollout).
+   - **There is no warm pool today** — sandboxes are acquired per session, and a fresh Modal sandbox boots in ~5–15 s on a warm image. Per-invoke dispatch after acquisition is cheap. Budget a pre-warmed pool as new work, or accept multi-second first-run latency per session at launch.
+   - CPU quotas are not currently wired in either pool (memory/pids only on Docker) — the §3.7 resource-limit line is a build item, not a checkbox.
+2. **V8 isolates in/beside the Hono runtime** (workerd sidecar, `isolated-vm`, or QuickJS-WASM) — lowest latency, but weaker isolation than a microVM and a larger security burden we own directly. Candidate optimization once usage patterns are known; the `exec run` contract doesn't change.
 3. **Cloudflare dynamic Worker Loaders** — the literal Cloudflare pattern, but PostHog's MCP protocol is served by Hono on k8s (the CF Worker is only an OAuth edge router), so this would split execution across infrastructures and regions. Not preferred.
 
 The substrate hides behind a `SandboxExecutor` interface (mirroring `selectSandboxPool()` in `@posthog/agent-shared`) so it can be swapped without touching the tool.
@@ -265,7 +273,19 @@ agent ──(exec run script)──▶ MCP Hono runtime
                             PostHog Django API (real user token attached server-side)
 ```
 
-This is exactly why the SDK's env-default initialization matters: the sandbox harness sets two env vars and every script gets a fully working, fully constrained client with zero boilerplate. The proxy — not the sandbox — is the security boundary; the sandbox's egress allowlist (proxy host only) is the second layer.
+This is exactly why the SDK's env-default initialization matters: the sandbox harness sets two env vars and every script gets a fully working, fully constrained client with zero boilerplate. The proxy — not the sandbox — is the security boundary; sandbox egress restriction is the second layer.
+
+**Egress restriction, concretely (per substrate).**
+The token is not the asset — it's the user's own credential, scope-intersected and TTL-bound.
+Egress lockdown exists to close the _exfiltration channel_ in the injection scenario: attacker-writable PostHog data (event properties, survey responses) steers the agent into a script that queries sensitive data and ships it somewhere the attacker can read.
+
+- **Modal (production):** sandboxes are isolated microVMs outside PostHog's infrastructure, so there is no internal network to move laterally into.
+  The only egress knob is `outboundCidrAllowlist` (CIDR, not hostname), and the script chooses Host/SNI — so the allowlist is only sound if the IPs behind `mcp.{us,eu}.posthog.com` serve _nothing else_.
+  If those IPs are shared ingress that also serves other PostHog hostnames — the public capture endpoint especially — a sandboxed script can exfiltrate through PostHog itself by sending stolen data as events to an attacker-owned project's token.
+  **Prerequisite for Phase C:** verify the ingress topology; if shared, provision a dedicated ingress IP/hostname for the sandbox API so the CIDR allowlist is exact.
+- **Docker (local dev only):** hard-codes `--network=none`; local plan/apply testing needs a UDS-mounted forwarder or host networking. Dev ergonomics, not a security surface.
+
+Note the CF Worker edge only routes `/mcp*`; the sandbox proxy URL targets the direct Hono hostnames (`mcp.us.posthog.com` / `mcp.eu.posthog.com`), where a `/sandbox-api/:executionId/*` route slots into the existing app with its own auth.
 
 ### 3.5 Schema discovery through TS types, not JSON Schema
 
@@ -321,29 +341,48 @@ Scripts execute in seconds; the guarantee is worth the double read.
 The proxy sees raw HTTP, and "mutation" is not `method !== 'GET'`: `POST /api/environments/:id/query/` is a read.
 A classification table is generated at codegen time from the same YAML definitions + OpenAPI spec the SDK is built from — the `readOnly` and `destructive` annotations already exist per operation — and ships as a static artifact with the proxy (same distribution as the discovery index, §3.5).
 
-- Each entry: operation id, method, path template, `readOnly`, `destructive`, object type, display-name field (for plan rendering, §3.6.6).
+- Each entry: operation id, method, path template (covering both `/api/projects/` and `/api/environments/` aliases), `readOnly`, `destructive`, `soft_delete` marker + body pattern, object type, display-name field (for plan rendering, §3.6.6).
+- Soft deletes are invisible at the proxy without the metadata: the SDK translates `delete()` to `PATCH {deleted: true}` client-side, byte-identical to an update on the wire.
+  The classifier's `soft_delete` entry + body match is what lets §3.6.6 render them loud.
 - Requests that match no classified operation (escape hatches like `query.run()` with an unknown kind, future endpoints) are treated as **mutations unless proven reads** — fail closed.
-- `execute-sql` / HogQL with mutating statements is out of scope for classification; the proxy submits queries through the read path and relies on the query endpoint's own read-only enforcement.
-  If that guarantee turns out not to hold for some node kind, those kinds get blocked in scripts until classified (open question, §3.6.8).
+  Note the collision this creates: fail-closed turns the single most important read path (`POST /query/` with an arbitrary kind) into a phantom mutation, so **the query-endpoint classification must be settled before Phase B ships anything** — it is a prerequisite, not an open question to defer.
+- `execute-sql` / HogQL with mutating statements: the proxy submits queries through the read path and relies on the query endpoint's own read-only enforcement.
+  If that guarantee turns out not to hold for some node kind, those kinds get blocked in scripts until classified.
 
-#### 3.6.3 Placeholder binding for create-then-use chains
+#### 3.6.3 Synthetic responses and sentinel binding for create-then-use chains
 
 During planning, a create must return _something_ so the script can continue and reveal its downstream mutations.
-The proxy synthesizes the response from the operation's response schema, with identifier fields set to globally-unique sentinels (`"__plan_ref_1__"`, one per recorded mutation).
-When a sentinel appears inside a later recorded mutation (path or body), the plan stores a **reference** to the originating mutation, not a literal value.
+Two facts from the dry-run spike shape this design:
 
-At apply time the enforcer binds each reference positionally: mutation #1 executes for real, its actual response ID is captured, and downstream calls are matched with that binding substituted.
-Because sentinels are globally unique, substitution is textual and sound.
+- **There is no runtime source of response schemas today.** No committed OpenAPI spec, TS types are erased, and the MCP Zod modules cover requests only.
+  The SDK emitter must therefore also emit a **per-operation response-schema artifact** (at minimum: identifier fields and their types; ideally full shapes) at codegen time, shipped with the proxy like the classifier table.
+  Until it exists, the only synthesis heuristic is echoing the request body — which the spike showed produces `undefined` for any server-computed field a script reads, guaranteeing divergence.
+- **Naive sentinels are type-lies visible to script logic.** A string sentinel in a `number`-typed field means `Number(created.id)` yields `NaN` and _silently_ steers the plan pass down one branch — undetected at plan time, and caught at apply only if the real value happens to land on the other branch.
 
-Known limit: scripts that _branch on mutation results_ (beyond passing IDs through) can produce different mutations at apply time than at plan time.
-The enforcer catches this as plan divergence — the honest failure mode — and the agent re-plans.
+Design, in two stages:
+
+1. **Schema-aware primitive sentinels** (Phase B): identifier fields get sentinels of the schema-correct primitive type — reserved-range negative integers for numeric IDs, prefixed UUIDs/strings for string IDs — one per recorded mutation, globally unique within the execution.
+   Non-identifier fields come from the response-schema artifact's defaults, with request-body echo for fields the request supplies.
+   This kills the `NaN` class of silent corruption outright.
+2. **Magic-mock access recording** (Phase C/D): plan mode injects a thin in-sandbox shim over the SDK transport (there is a JSON boundary between proxy and script, so live objects can't cross HTTP — but the harness owns the sandbox bundle, and `HttpClient.request` is patchable).
+   Intercepted mutation responses become Proxy objects that (a) answer coercion via `Symbol.toPrimitive` with hint-appropriate sentinel values, and (b) **record every property the script reads**.
+   Access recording converts silent unfaithfulness into a detected one: a plan whose script only passed IDs through is marked _faithful_; one that read synthetic fields (`created.key`, a computed rollout) is marked **low-confidence**, and the plan response says which fields — the user sees the flag before confirming.
+   Honest limits: `typeof` checks and `===` against literals can't be trapped and still diverge — but the read was recorded, so those plans are already flagged rather than passing silently.
+
+When a sentinel appears inside a later recorded mutation (path or body, including embedded in strings), the plan stores a **reference** to the originating mutation, not a literal value.
+At apply time the enforcer binds each reference positionally: mutation #1 executes for real, its actual response value is captured, and downstream calls are matched with that binding substituted.
+Because sentinels are globally unique, substitution is textual and sound — validated end-to-end by the spike prototype (binding held through URL paths and inside body strings; divergence detection fired in the negative tests).
+
+Known limit: scripts that _branch on mutation results_ can produce different mutations at apply time than at plan time.
+The enforcer catches this as plan divergence — the honest failure mode — and the agent re-plans; access recording (stage 2) additionally flags such plans as low-confidence before anything is confirmed.
 The dominant agent script shape (read → compute → mutate, mutations as dataflow leaves) is unaffected.
 
 #### 3.6.4 Confirmation token
 
 The signed-state machinery from `confirmed_action` is reused as-is (`MCP_SIGNED_STATE_KEY`, HMAC-SHA256):
 
-- Signed payload: `{plan hash, script hash, user identity, resolved scope set, TTL ≈ 10 min, single-use nonce}`.
+- Signed payload: `{plan hash, script hash, user identity, resolved scope set, TTL, single-use nonce}` — hashes only; the script and full plan live in Redis, keeping the token small.
+- The signed-state default TTL is 300 s by deliberate doctrine ("tuning is a code change, not a deployment knob"); the codec accepts per-instance `ttlSeconds`, so plan tokens get their own purpose-bound codec with a plan-appropriate TTL rather than a config override.
 - The plan hash is computed over the normalized mutation list (stable field ordering, sentinels canonicalized), so the token is bound to the exact confirmed plan.
 - The script is stored server-side keyed by its hash (Redis, TTL'd — the same session infra the Hono runtime already uses), so the agent cannot submit different code at apply time.
 - `exec apply` verifies the signature, burns the nonce, loads the stored script, and runs the enforce pass.
@@ -394,10 +433,12 @@ Open questions to settle before Phase B:
 
 ### 3.7 Risks and open questions
 
-- **Security review is a hard gate**: untrusted code execution, egress lockdown verification, resource-abuse limits (CPU/mem/time quotas, concurrency caps per user), tenant isolation between concurrent executions.
+- **Security review is a hard gate**: untrusted code execution, egress lockdown verification (§3.4 — dedicated ingress IP question), resource-abuse limits (CPU quotas are not currently wired in the pools; mem/time/concurrency caps per user), tenant isolation between concurrent executions.
 - **Cost/quota model**: sandbox seconds per org; needs metering before GA.
-- **Latency budget**: warm-pool sizing for interactive agent loops; measure before choosing substrate option 2.
+- **Latency budget**: no warm pool exists today (§3.3) — first run in a session pays Modal sandbox boot (~5–15 s); pre-warmed pool sizing is new work, and the numbers decide whether substrate option 2 is worth revisiting.
 - **SDK version pinning in the sandbox**: the sandbox image vendors a specific `@posthog/sdk` build; it must be regenerated/redeployed on the same cadence as the MCP image (both come from `hogli build:openapi` outputs, so the existing `cd-mcp-image.yml` flow extends naturally).
+- **Proxy rate caps vs SDK retry**: the SDK retries 429s with up to a 30 s wait budget — a proxy that answers cap breaches with 429 makes sandboxed scripts silently sleep away their wall-clock. The proxy must deny with a non-retryable status (or `Retry-After: 0` semantics) for per-execution cap breaches.
+- **SSE parity gap**: MCP tools built on `requestSSE` (session-recording summarization) have no SDK/code-mode counterpart; those remain tool-call-only until the SDK grows a streaming story. Document per tool.
 - **Relationship to SQL-first v2**: complementary, not competing — `execute-sql` remains the read path; code execution is the orchestration/mutation path. Instructions should steer agents accordingly.
 
 ### 3.8 Phasing
