@@ -762,6 +762,8 @@ export interface ObservationVersionMarkerApi {
     up: number
     /** Thumbs-down ratings on this version's observations. */
     down: number
+    /** All observations this version produced, rated or not. */
+    total: number
 }
 
 export interface ObservationLabelStatsApi {
@@ -1091,7 +1093,7 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
@@ -1149,7 +1151,7 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**

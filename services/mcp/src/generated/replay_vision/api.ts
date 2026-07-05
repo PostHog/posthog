@@ -26,7 +26,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
@@ -364,7 +364,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     recording_subject: zod
         .string()
