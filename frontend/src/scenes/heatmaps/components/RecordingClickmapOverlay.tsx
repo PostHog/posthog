@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -82,6 +82,10 @@ function ClickmapBoxInfo({
     )
 }
 
+// pixel-equivalent heights for non-pixel wheel deltaMode values
+const WHEEL_LINE_HEIGHT_PX = 20
+const WHEEL_PAGE_HEIGHT_PX = 400
+
 export function RecordingClickmapOverlay({
     iframeRef,
 }: {
@@ -92,29 +96,66 @@ export function RecordingClickmapOverlay({
     const { selectClickmapBox, setHoveredBoxKey } = useActions(logic)
     const showClickmap = clickmapActive && clickmapBoxes.length > 0
     const innerRef = useSnapshotScrollTransform(showClickmap, iframeRef)
+    const overlayRef = useRef<HTMLDivElement>(null)
+
+    // render smaller boxes on top so high-count nested elements stay reachable
+    const renderOrder = useMemo(
+        () =>
+            clickmapBoxes
+                .map((box, i) => ({ box, i }))
+                .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height),
+        [clickmapBoxes]
+    )
+
+    useEffect(() => {
+        const el = overlayRef.current
+        if (!el || !showClickmap) {
+            return
+        }
+        // React attaches wheel as a passive root listener, so synthetic stopPropagation()
+        // cannot prevent the native scroll of the outer overflow-auto container, and
+        // calling preventDefault() on a passive listener throws. A single non-passive
+        // listener on the overlay itself lets us do both: stop the outer scroll and
+        // forward scaled deltas into the snapshot iframe underneath.
+        // The overlay div is pointer-events-none, but wheel events from the
+        // pointer-events-auto boxes bubble through it natively, so this fires.
+        const handler = (e: WheelEvent): void => {
+            e.preventDefault()
+            const scale = e.deltaMode === 2 ? WHEEL_PAGE_HEIGHT_PX : e.deltaMode === 1 ? WHEEL_LINE_HEIGHT_PX : 1
+            try {
+                iframeRef?.current?.contentWindow?.scrollBy(e.deltaX * scale, e.deltaY * scale)
+            } catch {
+                // cross-origin frame; ignore
+            }
+        }
+        el.addEventListener('wheel', handler, { passive: false })
+        return () => el.removeEventListener('wheel', handler)
+    }, [showClickmap, iframeRef])
 
     if (!showClickmap) {
         return null
     }
 
-    // render smaller boxes on top so high-count nested elements stay reachable
-    const renderOrder = clickmapBoxes
-        .map((box, i) => ({ box, i }))
-        .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
-
     return (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
+        <div
+            ref={overlayRef}
+            className="absolute inset-0 overflow-hidden pointer-events-none z-10"
+            data-attr="heatmap-clickmap-overlay"
+        >
             <div ref={innerRef} className="absolute inset-0">
                 {renderOrder.map(({ box, i: originalIndex }) => {
                     const key = String(originalIndex)
                     const isSelected = key === selectedBoxKey
+                    // the boxes intercept pointer events so wheel events from within them
+                    // bubble up to the overlay's non-passive listener above
                     const boxElement = (
                         <div
                             data-attr="clickmap-box"
                             role="button"
                             tabIndex={0}
+                            aria-label={box.label || box.displaySelector}
                             className={`absolute rounded-sm border border-danger pointer-events-auto cursor-pointer ${
-                                isSelected ? 'border-2' : 'hover:border-2'
+                                isSelected ? 'border-2' : 'hover:border-2 focus-visible:border-2'
                             }`}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
@@ -135,18 +176,6 @@ export function RecordingClickmapOverlay({
                             }}
                             onMouseEnter={() => setHoveredBoxKey(key)}
                             onMouseLeave={() => setHoveredBoxKey(null)}
-                            onWheel={(e) => {
-                                // the boxes intercept pointer events, so hand scrolling
-                                // back to the snapshot document underneath
-                                e.stopPropagation()
-                                // scale line-mode (deltaMode=1) and page-mode (deltaMode=2) to pixels
-                                const scale = e.deltaMode === 2 ? 400 : e.deltaMode === 1 ? 20 : 1
-                                try {
-                                    iframeRef?.current?.contentWindow?.scrollBy(e.deltaX * scale, e.deltaY * scale)
-                                } catch {
-                                    // cross-origin frame; ignore
-                                }
-                            }}
                         >
                             <div className="absolute -top-2 -left-2 rounded-full bg-danger text-white text-xs px-1 whitespace-nowrap">
                                 {humanFriendlyLargeNumber(box.count)}

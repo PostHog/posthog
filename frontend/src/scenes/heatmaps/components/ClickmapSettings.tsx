@@ -16,10 +16,12 @@ export function ClickmapSettings({
 }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const logic = recordingClickmapLogic({ iframeRef })
-    const { clickmapEnabled, matchLinksByHref, clickmapBoxes, totalClickCount, elementStatsLoading } = useValues(logic)
+    const { clickmapEnabled, matchLinksByHref, clickmapBoxes, totalClickCount, elementStatsLoading, elementStats } =
+        useValues(logic)
     const { setClickmapEnabled, setMatchLinksByHref } = useActions(logic)
 
     const elementWord = clickmapBoxes.length === 1 ? 'element' : 'elements'
+    const clickWord = totalClickCount === 1 ? 'click' : 'clicks'
 
     return (
         <Popover
@@ -52,14 +54,14 @@ export function ClickmapSettings({
                                 <>
                                     <Spinner /> Loading...
                                 </>
-                            ) : clickmapBoxes.length === 0 ? (
+                            ) : elementStats !== null && clickmapBoxes.length === 0 ? (
                                 'No elements matched.'
-                            ) : (
+                            ) : elementStats !== null ? (
                                 <>
                                     Found: {clickmapBoxes.length} {elementWord} /{' '}
-                                    {humanFriendlyLargeNumber(totalClickCount)} clicks
+                                    {humanFriendlyLargeNumber(totalClickCount)} {clickWord}
                                 </>
-                            )}
+                            ) : null}
                         </div>
                     )}
                 </div>

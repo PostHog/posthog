@@ -299,6 +299,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
     })),
     events(({ actions }) => ({
         beforeUnmount: () => {
+            // heatmapDataLogic outlives this logic, so its reducer won't reset on our unmount —
+            // we must explicitly clear the suppression flag we set via the subscription above
             actions.setHeatmapTooltipSuppressed(false)
         },
     })),
