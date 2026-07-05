@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -9,12 +9,14 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
+    IconRefresh,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -31,6 +33,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
@@ -114,7 +117,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
-    const { observation, observationLoading } = useValues(observationLogic)
+    const { observation, observationLoading, retrying } = useValues(observationLogic)
+    const { retryObservation } = useActions(observationLogic)
 
     if (observationLoading && !observation) {
         return (
@@ -418,6 +422,23 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
                                 </LabeledRow>
                             )}
+                            <div>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconRefresh />}
+                                        onClick={() => retryObservation()}
+                                        loading={retrying}
+                                        data-attr="vision-observation-detail-retry"
+                                    >
+                                        Retry scan
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </div>
                         </div>
                     )}
 

@@ -1,5 +1,6 @@
 import uuid
-from typing import Any, get_args
+import datetime as dt
+from typing import Any, cast, get_args
 
 from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
@@ -12,7 +13,7 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -21,12 +22,18 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
+from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.moments_serializer import MomentsConfigSerializer
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
+from products.replay_vision.backend.api.trigger import (
+    WorkflowStartOutcome,
+    check_observation_quota,
+    start_apply_scanner_workflow,
+)
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -35,6 +42,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerScanScope, ScannerType
+from products.replay_vision.backend.moments import DEFAULT_AFTER_SECONDS, DEFAULT_BEFORE_SECONDS, CoalescedMoment
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
@@ -43,6 +51,23 @@ logger = structlog.get_logger(__name__)
 
 def _jsonb_typeof(expr: Any) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+
+
+def _moment_from_observation(observation: ReplayObservation) -> CoalescedMoment | None:
+    """Rebuild a retryable moment from a failed row; anchor +/- the snapshot's clip bounds (coalescing extension is lost)."""
+    if not observation.moment_key or observation.moment_event_timestamp is None:
+        return None
+    config = (observation.scanner_snapshot or {}).get("moments_config") or {}
+    before = dt.timedelta(seconds=config.get("before_seconds", DEFAULT_BEFORE_SECONDS))
+    after = dt.timedelta(seconds=config.get("after_seconds", DEFAULT_AFTER_SECONDS))
+    return CoalescedMoment(
+        anchor_uuid=observation.moment_key,
+        anchor_event=observation.moment_event_name,
+        anchor_timestamp=observation.moment_event_timestamp,
+        window_start=observation.moment_event_timestamp - before,
+        window_end=observation.moment_event_timestamp + after,
+        occurrence_count=max(1, observation.coalesced_event_count),
+    )
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -322,6 +347,17 @@ class ObservationStatsSerializer(serializers.Serializer):
     )
 
 
+class RetryResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/."""
+
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the re-run. The retried observation row is deleted; look up its "
+            "replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>."
+        ),
+    )
+
+
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
@@ -548,6 +584,41 @@ class ReplayObservationViewSet(
             recent_days = 14
         payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)
+
+    @extend_schema(request=None, responses={202: RetryResponseSerializer})
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    def retry(self, request: Request, **kwargs: Any) -> Response:
+        """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
+        if observation.status != ObservationStatus.FAILED:
+            raise ValidationError("Only failed observations can be retried.")
+        check_observation_quota(self.team.organization_id)
+        session_id = observation.session_id
+        moment = _moment_from_observation(observation)
+        # Free the UNIQUE(scanner, session_id, moment_key) slot; the usage ledger is immutable, so the failed attempt stays counted.
+        observation.delete()
+        workflow_id, outcome = start_apply_scanner_workflow(
+            scanner, session_id, triggered_by_user_id=cast(User, request.user).id, moment=moment
+        )
+        if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
+            # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
+            return Response(
+                {"detail": "The previous run is still finishing. Scan the recording again in a moment."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if outcome is WorkflowStartOutcome.FAILED:
+            # `detail` (not `error`) so ApiError carries the message into the frontend toast.
+            return Response(
+                {
+                    "detail": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
 
 
 @extend_schema_view(

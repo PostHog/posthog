@@ -73,6 +73,12 @@ pub struct StreamingReader {
     carry_start: u64,
     decoded_end: u64,
     eof: bool,
+    /// A decode/producer error, latched so every subsequent read keeps failing.
+    /// The producer thread exits after sending an error, and without the latch a
+    /// retried read would see the closed channel as a clean EOF and report the
+    /// partially decoded length as the stream total - callers that retry reads
+    /// would then treat a truncated stream as complete (silent data loss).
+    error: Option<String>,
 }
 
 impl StreamingReader {
@@ -101,12 +107,16 @@ impl StreamingReader {
             carry_start: 0,
             decoded_end: 0,
             eof: false,
+            error: None,
         }
     }
 
     /// Return decompressed bytes in `[offset, offset + max_len)`, clamped to the
     /// end of the stream. `offset` must be >= the start of the retained window.
     pub async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<ReadChunk, Error> {
+        if let Some(e) = &self.error {
+            return Err(Error::msg(e.clone()));
+        }
         if offset < self.carry_start {
             return Err(Error::msg(format!(
                 "streaming reader received non-monotonic read: offset {offset} precedes retained window start {}",
@@ -129,7 +139,10 @@ impl StreamingReader {
                         self.carry_start = drop_to;
                     }
                 }
-                Some(Err(e)) => return Err(Error::msg(e)),
+                Some(Err(e)) => {
+                    self.error = Some(e.clone());
+                    return Err(Error::msg(e));
+                }
                 None => self.eof = true,
             }
         }
@@ -453,6 +466,47 @@ mod tests {
         let mut reader = PlainGzipExtractor.open_reader(gzip_file);
         let result = reader.read_at(0, 8192).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_decode_error_is_latched_across_reads() {
+        // Once a decode error is delivered, every subsequent read must keep
+        // returning it. The producer thread exits after sending the error, so a
+        // naive re-read would see the closed channel as a clean EOF and report the
+        // partially decoded length as the stream total - callers that retry reads
+        // (the sources' get_chunk retry loops) would then record a truncated part
+        // as complete: silent data loss.
+        let temp_dir = TempDir::new().unwrap();
+        let gzip_file = temp_dir.path().join("corrupt.gz");
+        // Large content so plenty of blocks decode successfully before the
+        // truncation point - the dangerous shape, since decoded_end is well past
+        // zero when the error arrives.
+        create_test_gzip_file(&"line\n".repeat(100_000), &gzip_file).unwrap();
+        let full = std::fs::read(&gzip_file).unwrap();
+        std::fs::write(&gzip_file, &full[..full.len() - 5]).unwrap();
+
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+
+        // Drive forward until the decode error surfaces (some reads succeed first).
+        let mut offset = 0u64;
+        while let Ok(chunk) = reader.read_at(offset, 8192).await {
+            assert!(
+                chunk.total.is_none(),
+                "truncated stream must never report a total"
+            );
+            assert!(!chunk.bytes.is_empty(), "no progress and no error");
+            offset += chunk.bytes.len() as u64;
+        }
+
+        // The error must be sticky: re-reads (at the same or an earlier retained
+        // offset) return the error again, never a clean EOF with a bogus total.
+        for _ in 0..2 {
+            let retry = reader.read_at(offset, 8192).await;
+            assert!(
+                retry.is_err(),
+                "retried read after a decode error must keep erroring, not report EOF"
+            );
+        }
     }
 
     #[tokio::test]

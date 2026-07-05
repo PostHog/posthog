@@ -587,6 +587,14 @@ export interface PaginatedReplayObservationListApi {
     results: ReplayObservationApi[]
 }
 
+/**
+ * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
+ */
+export interface RetryResponseApi {
+    /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
+    workflow_id: string
+}
+
 export interface VisionQuotaApi {
     /** Total observations the org may complete per calendar month. */
     readonly monthly_quota: number

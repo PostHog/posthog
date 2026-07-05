@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -47,8 +48,11 @@ export function HeatmapRecording(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
+    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
+    const { setClickmapEnabled } = useActions(clickmapLogic)
 
     if (!hasValidReplayIframeData) {
         return (
@@ -68,7 +72,10 @@ export function HeatmapRecording(): JSX.Element {
                 <div className="overflow-hidden w-full min-h-screen">
                     <UrlSearchHeader />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapEnabled={clickmapAvailable ? clickmapEnabled : undefined}
+                        onClickmapEnabledChange={clickmapAvailable ? setClickmapEnabled : undefined}
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative flex flex-1 overflow-hidden min-h-screen">
                         <FixedReplayHeatmapBrowser iframeRef={iframeRef} />

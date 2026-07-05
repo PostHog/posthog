@@ -110,10 +110,10 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
-        # Creator can see it; an unrelated user cannot.
-        self.assertTrue(facade.is_task_visible_to_user(task.id, self.user.id))
+        # Creator can control it; an unrelated user cannot.
+        self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
-        self.assertFalse(facade.is_task_visible_to_user(task.id, other_user.id))
+        self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()

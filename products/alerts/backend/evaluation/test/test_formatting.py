@@ -27,6 +27,11 @@ A = AggregationAxisFormat
         (50.0, {"axis_format": A.CURRENCY, "currency": None}, "$50.00"),
         # prefix/postfix wrap the formatted value verbatim (they carry their own spacing)
         (1234.0, {"prefix": "$", "postfix": " reqs"}, "$1,234 reqs"),
+        (94.02, {"axis_format": A.CURRENCY, "currency": "USD", "prefix": "$"}, "$94.02"),
+        (10.0, {"axis_format": A.CURRENCY, "currency": "EUR", "prefix": "€"}, "€10.00"),
+        (94.02, {"axis_format": A.CURRENCY, "currency": "USD", "prefix": "USD "}, "USD $94.02"),
+        # a non-currency prefix that shares a leading char with the value is kept, not dropped
+        (1000.0, {"prefix": "1"}, "11,000"),
         # duration: seconds humanized; negative (relative differences) and zero handled
         (72.0, {"axis_format": A.DURATION}, "1m 12s"),
         (0.0, {"axis_format": A.DURATION}, "0s"),

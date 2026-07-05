@@ -463,6 +463,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../event_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get("/api/projects/@current/event_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_by_name_missing_param(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

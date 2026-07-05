@@ -219,7 +219,8 @@ class AlpacaBrokerAPISourceConfig(config.Config):
 
 @config.config
 class AlphaVantageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
@@ -300,7 +301,7 @@ class AppfiguresSourceConfig(config.Config):
 
 @config.config
 class AppfollowSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

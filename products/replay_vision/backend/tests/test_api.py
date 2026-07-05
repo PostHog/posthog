@@ -10,8 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team, User
-from posthog.models.utils import uuid7
+from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.models.replay_observation import (
@@ -1414,8 +1414,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["status_counts"]["succeeded"], 0)
 
 
-@patch("products.replay_vision.backend.api.scanners.async_to_sync")
-@patch("products.replay_vision.backend.api.scanners.sync_connect")
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -1607,8 +1607,8 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 503, resp.json())
 
 
-@patch("products.replay_vision.backend.api.scanners.async_to_sync")
-@patch("products.replay_vision.backend.api.scanners.sync_connect")
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveActionFeatureFlag(APIBaseTest):
     def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
         with patch(
@@ -1628,6 +1628,177 @@ class TestObserveActionFeatureFlag(APIBaseTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, 404)
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestRetryActions(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+
+    def _create_failed(self, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.FAILED,
+            error_reason="internal_error:boom",
+            completed_at=timezone.now(),
+        )
+
+    def retry_url(self, observation_id: str) -> str:
+        return f"{self.observations_url(str(self.scanner.id))}{observation_id}/retry/"
+
+    def test_retry_deletes_row_and_starts_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_sync_connect.return_value = mock_client
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-retry")
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        expected_workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-retry")
+        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(kwargs["id"], expected_workflow_id)
+        inputs = args[1]
+        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
+        self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+
+    def test_retry_rejects_non_failed_statuses(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        cases = [
+            (ObservationStatus.SUCCEEDED, timezone.now()),
+            (ObservationStatus.INELIGIBLE, timezone.now()),
+            (ObservationStatus.PENDING, None),
+        ]
+        for status_value, completed_at in cases:
+            with self.subTest(status=status_value):
+                observation = ReplayObservation.objects.create(
+                    scanner=self.scanner,
+                    session_id=f"sess-keep-{status_value}",
+                    scanner_snapshot=_snapshot_for(self.scanner),
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    status=status_value,
+                    error_reason="kind:msg" if status_value == ObservationStatus.INELIGIBLE else "",
+                    completed_at=completed_at,
+                )
+
+                resp = self.client.post(self.retry_url(str(observation.id)))
+                self.assertEqual(resp.status_code, 400, resp.json())
+                self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+                start_workflow.assert_not_called()
+
+    def test_retry_keeps_row_when_quota_exhausted(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-quota")
+
+        exhausted = MagicMock(exhausted=True, monthly_quota=500, period_end=timezone.now())
+        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+            resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 402, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_dispatch_failure_returns_503_with_row_deleted(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Documented contract: the slot is freed even when the start fails, so the session can be re-scanned.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
+        observation = self._create_failed("sess-broken")
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 503)
+        # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
+        self.assertIn("can be scanned again", resp.json()["detail"])
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="retry-test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def test_retry_scope_enforcement_for_personal_api_keys(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The write scope comes from the @action decorator; losing it would let read-scoped keys retry.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        observation = self._create_failed("sess-scopes")
+        read_key = self._personal_api_key(["replay_scanner:read", "session_recording:read"])
+        write_key = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
+
+        denied = self.client.post(self.retry_url(str(observation.id)), HTTP_AUTHORIZATION=f"Bearer {read_key}")
+        self.assertEqual(denied.status_code, 403, denied.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+
+        allowed = self.client.post(self.retry_url(str(observation.id)), HTTP_AUTHORIZATION=f"Bearer {write_key}")
+        self.assertEqual(allowed.status_code, 202, allowed.json())
+
+    def test_retry_denied_without_scanner_editor_access(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The session route's get_object only checks the observation row; retry must object-check the scanner.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-rbac")
+
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
+        ):
+            resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_conflict_when_previous_run_still_active(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        observation = self._create_failed("sess-still-running")
+        workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-still-running")
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(workflow_id=workflow_id, workflow_type=APPLY_SCANNER_WORKFLOW_NAME)
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 409, resp.json())
+        # Documented contract: the slot is already freed; the recording can be scanned again shortly.
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+
+    def test_retry_works_on_session_scoped_route(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The replay-page dock retries through /vision/observations/, not the scanner-nested route.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        observation = self._create_failed("sess-dock")
+
+        resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
 
 
 class TestSessionReplayObservationViewSet(_VisionAPITestCase):

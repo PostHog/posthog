@@ -29,6 +29,7 @@ import type {
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
+import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -232,6 +233,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
         triggerOnDemandObservationSuccess: true,
         triggerOnDemandObservationFailure: true,
+        retryObservation: (observationId: string) => ({ observationId }),
+        retryObservationSuccess: (observationId: string) => ({ observationId }),
+        retryObservationFailure: (observationId: string) => ({ observationId }),
         refreshObservations: true,
     }),
 
@@ -301,7 +305,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        lemonToast.success('Scanner created')
+                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
+                        lemonToast.success('Scanner created', {
+                            button: {
+                                label: 'Scan a recording now',
+                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
+                                dataAttr: 'vision-scanner-created-scan-now',
+                            },
+                        })
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
@@ -381,6 +392,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             0,
             {
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                // The replacement row is inserted by the workflow moments after the retry 202 lands.
+                retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+            },
+        ],
+        retryingObservationIds: [
+            [] as string[],
+            {
+                retryObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                retryObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
             },
         ],
         scannerLoading: [
@@ -856,6 +882,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             triggerOnDemandObservationSuccess: () => refreshVisionQuota(),
+
+            retryObservation: async ({ observationId }) => {
+                if (props.id === 'new' || !(await requestObservationRetry(observationId))) {
+                    actions.retryObservationFailure(observationId)
+                    return
+                }
+                actions.retryObservationSuccess(observationId)
+                reloadObservationsAndStats()
+            },
 
             refreshObservations: () => reloadObservationsAndStats(),
 
