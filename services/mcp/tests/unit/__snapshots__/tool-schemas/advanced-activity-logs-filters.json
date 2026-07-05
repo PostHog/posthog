@@ -1,5 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "include_detail_fields": {
+            "default": false,
+            "description": "Whether to include the per-scope `detail_fields` enumeration. This section can be very large on projects with a lot of activity (it grows with the number of distinct detail keys seen), so set it to false to return only the compact `static_filters` (scopes, activities, users, clients).",
+            "type": "boolean"
+        }
+    },
     "type": "object"
 }
