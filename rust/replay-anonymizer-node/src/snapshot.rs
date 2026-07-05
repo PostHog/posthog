@@ -763,7 +763,15 @@ fn finish(
     scan::write_json_string(&window_id_str, &mut prefix);
     prefix.push(b',');
     let n = sink.line_starts.len();
-    debug_assert_eq!(n, sink.events.len());
+    // Hard invariant, not a debug_assert: a body without a paired event (or vice versa) would
+    // mis-frame every subsequent JSONL line (events attributed to the wrong bodies), so fail the
+    // message closed rather than emit misaligned output.
+    if n != sink.events.len() {
+        return Err(Failure::new(
+            FailKind::AnonymizeFailed,
+            "internal: line/event count mismatch",
+        ));
+    }
     let mut lines = Vec::with_capacity(sink.lines.len() + n * (prefix.len() + 2));
     for i in 0..n {
         let body_end = sink.line_starts.get(i + 1).copied().unwrap_or(sink.lines.len());
@@ -965,10 +973,13 @@ fn process_event_at(
     let (es, end) = scan_event(inner, start)?;
     let span = (start, end);
 
-    // Raw newlines anywhere in the event bytes (pretty-printed input between tokens, or invalid
-    // JSON inside strings) would break the one-record-per-line block framing if memcpy'd;
-    // re-serializing through a parse collapses or rejects them.
-    if es.fallback || memchr::memchr2(b'\n', b'\r', &inner[span.0..span.1]).is_some() {
+    // Any raw C0 control byte in the event span (pretty-printed whitespace between tokens, or an
+    // unescaped control inside a string) routes to the tree, which normalizes or rejects it exactly
+    // like JSON.parse. `\n`/`\r` would break the one-record-per-line framing if memcpy'd; the
+    // others are structurally invalid JSON that the stream path would otherwise splice through
+    // verbatim (a stream-vs-tree divergence). The `< 0x20` scan autovectorizes; it runs only for
+    // events that reach here (fallback-flagged events short-circuit before it).
+    if es.fallback || inner[span.0..span.1].iter().any(|&b| b < 0x20) {
         process_event_via_tree(ctx, inner, span, sink)?;
         return Ok(EventStep::Next(end));
     }

@@ -5,14 +5,25 @@
 //! collapse that fan-out to a single decode+blur — mirroring the TS `blurCache` (also scoped to one
 //! message). Scope is one `anonymize_message` call; the map is dropped when it returns.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+
+use anyhow::{bail, Result};
 
 use crate::allow_lists::AllowLists;
 use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 
+/// Cumulative decompressed-bytes budget for all cv payloads in one message. Individual payloads
+/// are capped by `gzip::MAX_DECOMPRESSED_BYTES`; this bounds the *sum*, so a message stuffed with
+/// many high-ratio fields can't decompress gigabytes serially (a CPU/latency bomb even though each
+/// buffer is freed between fields). Real messages total well under 10 MB decompressed; the budget
+/// is sized with room for the byte walk's decline-and-reparse path charging a field twice.
+const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
+
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
+    /// Remaining cv decompression budget for this message (see [`CV_MESSAGE_DECOMPRESSION_BUDGET`]).
+    pub cv_budget: Cell<usize>,
     /// Re-emit every cv payload (changed or not) as zstd instead of gzip, keeping output blocks
     /// single-format (see `AnonymizeOpts::cv_zstd` — on in production, `false` is the gzip
     /// fallback).
@@ -26,6 +37,7 @@ impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
         Self {
             allow,
+            cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             cv_zstd: false,
             blur_cache: RefCell::new(HashMap::new()),
         }
@@ -34,6 +46,17 @@ impl<'a> Ctx<'a> {
     pub fn with_cv_zstd(mut self, on: bool) -> Self {
         self.cv_zstd = on;
         self
+    }
+
+    /// Gunzip a cv payload, charging the message-cumulative budget. All cv decompression must go
+    /// through here (not `gzip::gunzip` directly) so the budget can't be bypassed.
+    pub fn gunzip_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
+        let out = crate::gzip::gunzip(raw)?;
+        match self.cv_budget.get().checked_sub(out.len()) {
+            Some(rest) => self.cv_budget.set(rest),
+            None => bail!("message exceeds the cumulative cv decompression budget"),
+        }
+        Ok(out)
     }
 
     // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs

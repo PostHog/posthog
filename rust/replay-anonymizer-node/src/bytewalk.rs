@@ -224,7 +224,7 @@ fn scrub_cv_snapshot_value(
         return None;
     }
     let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
-    let decompressed = crate::gzip::gunzip(&raw).ok()?;
+    let decompressed = ctx.gunzip_cv(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
     if !scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
         if !ctx.cv_zstd {
@@ -992,7 +992,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let raw = latin1_from_wire(wire)?;
-                let decompressed = crate::gzip::gunzip(&raw).ok()?;
+                let decompressed = self.ctx.gunzip_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
                 let sub_changed =
                     scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;

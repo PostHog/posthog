@@ -48,7 +48,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     /** Re-emit changed `cv` payloads as zstd (see `ScrubContext.cvZstd` for the rollout constraint). */
     cvZstd?: boolean
 }): ProcessingStep<T, T & ParseMessageStepOutput> {
-    const cvZstd = options?.cvZstd ?? false
+    const cvZstd = options?.cvZstd ?? true
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -102,7 +102,16 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return drop('anonymize_failed')
         }
 
-        const meta = parseJSON(result.meta!) as AnonymizeMeta
+        let meta: AnonymizeMeta
+        try {
+            meta = parseJSON(result.meta!) as AnonymizeMeta
+        } catch (error) {
+            // Malformed meta would otherwise escape the step and poison the pipeline (the consumer
+            // restarts and re-pulls the same message); fail closed like every other addon failure.
+            logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
+            SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
+            return drop('anonymize_failed')
+        }
 
         const startDateTime = DateTime.fromMillis(meta.startTs)
         const endDateTime = DateTime.fromMillis(meta.endTs)

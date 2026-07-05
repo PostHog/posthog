@@ -42,16 +42,16 @@ fn bytes_to_latin1(bytes: &[u8]) -> String {
     out
 }
 
-/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, size-capped (the gzip codec rejects
-/// streams whose footer claims more than its 256 MB bomb cap).
+/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, size-capped per payload (the gzip
+/// codec's bomb cap) and charged against the message-cumulative budget (`Ctx::gunzip_cv`).
 ///
 /// NOT depth-guarded: the byte walk that consumes this first bounds its own recursion (and copies
 /// unwalked spans iteratively), so the whole-buffer depth scan — profiled at ~6% of the pipeline —
 /// only runs where recursion actually happens, in front of the parse fallbacks below. This mirrors
 /// the uncompressed stream path, whose all-walked case pays no depth scan either.
-fn decompress_string(s: &str) -> Result<Vec<u8>> {
+fn decompress_string(ctx: &Ctx<'_>, s: &str) -> Result<Vec<u8>> {
     let raw = latin1_to_bytes(s)?;
-    gzip::gunzip(&raw).context("gunzip cv data")
+    ctx.gunzip_cv(&raw).context("gunzip cv data")
 }
 
 fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
@@ -71,7 +71,7 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     let Value::String(s) = &*data else {
         bail!("compressed full snapshot data is not a string");
     };
-    let mut scratch = decompress_string(s)?;
+    let mut scratch = decompress_string(ctx, s)?;
     // Byte-walk the decompressed payload first: it reuses the same walkers as the uncompressed
     // stream path, whose semantics the stream/tree differential suite pins. On decline (escaped or
     // duplicate keys, unexpected shapes, over-deep nesting) fall through to the parse below.
@@ -142,7 +142,7 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
             Some(Value::Static(StaticNode::Null)) => {}  // null -> keep verbatim
             Some(Value::String(s)) if s.is_empty() => {} // empty string -> keep verbatim
             Some(Value::String(s)) => {
-                let mut scratch = decompress_string(s)?;
+                let mut scratch = decompress_string(ctx, s)?;
                 let mut walked = Vec::with_capacity(scratch.len() + 64);
                 match bytewalk::scrub_cv_mutation_field(ctx, field, &scratch, &mut walked) {
                     Some(false) => {
@@ -204,7 +204,8 @@ mod tests {
     }
 
     fn decompress_value(s: &str) -> serde_json::Value {
-        serde_json::from_slice(&decompress_string(s).unwrap()).unwrap()
+        let raw = latin1_to_bytes(s).unwrap();
+        serde_json::from_slice(&gzip::gunzip(&raw).unwrap()).unwrap()
     }
 
     #[test]
@@ -400,6 +401,26 @@ mod tests {
         let deep = format!("{}{}", "[".repeat(n), "]".repeat(n));
         let mut data = string_value(compress_json(deep.as_bytes()));
         assert!(scrub_compressed_full_snapshot(&ctx, &mut data).is_err());
+    }
+
+    #[test]
+    fn cv_decompression_budget_fails_the_message_closed() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        // Two sub-fields, each within the per-payload cap; only their sum busts the budget.
+        let texts = compress_json(br#"[{"id":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaa"}]"#);
+        let adds = compress_json(br#"[{"parentId":1,"nextId":null,"node":{"id":9,"type":2}}]"#);
+        let mut data = Object::default();
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), string_value(texts));
+        data.insert(Cow::Borrowed("adds"), string_value(adds));
+
+        ctx.cv_budget.set(60);
+        let err = scrub_compressed_mutation(&ctx, &mut data).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("budget"),
+            "must fail closed on the cumulative budget, got: {err:#}"
+        );
     }
 
     #[test]

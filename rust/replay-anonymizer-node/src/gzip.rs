@@ -7,9 +7,12 @@ use std::cell::RefCell;
 use anyhow::{anyhow, bail, Result};
 use libdeflater::{CompressionLvl, Compressor, Decompressor};
 
-/// Cap decompressed sizes so a gzip bomb (or a forged ISIZE footer) can't OOM the worker thread;
-/// real replay payloads decompress to tens of MB at most.
-pub const MAX_DECOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Cap decompressed sizes so a compression bomb (or a forged size claim) can't OOM the worker.
+/// Across a 1000-message production corpus the largest payload decompressed to 10.3 MB and the
+/// largest cv payload to 3.8 MB, so 64 MiB is ~6x the observed maximum — and exceeding it fails
+/// closed as a classified DLQ, which is the intended fate of a message that large anyway. An
+/// OOM-kill, by contrast, is unclassifiable: the consumer re-pulls the same message and crash-loops.
+pub const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
 /// zstd level for re-emitted cv payloads. Level 1 is the efficient-frontier point on the real cv
 /// corpus (`dev/compression_bench.rs`; full tables and the level sweep in `dev/PERF_PLAN.md`):

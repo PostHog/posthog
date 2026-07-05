@@ -353,6 +353,13 @@ export class SessionFeatureRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        // This recorder derives features by walking `eventsByWindowId`, which is intentionally
+        // empty on pre-serialized (native-anonymizer) messages — silently recording them would
+        // produce zeroed feature blocks. Pipelines using the native path must keep features off.
+        if (message.preSerialized) {
+            throw new Error('SessionFeatureRecorder cannot process pre-serialized messages')
+        }
+
         if (!this._distinctId) {
             this._distinctId = message.distinct_id
         }

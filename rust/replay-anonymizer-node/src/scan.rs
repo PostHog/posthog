@@ -131,27 +131,59 @@ pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
     Err(ScanError("unterminated string"))
 }
 
+/// Deepest bracket nesting `skip_balanced` tracks, matching the parse path's `MAX_JSON_DEPTH` so
+/// the scan and the parse fail closed on the same over-deep inputs. 1024 levels = a `[u64; 16]`
+/// bitstack; real replay DOMs nest to ~25 but some legitimately exceed 64.
+const MAX_BRACKET_NESTING: usize = 1024;
+
 /// `start` must be at `open`; returns the position just past the matching `close`.
+///
+/// Tracks both bracket kinds so a mismatched closer (`]` inside `{…}`, `}` inside `[…]`) is
+/// rejected rather than silently closing the wrong container — otherwise `{"a":[}]}` would locate a
+/// span ending at the inner `}` and splice the invalid bytes through verbatim. The `stack` bitstack
+/// records each open level (0 = brace, 1 = bracket); a closer must match the innermost open.
+/// `open`/`close` only name the expected top level for the caller's convenience.
+///
 /// Stays bytewise between strings: `skip_string` already jumps string content, so the structural
 /// gaps left here are a handful of bytes — too short for memchr's per-call setup to pay off
 /// (measured: memchr3 here costs ~20% on bracket-dense mousemove payloads).
 pub fn skip_balanced(bytes: &[u8], start: usize, open: u8, close: u8) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&open));
+    let _ = close;
+    let mut stack = [0u64; MAX_BRACKET_NESTING / 64];
     let mut depth: usize = 0;
     let mut pos = start;
     while pos < bytes.len() {
-        let b = bytes[pos];
-        if b == b'"' {
-            pos = skip_string(bytes, pos)?;
-            continue;
-        }
-        if b == open {
-            depth += 1;
-        } else if b == close {
-            depth -= 1;
-            if depth == 0 {
-                return Ok(pos + 1);
+        match bytes[pos] {
+            b'"' => {
+                pos = skip_string(bytes, pos)?;
+                continue;
             }
+            b'{' | b'[' => {
+                if depth >= MAX_BRACKET_NESTING {
+                    return Err(ScanError("bracket nesting too deep"));
+                }
+                if bytes[pos] == b'[' {
+                    stack[depth / 64] |= 1 << (depth % 64);
+                } else {
+                    stack[depth / 64] &= !(1 << (depth % 64));
+                }
+                depth += 1;
+            }
+            b'}' | b']' => {
+                let Some(next) = depth.checked_sub(1) else {
+                    return Err(ScanError("unbalanced brackets"));
+                };
+                let was_bracket = (stack[next / 64] >> (next % 64)) & 1 == 1;
+                if was_bracket != (bytes[pos] == b']') {
+                    return Err(ScanError("mismatched brackets"));
+                }
+                depth = next;
+                if depth == 0 {
+                    return Ok(pos + 1);
+                }
+            }
+            _ => {}
         }
         pos += 1;
     }

@@ -203,6 +203,13 @@ fn scrub_errors_fail_closed_for_the_whole_message() {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": deep})).unwrap();
     let err = run(&allow, &payload).expect_err("must fail closed");
     assert_eq!(err.kind, FailKind::NonSnapshotMessage);
+
+    // Mismatched brackets in an event's `data` (`[}`) are structurally invalid JSON; the scanner's
+    // span-locator must reject them (route to the tree) rather than close the wrong container and
+    // splice the invalid bytes through. The whole message fails closed, matching JSON.parse.
+    let mismatched = r#"{"event":"$snapshot_items","properties":{"$session_id":"s","$snapshot_items":[{"type":3,"timestamp":1700000000000,"data":{"source":1,"x":[}]}]}}"#;
+    let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": mismatched})).unwrap();
+    run(&allow, &payload).expect_err("mismatched brackets must fail closed");
 }
 
 #[test]
