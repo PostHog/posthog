@@ -234,7 +234,10 @@ export const surveysLogic = kea<surveysLogicType>([
         duplicatedSurvey: {
             __default: null as Survey | null,
             duplicateSurvey: async (survey: Survey) => {
-                const payload = duplicateExistingSurvey(survey)
+                // List rows omit the full linked/targeting flag objects, so fetch the
+                // complete survey to preserve flag linkage and targeting when duplicating.
+                const fullSurvey = await api.surveys.get(survey.id)
+                const payload = duplicateExistingSurvey(fullSurvey)
                 const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
                 lemonToast.success('Survey duplicated', {

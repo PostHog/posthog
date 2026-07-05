@@ -2731,47 +2731,11 @@ class TestSurvey(APIBaseTest):
                     "appearance": None,
                     "created_at": ANY,
                     "created_by": ANY,
-                    "targeting_flag": None,
                     "base_language": "en",
                     "translations": None,
-                    "internal_targeting_flag": {
-                        "id": ANY,
-                        "team_id": self.team.id,
-                        "key": ANY,
-                        "name": "Targeting flag for survey Notebooks power users survey",
-                        "filters": {
-                            "groups": [
-                                {
-                                    "variant": "",
-                                    "properties": [
-                                        {
-                                            "key": f"$survey_dismissed/{survey.id}",
-                                            "type": "person",
-                                            "value": "is_not_set",
-                                            "operator": "is_not_set",
-                                        },
-                                        {
-                                            "key": f"$survey_responded/{survey.id}",
-                                            "type": "person",
-                                            "value": "is_not_set",
-                                            "operator": "is_not_set",
-                                        },
-                                    ],
-                                    "rollout_percentage": 100,
-                                    "aggregation_group_type_index": None,
-                                }
-                            ],
-                            "aggregation_group_type_index": None,
-                        },
-                        "deleted": False,
-                        "active": False,
-                        "ensure_experience_continuity": False,
-                        "version": ANY,  # Add version field with ANY matcher
-                        "evaluation_runtime": "all",
-                        "evaluation_contexts": [],
-                        "bucketing_identifier": "distinct_id",
-                    },
-                    "linked_flag": None,
+                    # The list serializer omits the embedded linked_flag / targeting_flag /
+                    # internal_targeting_flag objects — only the scalar identifiers and
+                    # feature_flag_keys are returned. Fetch the single survey for full flags.
                     "linked_flag_id": None,
                     "linked_insight_id": None,
                     "conditions": None,
@@ -2803,6 +2767,44 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+    def test_list_omits_embedded_flags_but_retrieve_includes_them(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with flags",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "linked_flag_id": linked_flag.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        survey_id = created.json()["id"]
+
+        list_row = self.client.get(f"/api/projects/{self.team.id}/surveys/").json()["results"][0]
+        for flag_field in ("linked_flag", "targeting_flag", "internal_targeting_flag"):
+            assert flag_field not in list_row, f"{flag_field} should be omitted from list rows"
+        # The scalar identifiers that replace the embedded objects stay on the row.
+        assert list_row["linked_flag_id"] == linked_flag.id
+        assert {"key": "linked_flag_key", "value": "notebooks"} in list_row["feature_flag_keys"]
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/").json()
+        assert detail["linked_flag"]["id"] == linked_flag.id
+        assert detail["targeting_flag"] is not None
+        assert detail["internal_targeting_flag"] is not None
 
     def test_list_surveys_excludes_product_tour_linked_surveys(self):
         regular_survey = Survey.objects.create(

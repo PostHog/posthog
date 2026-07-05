@@ -250,6 +250,10 @@ describe('surveysLogic', () => {
             const duplicatedSurveyId = 'duplicated-survey-123'
 
             useMocks({
+                get: {
+                    // duplicateSurvey re-fetches the full survey (list rows omit the flag objects)
+                    '/api/projects/:team/surveys/:id/': () => [200, mockSurvey],
+                },
                 post: {
                     '/api/projects/:team/surveys/': () => [
                         200,

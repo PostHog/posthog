@@ -835,6 +835,18 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey)
 
+    def to_representation(self, instance: Survey) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # On the list endpoint, drop the embedded flag objects — each a full FeatureFlag
+        # with its `filters.groups`, up to three per row — that otherwise bloat the response
+        # with data the list doesn't need. The scalar `linked_flag_id` and `feature_flag_keys`
+        # still identify them; the full objects stay on the single-survey GET.
+        view = self.context.get("view")
+        if view is not None and getattr(view, "action", None) == "list":
+            for flag_field in ("linked_flag", "targeting_flag", "internal_targeting_flag"):
+                data.pop(flag_field, None)
+        return data
+
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
