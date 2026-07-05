@@ -28,6 +28,7 @@ from posthog.schema import (
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
+    RetentionType,
     StickinessFilter,
     StickinessQuery,
     TrendsFilter,
@@ -69,6 +70,16 @@ def clean_display(display: Optional[str]):
         return None
     else:
         return display
+
+
+# Drops an out-of-enum `retention_type` (e.g. an experiment metric type like `ratio` that leaked
+# into a legacy retention filter) so it doesn't blow up pydantic validation. `None` lets the
+# schema default apply.
+def clean_retention_type(retention_type: Optional[str]) -> Optional[str]:
+    if retention_type not in [t.value for t in RetentionType]:
+        return None
+    else:
+        return retention_type
 
 
 # Converts `hidden_legend_keys` in trends and stickiness insights to an array of hidden indexes.
@@ -529,7 +540,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
         RetentionFilterClass = RetentionFilterWithTemplateVariables if allow_variables else RetentionFilter
         insight_filter = {
             "retentionFilter": RetentionFilterClass(
-                retentionType=filter.get("retention_type"),
+                retentionType=clean_retention_type(filter.get("retention_type")),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
                 returningEntity=(

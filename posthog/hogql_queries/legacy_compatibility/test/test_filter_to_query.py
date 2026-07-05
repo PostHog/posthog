@@ -947,6 +947,16 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(query.kind, "RetentionQuery")
 
+    def test_base_retention_query_with_out_of_enum_retention_type(self):
+        # A corrupt legacy filter can carry an out-of-enum retention_type (e.g. "ratio", an
+        # experiment metric type). It should be dropped rather than blowing up pydantic validation.
+        filter: dict[str, Any] = {"insight": "RETENTION", "retention_type": "ratio"}
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(query.kind, "RetentionQuery")
+        self.assertIsNone(query.retentionFilter.retentionType)
+
     def test_base_paths_query(self):
         filter: dict[str, Any] = {"insight": "PATHS", "step_limit": 2}
 
