@@ -5231,6 +5231,7 @@ export namespace Schemas {
       Email: 'email',
       Twilio: 'twilio',
       Linear: 'linear',
+      LinearAgent: 'linear-agent',
       Github: 'github',
       Gitlab: 'gitlab',
       MetaAds: 'meta-ads',

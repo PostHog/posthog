@@ -3756,6 +3756,7 @@ export const IntegrationKindApi = {
     Email: 'email',
     Twilio: 'twilio',
     Linear: 'linear',
+    LinearAgent: 'linear-agent',
     Github: 'github',
     Gitlab: 'gitlab',
     MetaAds: 'meta-ads',
