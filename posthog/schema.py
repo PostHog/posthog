@@ -4316,8 +4316,10 @@ class AssistantTrendsFilter(BaseModel):
             " categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
-            " world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " world map; use ONLY when breaking down by country code using property"
+            " `$geoip_country_code` (2-letter ISO alpha-2 codes), and only then. Do NOT"
+            " break down by `$geoip_country_name` - country names render a blank map"
+            " because the map matches on ISO codes."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
