@@ -16,9 +16,10 @@ import { subscriptions } from 'kea-subscriptions'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
-import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
+import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
+import { isOperatorSemver, isValidSemverValue } from 'lib/utils/operators'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -39,6 +40,22 @@ import type { featureFlagReleaseConditionsLogicType } from './featureFlagRelease
 // A property filter targets people by their raw distinct id.
 export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+}
+
+// Gates the release-condition save on the same rules the backend enforces, so a bad value is
+// surfaced inline instead of failing with an opaque 400 on submit.
+function getPropertyValueError(property: AnyPropertyFilter): string | undefined {
+    if (isEmptyProperty(property)) {
+        return "Property filters can't be empty"
+    }
+    if (
+        isPropertyFilterWithOperator(property) &&
+        isOperatorSemver(property.operator) &&
+        !isValidSemverValue(property.value, property.operator)
+    ) {
+        return 'Enter a valid semver value (e.g. 1.2.3)'
+    }
+    return undefined
 }
 
 // Server caps batch_by_distinct_ids per request; chunk client-side so every id resolves.
@@ -768,7 +785,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (filters) => {
                 return filters?.groups?.map(({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
                     properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
+                        value: getPropertyValueError(property),
                     })),
                     rollout_percentage:
                         rollout_percentage === undefined || rollout_percentage === null

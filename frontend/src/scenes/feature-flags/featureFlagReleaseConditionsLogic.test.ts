@@ -764,6 +764,39 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('semver value validation', () => {
+        // Wiring guard: the form gates submit on `propertySelectErrors`, so a bad semver value must
+        // surface here rather than reaching the backend and failing with an opaque 400.
+        const semverProperty = (value: string): AnyPropertyFilter => ({
+            key: 'app_version',
+            value,
+            operator: PropertyOperator.SemverGt,
+            type: PropertyFilterType.Person,
+        })
+
+        it('flags a non-semver value paired with a semver operator', () => {
+            logic.actions.setFilters(
+                generateFeatureFlagFilters([
+                    { properties: [semverProperty('not-a-version')], rollout_percentage: 50, variant: null },
+                ])
+            )
+
+            expect(logic.values.propertySelectErrors[0].properties[0].value).toBe(
+                'Enter a valid semver value (e.g. 1.2.3)'
+            )
+        })
+
+        it('accepts a valid semver value', () => {
+            logic.actions.setFilters(
+                generateFeatureFlagFilters([
+                    { properties: [semverProperty('1.2.3')], rollout_percentage: 50, variant: null },
+                ])
+            )
+
+            expect(logic.values.propertySelectErrors[0].properties[0].value).toBeUndefined()
+        })
+    })
+
     describe('condition set descriptions', () => {
         it('updates description for a condition set', () => {
             const filters = generateFeatureFlagFilters([

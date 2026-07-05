@@ -5,6 +5,7 @@ import {
     durationOperatorMap,
     genericOperatorMap,
     isOperatorMulti,
+    isValidSemverValue,
     numericOperatorMap,
     selectorOperatorMap,
     stringOperatorMap,
@@ -46,6 +47,37 @@ describe('operators utils', () => {
             expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
+        })
+    })
+
+    describe('isValidSemverValue', () => {
+        // Mirrors the backend `parse_semver` gate: drift here re-introduces the save 400 for
+        // non-semver values (or wrongly blocks a real version).
+        it.each([
+            ['1.2.3', PropertyOperator.SemverEq],
+            ['1.2', PropertyOperator.SemverGt],
+            ['1', PropertyOperator.SemverLt],
+            ['1.2.3-alpha.1', PropertyOperator.SemverGte],
+            ['1.2.3.4', PropertyOperator.SemverNeq], // extra components ignored, as on the backend
+            ['1.2.*', PropertyOperator.SemverWildcard],
+            ['1.*', PropertyOperator.SemverWildcard],
+        ])('accepts %s for %s', (value, operator) => {
+            expect(isValidSemverValue(value, operator)).toBe(true)
+        })
+
+        it.each([
+            ['user@example.com', PropertyOperator.SemverEq],
+            ['deadbeef', PropertyOperator.SemverNeq],
+            ['1.', PropertyOperator.SemverGt],
+            ['v1.2.3', PropertyOperator.SemverEq], // backend `int('v1')` rejects a leading v
+            ['', PropertyOperator.SemverEq],
+        ])('rejects %s for %s', (value, operator) => {
+            expect(isValidSemverValue(value, operator)).toBe(false)
+        })
+
+        it('rejects a non-string value', () => {
+            expect(isValidSemverValue(['1.2.3'], PropertyOperator.SemverEq)).toBe(false)
+            expect(isValidSemverValue(null, PropertyOperator.SemverEq)).toBe(false)
         })
     })
 })

@@ -1,4 +1,4 @@
-import { PropertyOperator, PropertyType } from '~/types'
+import { PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export const genericOperatorMap: Record<string, string> = {
     exact: '= equals',
@@ -197,6 +197,28 @@ export function isOperatorSemver(operator: PropertyOperator): boolean {
         PropertyOperator.SemverCaret,
         PropertyOperator.SemverWildcard,
     ].includes(operator)
+}
+
+// Mirrors the backend `parse_semver` gate used in feature flag `_validate_filters`, so a
+// non-semver value (e.g. an email or a hex string) is caught inline before the save 400s.
+export function isValidSemverValue(value: PropertyFilterValue | undefined, operator: PropertyOperator): boolean {
+    if (typeof value !== 'string') {
+        return false
+    }
+    let candidate = value.trim()
+    if (operator === PropertyOperator.SemverWildcard) {
+        // A wildcard like `1.2.*` stores the numeric prefix; drop the trailing `.` / `*`.
+        candidate = candidate.replace(/[.*]+$/, '')
+    }
+    // Strip any pre-release / build suffix (everything after the first hyphen), matching the backend.
+    const base = candidate.split('-')[0]
+    const parts = base.split('.')
+    if (parts[0] === '') {
+        return false
+    }
+    // Missing minor/patch default to "0" (e.g. "1" -> 1.0.0); extra parts are ignored, as on the backend.
+    const [major, minor = '0', patch = '0'] = parts
+    return [major, minor, patch].every((part) => /^\d+$/.test(part))
 }
 
 export function isOperatorRange(operator: PropertyOperator): boolean {
