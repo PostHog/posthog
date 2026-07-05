@@ -104,6 +104,11 @@ class Opportunity(PulseModel):
     proposed_experiment = models.JSONField(null=True, blank=True)
     fingerprint = models.CharField(max_length=512)
     feedback = models.JSONField(default=dict)
+    # The solutions-research notebook (a leaf artifact) this opportunity produced, if any.
+    # UUID of a cross-product Notebook; the linkable short_id is resolved for the frontend at
+    # serialization time. research_requested_at gates the single-flight/status display.
+    research_notebook_id = models.UUIDField(null=True, blank=True)
+    research_requested_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(PulseModel.Meta):
         # Dedup race guard: concurrent persists can't double-insert a fingerprint (persist
