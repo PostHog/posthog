@@ -345,4 +345,79 @@ describe('anonymize benchmark (opt-in, not run in normal suite)', () => {
             )
         }
     }, 300000)
+
+    // Fair total-throughput comparison on the real production corpus (/tmp/prod-payloads/*.bin,
+    // decompressed `{distinct_id, data}` payloads). Both sides do the full per-message pipeline
+    // work: TS = parse + anonymizeEvent loop + runBlurJobs + per-line JSON.stringify; Rust = one
+    // addon call (parse, scrub, serialize, off-loop). Reports aggregate MB/s over the whole corpus.
+    it.skip('TS vs native Rust addon on the production corpus (total throughput)', async () => {
+        const fs = require('fs') as typeof import('fs')
+        const addon = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        const allow = new AllowLists(ALLOW_TEXT, ALLOW_URL)
+        addon.initAnonymizer(allow.entries())
+
+        const dir = '/tmp/prod-payloads'
+        const payloads: Buffer[] = fs
+            .readdirSync(dir)
+            .filter((f) => f.endsWith('.bin'))
+            .sort()
+            .map((f) => fs.readFileSync(`${dir}/${f}`))
+        const totalBytes = payloads.reduce((n, p) => n + p.length, 0)
+        const totalMb = totalBytes / (1024 * 1024)
+
+        const runTs = (payload: Buffer): void => {
+            let items: unknown[]
+            try {
+                const outer = JSON.parse(payload.toString()) as { data: string }
+                items =
+                    (JSON.parse(outer.data) as { properties?: { $snapshot_items?: unknown[] } }).properties
+                        ?.$snapshot_items ?? []
+            } catch {
+                return // corrupt payload: the real pipeline DLQs it; excluded from scrub timing
+            }
+            const blurJobs: BlurJob[] = []
+            const ctx: ScrubContext = { allow, blurJobs, blurCache: new Map() }
+            for (const ev of items) {
+                anonymizeEvent(ctx, ev)
+            }
+            // Blur jobs are async (sharp); the addon blurs inline, so run them for a fair total.
+            void runBlurJobs(blurJobs)
+            for (const ev of items) {
+                Buffer.from(JSON.stringify(['w', ev]) + '\n')
+            }
+        }
+
+        // Warmup, then timed rounds over the whole corpus.
+        const ROUNDS = 3
+        for (const p of payloads) {
+            runTs(p)
+            await addon.anonymizeKafkaPayload(p)
+        }
+        let tsSecs = 0
+        let rustSecs = 0
+        for (let r = 0; r < ROUNDS; r++) {
+            const t0 = performance.now()
+            for (const p of payloads) {
+                runTs(p)
+            }
+            tsSecs += (performance.now() - t0) / 1000
+
+            const t1 = performance.now()
+            for (const p of payloads) {
+                await addon.anonymizeKafkaPayload(p)
+            }
+            rustSecs += (performance.now() - t1) / 1000
+        }
+        tsSecs /= ROUNDS
+        rustSecs /= ROUNDS
+
+        console.log(`\n===== production corpus: ${payloads.length} messages, ${ms(totalMb)} MB total =====`)
+        console.log(
+            `TS   total ${ms(tsSecs * 1000)}ms  |  ${ms(totalMb / tsSecs)} MB/s  |  ${ms((tsSecs / payloads.length) * 1000)} ms/msg`
+        )
+        console.log(
+            `Rust total ${ms(rustSecs * 1000)}ms  |  ${ms(totalMb / rustSecs)} MB/s  |  ${ms((rustSecs / payloads.length) * 1000)} ms/msg`
+        )
+        console.log(`speedup (TS / Rust) = ${(tsSecs / rustSecs).toFixed(2)}x`)
+    }, 600000)
 })
