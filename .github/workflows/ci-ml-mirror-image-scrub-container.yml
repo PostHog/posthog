@@ -39,7 +39,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       scrub_files:
-                        - 'products/replay_vision/services/ml-mirror-image-scrub-sidecar/**'
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
                         - 'Dockerfile.ml-mirror-image-scrub'
                         - '.github/workflows/ci-ml-mirror-image-scrub-container.yml'
 
@@ -55,7 +55,7 @@ jobs:
             contents: read
         defaults:
             run:
-                working-directory: products/replay_vision/services/ml-mirror-image-scrub-sidecar
+                working-directory: nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
