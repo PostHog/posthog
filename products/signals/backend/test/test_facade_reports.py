@@ -58,15 +58,16 @@ class TestGetRecentReports(BaseTest):
             signal_count=3,
         )
 
-    def test_scoped_to_scout_derived_reports(self) -> None:
-        scout_report = self._report(title="Scout finding")
+    def test_scoped_to_scout_and_replay_vision_never_pulse(self) -> None:
+        source_report = self._report(title="Scout or replay-vision finding")
         self._report(title="Report formed from pulse's own signals")
 
-        with patch(_FETCH_SCOUT_IDS, return_value={str(scout_report.id)}) as fetch_mock:
+        with patch(_FETCH_SCOUT_IDS, return_value={str(source_report.id)}) as fetch_mock:
             results = get_recent_reports(self.team.id, since=timezone.now() - timedelta(days=7))
 
-        assert [result.id for result in results] == [str(scout_report.id)]
-        assert fetch_mock.call_args.args[1] == ["signals_scout"]
+        assert [result.id for result in results] == [str(source_report.id)]
+        # Scout and replay-vision reports are eligible input; pulse's own output never is.
+        assert set(fetch_mock.call_args.args[1]) == {"signals_scout", "replay_vision"}
 
     def test_no_scout_reports_returns_empty(self) -> None:
         self._report()
