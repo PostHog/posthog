@@ -149,6 +149,7 @@ export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
               },
     }
 }
+
 // the follow-up fetch re-reads from offset 0 with a bigger limit rather than paginating:
 // the server re-runs the full aggregation for any offset, so one big scan costs the same as
 // a page and can't miss rows that shifted across page boundaries between scans
