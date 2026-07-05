@@ -9,14 +9,20 @@
  * Properties / events / actions render specific extras; everything else
  * falls back to the shared header + description.
  */
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
+import {
+    propertyFilterTypeToPropertyDefinitionType,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import { useTaxonomicAutocompleteItemDetails } from '../headless'
@@ -50,6 +56,7 @@ function PreviewEmpty(): JSX.Element {
 
 function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null {
     const details = useTaxonomicAutocompleteItemDetails(entry)
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     if (!details) {
         return null
     }
@@ -58,7 +65,7 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
     // in the shared hook — the hook only models scalar metadata. Same
     // for event first/last seen (handled later if needed).
     const isAction = entry.group.type === TaxonomicFilterGroupType.Actions
-    const viewUrl = resolveViewUrl(entry)
+    const viewUrl = resolveViewUrl(entry, getPropertyDefinition)
     const matchedValue = getMatchedValue(entry)
 
     return (
@@ -159,9 +166,14 @@ function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Ele
  * Resolve the data-management URL for an entry. Mirrors the legacy
  * `definitionPopoverLogic.viewFullDetailUrl` selector — Action / Event /
  * Property / Cohort each have their own page; everything else returns
- * `undefined` so the link is hidden.
+ * `undefined` so the link is hidden. Pinned/default property items are
+ * stored as `{ name }` only, so recover the saved definition id from
+ * `propertyDefinitionsModel` rather than pointing at `/properties/undefined`.
  */
-function resolveViewUrl(entry: MenuFilterEntry): string | undefined {
+export function resolveViewUrl(
+    entry: MenuFilterEntry,
+    getPropertyDefinition: typeof propertyDefinitionsModel.values.getPropertyDefinition
+): string | undefined {
     const { group, item } = entry
     switch (group.type) {
         case TaxonomicFilterGroupType.Actions: {
@@ -178,7 +190,16 @@ function resolveViewUrl(entry: MenuFilterEntry): string | undefined {
         case TaxonomicFilterGroupType.SessionProperties:
         case TaxonomicFilterGroupType.EventMetadata:
         case TaxonomicFilterGroupType.EventFeatureFlags: {
-            const id = (item as PropertyDefinition).id
+            const property = item as PropertyDefinition
+            const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(group.type)
+            const propertyDefinitionType = propertyFilterType
+                ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+                : null
+            const id =
+                property.id ??
+                (property.name && propertyDefinitionType
+                    ? getPropertyDefinition(property.name, propertyDefinitionType)?.id
+                    : undefined)
             return id ? urls.propertyDefinition(id) : undefined
         }
         case TaxonomicFilterGroupType.Cohorts:

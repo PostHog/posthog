@@ -4,6 +4,10 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
+import {
+    propertyFilterTypeToPropertyDefinitionType,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -14,8 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { ActionType, CohortType, EventDefinition, PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
@@ -44,7 +48,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentProjectId'], propertyDefinitionsModel, ['getPropertyDefinition']],
+    })),
     actions(({ values, props }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({
             item,
@@ -229,26 +235,42 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (s) => [s.type],
             (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
+        propertyDefinitionType: [
+            (s) => [s.type],
+            (type): PropertyDefinitionType | null => {
+                const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(type as TaxonomicFilterGroupType)
+                return propertyFilterType ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType) : null
+            },
+        ],
         viewFullDetailUrl: [
-            (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
-            (definition, isAction, isEvent, isProperty, isCohort) => {
-                // Pinned/default items (e.g. `$current_url`, `email`) are seeded with only a
-                // name and no saved definition id. Guard against a missing id so we never build
-                // a `/data-management/properties/undefined` link that 404s and toasts a UUID error.
+            (s) => [
+                s.definition,
+                s.isAction,
+                s.isEvent,
+                s.isProperty,
+                s.isCohort,
+                s.propertyDefinitionType,
+                s.getPropertyDefinition,
+            ],
+            (definition, isAction, isEvent, isProperty, isCohort, propertyDefinitionType, getPropertyDefinition) => {
                 if (isAction) {
-                    // Action Definitions
                     const id = (definition as ActionType).id
                     return id != null ? urls.action(id) : undefined
                 } else if (isEvent) {
-                    // Event Definitions
                     const id = (definition as EventDefinition).id
                     return id ? urls.eventDefinition(id) : undefined
                 } else if (isProperty) {
-                    // Property Definitions
-                    const id = (definition as PropertyDefinition).id
+                    // Pinned/default property items are stored as { name } only, so recover the
+                    // saved definition id from propertyDefinitionsModel rather than linking to
+                    // /data-management/properties/undefined.
+                    const property = definition as PropertyDefinition
+                    const id =
+                        property.id ??
+                        (property.name && propertyDefinitionType
+                            ? getPropertyDefinition(property.name, propertyDefinitionType)?.id
+                            : undefined)
                     return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
-                    // Cohort
                     const id = (definition as CohortType).id
                     return id != null ? urls.cohort(id) : undefined
                 }

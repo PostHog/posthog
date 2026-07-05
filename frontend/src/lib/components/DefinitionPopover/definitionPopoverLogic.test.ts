@@ -353,29 +353,58 @@ describe('definitionPopoverLogic', () => {
                     await expectChain
                 })
             })
+        })
 
-            // Pinned/default items (e.g. `$current_url`, `email`) are seeded with only a name and
-            // no saved definition id. viewFullDetailUrl must stay undefined so we never build a
-            // `/data-management/properties/undefined` link that 404s with a UUID error.
-            const idlessGroups = [
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Events,
-                TaxonomicFilterGroupType.Actions,
-                TaxonomicFilterGroupType.Cohorts,
+        describe('recovers a missing property id from the definitions model', () => {
+            // Pinned/default property items (e.g. seeded $current_url, email) are stored
+            // as { name } with no id, so viewFullDetailUrl used to build
+            // /data-management/properties/undefined. It must recover the saved id from
+            // propertyDefinitionsModel so the View link resolves to the real property.
+            const idlessPropertyCases: {
+                type: TaxonomicFilterGroupType
+                storageKey: string
+                definition: PropertyDefinition
+            }[] = [
+                {
+                    type: TaxonomicFilterGroupType.EventProperties,
+                    storageKey: `event/${mockEventPropertyDefinition.name}`,
+                    definition: mockEventPropertyDefinition as PropertyDefinition,
+                },
+                {
+                    type: TaxonomicFilterGroupType.PersonProperties,
+                    storageKey: 'person/email',
+                    definition: {
+                        ...mockEventPropertyDefinition,
+                        id: 'person-email-definition-id',
+                        name: 'email',
+                    } as PropertyDefinition,
+                },
             ]
 
-            idlessGroups.forEach((type) => {
-                it(`is undefined for id-less ${type} definition`, async () => {
+            idlessPropertyCases.forEach(({ type, storageKey, definition }) => {
+                it(`resolves the id for a name-only ${type} item`, async () => {
+                    propertyDefinitionsModel.actions.updatePropertyDefinitions({ [storageKey]: definition })
+
                     logic = definitionPopoverLogic({ type })
                     logic.mount()
 
                     await expectLogic(logic, () => {
-                        logic.actions.setDefinition({ name: '$current_url' })
+                        logic.actions.setDefinition({ name: definition.name })
                     })
                         .toDispatchActions(['setDefinitionSuccess'])
-                        .toMatchValues({ viewFullDetailUrl: undefined })
+                        .toMatchValues({ viewFullDetailUrl: urls.propertyDefinition(definition.id) })
                 })
+            })
+
+            it('stays undefined when the property id cannot be resolved', async () => {
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDefinition({ name: 'property-with-no-saved-definition' })
+                })
+                    .toDispatchActions(['setDefinitionSuccess'])
+                    .toMatchValues({ viewFullDetailUrl: undefined })
             })
         })
     })
