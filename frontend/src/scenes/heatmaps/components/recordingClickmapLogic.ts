@@ -1,5 +1,6 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import { RefObject } from 'react'
@@ -291,13 +292,17 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             (hoveredBoxKey, selectedBoxKey): boolean => hoveredBoxKey !== null || selectedBoxKey !== null,
         ],
     }),
+    subscriptions(({ actions }) => ({
+        tooltipSuppressed: (value: boolean) => {
+            actions.setHeatmapTooltipSuppressed(value)
+        },
+    })),
+    events(({ actions }) => ({
+        beforeUnmount: () => {
+            actions.setHeatmapTooltipSuppressed(false)
+        },
+    })),
     listeners(({ actions, values, props }) => ({
-        setHoveredBoxKey: () => {
-            actions.setHeatmapTooltipSuppressed(values.tooltipSuppressed)
-        },
-        selectClickmapBox: () => {
-            actions.setHeatmapTooltipSuppressed(values.tooltipSuppressed)
-        },
         setClickmapEnabled: ({ enabled }) => {
             posthog.capture('in-app heatmap clickmap toggled', { enabled })
             if (enabled) {

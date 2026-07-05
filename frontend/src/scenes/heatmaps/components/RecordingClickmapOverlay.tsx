@@ -103,8 +103,9 @@ export function RecordingClickmapOverlay({
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
-                {renderOrder.map((box, index) => {
-                    const key = `${box.top}:${box.left}:${clickmapBoxes.indexOf(box)}`
+                {renderOrder.map((box) => {
+                    const originalIndex = clickmapBoxes.indexOf(box)
+                    const key = `${box.top}:${box.left}:${originalIndex}`
                     const isSelected = key === selectedBoxKey
                     const boxElement = (
                         <div
@@ -160,7 +161,7 @@ export function RecordingClickmapOverlay({
                             placement="right"
                             overlay={
                                 <div className="p-2">
-                                    <ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalClickCount} />
+                                    <ClickmapBoxInfo box={box} rank={originalIndex + 1} totalCount={totalClickCount} />
                                 </div>
                             }
                         >
@@ -169,7 +170,7 @@ export function RecordingClickmapOverlay({
                     ) : (
                         <Tooltip
                             key={key}
-                            title={<ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalClickCount} />}
+                            title={<ClickmapBoxInfo box={box} rank={originalIndex + 1} totalCount={totalClickCount} />}
                         >
                             {boxElement}
                         </Tooltip>
