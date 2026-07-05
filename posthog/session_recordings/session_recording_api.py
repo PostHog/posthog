@@ -1152,6 +1152,8 @@ class SessionRecordingViewSet(
             "date_from": date_from,
             "date_to": None,
             "kind": "RecordingsQuery",
+            # Without an explicit limit the query defaults to 50 rows, silently truncating larger batches.
+            "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
         recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
