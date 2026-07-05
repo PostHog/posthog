@@ -107,6 +107,15 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                     identifier === 'Notifications' || state.includes(identifier) ? state : [...state, identifier],
             },
         ],
+        // Nav tabs activated at least once this session. Nav renders the chat tab's keepMounted
+        // panel only after first activation, so collapsed-nav users who never open chat don't
+        // download and mount the lazy chat chunk on every app load.
+        visitedNavTabs: [
+            [] as NavExperimentTab[],
+            {
+                setNavExperimentTab: (state, { tab }) => (state.includes(tab) ? state : [...state, tab]),
+            },
+        ],
         mainContentRef: [
             null as PanelLayoutMainContentRef,
             {
@@ -294,6 +303,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         if (values.activePanelIdentifier) {
             actions.setActivePanelIdentifier(values.activePanelIdentifier as PanelLayoutNavIdentifier)
         }
+        // Same for the persisted nav tab: a user who was on the chat tab last session gets its
+        // panel mounted from the start.
+        actions.setNavExperimentTab(values.navExperimentActiveTab)
 
         // Watch for window resize
         if (typeof window !== 'undefined') {

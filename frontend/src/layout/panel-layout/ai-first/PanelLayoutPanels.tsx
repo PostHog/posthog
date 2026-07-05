@@ -31,17 +31,36 @@ export function PanelLayoutPanels(): JSX.Element | null {
     // keys so adding a panel here automatically opts it in — no second list to keep in sync.
     const panelContent: Partial<Record<PanelLayoutNavIdentifier, JSX.Element>> = useMemo(
         () => ({
-            DataAndPeople: <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />,
+            DataAndPeople: (
+                <ProjectTree
+                    root="data-and-people://"
+                    searchPlaceholder="Search data"
+                    isActiveInPanel={activePanelIdentifier === 'DataAndPeople'}
+                />
+            ),
             Project: (
                 <ProjectTree
                     root="project://"
                     logicKey={PROJECT_TREE_KEY}
                     searchPlaceholder="Search files"
                     showRecents
+                    isActiveInPanel={activePanelIdentifier === 'Project'}
                 />
             ),
-            Products: <ProjectTree root="products://" searchPlaceholder="Search tools" />,
-            Shortcuts: <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />,
+            Products: (
+                <ProjectTree
+                    root="products://"
+                    searchPlaceholder="Search tools"
+                    isActiveInPanel={activePanelIdentifier === 'Products'}
+                />
+            ),
+            Shortcuts: (
+                <ProjectTree
+                    root="shortcuts://"
+                    searchPlaceholder="Search starred items"
+                    isActiveInPanel={activePanelIdentifier === 'Shortcuts'}
+                />
+            ),
             Chat: (
                 <div className="pointer-events-auto flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]">
                     <Suspense
@@ -60,7 +79,9 @@ export function PanelLayoutPanels(): JSX.Element | null {
                 </div>
             ),
         }),
-        [onChatItemClick]
+        // activePanelIdentifier feeds isActiveInPanel so kept trees refocus search on re-activation;
+        // it only changes on panel switches, so this memo still shields trees from unrelated re-renders.
+        [onChatItemClick, activePanelIdentifier]
     )
 
     // All panel-content keys are keep-mounted (hidden when inactive) so switching panels doesn't

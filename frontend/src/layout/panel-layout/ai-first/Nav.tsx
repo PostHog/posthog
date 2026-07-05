@@ -119,8 +119,13 @@ export function Nav(): JSX.Element {
         clearActivePanelIdentifier,
         setNavbarWidth,
     } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
-        useValues(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        isLayoutNavCollapsed,
+        navExperimentActiveTab,
+        activePanelIdentifier,
+        visitedNavTabs,
+    } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
@@ -315,21 +320,31 @@ export function Nav(): JSX.Element {
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
-                        <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            <Suspense
-                                fallback={
-                                    <div className="flex flex-col gap-px px-1 pt-2">
-                                        {Array.from({ length: 15 }).map((_, index) => (
-                                            <WrappingLoadingSkeleton fullWidth key={index}>
-                                                <ButtonPrimitive aria-hidden inert menuItem />
-                                            </WrappingLoadingSkeleton>
-                                        ))}
-                                    </div>
-                                }
+                        {/* Lazy until first activated: the visited list only ever grows, so once
+                            mounted the panel never unmounts — keepMounted then preserves it across
+                            tab switches. Users who never open chat never pay for its chunk. */}
+                        {visitedNavTabs.includes('chat') && (
+                            <Tabs.Panel
+                                value="chat"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
                             >
-                                <NavTabChat />
-                            </Suspense>
-                        </Tabs.Panel>
+                                <Suspense
+                                    fallback={
+                                        <div className="flex flex-col gap-px px-1 pt-2">
+                                            {Array.from({ length: 15 }).map((_, index) => (
+                                                <WrappingLoadingSkeleton fullWidth key={index}>
+                                                    <ButtonPrimitive aria-hidden inert menuItem />
+                                                </WrappingLoadingSkeleton>
+                                            ))}
+                                        </div>
+                                    }
+                                >
+                                    <NavTabChat />
+                                </Suspense>
+                            </Tabs.Panel>
+                        )}
                     </div>
 
                     <div className="px-2">

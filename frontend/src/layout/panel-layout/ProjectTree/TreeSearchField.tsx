@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 
@@ -39,12 +40,23 @@ interface TreeSearchFieldProps {
      * mounted at once (panel switching keeps them alive), so a shared global ref would focus the
      * wrong, possibly hidden, tree. */
     treeRef: React.RefObject<LemonTreeRef>
+    /** True while this field's panel is the active one. Kept-mounted panels don't remount on
+     * re-open, so `autoFocus` fires only once — refocus on every activation to keep the
+     * "open panel, type to search" flow working. */
+    isActive?: boolean
 }
 
-export function TreeSearchField({ root, placeholder, treeRef }: TreeSearchFieldProps): JSX.Element {
+export function TreeSearchField({ root, placeholder, treeRef, isActive }: TreeSearchFieldProps): JSX.Element {
     const { searchTerm } = useValues(projectTreeLogic)
     const { setSearchTerm, clearSearch } = useActions(projectTreeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (isActive) {
+            containerRef.current?.querySelector('input')?.focus()
+        }
+    }, [isActive])
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         if (e.key === 'ArrowDown') {
@@ -59,6 +71,7 @@ export function TreeSearchField({ root, placeholder, treeRef }: TreeSearchFieldP
 
     return (
         <SearchAutocomplete
+            ref={containerRef}
             inputPlaceholder={placeholder}
             includeNegation
             defaultValue={searchTerm}
