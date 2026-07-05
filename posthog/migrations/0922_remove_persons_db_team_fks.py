@@ -2,6 +2,38 @@
 from django.db import migrations
 
 
+def _guarded_drop(table: str, constraint: str) -> str:
+    # ALTER TABLE raises UndefinedTable when the table is absent, and DROP CONSTRAINT IF EXISTS
+    # only guards the constraint, not the table. These tables are owned by the persons database
+    # (managed=False, see 0873) and are absent from the main database in persons-split deployments,
+    # so gate the ALTER on to_regclass to make the drop a no-op there instead of failing the migrate.
+    return f"""
+        DO $$
+        BEGIN
+            IF to_regclass('{table}') IS NOT NULL THEN
+                ALTER TABLE {table} DROP CONSTRAINT IF EXISTS "{constraint}";
+            END IF;
+        END
+        $$ LANGUAGE plpgsql;
+    """
+
+
+def _guarded_add(table: str, constraint: str) -> str:
+    return f"""
+        DO $$
+        BEGIN
+            IF to_regclass('{table}') IS NOT NULL THEN
+                ALTER TABLE {table}
+                ADD CONSTRAINT "{constraint}"
+                FOREIGN KEY (team_id)
+                REFERENCES posthog_team(id)
+                DEFERRABLE INITIALLY DEFERRED;
+            END IF;
+        END
+        $$ LANGUAGE plpgsql;
+    """
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0921_teammarketinganalyticsconfig__campaign_field_preferences_and_more"),
@@ -10,74 +42,40 @@ class Migration(migrations.Migration):
     operations = [
         # Drop foreign key constraints for all tables that are now in the persons database
         # These tables are managed separately and don't need FK constraints to posthog_team
-        # posthog_persondistinctid
         migrations.RunSQL(
-            sql="""
-                ALTER TABLE posthog_persondistinctid
-                DROP CONSTRAINT IF EXISTS "posthog_persondistinctid_team_id_46330ec9_fk_posthog_team_id";
-            """,
-            reverse_sql="""
-                ALTER TABLE posthog_persondistinctid
-                ADD CONSTRAINT "posthog_persondistinctid_team_id_46330ec9_fk_posthog_team_id"
-                FOREIGN KEY (team_id)
-                REFERENCES posthog_team(id)
-                DEFERRABLE INITIALLY DEFERRED;
-            """,
+            sql=_guarded_drop(
+                "posthog_persondistinctid", "posthog_persondistinctid_team_id_46330ec9_fk_posthog_team_id"
+            ),
+            reverse_sql=_guarded_add(
+                "posthog_persondistinctid", "posthog_persondistinctid_team_id_46330ec9_fk_posthog_team_id"
+            ),
         ),
-        # posthog_personlessdistinctid
         migrations.RunSQL(
-            sql="""
-                ALTER TABLE posthog_personlessdistinctid
-                DROP CONSTRAINT IF EXISTS "posthog_personlessdi_team_id_99211fb1_fk_posthog_t";
-            """,
-            reverse_sql="""
-                ALTER TABLE posthog_personlessdistinctid
-                ADD CONSTRAINT "posthog_personlessdi_team_id_99211fb1_fk_posthog_t"
-                FOREIGN KEY (team_id)
-                REFERENCES posthog_team(id)
-                DEFERRABLE INITIALLY DEFERRED;
-            """,
+            sql=_guarded_drop("posthog_personlessdistinctid", "posthog_personlessdi_team_id_99211fb1_fk_posthog_t"),
+            reverse_sql=_guarded_add(
+                "posthog_personlessdistinctid", "posthog_personlessdi_team_id_99211fb1_fk_posthog_t"
+            ),
         ),
-        # posthog_personoverride
         migrations.RunSQL(
-            sql="""
-                ALTER TABLE posthog_personoverride
-                DROP CONSTRAINT IF EXISTS "posthog_personoverride_team_id_92291e67_fk_posthog_team_id";
-            """,
-            reverse_sql="""
-                ALTER TABLE posthog_personoverride
-                ADD CONSTRAINT "posthog_personoverride_team_id_92291e67_fk_posthog_team_id"
-                FOREIGN KEY (team_id)
-                REFERENCES posthog_team(id)
-                DEFERRABLE INITIALLY DEFERRED;
-            """,
+            sql=_guarded_drop("posthog_personoverride", "posthog_personoverride_team_id_92291e67_fk_posthog_team_id"),
+            reverse_sql=_guarded_add(
+                "posthog_personoverride", "posthog_personoverride_team_id_92291e67_fk_posthog_team_id"
+            ),
         ),
-        # posthog_featureflaghashkeyoverride
         migrations.RunSQL(
-            sql="""
-                ALTER TABLE posthog_featureflaghashkeyoverride
-                DROP CONSTRAINT IF EXISTS "posthog_featureflagh_team_id_b626eed2_fk_posthog_t";
-            """,
-            reverse_sql="""
-                ALTER TABLE posthog_featureflaghashkeyoverride
-                ADD CONSTRAINT "posthog_featureflagh_team_id_b626eed2_fk_posthog_t"
-                FOREIGN KEY (team_id)
-                REFERENCES posthog_team(id)
-                DEFERRABLE INITIALLY DEFERRED;
-            """,
+            sql=_guarded_drop(
+                "posthog_featureflaghashkeyoverride", "posthog_featureflagh_team_id_b626eed2_fk_posthog_t"
+            ),
+            reverse_sql=_guarded_add(
+                "posthog_featureflaghashkeyoverride", "posthog_featureflagh_team_id_b626eed2_fk_posthog_t"
+            ),
         ),
-        # posthog_grouptypemapping
         migrations.RunSQL(
-            sql="""
-                ALTER TABLE posthog_grouptypemapping
-                DROP CONSTRAINT IF EXISTS "posthog_grouptypemapping_team_id_5fb54d04_fk_posthog_team_id";
-            """,
-            reverse_sql="""
-                ALTER TABLE posthog_grouptypemapping
-                ADD CONSTRAINT "posthog_grouptypemapping_team_id_5fb54d04_fk_posthog_team_id"
-                FOREIGN KEY (team_id)
-                REFERENCES posthog_team(id)
-                DEFERRABLE INITIALLY DEFERRED;
-            """,
+            sql=_guarded_drop(
+                "posthog_grouptypemapping", "posthog_grouptypemapping_team_id_5fb54d04_fk_posthog_team_id"
+            ),
+            reverse_sql=_guarded_add(
+                "posthog_grouptypemapping", "posthog_grouptypemapping_team_id_5fb54d04_fk_posthog_team_id"
+            ),
         ),
     ]

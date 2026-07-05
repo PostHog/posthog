@@ -9,11 +9,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # posthog_person is now owned by the persons database (managed=False, see 0873); the table
+        # is absent from the main database in persons-split deployments. Guard on to_regclass so this
+        # historical constraint add degrades to a no-op there instead of raising UndefinedTable — the
+        # 'posthog_person'::regclass cast only runs once the table is confirmed present (plpgsql AND
+        # short-circuits). Where the table still lives in the main database, behaviour is unchanged.
         migrations.RunSQL(
             sql="""
             DO $$
             BEGIN
-                IF NOT EXISTS (
+                IF to_regclass('posthog_person') IS NOT NULL AND NOT EXISTS (
                     SELECT 1
                     FROM pg_constraint c
                     WHERE c.conname = 'check_properties_size'
@@ -27,8 +32,14 @@ class Migration(migrations.Migration):
             $$ LANGUAGE plpgsql;
             """,
             reverse_sql="""
-            ALTER TABLE posthog_person
-            DROP CONSTRAINT IF EXISTS check_properties_size;
+            DO $$
+            BEGIN
+                IF to_regclass('posthog_person') IS NOT NULL THEN
+                    ALTER TABLE posthog_person
+                    DROP CONSTRAINT IF EXISTS check_properties_size;
+                END IF;
+            END
+            $$ LANGUAGE plpgsql;
             """,
         ),
     ]
