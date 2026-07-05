@@ -1,8 +1,8 @@
 """Analytics capture for notebook lifecycle events.
 
-Single owner of the server-side `notebook created` event so every creation path — REST/MCP
-(via the serializer) and the AI/background paths (via the facade create functions) — emits one
-uniform event with an attributed `creation_source`.
+Single owner of the server-side `notebook created` and `notebook read` events, so every
+creation path (REST/MCP via the serializer, AI/background via the facade create functions) and
+every programmatic read emits one uniform, attributed event.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 NOTEBOOK_CREATED_EVENT = "notebook created"
+NOTEBOOK_READ_EVENT = "notebook read"
 
 
 class NotebookCreationSource:
@@ -84,3 +85,32 @@ def capture_notebook_created(
     if team is None:
         return
     report_user_or_team_action(NOTEBOOK_CREATED_EVENT, props, user=resolved_user, team=team)
+
+
+def capture_notebook_read(
+    *,
+    request: "Request",
+    user: Any,
+    short_id: str,
+    read_source: str,
+    is_creator: bool,
+    user_access_level: str | None = None,
+    mcp_client: str | None = None,
+    api_key_type: str | None = None,
+) -> None:
+    """Emit `notebook read` for a programmatic (non-browser) notebook retrieve. Browser opens are
+    the client-side `notebook opened` event, so the caller gates this on non-session auth to keep
+    agent traffic out of the human revisit numbers."""
+    props: dict[str, Any] = {"short_id": short_id, "read_source": read_source, "is_creator": is_creator}
+    props.update(
+        {
+            key: value
+            for key, value in {
+                "user_access_level": user_access_level,
+                "mcp_client": mcp_client,
+                "api_key_type": api_key_type,
+            }.items()
+            if value is not None
+        }
+    )
+    report_user_action(user, NOTEBOOK_READ_EVENT, props, request=request)

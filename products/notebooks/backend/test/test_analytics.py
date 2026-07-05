@@ -7,8 +7,10 @@ from posthog.auth import SessionAuthentication
 
 from products.notebooks.backend.analytics import (
     NOTEBOOK_CREATED_EVENT,
+    NOTEBOOK_READ_EVENT,
     NotebookCreationSource,
     capture_notebook_created,
+    capture_notebook_read,
     notebook_node_count,
 )
 from products.notebooks.backend.presentation.views.notebook import classify_request_source
@@ -73,4 +75,31 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(
             args[2],
             {"short_id": "abc123", "creation_source": "ui", "visibility": "private", "node_count": 3},
+        )
+
+    @patch("products.notebooks.backend.analytics.report_user_action")
+    def test_capture_notebook_read_builds_props_and_drops_none(self, mock_report):
+        capture_notebook_read(
+            request=object(),
+            user=self.user,
+            short_id="abc123",
+            read_source=NotebookCreationSource.MCP,
+            is_creator=False,
+            user_access_level="viewer",
+            api_key_type="PersonalAPIKeyAuthentication",
+            mcp_client=None,
+        )
+        self.assertEqual(mock_report.call_count, 1)
+        args, _ = mock_report.call_args
+        self.assertEqual(args[0], self.user)
+        self.assertEqual(args[1], NOTEBOOK_READ_EVENT)
+        self.assertEqual(
+            args[2],
+            {
+                "short_id": "abc123",
+                "read_source": "mcp",
+                "is_creator": False,
+                "user_access_level": "viewer",
+                "api_key_type": "PersonalAPIKeyAuthentication",
+            },
         )
