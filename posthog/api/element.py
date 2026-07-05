@@ -37,6 +37,7 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
 # element properties that appear as string values in elements_chain; the numeric
 # fields on ElementSerializer are stored in a format the values regexes cannot match
 SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_class", "attr_id"}
+_SUPPORTED_VALUES_KEYS_DISPLAY = ", ".join(sorted(SUPPORTED_VALUES_KEYS))
 
 ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
     "element_stats_result_count",
@@ -342,7 +343,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             value = request.GET.get("value")
 
             if key not in SUPPORTED_VALUES_KEYS:
-                raise ValidationError(f"key must be one of {', '.join(sorted(SUPPORTED_VALUES_KEYS))}")
+                raise ValidationError(f"key must be one of {_SUPPORTED_VALUES_KEYS_DISPLAY}")
 
             span.set_attribute("team_id", self.team.pk)
             span.set_attribute("property_key", key)
@@ -351,17 +352,16 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # the value is a user-typed substring, so escape it before it lands in a regex
             escaped_value = re.escape(value) if value else None
 
-            select_regex = '[:|"]{}="(.*?)"'.format(key)
             if key == "tag_name":
                 select_regex = r"^([-_a-zA-Z0-9]*?)[\.|:]"
-                filter_regex = select_regex
-                if escaped_value:
-                    filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(escaped_value)
+                filter_regex = (
+                    r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(escaped_value)
+                    if escaped_value
+                    else select_regex
+                )
             else:
-                if escaped_value:
-                    filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, escaped_value)
-                else:
-                    filter_regex = select_regex
+                select_regex = '[:|"]{}="(.*?)"'.format(key)
+                filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, escaped_value) if escaped_value else select_regex
 
             # no explicit team filter: execute_hogql_query scopes the events table to self.team
             select = parse_select(
