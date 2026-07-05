@@ -157,7 +157,7 @@ export function ObservationLabelControl({
     )
 
     if (compact) {
-        return <div className="py-1">{buttons}</div>
+        return <div className="py-2">{buttons}</div>
     }
 
     return (
