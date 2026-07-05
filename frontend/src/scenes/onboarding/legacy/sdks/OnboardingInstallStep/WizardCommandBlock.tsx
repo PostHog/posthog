@@ -2,6 +2,8 @@ import './WizardCommandBlock.scss'
 
 import { type ComponentType, useState } from 'react'
 
+import { IconCheck } from '@posthog/icons'
+
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
@@ -77,9 +79,16 @@ export function WizardCommandBlock(): JSX.Element {
                         onCopy={(key) => setCastKey(key)}
                     />
 
-                    <p className="text-xs text-muted mb-0">
-                        Auto-detects your framework, installs the SDK, and sets up event capture.
-                    </p>
+                    {castKey > 0 ? (
+                        <p className="text-xs text-success mb-0 flex items-center gap-1">
+                            <IconCheck className="shrink-0" />
+                            Copied — paste and run it in your project's terminal. We'll detect events automatically.
+                        </p>
+                    ) : (
+                        <p className="text-xs text-muted mb-0">
+                            Auto-detects your framework, installs the SDK, and sets up event capture.
+                        </p>
+                    )}
 
                     <div className="flex flex-wrap gap-1.5 items-center">
                         <span className="text-xs text-muted">Supports:</span>
