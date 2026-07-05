@@ -45,6 +45,17 @@ querying-posthog-data skill, `models-heatmaps`):
 Use `aggregation: "unique_visitors"` when you care about how many people (not how many clicks); `total_count`
 exaggerates a few heavy clickers.
 
+**Watch for fixed-position UI dominating the click map.** Every `heatmaps-list` result row carries
+`pointer_target_fixed`. Sticky chrome — a fixed nav, a floating chat bubble, a persistent CTA widget — stays
+on screen through every scroll, so its clicks pile onto the same coordinate and routinely make up the hottest
+points returned. On a busy page the entire top of the list can be `pointer_target_fixed: true`, clustered in a
+corner, which is page chrome, not page-content interaction. Read the flag before you rank hotspots: separate or
+flag the fixed points, and if you want a page-content-only map, drop to SQL on the raw `heatmaps` table with
+`WHERE pointer_target_fixed = 0` (see the querying-posthog-data skill, `models-heatmaps`). Note the two
+surfaces use different denominators: the click `results` list is **fixed-inclusive**, while the Step 2b `fold`
+counts are **fixed-exclusive** — so a `fold` `total_count` well below the raw click volume is expected, not a
+bug.
+
 Click results come back **hottest-first** and are capped at `limit` (default 500). A busy page can have
 thousands of distinct coordinates, so the default page plus the `fold` summary is almost always enough — the
 hottest points are what analysis turns on. Don't ask for everything: raise `limit` or page with `offset` only
@@ -81,11 +92,19 @@ SELECT properties.$el_text AS text, count() AS clicks
 FROM events
 WHERE event = '$autocapture'
   AND properties.$current_url = 'https://example.com/pricing'
+  AND properties.$el_text != ''
   AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY text
 ORDER BY clicks DESC
 LIMIT 25
 ```
+
+The `$el_text != ''` filter matters: many autocapture clicks land on text-less elements (icons, images, plain
+containers), which otherwise collapse into a single dominant `None` bucket that tells you nothing. Filtering it
+out surfaces the real named elements — but it also means `$el_text` alone **cannot name the text-less
+hotspots**, and those are exactly the "users expect this to be clickable (image / plain element)" finding-class
+this skill prioritizes. When a hot coordinate has no `$el_text`, name it via `elements_chain` / the CSS
+selector instead (tag name, `data-attr`, `href`) — see the `exploring-autocapture-events` skill.
 
 `elements_chain` gives the selector/DOM path when you need to disambiguate two elements with the same text.
 Match autocapture's top elements to the heatmap's hot coordinates: clicks concentrated on something that is
@@ -147,3 +166,7 @@ Produce a short, concrete report:
   image; `iframe` and `recording` types do not.
 - **Mind the viewport.** A desktop click map and a mobile one are different pages' worth of behavior — filter
   with `viewport_width_min`/`viewport_width_max` rather than blending them.
+- **Fixed-position points can top the click map.** `heatmaps-list` results include `pointer_target_fixed`, and
+  sticky chrome (nav, floating chat/CTA widgets) often dominates the hottest points — flag or exclude those
+  before calling something "the top hotspot" (see Step 2). The click `results` list is fixed-inclusive; the
+  `fold` counts are fixed-exclusive.
