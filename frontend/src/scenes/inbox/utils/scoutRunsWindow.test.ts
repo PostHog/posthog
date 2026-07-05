@@ -111,7 +111,7 @@ describe('scoutRunsWindow report channel', () => {
             // identity so memoized rows only re-render on real change. If it degrades to `return next`,
             // unchanged runs churn references every 60s and the memo is silently defeated.
             const prevUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
-            const prevChanged = makeRun({ run_id: 'run-2', status: 'running' })
+            const prevChanged = makeRun({ run_id: 'run-2', status: 'in_progress' })
 
             const nextUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
             const nextChanged = makeRun({ run_id: 'run-2', status: 'completed' })
