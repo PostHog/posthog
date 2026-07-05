@@ -13,9 +13,7 @@
 //! scrubber), any object with more keys than the dup check covers, or any structural surprise makes
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
-use crate::assets::{
-    is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
-};
+use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
 use crate::blur::{blank_image_data_uri, is_image_data_uri};
 use crate::context::Ctx;
 use crate::css;
@@ -23,9 +21,7 @@ use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
     ParentKind, TagKind,
 };
-use crate::event::{
-    SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL,
-};
+use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
 use crate::url::{scrub_url, scrub_url_opts};
@@ -77,7 +73,8 @@ struct Walker<'c, 'a> {
     seen: Vec<(Span, u64)>,
 }
 
-type FieldFn<'w, 'c, 'a> = dyn FnMut(&mut Walker<'c, 'a>, Span, usize, &mut Vec<u8>) -> Option<usize> + 'w;
+type FieldFn<'w, 'c, 'a> =
+    dyn FnMut(&mut Walker<'c, 'a>, Span, usize, &mut Vec<u8>) -> Option<usize> + 'w;
 
 /// Scrub the `data` span of one event into `out`. `Some(changed)` on success; `None` means
 /// "fall back to the parse" — the caller must discard whatever was written.
@@ -168,12 +165,14 @@ pub fn scrub_cv_snapshot(ctx: &Ctx<'_>, bytes: &[u8], out: &mut Vec<u8>) -> Opti
         seen: Vec::with_capacity(64),
     };
     let start = scan::skip_ws(bytes, 0);
-    let end = w.walk_object(start, out, &mut |w, key, vstart, out| {
-        match &w.bytes[key.0..key.1] {
+    let end = w.walk_object(
+        start,
+        out,
+        &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
             b"node" => w.walk_node(vstart, ParentKind::Other, out),
             _ => w.copy_value(vstart, out),
-        }
-    })?;
+        },
+    )?;
     (scan::skip_ws(bytes, end) == bytes.len()).then_some(w.changed)
 }
 
@@ -246,14 +245,16 @@ fn scrub_cv_mutation_data(
         depth: 0,
         seen: Vec::with_capacity(64),
     };
-    let end = w.walk_object(data.0, out, &mut |w, key, vstart, out| {
-        match &w.bytes[key.0..key.1] {
+    let end = w.walk_object(
+        data.0,
+        out,
+        &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
             b"texts" => w.walk_cv_sub(CvMutationField::Texts, vstart, out),
             b"attributes" => w.walk_cv_sub(CvMutationField::Attributes, vstart, out),
             b"adds" => w.walk_cv_sub(CvMutationField::Adds, vstart, out),
             _ => w.copy_value(vstart, out),
-        }
-    })?;
+        },
+    )?;
     debug_assert_eq!(end, data.1);
     Some(w.changed)
 }
@@ -900,8 +901,8 @@ impl<'c, 'a> Walker<'c, 'a> {
                 .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx.allow, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url_opts(self.ctx.allow, &existing, true)
+                .unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
@@ -915,12 +916,16 @@ impl<'c, 'a> Walker<'c, 'a> {
             if w.bytes.get(pos) != Some(&b'{') {
                 return w.copy_value(pos, out);
             }
-            w.walk_object(pos, out, &mut |w, key, vstart, out| {
-                match &w.bytes[key.0..key.1] {
-                    b"value" => w.scrub_string_value(vstart, out, |w, s| scrub_text(w.ctx.allow, s)),
+            w.walk_object(
+                pos,
+                out,
+                &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
+                    b"value" => {
+                        w.scrub_string_value(vstart, out, |w, s| scrub_text(w.ctx.allow, s))
+                    }
                     _ => w.copy_value(vstart, out),
-                }
-            })
+                },
+            )
         })
     }
 
@@ -931,8 +936,10 @@ impl<'c, 'a> Walker<'c, 'a> {
             if w.bytes.get(pos) != Some(&b'{') {
                 return w.copy_value(pos, out);
             }
-            w.walk_object(pos, out, &mut |w, key, vstart, out| {
-                match &w.bytes[key.0..key.1] {
+            w.walk_object(
+                pos,
+                out,
+                &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
                     b"attributes" if w.bytes.get(vstart) == Some(&b'{') => {
                         let kind = if MEDIA_SRC_ATTRS
                             .iter()
@@ -945,8 +952,8 @@ impl<'c, 'a> Walker<'c, 'a> {
                         w.walk_attrs(vstart, kind, out)
                     }
                     _ => w.copy_value(vstart, out),
-                }
-            })
+                },
+            )
         })
     }
 
@@ -975,11 +982,12 @@ impl<'c, 'a> Walker<'c, 'a> {
                 let raw = latin1_from_wire(wire)?;
                 let decompressed = self.ctx.gunzip_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
-                let content = if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
-                    &walked
-                } else {
-                    &decompressed
-                };
+                let content =
+                    if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
+                        &walked
+                    } else {
+                        &decompressed
+                    };
                 let zs = crate::gzip::compress_cv(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
@@ -995,12 +1003,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             if w.bytes.get(pos) != Some(&b'{') {
                 return w.copy_value(pos, out);
             }
-            w.walk_object(pos, out, &mut |w, key, vstart, out| {
-                match &w.bytes[key.0..key.1] {
+            w.walk_object(
+                pos,
+                out,
+                &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
                     b"node" => w.walk_node(vstart, ParentKind::Other, out),
                     _ => w.copy_value(vstart, out),
-                }
-            })
+                },
+            )
         })
     }
 }

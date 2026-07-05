@@ -573,28 +573,40 @@ fn stream_message(
                             ppos = ipos;
                         }
                         b"$session_id" => {
-                            if session_id_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                            if session_id_span
+                                .replace(scan_prop_value(inner, pvstart, &mut ppos)?)
+                                .is_some()
+                            {
                                 need_full_parse!();
                             }
                         }
                         b"$window_id" => {
-                            if window_id_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                            if window_id_span
+                                .replace(scan_prop_value(inner, pvstart, &mut ppos)?)
+                                .is_some()
+                            {
                                 need_full_parse!();
                             }
                         }
                         b"$snapshot_source" => {
-                            if snapshot_source_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                            if snapshot_source_span
+                                .replace(scan_prop_value(inner, pvstart, &mut ppos)?)
+                                .is_some()
+                            {
                                 need_full_parse!();
                             }
                         }
                         b"$lib" => {
-                            if lib_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                            if lib_span
+                                .replace(scan_prop_value(inner, pvstart, &mut ppos)?)
+                                .is_some()
+                            {
                                 need_full_parse!();
                             }
                         }
                         _ => {
-                            let vspan =
-                                scan::locate_value(inner, pvstart).map_err(|e| non_snapshot(e.0))?;
+                            let vspan = scan::locate_value(inner, pvstart)
+                                .map_err(|e| non_snapshot(e.0))?;
                             ppos = vspan.1;
                         }
                     }
@@ -746,7 +758,11 @@ fn finish(
     }
     let mut lines = Vec::with_capacity(sink.lines.len() + n * (prefix.len() + 2));
     for i in 0..n {
-        let body_end = sink.line_starts.get(i + 1).copied().unwrap_or(sink.lines.len());
+        let body_end = sink
+            .line_starts
+            .get(i + 1)
+            .copied()
+            .unwrap_or(sink.lines.len());
         lines.extend_from_slice(&prefix);
         lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
         lines.extend_from_slice(b"]\n");
@@ -994,8 +1010,15 @@ fn process_event_at(
         let mark = sink.lines.len();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
         let data_mark = sink.lines.len();
-        match crate::bytewalk::scrub_data_bytes(ctx, ty, source, compressed, inner, data, &mut sink.lines)
-        {
+        match crate::bytewalk::scrub_data_bytes(
+            ctx,
+            ty,
+            source,
+            compressed,
+            inner,
+            data,
+            &mut sink.lines,
+        ) {
             Some(changed) => {
                 if !changed {
                     // Nothing changed and the span is proven dup-free: keep the original bytes.
@@ -1263,8 +1286,7 @@ fn anonymize_via_tree_mut(
     reject_if_too_deep(inner, "snapshot event json")
         .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
     let inner_len = inner.len();
-    let mut root =
-        parse_untrusted(inner).map_err(|e| non_snapshot(format!("event json: {e}")))?;
+    let mut root = parse_untrusted(inner).map_err(|e| non_snapshot(format!("event json: {e}")))?;
 
     let (session_id, window_id, snapshot_source, snapshot_library) = {
         let Some(obj) = as_object(&root) else {

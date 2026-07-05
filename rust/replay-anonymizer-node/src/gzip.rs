@@ -88,8 +88,7 @@ mod tests {
         assert_eq!(via_flate2, payload);
 
         // flate2 -> ours: we must decode members other encoders produced.
-        let mut enc =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(&payload).unwrap();
         let theirs = enc.finish().unwrap();
         assert_eq!(gunzip(&theirs).unwrap(), payload);

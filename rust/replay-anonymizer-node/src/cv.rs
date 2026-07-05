@@ -172,7 +172,11 @@ mod tests {
     // Outputs are always zstd frames; assert the magic (the loader's dispatch contract) on decode.
     fn decompress_value(s: &str) -> serde_json::Value {
         let raw = latin1_to_bytes(s).unwrap();
-        assert_eq!(&raw[..4], &[0x28, 0xb5, 0x2f, 0xfd], "output is a zstd frame");
+        assert_eq!(
+            &raw[..4],
+            &[0x28, 0xb5, 0x2f, 0xfd],
+            "output is a zstd frame"
+        );
         serde_json::from_slice(&zstd::bulk::decompress(&raw, 1 << 24).unwrap()).unwrap()
     }
 
@@ -224,14 +228,21 @@ mod tests {
         let mut data = Object::default();
         data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
         data.insert(Cow::Borrowed("texts"), string_value(texts_gz));
-        data.insert(Cow::Borrowed("adds"), string_value(compress_json(adds_json)));
+        data.insert(
+            Cow::Borrowed("adds"),
+            string_value(compress_json(adds_json)),
+        );
 
         assert!(scrub_compressed_mutation(&ctx, &mut data).unwrap());
 
         let unzstd = |key: &str| -> Vec<u8> {
             let raw = latin1_to_bytes(as_str(data.get(key).unwrap()).unwrap()).unwrap();
             // Single-format: every sub-field re-emits zstd, scrubbed or not.
-            assert_eq!(&raw[..4], &[0x28, 0xb5, 0x2f, 0xfd], "{key} is a zstd frame");
+            assert_eq!(
+                &raw[..4],
+                &[0x28, 0xb5, 0x2f, 0xfd],
+                "{key} is a zstd frame"
+            );
             zstd::bulk::decompress(&raw, 1 << 20).unwrap()
         };
         let texts: serde_json::Value = serde_json::from_slice(&unzstd("texts")).unwrap();

@@ -215,7 +215,10 @@ fn word_is_allowed(allow: &AllowLists, word: &str) -> bool {
     }
     // Possessive/quote forms all end in `s`, `'` or `\u{2019}` (whose UTF-8 ends 0x99) — anything
     // else can't match below, so the suffix machinery is skipped for the typical redacted word.
-    if !matches!(word.as_bytes().last(), Some(b's') | Some(b'\'') | Some(0x99)) {
+    if !matches!(
+        word.as_bytes().last(),
+        Some(b's') | Some(b'\'') | Some(0x99)
+    ) {
         return false;
     }
     if !word.is_ascii() && word.contains('\u{2019}') {
@@ -247,4 +250,3 @@ fn strip_possessive(word: &str) -> Option<&str> {
     }
     None
 }
-

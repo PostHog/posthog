@@ -281,8 +281,7 @@ fn decompress_payload_matches_the_capture_producer_format() {
     // gzip: detected by magic bytes, no header needed.
     {
         use std::io::Write;
-        let mut enc =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(&body).unwrap();
         let zipped = enc.finish().unwrap();
         assert_eq!(decompress_payload(zipped, None).unwrap(), body);
@@ -350,16 +349,15 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     // the simd path.
     for byte_walk in [true, false] {
         let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(
-            allow,
-            &mut bytes,
-            AnonymizeOpts { byte_walk },
-        );
+        let stream = anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk });
         match (&stream, &tree) {
             (Ok(s), Ok(t)) => {
                 let s_lines = parse_lines(&s.lines);
                 let t_lines = parse_lines(&t.lines);
-                assert_eq!(s_lines, t_lines, "lines diverged (walk={byte_walk}): {label}");
+                assert_eq!(
+                    s_lines, t_lines,
+                    "lines diverged (walk={byte_walk}): {label}"
+                );
                 assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
             }
             (Err(s), Err(t)) => {
@@ -504,8 +502,7 @@ fn differential_cv_stream_vs_tree() {
     // escapes for control bytes, raw two-byte UTF-8 for 0x80..=0xFF.
     fn gz_latin1(json: &[u8]) -> String {
         use std::io::Write;
-        let mut enc =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(json).unwrap();
         enc.finish().unwrap().iter().map(|&b| b as char).collect()
     }
@@ -515,8 +512,9 @@ fn differential_cv_stream_vs_tree() {
     let scrubbed_snapshot = gz_latin1(
         br#"{"node":{"childNodes":[{"attributes":{"src":"https://cdn.corp.com/a.png","title":"keep secret"},"childNodes":[],"id":4,"tagName":"img","type":2},{"id":5,"textContent":"keep secret words","type":3}],"id":1,"type":0},"initialOffset":{"left":0,"top":0}}"#,
     );
-    let unchanged_snapshot =
-        gz_latin1(br#"{"node":{"childNodes":[{"id":5,"textContent":"keep keep","type":3}],"id":1,"type":0}}"#);
+    let unchanged_snapshot = gz_latin1(
+        br#"{"node":{"childNodes":[{"id":5,"textContent":"keep keep","type":3}],"id":1,"type":0}}"#,
+    );
     // Escaped key: the walker declines both the wire walk and the decompressed walk; the parse
     // fallback (which sees the key as `textContent`) must still scrub it.
     let escaped_key_snapshot =
