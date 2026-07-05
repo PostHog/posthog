@@ -26,29 +26,8 @@ serde_json = { workspace = true }
 simd-json = { version = "0.15", features = ["serde_impl"] }
 zstd = { workspace = true }
 
-[features]
-# Compiles the MLHog v2 scrubber walk for the side-by-side benchmark and its parity test only.
-mlhog-bench = []
-
 [dev-dependencies]
-# flate2: tests build/verify reference gzip streams with an independent codec (not libdeflate),
-# so a codec regression can't hide by round-tripping through itself.
+# flate2: tests verify reference gzip streams with an independent codec (not libdeflate), so a
+# codec regression can't hide by round-tripping through itself.
 flate2 = { workspace = true }
 serde_json = { workspace = true }
-
-[[example]]
-name = "anonymize_bench"
-path = "dev/anonymize_bench.rs"
-
-[[example]]
-name = "prod_bench"
-path = "dev/prod_bench.rs"
-
-[[example]]
-name = "mlhog_bench"
-path = "dev/mlhog_bench.rs"
-required-features = ["mlhog-bench"]
-
-[[example]]
-name = "compression_bench"
-path = "dev/compression_bench.rs"

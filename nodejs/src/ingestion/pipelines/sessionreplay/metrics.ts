@@ -2,6 +2,13 @@ import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
+/** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
+export type MlAnonymizeImpl = 'rust' | 'ts'
+/** `total` end-to-end, or a sub-phase of the FFI round-trip. */
+export type MlAnonymizePhase = 'stringify' | 'scrub' | 'parse' | 'total'
+/** Rust engine that ran; feeds adaptive-routing threshold tuning. `''` when not applicable. */
+export type MlAnonymizeRoute = 'stream' | 'tree' | ''
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -53,9 +60,6 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
-    // ML mirror anonymize timing. `impl` is rust|ts so the flag rollout is a direct A/B, `phase`
-    // separates the FFI round-trip cost (stringify+parse, on the event loop) from the scrub itself,
-    // and `route` (stream|tree, rust only) feeds tuning of the adaptive routing threshold.
     private static readonly mlAnonymizeDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
         help: 'Per-message ML mirror anonymize time in ms, by implementation, phase and route',
@@ -106,15 +110,15 @@ export class SessionRecordingIngesterMetrics {
     }
 
     public static observeMlAnonymizeDuration(
-        impl: 'rust' | 'ts',
-        phase: 'stringify' | 'scrub' | 'parse' | 'total',
+        impl: MlAnonymizeImpl,
+        phase: MlAnonymizePhase,
         ms: number,
-        route: 'stream' | 'tree' | '' = ''
+        route: MlAnonymizeRoute = ''
     ): void {
         this.mlAnonymizeDuration.labels(impl, phase, route).observe(ms)
     }
 
-    public static incrementMlAnonymizeFailed(impl: 'rust' | 'ts'): void {
+    public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
         this.mlAnonymizeFailed.labels(impl).inc()
     }
 }

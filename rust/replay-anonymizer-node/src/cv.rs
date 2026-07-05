@@ -14,12 +14,9 @@ use crate::dom::{
 use crate::gzip;
 use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string_value};
 
-/// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1).
-///
-/// Deliberately per-char: gzip bytes are high-entropy, so the ASCII/two-byte branch mispredicts
-/// either way and a hand-rolled byte loop measured slower than `chars()` on the production corpus
-/// (bounds checks with no exploitable run structure). The real saving here is structural — decoding
-/// gzip bytes straight off the escaped wire span instead of via this UTF-8 string — see PERF_PLAN.
+/// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1). Per-char is
+/// deliberate — a hand-rolled byte loop measured slower than `chars()` on high-entropy gzip bytes.
+/// The structural win is decoding off the escaped wire span (`bytewalk::latin1_from_wire`) instead.
 fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len());
     for c in s.chars() {

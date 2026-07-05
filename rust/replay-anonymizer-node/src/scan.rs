@@ -1,7 +1,6 @@
 //! Byte-level JSON span scanning: locate values, iterate object entries and array items, and read
 //! scalars without building a tree. Powers the streaming rewrite in [`crate::snapshot`], which memcpys
-//! pass-through spans and parses only the spans it must scrub (the MLHog labeling worker pioneered
-//! this shape).
+//! pass-through spans and parses only the spans it must scrub.
 //!
 //! The scanners assume structurally valid JSON (the payload is re-serialized by capture upstream) and
 //! only report *structural* failures (unbalanced brackets, truncation). They never unescape strings;

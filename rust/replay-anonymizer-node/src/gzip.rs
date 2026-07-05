@@ -12,7 +12,7 @@ use libdeflater::{CompressionLvl, Compressor, Decompressor};
 pub const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
 /// zstd level for re-emitted cv payloads: the efficient frontier on the real cv corpus (gzip-6's
-/// ratio at ~5x its compress speed; levels 2-4 add nothing). Sweep in `dev/PERF_PLAN.md`.
+/// ratio at ~5x its compress speed; levels 2-4 add nothing).
 const CV_ZSTD_LEVEL: i32 = 1;
 
 thread_local! {

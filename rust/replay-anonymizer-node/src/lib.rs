@@ -23,8 +23,6 @@ pub mod dom;
 pub mod event;
 pub mod gzip;
 pub mod json;
-#[cfg(feature = "mlhog-bench")]
-pub mod mlhog;
 pub mod scan;
 pub mod snapshot;
 pub mod text;

@@ -1,4 +1,4 @@
-//! Parse-free byte scrub of an event's `data` span (the MLHog-v2 architecture): walk the raw JSON,
+//! Parse-free byte scrub of an event's `data` span: walk the raw JSON,
 //! bulk-copy unchanged values verbatim, and re-emit only the strings a scrubber changes — no tree,
 //! no dedupe pass, no re-serialization of untouched bytes.
 //!
