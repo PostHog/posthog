@@ -174,6 +174,7 @@ rules:
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
                               |KnowledgeSource
+                              |LinearIssueTaskMapping
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -449,6 +450,7 @@ rules:
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
                         |KnowledgeSource
+                        |LinearIssueTaskMapping
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration

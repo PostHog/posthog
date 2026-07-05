@@ -159,6 +159,11 @@ def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[s
     return sorted(repos)
 
 
+def list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
+    """Public entry point for callers outside this module (e.g. the Linear agent)."""
+    return _list_candidate_repos(github, team_id)
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""

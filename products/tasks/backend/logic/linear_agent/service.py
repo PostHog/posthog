@@ -227,7 +227,7 @@ def _resolve_repository(team: Team, user_id: int, trigger: LinearAgentTrigger, d
     Celery task. ``None`` starts a repo-less task and the ack comment says so.
     """
     from products.tasks.backend.logic.repo_selection.agent import (  # noqa: PLC0415 — keep sandbox-session deps off the webhook import path
-        _list_candidate_repos,
+        list_candidate_repos,
         resolve_team_github_integration,
     )
 
@@ -235,7 +235,7 @@ def _resolve_repository(team: Team, user_id: int, trigger: LinearAgentTrigger, d
         github = resolve_team_github_integration(team.id, team=team, requester_user_id=user_id)
         if github is None:
             return None
-        candidates = _list_candidate_repos(github, team.id)
+        candidates = list_candidate_repos(github, team.id)
         if not candidates:
             return None
 

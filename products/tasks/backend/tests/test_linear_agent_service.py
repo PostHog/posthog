@@ -214,7 +214,7 @@ class TestResolveRepository(LinearAgentServiceTestBase):
                 return_value=github,
             ),
             patch(
-                "products.tasks.backend.logic.repo_selection.agent._list_candidate_repos",
+                "products.tasks.backend.logic.repo_selection.agent.list_candidate_repos",
                 return_value=candidates,
             ),
         ):
