@@ -210,12 +210,26 @@ One tool call, one round trip, only the final summary re-enters context. The exi
 Extend the single-`exec` paradigm rather than adding many tools:
 
 - `exec run <typescript source>` — execute a script in a sandbox.
+  The source is **compile-checked before dispatch** (see below); scripts that don't typecheck never reach the sandbox.
   Read-only scripts return the script's `export default` value (serialized + token-capped) plus captured `console` output directly.
-  Scripts that attempt mutations return a **plan** (the recorded mutation set, rendered as a diff) plus a signed confirmation token instead of results — see §3.6.
+  Scripts that attempt mutations return a **plan** — the recorded mutation set rendered as a diff, plus the script's _provisional output_ (§3.6.1) — and a signed confirmation token instead of applied results; see §3.6.
 - `exec apply <confirmation token>` — execute a previously planned script for real, with the confirmed plan enforced as a contract (§3.6).
-- `exec types <query>` — search the SDK surface by TS types and JSDoc comments: matches type names, method signatures, and description text; returns one-line signatures (`featureFlags.update(id: number, body: PatchedFeatureFlag): Promise<FeatureFlag> — Update a feature flag.`) so the agent can pick what to expand.
-- `exec types show <symbol | domain.method>` — return the full declaration plus its referenced types (precomputed closure from the discovery index, token-capped with drill-down hints), e.g. the `FeatureFlag` interface with the `FilterGroups` types it references.
+- `exec types <query>` — search the SDK surface: matches type names, method signatures, JSDoc, and the **full tool metadata** (curated descriptions, titles, categories from the YAML definitions — richer than what fits in code comments).
+  Returns one-line signatures (`featureFlags.update(id: number, body: PatchedFeatureFlag): Promise<FeatureFlag> — Update a feature flag. [requires feature_flag:write ✓]`) so the agent can pick what to expand.
+- `exec types show <symbol | domain.method | domain>` — return the requested declaration **plus its related types, greedily filled to the token budget** (BFS over the reference graph from the precomputed closure: direct references first, then transitive), so one call usually answers instead of a drill-down sequence.
+  Only members that exceed the budget are truncated, each carrying a `hint` naming the follow-up path.
+  A bare `domain` argument dumps the whole resource class signature the same way.
 - Existing verbs stay: trivial one-shot operations don't need a sandbox round trip.
+- Contingent (if client transport behavior forces an async model, §3.7): `exec status <execution id>` / `exec cancel <execution id>` for long-running scripts, and `exec result <resource id>` for paging spilled results.
+
+**Compile gate.**
+`exec run` and `exec apply` typecheck the source against the pinned SDK `.d.ts` (warm `tsgo`/`tsc` instance on the Hono runtime, target well under a second) plus contract lints (must `export default`, no `require` of unavailable modules) before any sandbox is dispatched.
+Diagnostics return to the agent as structured, file/line-anchored errors — the same types it read during discovery, so the fix loop is immediate and costs no sandbox time.
+This is the cheapest quality lever in the whole design: most bad scripts die here in milliseconds instead of failing mid-execution with side effects.
+
+**Scope awareness.**
+The session knows the token's resolved scopes (already resolved for tool gating today), and the classifier table (§3.6.2) knows each method's required scopes — so discovery is scope-annotated per session: every signature in `exec types` results carries `[requires <scope> ✓]` or `[requires <scope> — missing on this token]`, and search returns gated matches separately with the missing scopes named, mirroring the existing `exec search` `scope_gated_matches` behavior.
+Agents therefore know before writing a script which methods will be denied, instead of discovering it at run time; the plan pass double-checks (permission errors surface in the plan, before anything is confirmed).
 
 ### 3.3 Execution substrate
 
@@ -263,7 +277,7 @@ The agent-facing discovery interface should be TypeScript declarations + JSDoc, 
 
 Mechanics (backed by the discovery index from §2.3):
 
-- Search runs over symbol names, method signatures, and JSDoc text; results are one-line signatures grouped by domain. Expansion (`types show`) serves the precomputed declaration slice with its type closure, token-capped, with `hint` markers on truncated members — mirroring the existing `summarizeSchema` UX so agents don't need new habits.
+- The index record per method carries more than the code shows: symbol, one-line signature, the SDK JSDoc, **and the full tool metadata** (curated description, title, category, required scopes) from the YAML definitions — descriptions are searchable in full even where the emitted JSDoc truncates them. Search runs over all of it; results are one-line signatures grouped by domain, scope-annotated for the session's token (§3.2). Expansion (`types show`) serves the precomputed declaration slice with its reference closure greedily filled to the token budget, with `hint` markers only on members that didn't fit — mirroring the existing `summarizeSchema` UX so agents don't need new habits.
 - The index is built at codegen time (a TS-morph/compiler-API pass over the generated `.d.ts`), shipped as a static artifact with the MCP image and the CLI — search is a lookup, never runtime type-walking.
 - Full per-domain `.d.ts` slices also ship as MCP resources for clients that prefer loading whole files into context; the v2 skills bundle gets a `writing-posthog-scripts` skill with patterns (pagination loops, error handling, `export default` contract).
 - JSON Schema doesn't disappear: the MCP protocol requires it for tool registration (v1 clients, `exec info`/`schema` verbs keep working). It stops being the thing agents _read_ and remains the thing protocols _validate against_.
@@ -285,7 +299,9 @@ The proxy passes reads through to the real API untouched and intercepts mutation
 - **Zero mutations recorded** → the plan run _was_ the real run.
   Return the script's results directly; no confirmation, no second pass.
   Read-only scripts — the majority — pay nothing for this feature.
-- **Mutations recorded** → discard the script's return value, store the script server-side, and return the rendered plan plus a signed confirmation token.
+- **Mutations recorded** → store the script server-side and return the rendered plan, the script's **provisional output** (its `export default` value as computed during the plan pass, clearly labeled as provisional since it was produced against synthetic mutation responses and sentinel IDs), and a signed confirmation token.
+  The provisional output is what lets both the agent and the user judge that the script's _logic_ is right — the plan shows what would change, the provisional output shows what the script concluded — before anything is applied.
+  Permission errors from reads (and scope checks against planned mutations, §3.2) also surface here, so a script doomed by a missing scope is caught before confirmation, not during apply.
 
 **Pass 2 — apply.** On `exec apply <token>`, the harness re-runs the _stored_ script live, with the proxy in enforce mode: every mutation the script attempts is matched against the confirmed plan (method, path, body, modulo placeholder bindings — §3.6.3).
 A mutation not in the plan aborts the run immediately with a structured "plan divergence" error.
