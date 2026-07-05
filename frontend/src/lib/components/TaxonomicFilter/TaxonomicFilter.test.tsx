@@ -61,6 +61,9 @@ describe('TaxonomicFilter', () => {
                 '/api/environments/:team/query': { results: [] },
             },
         })
+        // Recents/pinned persist to localStorage; clear so an earlier test's selection
+        // (which records a recent) can't leak in and reorder a later single-group list.
+        localStorage.clear()
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
@@ -132,7 +135,12 @@ describe('TaxonomicFilter', () => {
         ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
             renderFilter({
                 suggestedFiltersLabel: label,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -1162,7 +1170,14 @@ describe('TaxonomicFilter', () => {
             const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.PageviewUrls],
+                // Two substantive groups so the aggregated "All" tab survives (a single
+                // substantive group drops it); Events has no 'pricing' match so the URL
+                // shortcut is still the only aggregated row.
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Events,
+                ],
                 collapseUrlsToContainsRow: true,
             })
 
@@ -1379,7 +1394,12 @@ describe('TaxonomicFilter', () => {
         it('control variant: default suggested-filters label is "Suggestions"', async () => {
             setVariant('control')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -1390,7 +1410,12 @@ describe('TaxonomicFilter', () => {
         it('pill variant: default suggested-filters label is "All" (seen in the dropdown items)', async () => {
             setVariant('pill')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
