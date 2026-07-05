@@ -5,8 +5,11 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
+import { ChartFilterNext } from 'lib/components/ChartFilter/ChartFilterNext'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { CompareFilterNext } from 'lib/components/CompareFilter/CompareFilterNext'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { IntervalFilterNext } from 'lib/components/IntervalFilter/IntervalFilterNext'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,13 +18,18 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { InsightDateFilterNext } from 'scenes/insights/filters/InsightDateFilter/InsightDateFilterNext'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionChartPickerNext } from 'scenes/insights/filters/RetentionChartPickerNext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+import { FunnelBinsPickerNext } from 'scenes/insights/views/Funnels/FunnelBinsPickerNext'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { FunnelDisplayLayoutPickerNext } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPickerNext'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
+import { PathStepPickerNext } from 'scenes/insights/views/Paths/PathStepPickerNext'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
+import { RetentionBreakdownFilterNext } from 'scenes/retention/RetentionBreakdownFilterNext'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -76,6 +84,16 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
 
+    const compareFilterProps = {
+        compareFilter,
+        updateCompareFilter,
+        disabled: !canEditInsight || !supportsCompare,
+        disableReason: editingDisabledReason,
+        tooltip: formatResolvedDateRange(
+            alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
+        ),
+    }
+
     return (
         <div
             className="InsightDisplayConfig @container flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]"
@@ -93,9 +111,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
 
                 {showInterval && (
-                    <ConfigFilter>
-                        <IntervalFilter />
-                    </ConfigFilter>
+                    <ConfigFilter>{quillDateFilterEnabled ? <IntervalFilterNext /> : <IntervalFilter />}</ConfigFilter>
                 )}
 
                 {!!isRetention && !quillDateFilterEnabled && (
@@ -106,27 +122,21 @@ export function InsightDisplayConfig(): JSX.Element {
 
                 {!!isRetention && hasBreakdownFilter(breakdownFilter) && (
                     <ConfigFilter>
-                        <RetentionBreakdownFilter />
+                        {quillDateFilterEnabled ? <RetentionBreakdownFilterNext /> : <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 
                 {!!isPaths && (
-                    <ConfigFilter>
-                        <PathStepPicker />
-                    </ConfigFilter>
+                    <ConfigFilter>{quillDateFilterEnabled ? <PathStepPickerNext /> : <PathStepPicker />}</ConfigFilter>
                 )}
 
                 {showCompare && (
                     <ConfigFilter>
-                        <CompareFilter
-                            compareFilter={compareFilter}
-                            updateCompareFilter={updateCompareFilter}
-                            disabled={!canEditInsight || !supportsCompare}
-                            disableReason={editingDisabledReason}
-                            tooltip={formatResolvedDateRange(
-                                alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
-                            )}
-                        />
+                        {quillDateFilterEnabled ? (
+                            <CompareFilterNext {...compareFilterProps} />
+                        ) : (
+                            <CompareFilter {...compareFilterProps} />
+                        )}
                     </ConfigFilter>
                 )}
             </div>
@@ -162,23 +172,21 @@ export function InsightDisplayConfig(): JSX.Element {
                     </>
                 )}
                 {supportsDisplay && (
-                    <ConfigFilter>
-                        <ChartFilter />
-                    </ConfigFilter>
+                    <ConfigFilter>{quillDateFilterEnabled ? <ChartFilterNext /> : <ChartFilter />}</ConfigFilter>
                 )}
                 {!!isRetention && (
                     <ConfigFilter>
-                        <RetentionChartPicker />
+                        {quillDateFilterEnabled ? <RetentionChartPickerNext /> : <RetentionChartPicker />}
                     </ConfigFilter>
                 )}
                 {!!isStepsFunnel && (
                     <ConfigFilter>
-                        <FunnelDisplayLayoutPicker />
+                        {quillDateFilterEnabled ? <FunnelDisplayLayoutPickerNext /> : <FunnelDisplayLayoutPicker />}
                     </ConfigFilter>
                 )}
                 {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
-                        <FunnelBinsPicker />
+                        {quillDateFilterEnabled ? <FunnelBinsPickerNext /> : <FunnelBinsPicker />}
                     </ConfigFilter>
                 )}
             </div>
