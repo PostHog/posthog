@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -18,7 +17,6 @@ export type PanelLayoutNavIdentifier =
     | 'Chat'
     | 'Notifications'
 export type NavExperimentTab = 'home' | 'chat'
-export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
@@ -41,7 +39,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
         clearActivePanelIdentifier: true,
-        setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
@@ -99,10 +96,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 clearActivePanelIdentifier: () => '',
             },
         ],
-        panelTreeRef: [
-            null as PanelLayoutTreeRef,
+        // Panels opened at least once this session. PanelLayoutPanels keeps these mounted (hidden)
+        // so switching panels doesn't tear down and rebuild whole trees on every toggle.
+        visitedPanels: [
+            [] as PanelLayoutNavIdentifier[],
             {
-                setPanelTreeRef: (_, { ref }) => ref,
+                setActivePanelIdentifier: (state, { identifier }) =>
+                    state.includes(identifier) ? state : [...state, identifier],
             },
         ],
         mainContentRef: [

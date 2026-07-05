@@ -167,7 +167,7 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
@@ -307,10 +307,6 @@ export function ProjectTree({
             }
         }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -751,7 +747,7 @@ export function ProjectTree({
         <PanelLayoutPanel
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField root={root} placeholder={searchPlaceholder} treeRef={treeRef} />
                 </BindLogic>
             }
             filterDropdown={

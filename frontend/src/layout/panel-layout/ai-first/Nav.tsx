@@ -272,73 +272,64 @@ export function Nav(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    {!isLayoutNavCollapsed && (
-                        <div className="p-1">
-                            <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                                {TAB_CONFIG.map((tab) => (
-                                    <Tabs.Tab
-                                        key={tab.id}
-                                        value={tab.id}
-                                        render={(props) => (
-                                            <ButtonPrimitive
-                                                {...props}
-                                                className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
-                                                data-attr={`nav-tab-${tab.id}`}
+                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
+                        <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
+                            {TAB_CONFIG.map((tab) => (
+                                <Tabs.Tab
+                                    key={tab.id}
+                                    value={tab.id}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
+                                            data-attr={`nav-tab-${tab.id}`}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'flex size-4',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
-                                                <span
-                                                    className={cn(
-                                                        'text-xs',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.label}
-                                                </span>
-                                            </ButtonPrimitive>
-                                        )}
-                                    />
-                                ))}
-                            </Tabs.List>
-                        </div>
-                    )}
+                                                {tab.icon}
+                                            </span>
+                                            <span
+                                                className={cn(
+                                                    'text-xs',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
+                                            >
+                                                {tab.label}
+                                            </span>
+                                        </ButtonPrimitive>
+                                    )}
+                                />
+                            ))}
+                        </Tabs.List>
+                    </div>
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
-                        {!isLayoutNavCollapsed && (
-                            <Tabs.Panel
-                                value="chat"
-                                className="absolute inset-0 flex flex-col"
-                                keepMounted
-                                tabIndex={-1}
+                        <Tabs.Panel value="chat" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
+                            <Suspense
+                                fallback={
+                                    <div className="flex flex-col gap-px px-1 pt-2">
+                                        {Array.from({ length: 15 }).map((_, index) => (
+                                            <WrappingLoadingSkeleton fullWidth key={index}>
+                                                <ButtonPrimitive aria-hidden inert menuItem />
+                                            </WrappingLoadingSkeleton>
+                                        ))}
+                                    </div>
+                                }
                             >
-                                <Suspense
-                                    fallback={
-                                        <div className="flex flex-col gap-px px-1 pt-2">
-                                            {Array.from({ length: 15 }).map((_, index) => (
-                                                <WrappingLoadingSkeleton fullWidth key={index}>
-                                                    <ButtonPrimitive aria-hidden inert menuItem />
-                                                </WrappingLoadingSkeleton>
-                                            ))}
-                                        </div>
-                                    }
-                                >
-                                    <NavTabChat />
-                                </Suspense>
-                            </Tabs.Panel>
-                        )}
+                                <NavTabChat />
+                            </Suspense>
+                        </Tabs.Panel>
                     </div>
 
                     <div className="px-2">
