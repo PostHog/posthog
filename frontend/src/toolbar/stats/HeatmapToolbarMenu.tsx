@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconMagicWand, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonSnack, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
@@ -101,6 +101,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         samplingFactor,
         elementsLoading,
         processingProgress,
+        areaSelectionActive,
+        heatmapAreaFilter,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -111,6 +113,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
         setSamplingFactor,
+        startAreaSelection,
+        cancelAreaSelection,
+        selectHeatmapAreaFilter,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -167,7 +172,35 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconTarget />}
+                        active={areaSelectionActive}
+                        data-attr="heatmap-area-filter-toggle"
+                        onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
+                        tooltip={
+                            <>
+                                Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
+                                content. Click this, then click an area of the page. Press <kbd>Esc</kbd> to cancel.
+                            </>
+                        }
+                    >
+                        {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
+                    </LemonButton>
                 </div>
+                {heatmapAreaFilter && !areaSelectionActive ? (
+                    <div className="flex flex-row items-center gap-2 py-2 border-b">
+                        <span className="text-muted text-xs">Filtered to</span>
+                        <LemonSnack
+                            className="font-mono text-xs shrink min-w-0 truncate"
+                            title={heatmapAreaFilter.selector ?? undefined}
+                            onClose={() => selectHeatmapAreaFilter(null)}
+                        >
+                            {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}
+                        </LemonSnack>
+                    </div>
+                ) : null}
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="border-b p-2">

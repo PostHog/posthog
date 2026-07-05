@@ -5,7 +5,12 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ElementsEventType } from '~/toolbar/types'
 
-import { dedupeByChainIdentity, heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
+import {
+    buildElementStatsProperties,
+    dedupeByChainIdentity,
+    heatmapToolbarMenuLogic,
+    resolveAreaTarget,
+} from './heatmapToolbarMenuLogic'
 
 function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
     return {
@@ -57,6 +62,62 @@ describe('heatmapToolbarMenuLogic', () => {
         it('keeps the first occurrence of a duplicated chain', () => {
             const [kept] = dedupeByChainIdentity([statsRow({ count: 10 }), statsRow({ count: 3 })])
             expect(kept.count).toBe(10)
+        })
+    })
+
+    describe('buildElementStatsProperties', () => {
+        it.each([
+            [
+                'an exact url filter when the wildcard href matches the href',
+                'https://example.com/page',
+                'https://example.com/page',
+                null,
+                [{ key: '$current_url', value: 'https://example.com/page', operator: 'exact', type: 'event' }],
+            ],
+            [
+                'a regex url filter when the wildcard href differs',
+                'https://example.com/page/1',
+                'https://example.com/page/*',
+                null,
+                [
+                    {
+                        key: '$current_url',
+                        value: '^https\\:\\/\\/example\\.com\\/page\\/.*$',
+                        operator: 'regex',
+                        type: 'event',
+                    },
+                ],
+            ],
+            [
+                'an element selector filter when an area is chosen',
+                'https://example.com/page',
+                'https://example.com/page',
+                'nav#main-nav',
+                [
+                    { key: '$current_url', value: 'https://example.com/page', operator: 'exact', type: 'event' },
+                    { key: 'selector', value: 'nav#main-nav', operator: 'exact', type: 'element' },
+                ],
+            ],
+        ])('builds %s', (_name, href, wildcardHref, areaSelector, expected) => {
+            expect(buildElementStatsProperties(href, wildcardHref, areaSelector)).toEqual(expected)
+        })
+    })
+
+    describe('resolveAreaTarget', () => {
+        it.each([
+            ['snaps to the nearest semantic container', '<nav id="n"><ul><li id="leaf">x</li></ul></nav>', 'leaf', 'n'],
+            ['keeps a semantic container that is hovered directly', '<main id="m">x</main>', 'm', 'm'],
+            ['falls back to the hovered element when no container wraps it', '<div><b id="b">x</b></div>', 'b', 'b'],
+            [
+                'snaps to a role-annotated container',
+                '<div role="navigation" id="r"><span id="s">x</span></div>',
+                's',
+                'r',
+            ],
+        ])('%s', (_name, html, hoveredId, expectedId) => {
+            document.body.innerHTML = html
+            const hovered = document.getElementById(hoveredId) as HTMLElement
+            expect(resolveAreaTarget(hovered).id).toBe(expectedId)
         })
     })
 
@@ -136,6 +197,29 @@ describe('heatmapToolbarMenuLogic', () => {
                 'getElementStatsFailure',
             ])
             expect(logic.values.heatmapEnabled).toBe(true)
+        })
+
+        it('reloads the clickmap with the element selector filter when an area is chosen', async () => {
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsSuccess'])
+
+            const area = document.createElement('nav')
+            area.id = 'main-nav'
+            document.body.appendChild(area)
+            await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(area)).toDispatchActions([
+                'setHeatmapAreaFilter',
+                'getElementStatsSuccess',
+            ])
+
+            const lastCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+            expect(lastCall.properties).toContainEqual(
+                expect.objectContaining({ key: 'selector', type: 'element', value: expect.stringContaining('nav') })
+            )
+
+            await expectLogic(logic, () => logic.actions.selectHeatmapAreaFilter(null)).toDispatchActions([
+                'getElementStatsSuccess',
+            ])
+            const clearedCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+            expect(clearedCall.properties).toHaveLength(1)
         })
 
         it('retries the initial load via load more after a stats fetch failure', async () => {

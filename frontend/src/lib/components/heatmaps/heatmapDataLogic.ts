@@ -7,6 +7,7 @@ import { windowValues } from 'kea-window-values'
 import {
     CommonFilters,
     HeatmapArea,
+    HeatmapBoundsFilter,
     HeatmapEventsResponse,
     HeatmapFilters,
     HeatmapFixedPositionMode,
@@ -81,6 +82,18 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
 
 export type HrefMatchType = 'exact' | 'pattern'
 
+export function isWithinBounds(
+    point: { x: number; y: number; targetFixed: boolean },
+    boundsFilter: HeatmapBoundsFilter | null
+): boolean {
+    if (!boundsFilter) {
+        return true
+    }
+    // fixed-position targets record viewport coordinates; everything else document coordinates
+    const bounds = point.targetFixed ? boundsFilter.viewportBounds : boundsFilter.documentBounds
+    return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom
+}
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
     props({ context: 'toolbar', exportToken: null } as HeatmapDataLogicProps),
@@ -95,6 +108,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
+        setHeatmapBoundsFilter: (boundsFilter: HeatmapBoundsFilter | null) => ({ boundsFilter }),
         setIsReady: (isReady: boolean) => ({ isReady }),
         // Click-to-view-events actions
         setSelectedArea: (area: HeatmapArea | null) => ({ area }),
@@ -156,6 +170,14 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { persist: true },
             {
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
+            },
+        ],
+        // deliberately not persisted: the bounds describe an element on the page currently
+        // being viewed, so they'd be meaningless (and misleading) on the next page
+        heatmapBoundsFilter: [
+            null as HeatmapBoundsFilter | null,
+            {
+                setHeatmapBoundsFilter: (_, { boundsFilter }) => boundsFilter,
             },
         ],
         isReady: [
@@ -394,8 +416,20 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
 
         heatmapJsData: [
-            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
-            (heatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+            (s) => [
+                s.heatmapElements,
+                s.windowWidth,
+                s.windowWidthOverride,
+                s.heatmapFixedPositionMode,
+                s.heatmapBoundsFilter,
+            ],
+            (
+                heatmapElements,
+                windowWidth,
+                windowWidthOverride,
+                heatmapFixedPositionMode,
+                heatmapBoundsFilter
+            ): HeatmapJsData => {
                 const width = windowWidthOverride ?? windowWidth
                 const data = heatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
@@ -404,6 +438,10 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     const y = Math.round(element.y)
                     const x = Math.round(element.xPercentage * width)
+
+                    if (!isWithinBounds({ x, y, targetFixed: element.targetFixed }, heatmapBoundsFilter)) {
+                        return acc
+                    }
 
                     acc.push({ x, y, value: element.count })
                     return acc

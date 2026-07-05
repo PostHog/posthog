@@ -39,6 +39,21 @@ export type HeatmapJsData = {
 
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
+export type HeatmapBounds = {
+    left: number
+    right: number
+    top: number
+    bottom: number
+}
+
+// pixel bounds of a page element the heatmap is filtered to; fixed-position points are
+// recorded in viewport coordinates and everything else in document coordinates, so a
+// single element needs both rects to test either kind of point
+export type HeatmapBoundsFilter = {
+    documentBounds: HeatmapBounds
+    viewportBounds: HeatmapBounds
+}
+
 export type HeatmapAreaPoint = {
     x: number
     y: number

@@ -7,6 +7,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import {
@@ -21,14 +22,86 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    elementIsVisible,
+    elementToActionStep,
+    getToolbarRootElement,
+    invalidateZoomCache,
+    trimElement,
+} from '~/toolbar/utils'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
 const ELEMENT_STATS_PAGE_LIMIT = 5000
+
+// when picking an area to filter to, hovering snaps to the nearest of these semantic
+// containers so "the nav" or "the main content" is one click; anything else falls back
+// to the hovered element itself
+export const AREA_TARGET_SELECTOR = [
+    'nav',
+    'main',
+    'header',
+    'footer',
+    'aside',
+    'section',
+    'article',
+    'form',
+    '[role="navigation"]',
+    '[role="main"]',
+    '[role="banner"]',
+    '[role="contentinfo"]',
+].join(', ')
+
+export function resolveAreaTarget(target: HTMLElement): HTMLElement {
+    return (target.closest(AREA_TARGET_SELECTOR) as HTMLElement | null) ?? target
+}
+
+export function buildElementStatsProperties(
+    href: string,
+    wildcardHref: string,
+    areaSelector: string | null
+): AnyPropertyFilter[] {
+    const properties: AnyPropertyFilter[] = [
+        wildcardHref === href
+            ? {
+                  key: '$current_url',
+                  value: href,
+                  operator: PropertyOperator.Exact,
+                  type: PropertyFilterType.Event,
+              }
+            : {
+                  key: '$current_url',
+                  value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
+                  operator: PropertyOperator.Regex,
+                  type: PropertyFilterType.Event,
+              },
+    ]
+    if (areaSelector) {
+        properties.push({
+            key: 'selector',
+            value: areaSelector,
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Element,
+        })
+    }
+    return properties
+}
+
+export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
+    const rect = element.getBoundingClientRect()
+    return {
+        viewportBounds: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+        documentBounds: {
+            left: rect.left + window.scrollX,
+            right: rect.right + window.scrollX,
+            top: rect.top + window.scrollY,
+            bottom: rect.bottom + window.scrollY,
+        },
+    }
+}
 // the follow-up fetch re-reads from offset 0 with a bigger limit rather than paginating:
 // the server re-runs the full aggregation for any offset, so one big scan costs the same as
 // a page and can't miss rows that shifted across page boundaries between scans
@@ -146,6 +219,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'loadHeatmap',
                 'loadHeatmapSuccess',
                 'loadHeatmapFailure',
+                'setHeatmapBoundsFilter',
             ],
         ],
     })),
@@ -172,6 +246,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
+        startAreaSelection: true,
+        cancelAreaSelection: true,
+        setAreaHoverElement: (element: HTMLElement | null) => ({ element }),
+        selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
+        setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
+        updateAreaBounds: true,
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -179,6 +259,31 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
+        areaSelectionActive: [
+            false,
+            {
+                startAreaSelection: () => true,
+                cancelAreaSelection: () => false,
+                setHeatmapAreaFilter: () => false,
+                disableHeatmap: () => false,
+            },
+        ],
+        areaHoverElement: [
+            null as HTMLElement | null,
+            {
+                setAreaHoverElement: (_, { element }) => element,
+                startAreaSelection: () => null,
+                cancelAreaSelection: () => null,
+                setHeatmapAreaFilter: () => null,
+            },
+        ],
+        heatmapAreaFilter: [
+            null as { element: HTMLElement; selector: string | null } | null,
+            {
+                setHeatmapAreaFilter: (_, { element, selector }) => (element ? { element, selector } : null),
+                disableHeatmap: () => null,
+            },
+        ],
         lastElementStatsRequest: [
             null as { url: string | null; limit: number } | null,
             {
@@ -292,24 +397,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                           await toolbarApi.elementStats.page(url, options)
                         : await toolbarApi.elementStats.list(
                               {
-                                  properties: [
-                                      wildcardHref === href
-                                          ? {
-                                                key: '$current_url',
-                                                value: href,
-                                                operator: PropertyOperator.Exact,
-                                                type: PropertyFilterType.Event,
-                                            }
-                                          : {
-                                                key: '$current_url',
-                                                value: `^${wildcardHref
-                                                    .split('*')
-                                                    .map(escapeUnescapedRegex)
-                                                    .join('.*')}$`,
-                                                operator: PropertyOperator.Regex,
-                                                type: PropertyFilterType.Event,
-                                            },
-                                  ],
+                                  properties: buildElementStatsProperties(
+                                      href,
+                                      wildcardHref,
+                                      values.heatmapAreaFilter?.selector ?? null
+                                  ),
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
                                   paginate_response: true,
@@ -403,19 +495,31 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 s.href,
                 s.matchLinksByHref,
                 s.clickmapsEnabled,
+                s.heatmapAreaFilter,
             ],
-            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => ({
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, heatmapAreaFilter) => ({
                 elementStats,
                 dataAttributes,
                 href,
                 matchLinksByHref,
                 clickmapsEnabled,
+                heatmapAreaFilter,
             }),
         ],
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         viewportRange: () => {
             actions.maybeLoadHeatmap()
+        },
+        windowWidth: () => {
+            if (values.heatmapAreaFilter) {
+                actions.updateAreaBounds()
+            }
+        },
+        windowHeight: () => {
+            if (values.heatmapAreaFilter) {
+                actions.updateAreaBounds()
+            }
         },
     })),
     listeners(({ actions, values, cache }) => ({
@@ -423,7 +527,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const SLICE_BUDGET_MS = 10
             const startedAt = performance.now()
 
-            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
+            const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled, heatmapAreaFilter } =
+                values.processingInputs
 
             if (!clickmapsEnabled || !elementStats?.results?.length) {
                 actions.setProcessedElements([])
@@ -493,8 +598,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
                     if (matched) {
                         const trimmed = trimElement(matched.element, { cursorPointerCache })
+                        // the server already filters chains by the area selector, but chains can
+                        // match DOM nodes outside the chosen area (stale markup, repeated
+                        // components), so keep the display honest with a containment check
+                        const withinArea =
+                            !trimmed ||
+                            !heatmapAreaFilter?.element.isConnected ||
+                            heatmapAreaFilter.element.contains(trimmed)
                         if (
                             trimmed &&
+                            withinArea &&
                             elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
                         ) {
                             allTrimmedElements.push({ ...matched, element: trimmed })
@@ -542,7 +655,37 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         disableHeatmap: () => {
             actions.resetElementStats()
             actions.resetHeatmapData()
+            actions.setHeatmapBoundsFilter(null)
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        selectHeatmapAreaFilter: ({ element }) => {
+            const selector = element
+                ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes).selector || null
+                : null
+            actions.setHeatmapAreaFilter(element, selector)
+            toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
+                enabled: !!element,
+                has_selector: !!selector,
+                tag_name: element?.tagName.toLowerCase() ?? null,
+            })
+        },
+
+        setHeatmapAreaFilter: ({ element }) => {
+            if (element) {
+                actions.updateAreaBounds()
+            } else {
+                actions.setHeatmapBoundsFilter(null)
+            }
+            // the area selector is part of the stats request, so the clickmap needs fresh data
+            actions.maybeLoadClickmap()
+        },
+
+        updateAreaBounds: () => {
+            const element = values.heatmapAreaFilter?.element
+            if (element?.isConnected) {
+                actions.setHeatmapBoundsFilter(computeAreaBounds(element))
+            }
         },
 
         startElementObservation: () => {
@@ -714,6 +857,44 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }, 'mutationObserver')
 
         cache.disposables.add(() => {
+            // capture-phase document listeners so area picking sees page elements before the
+            // page's own handlers do; guarded by areaSelectionActive so they cost nothing otherwise
+            const isToolbarElement = (element: HTMLElement): boolean =>
+                getToolbarRootElement()?.contains(element) ?? false
+
+            const onMouseOver = (e: MouseEvent): void => {
+                if (!values.areaSelectionActive) {
+                    return
+                }
+                const target = e.target as HTMLElement | null
+                if (!target || isToolbarElement(target)) {
+                    return
+                }
+                actions.setAreaHoverElement(resolveAreaTarget(target))
+            }
+
+            const onClick = (e: MouseEvent): void => {
+                if (!values.areaSelectionActive) {
+                    return
+                }
+                const target = e.target as HTMLElement | null
+                if (!target || isToolbarElement(target)) {
+                    return
+                }
+                e.preventDefault()
+                e.stopPropagation()
+                actions.selectHeatmapAreaFilter(resolveAreaTarget(target))
+            }
+
+            document.addEventListener('mouseover', onMouseOver, true)
+            document.addEventListener('click', onClick, true)
+            return () => {
+                document.removeEventListener('mouseover', onMouseOver, true)
+                document.removeEventListener('click', onClick, true)
+            }
+        }, 'areaSelectionListeners')
+
+        cache.disposables.add(() => {
             const handleVisibilityChange = (): void => {
                 if (document.hidden) {
                     actions.stopElementObservation()
@@ -729,6 +910,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }, 'visibilityChangeHandler')
     }),
     beforeUnmount(({ cache }) => {
+        // heatmapDataLogic outlives this logic, so reducer resets alone can't clear the bounds
+        heatmapDataLogic.findMounted({ context: 'toolbar' })?.actions.setHeatmapBoundsFilter(null)
         cache.pageElements = undefined
         cache.selectorToElements = new Map()
         cache.matchedElementByIdentity = new Map()

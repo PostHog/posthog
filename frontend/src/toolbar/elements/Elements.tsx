@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, memo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
@@ -42,9 +42,12 @@ export function Elements(): JSX.Element {
         inspectEnabled,
         highlightElementMeta,
         relativePositionCompensation,
+        heatmapEnabled,
+        rectUpdateCounter,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const { highestClickCount, areaSelectionActive, areaHoverElement, heatmapAreaFilter } =
+        useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
     const {
         isSelecting: productToursSelecting,
@@ -53,7 +56,18 @@ export function Elements(): JSX.Element {
     } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
-    const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
+    // while picking an area the page itself must receive pointer events, so all overlays pass through
+    const heatmapPointerEvents = shiftPressed || areaSelectionActive ? 'none' : 'all'
+
+    // recomputed on scroll/resize via rectUpdateCounter so the fixed-position highlights track the page
+    const areaHoverRect = useMemo(
+        () => (areaHoverElement?.isConnected ? areaHoverElement.getBoundingClientRect() : null),
+        [areaHoverElement, rectUpdateCounter] // eslint-disable-line react-hooks/exhaustive-deps
+    )
+    const areaFilterRect = useMemo(
+        () => (heatmapAreaFilter?.element.isConnected ? heatmapAreaFilter.element.getBoundingClientRect() : null),
+        [heatmapAreaFilter, rectUpdateCounter] // eslint-disable-line react-hooks/exhaustive-deps
+    )
 
     const { theme } = useValues(toolbarLogic)
 
@@ -84,6 +98,10 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas positioning="absolute" context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+                {areaSelectionActive && areaHoverRect && <ElementHighlight rect={areaHoverRect} />}
+                {heatmapEnabled && !areaSelectionActive && areaFilterRect && (
+                    <ElementHighlight rect={areaFilterRect} isSelected />
+                )}
                 {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
                 {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}
 
