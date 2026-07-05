@@ -4,10 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
-import {
-    propertyFilterTypeToPropertyDefinitionType,
-    taxonomicFilterTypeToPropertyFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/utils'
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -19,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { ActionType, CohortType, EventDefinition, PropertyDefinition, PropertyDefinitionType } from '~/types'
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
@@ -235,24 +232,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (s) => [s.type],
             (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
-        propertyDefinitionType: [
-            (s) => [s.type],
-            (type): PropertyDefinitionType | null => {
-                const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(type as TaxonomicFilterGroupType)
-                return propertyFilterType ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType) : null
-            },
-        ],
         viewFullDetailUrl: [
-            (s) => [
-                s.definition,
-                s.isAction,
-                s.isEvent,
-                s.isProperty,
-                s.isCohort,
-                s.propertyDefinitionType,
-                s.getPropertyDefinition,
-            ],
-            (definition, isAction, isEvent, isProperty, isCohort, propertyDefinitionType, getPropertyDefinition) => {
+            (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort, s.type, s.getPropertyDefinition],
+            (definition, isAction, isEvent, isProperty, isCohort, type, getPropertyDefinition) => {
                 if (isAction) {
                     const id = (definition as ActionType).id
                     return id != null ? urls.action(id) : undefined
@@ -263,12 +245,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     // Pinned/default property items are stored as { name } only, so recover the
                     // saved definition id from propertyDefinitionsModel rather than linking to
                     // /data-management/properties/undefined.
-                    const property = definition as PropertyDefinition
-                    const id =
-                        property.id ??
-                        (property.name && propertyDefinitionType
-                            ? getPropertyDefinition(property.name, propertyDefinitionType)?.id
-                            : undefined)
+                    const id = resolvePropertyDefinitionId(
+                        definition as PropertyDefinition,
+                        type as TaxonomicFilterGroupType,
+                        getPropertyDefinition
+                    )
                     return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
                     const id = (definition as CohortType).id

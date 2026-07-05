@@ -15,10 +15,7 @@ import posthog from 'posthog-js'
 import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
-import {
-    propertyFilterTypeToPropertyDefinitionType,
-    taxonomicFilterTypeToPropertyFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/utils'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -190,16 +187,7 @@ export function resolveViewUrl(
         case TaxonomicFilterGroupType.SessionProperties:
         case TaxonomicFilterGroupType.EventMetadata:
         case TaxonomicFilterGroupType.EventFeatureFlags: {
-            const property = item as PropertyDefinition
-            const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(group.type)
-            const propertyDefinitionType = propertyFilterType
-                ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
-                : null
-            const id =
-                property.id ??
-                (property.name && propertyDefinitionType
-                    ? getPropertyDefinition(property.name, propertyDefinitionType)?.id
-                    : undefined)
+            const id = resolvePropertyDefinitionId(item as PropertyDefinition, group.type, getPropertyDefinition)
             return id ? urls.propertyDefinition(id) : undefined
         }
         case TaxonomicFilterGroupType.Cohorts:

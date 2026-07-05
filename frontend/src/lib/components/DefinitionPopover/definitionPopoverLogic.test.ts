@@ -360,40 +360,21 @@ describe('definitionPopoverLogic', () => {
             // as { name } with no id, so viewFullDetailUrl used to build
             // /data-management/properties/undefined. It must recover the saved id from
             // propertyDefinitionsModel so the View link resolves to the real property.
-            const idlessPropertyCases: {
-                type: TaxonomicFilterGroupType
-                storageKey: string
-                definition: PropertyDefinition
-            }[] = [
-                {
-                    type: TaxonomicFilterGroupType.EventProperties,
-                    storageKey: `event/${mockEventPropertyDefinition.name}`,
-                    definition: mockEventPropertyDefinition as PropertyDefinition,
-                },
-                {
-                    type: TaxonomicFilterGroupType.PersonProperties,
-                    storageKey: 'person/email',
-                    definition: {
-                        ...mockEventPropertyDefinition,
-                        id: 'person-email-definition-id',
-                        name: 'email',
-                    } as PropertyDefinition,
-                },
-            ]
-
-            idlessPropertyCases.forEach(({ type, storageKey, definition }) => {
-                it(`resolves the id for a name-only ${type} item`, async () => {
-                    propertyDefinitionsModel.actions.updatePropertyDefinitions({ [storageKey]: definition })
-
-                    logic = definitionPopoverLogic({ type })
-                    logic.mount()
-
-                    await expectLogic(logic, () => {
-                        logic.actions.setDefinition({ name: definition.name })
-                    })
-                        .toDispatchActions(['setDefinitionSuccess'])
-                        .toMatchValues({ viewFullDetailUrl: urls.propertyDefinition(definition.id) })
+            // Per-type mapping lives in resolvePropertyDefinitionId (tested in utils.test);
+            // this asserts the selector wires the recovered id into the URL and guards it.
+            it('resolves the View URL for a name-only property from the model', async () => {
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    [`event/${mockEventPropertyDefinition.name}`]: mockEventPropertyDefinition as PropertyDefinition,
                 })
+
+                logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.EventProperties })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDefinition({ name: mockEventPropertyDefinition.name })
+                })
+                    .toDispatchActions(['setDefinitionSuccess'])
+                    .toMatchValues({ viewFullDetailUrl: urls.propertyDefinition(mockEventPropertyDefinition.id) })
             })
 
             it('stays undefined when the property id cannot be resolved', async () => {
