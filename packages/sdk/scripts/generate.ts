@@ -24,6 +24,8 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { z } from 'zod'
 
+import { type CodeExecMethodModel, emitCodeExecArtifacts } from './generate-code-exec-artifacts'
+
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SDK_ROOT = path.resolve(__dirname, '..')
@@ -931,6 +933,24 @@ function main(): void {
     // even after the repo's oxfmt pre-commit hook runs (no drift on re-generate).
     formatOutput()
 
+    // Code-execution MCP artifacts (discovery index, mutation classifier table,
+    // bundled .d.ts) are derived from the formatted output emitted above, so
+    // this pass must run last. See scripts/generate-code-exec-artifacts.ts.
+    const codeExecModel: CodeExecMethodModel[] = []
+    for (const [resource, methods] of resources) {
+        for (const m of methods) {
+            codeExecModel.push({
+                resource,
+                method: m.method,
+                toolName: m.tool?.name ?? m.wrapper!.name,
+                isWrapper: !!m.wrapper,
+                httpMethod: m.tool?.method ?? null,
+                requestArgText: m.tool?.requestArgText ?? null,
+            })
+        }
+    }
+    const codeExecSummary = emitCodeExecArtifacts(codeExecModel)
+
     // Tools present in the definitions but not emitted through either path
     // (standard 1:1 handlers or query wrappers).
     const emitted = new Set([...tools.map((t) => t.name), ...wrapperTools.map((w) => w.name)])
@@ -973,6 +993,11 @@ function main(): void {
     if (renames.length) {
         console.log(`Method renames (collisions): ${renames.length}`)
     }
+    console.log('\n=== code-exec artifacts (services/mcp/src/generated/code-exec) ===')
+    console.log(`Discovery methods:  ${codeExecSummary.methods}`)
+    console.log(`Discovery types:    ${codeExecSummary.types}`)
+    console.log(`Classifier ops:     ${codeExecSummary.operations}`)
+    console.log(`SDK .d.ts bytes:    ${codeExecSummary.dtsBytes}`)
 }
 
 function formatOutput(): void {
