@@ -781,7 +781,7 @@ describe('the feature flag release conditions logic', () => {
                 ])
             )
 
-            expect(logic.values.propertySelectErrors[0].properties[0].value).toBe(
+            expect(logic.values.propertySelectErrors[0].properties?.[0]?.value).toBe(
                 'Enter a valid semver value (e.g. 1.2.3)'
             )
         })
@@ -793,7 +793,7 @@ describe('the feature flag release conditions logic', () => {
                 ])
             )
 
-            expect(logic.values.propertySelectErrors[0].properties[0].value).toBeUndefined()
+            expect(logic.values.propertySelectErrors[0].properties?.[0]).toEqual({ value: undefined })
         })
     })
 
