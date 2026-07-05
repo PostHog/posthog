@@ -209,7 +209,10 @@ One tool call, one round trip, only the final summary re-enters context. The exi
 
 Extend the single-`exec` paradigm rather than adding many tools:
 
-- `exec run <typescript source>` — execute a script in a sandbox; returns the script's `export default` value (serialized + token-capped) plus captured `console` output.
+- `exec run <typescript source>` — execute a script in a sandbox.
+  Read-only scripts return the script's `export default` value (serialized + token-capped) plus captured `console` output directly.
+  Scripts that attempt mutations return a **plan** (the recorded mutation set, rendered as a diff) plus a signed confirmation token instead of results — see §3.6.
+- `exec apply <confirmation token>` — execute a previously planned script for real, with the confirmed plan enforced as a contract (§3.6).
 - `exec types <query>` — search the SDK surface by TS types and JSDoc comments: matches type names, method signatures, and description text; returns one-line signatures (`featureFlags.update(id: number, body: PatchedFeatureFlag): Promise<FeatureFlag> — Update a feature flag.`) so the agent can pick what to expand.
 - `exec types show <symbol | domain.method>` — return the full declaration plus its referenced types (precomputed closure from the discovery index, token-capped with drill-down hints), e.g. the `FeatureFlag` interface with the `FilterGroups` types it references.
 - Existing verbs stay: trivial one-shot operations don't need a sandbox round trip.
@@ -242,7 +245,7 @@ agent ──(exec run script)──▶ MCP Hono runtime
                               ▼  (only reachable endpoint)
                             MCP API proxy endpoint
                               │ verifies T, enforces scopes + per-execution rate/size caps,
-                              │ blocks destructive endpoints without confirmation (§3.6),
+                              │ runs in plan or enforce mode per execution (§3.6),
                               │ emits $mcp_tool_call-style analytics per underlying API call
                               ▼
                             PostHog Django API (real user token attached server-side)
@@ -267,9 +270,111 @@ Mechanics (backed by the discovery index from §2.3):
 
 Context economy for results: the harness serializes the script's return value, token-caps it, and (later) can spill full results to an MCP resource/artifact the agent can page through — same pattern as the existing formatted-results override.
 
-### 3.6 Destructive operations
+### 3.6 Plan/apply execution: dry-run previews for mutating scripts
 
-The `confirmed_action` prepare/execute paradigm must survive code mode. Enforcement lives in the API proxy (not in the model-visible SDK): endpoints flagged destructive in the YAML definitions are rejected by the proxy unless the execution was created with a confirmation token obtained via the existing `-prepare` flow (or the client passed `--confirm` semantics per the CLI convention). Scripts therefore fail fast with a message telling the agent to run the prepare step and re-submit — the signed-state machinery is reused as-is.
+The `confirmed_action` prepare/execute paradigm assumes the arguments of a destructive action are known before execution.
+Code mode breaks that assumption: a script _discovers_ its targets at runtime ("find all flags under 10% and update the stale ones"), so there is nothing meaningful to sign upfront.
+Plan/apply replaces per-tool confirmation with per-execution confirmation: the user confirms the **actual set of mutations the script produced**, and that confirmed set is enforced as a contract on the run that executes them.
+This is the Terraform plan/apply model, implemented as a mode on the API proxy from §3.4 — no sandbox or SDK changes.
+
+#### 3.6.1 Two-pass model
+
+**Pass 1 — plan.** Every script runs in plan mode first.
+The proxy passes reads through to the real API untouched and intercepts mutations: each intercepted call is recorded as `{sequence, method, path, body, operation}` and answered with a synthetic response instead of being forwarded.
+
+- **Zero mutations recorded** → the plan run _was_ the real run.
+  Return the script's results directly; no confirmation, no second pass.
+  Read-only scripts — the majority — pay nothing for this feature.
+- **Mutations recorded** → discard the script's return value, store the script server-side, and return the rendered plan plus a signed confirmation token.
+
+**Pass 2 — apply.** On `exec apply <token>`, the harness re-runs the _stored_ script live, with the proxy in enforce mode: every mutation the script attempts is matched against the confirmed plan (method, path, body, modulo placeholder bindings — §3.6.3).
+A mutation not in the plan aborts the run immediately with a structured "plan divergence" error.
+
+Re-running the script — rather than replaying the recorded mutation list — is the load-bearing choice:
+
+- Real IDs from real creates flow into downstream calls naturally; no symbolic execution needed.
+- If the world changed between plan and apply (another user edited a flag, a list query returns different rows), the script's mutations diverge from the plan and the enforcer aborts with "the world changed since you confirmed — re-plan."
+  Staleness detection falls out for free.
+- The confirmation is binding on _what actually executes_, not on the script text or the agent's stated intent.
+
+The cost is one extra script execution for mutating scripts (reads run twice).
+Scripts execute in seconds; the guarantee is worth the double read.
+
+#### 3.6.2 Mutation classifier
+
+The proxy sees raw HTTP, and "mutation" is not `method !== 'GET'`: `POST /api/environments/:id/query/` is a read.
+A classification table is generated at codegen time from the same YAML definitions + OpenAPI spec the SDK is built from — the `readOnly` and `destructive` annotations already exist per operation — and ships as a static artifact with the proxy (same distribution as the discovery index, §3.5).
+
+- Each entry: operation id, method, path template, `readOnly`, `destructive`, object type, display-name field (for plan rendering, §3.6.6).
+- Requests that match no classified operation (escape hatches like `query.run()` with an unknown kind, future endpoints) are treated as **mutations unless proven reads** — fail closed.
+- `execute-sql` / HogQL with mutating statements is out of scope for classification; the proxy submits queries through the read path and relies on the query endpoint's own read-only enforcement.
+  If that guarantee turns out not to hold for some node kind, those kinds get blocked in scripts until classified (open question, §3.6.8).
+
+#### 3.6.3 Placeholder binding for create-then-use chains
+
+During planning, a create must return _something_ so the script can continue and reveal its downstream mutations.
+The proxy synthesizes the response from the operation's response schema, with identifier fields set to globally-unique sentinels (`"__plan_ref_1__"`, one per recorded mutation).
+When a sentinel appears inside a later recorded mutation (path or body), the plan stores a **reference** to the originating mutation, not a literal value.
+
+At apply time the enforcer binds each reference positionally: mutation #1 executes for real, its actual response ID is captured, and downstream calls are matched with that binding substituted.
+Because sentinels are globally unique, substitution is textual and sound.
+
+Known limit: scripts that _branch on mutation results_ (beyond passing IDs through) can produce different mutations at apply time than at plan time.
+The enforcer catches this as plan divergence — the honest failure mode — and the agent re-plans.
+The dominant agent script shape (read → compute → mutate, mutations as dataflow leaves) is unaffected.
+
+#### 3.6.4 Confirmation token
+
+The signed-state machinery from `confirmed_action` is reused as-is (`MCP_SIGNED_STATE_KEY`, HMAC-SHA256):
+
+- Signed payload: `{plan hash, script hash, user identity, resolved scope set, TTL ≈ 10 min, single-use nonce}`.
+- The plan hash is computed over the normalized mutation list (stable field ordering, sentinels canonicalized), so the token is bound to the exact confirmed plan.
+- The script is stored server-side keyed by its hash (Redis, TTL'd — the same session infra the Hono runtime already uses), so the agent cannot submit different code at apply time.
+- `exec apply` verifies the signature, burns the nonce, loads the stored script, and runs the enforce pass.
+- Expired token → the harness auto-re-plans and returns the fresh plan **plus a delta against the stale plan**; it never silently re-confirms.
+
+#### 3.6.5 Partial failure and resume
+
+If the apply pass fails at mutation 17 of 30 (API error, timeout, divergence), the receipt lists exactly which mutations were forwarded and their responses — the proxy recorded every call.
+Recovery is the same loop: **re-plan**.
+The fresh plan run reads the now-partially-mutated world and produces a plan for only the remaining work; the user confirms the remainder.
+No idempotency keys, no checkpoint protocol — the plan/apply cycle is itself the resume mechanism.
+
+#### 3.6.6 Plan rendering and receipts
+
+Plans render in two forms:
+
+- **Text** (all clients): grouped by object type and operation, updates shown as field-level diffs.
+  For updates, the proxy fetches the current object during planning and diffs against the request body: `flag checkout-v2: rollout 10% → 25%`.
+  Creates render with sentinel names ("new annotation: …"); deletes render loud and first.
+  The classifier's object-type + display-name metadata (§3.6.2) drives naming.
+- **Plan-review UI app** (ext-apps clients): an interactive diff view with a confirm affordance, built on the existing MCP UI-apps infrastructure.
+
+After apply, the receipt carries: per-mutation outcome, links to every changed object (`_posthogUrl`-style), and activity-log references.
+Optionally the harness writes an annotation summarizing the change set.
+
+#### 3.6.7 Policy knobs and CLI parity
+
+- Default: every mutating script requires confirmation.
+- Org-level relaxation: auto-apply plans containing only non-destructive creates (annotations, insights, notebooks); always confirm plans containing updates, deletes, or anything flagged `destructive`.
+  The classifier's annotations drive the split.
+- The CLI (`posthog-cli api run`, Phase A) implements the same plan/apply verbs locally so behavior is identical in trusted and sandboxed runtimes, with `--yes` for scripted/CI use.
+  Skills teach one workflow, not two.
+
+#### 3.6.8 Build order and open questions
+
+Build order:
+
+1. Classifier table emission + proxy record/enforce modes + sentinel binding.
+   Pure server-side; golden-script tests: read-only passthrough, create-chain binding, divergence abort, nonce reuse, expired-token re-plan.
+2. `exec run` returning plans, `exec apply`, text rendering, receipts.
+3. Field-diff rendering, plan-review UI app, org policy knobs.
+
+Open questions to settle before Phase B:
+
+- Whether any HogQL/query node kinds can mutate state; if so, block them in scripts until classified.
+- Plan TTL vs long-lived client conversations — current answer is auto-re-plan with delta (§3.6.4); validate the UX against real clients.
+- Whether synthetic plan-mode responses need per-operation schema fidelity beyond identifier fields (scripts that read non-ID fields off create responses during planning get schema-default values; measure how often that breaks real scripts).
 
 ### 3.7 Risks and open questions
 
@@ -284,8 +389,8 @@ The `confirmed_action` prepare/execute paradigm must survive code mode. Enforcem
 | Phase | Deliverable                                                                                                                                                                                                             |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A     | SDK ships (§2); type-search discovery (`exec types` / `types show`, discovery index) + script-writing skill; `posthog-cli api run` for local/trusted execution (no sandbox needed — user's own machine, user's own key) |
-| B     | API proxy endpoint + ephemeral token minting on the Hono runtime (usable by phase A CLI too, as an opt-in hardened mode)                                                                                                |
-| C     | `exec run` on the Docker/Modal sandbox pool behind a feature flag, PostHog Code + Claude Code as first consumers                                                                                                        |
-| D     | Result spilling to resources, latency work (isolate substrate evaluation), GA + docs                                                                                                                                    |
+| B     | API proxy endpoint + ephemeral token minting on the Hono runtime (usable by phase A CLI too, as an opt-in hardened mode); mutation classifier + proxy plan/enforce modes with golden-script tests (§3.6.8 step 1)       |
+| C     | `exec run` (plan-returning) + `exec apply` on the Docker/Modal sandbox pool behind a feature flag, text plan rendering + receipts, PostHog Code + Claude Code as first consumers                                        |
+| D     | Field-diff rendering + plan-review UI app + org policy knobs, result spilling to resources, latency work (isolate substrate evaluation), GA + docs                                                                      |
 
 Phase A alone already delivers most of the agent value in coding-agent contexts (Claude Code, PostHog Code run scripts locally via the CLI); B/C extend it to hosted, untrusted contexts (claude.ai, Slack agents, cloud runs).
