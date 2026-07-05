@@ -173,8 +173,16 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Cross-product reads: recent scout-derived inbox reports (consumed by Pulse briefs).
+# Cross-product reads: recent inbox reports (consumed by Pulse briefs).
 # ---------------------------------------------------------------------------
+
+# The source products whose reports Pulse briefs may read as input. Scout findings and
+# replay-vision scanner findings both qualify; `pulse` is excluded FOREVER — a consumer that
+# also *emits* signals must never read its own emitted output back as input (anti-amplification).
+_BRIEF_INPUT_SOURCE_PRODUCTS: list[str] = [
+    SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+    SignalSourceConfig.SourceProduct.REPLAY_VISION.value,
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -189,12 +197,13 @@ class SignalReportSummary:
 
 
 def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[SignalReportSummary]:
-    """Recent scout-derived, inbox-visible reports with authored content, newest first.
+    """Recent inbox-visible reports with authored content, newest first.
 
-    Scoped to reports backed by signals-scout signals so a consumer that also *emits* signals
-    (Pulse) can never read its own emitted output back as input. Hidden statuses mirror the
-    inbox list surface. Report content is LLM-authored, so this returns [] when the
-    organization has not approved AI data processing — mirroring emit_signal's gate.
+    Scoped to reports backed by scout or replay-vision signals (see
+    ``_BRIEF_INPUT_SOURCE_PRODUCTS``) so a consumer that also *emits* signals (Pulse) can never
+    read its own emitted output back as input. Hidden statuses mirror the inbox list surface.
+    Report content is LLM-authored, so this returns [] when the organization has not approved
+    AI data processing — mirroring emit_signal's gate.
     """
     from products.signals.backend.temporal.signal_queries import (
         fetch_report_ids_for_source_products,  # noqa: PLC0415 — keeps the temporal stack off the facade import path
@@ -203,13 +212,11 @@ def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[S
     team = Team.objects.filter(id=team_id).select_related("organization").first()
     if team is None or not team.organization.is_ai_data_processing_approved:
         return []
-    scout_report_ids = fetch_report_ids_for_source_products(
-        team, [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
-    )
-    if not scout_report_ids:
+    source_report_ids = fetch_report_ids_for_source_products(team, _BRIEF_INPUT_SOURCE_PRODUCTS)
+    if not source_report_ids:
         return []
     reports = (
-        SignalReport.objects.filter(id__in=scout_report_ids, team_id=team_id, created_at__gte=since)
+        SignalReport.objects.filter(id__in=source_report_ids, team_id=team_id, created_at__gte=since)
         .exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
         .exclude(title__isnull=True)
         .exclude(title="")
