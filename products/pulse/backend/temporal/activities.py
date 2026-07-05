@@ -12,7 +12,11 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.explain import CausalCandidate, collect_causal_candidates
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
-from products.pulse.backend.generation.investigate import InvestigationFinding, run_investigation
+from products.pulse.backend.generation.investigate import (
+    InvestigationFinding,
+    run_investigation,
+    run_replay_investigation,
+)
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
@@ -23,6 +27,7 @@ from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
+    ReplayPatternsActivityInputs,
     SynthesizeActivityInputs,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -82,6 +87,42 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
     items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
+
+
+# Replay pattern analysis rides its own workflow activity (group summarization runs minutes) with a
+# generous ceiling; a hung summary is killed here rather than dragging the brief. maximum_attempts=1
+# because each attempt drives LLM passes — a retry double-spends. The workflow swallows any failure.
+REPLAY_PATTERNS_ACTIVITY_TIMEOUT_MINUTES = 15
+
+
+@temporalio.activity.defn
+async def investigate_replay_patterns_activity(inputs: ReplayPatternsActivityInputs) -> list[dict]:
+    """Watch real sessions around a movement and extract cross-session patterns — its own activity
+    because group summarization runs minutes, past the HogQL investigate stage deadline.
+
+    Goal-briefs only (the cost rail): returns [] unless the brief has a non-blank goal, a creating
+    user for LLM attribution, and at least one movement to anchor to. Best-effort — a planner or
+    summary failure returns [], never fails the brief (the workflow ships the brief without it).
+    """
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    if brief.config is None or not brief.has_goal or brief.created_by is None:
+        return []
+    items = [SourceItem(**item) for item in inputs.items]
+    movements = [item for item in items if item.kind == "movement"]
+    if not movements:
+        return []
+    try:
+        findings = await run_replay_investigation(
+            team=brief.team,
+            user=brief.created_by,
+            goal_text=brief.config.goal,
+            movements=movements,
+            period_days=brief.period_days,
+        )
+    except Exception:
+        logger.exception("pulse_replay_investigation_failed", team_id=brief.team_id, brief_id=str(brief.id))
+        return []
+    return [dataclasses.asdict(finding) for finding in findings]
 
 
 @temporalio.activity.defn
@@ -144,6 +185,10 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
             )
         except Exception:
             logger.exception("pulse_investigation_failed", team_id=brief.team_id, brief_id=str(brief.id))
+    # Replay-pattern findings were computed in their own activity (own timeout); append them so the
+    # HogQL findings' `query:<n>` numbering stays stable whether or not a replay ran. They flow
+    # through synthesis and persistence exactly like every other finding.
+    findings.extend(InvestigationFinding(**finding) for finding in inputs.replay_findings)
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,

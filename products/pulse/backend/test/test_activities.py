@@ -24,9 +24,14 @@ from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
     gather_brief_inputs_activity,
+    investigate_replay_patterns_activity,
     synthesize_brief_activity,
 )
-from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.inputs import (
+    GenerateBriefWorkflowInputs,
+    ReplayPatternsActivityInputs,
+    SynthesizeActivityInputs,
+)
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
@@ -601,3 +606,117 @@ async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.FAILED
     assert "AI data processing not approved" in (reloaded.error or "")
+
+
+_REPLAY_FINDING = InvestigationFinding(
+    question="Why did signups drop?",
+    hogql="",
+    result_summary="Watched 12 sessions. Recurring patterns (most severe first):\n- Plan-picker abandon: 9/12 sessions",
+    succeeded=True,
+    citations=["session:s1"],
+)
+
+
+def _movement_item() -> SourceItem:
+    return SourceItem(source="stub", kind="movement", title="Signups dropped", description="d", fingerprint_hint="m:0")
+
+
+async def test_synthesize_activity_appends_replay_findings_to_the_investigation(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.collect_goal_status", return_value=_GOAL_STATUS),
+        patch(
+            "products.pulse.backend.temporal.activities.run_investigation",
+            new_callable=AsyncMock,
+            return_value=[_FINDING],
+        ),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(
+                team_id=team.pk,
+                brief_id=str(brief.id),
+                items=[dataclasses.asdict(_movement_item())],
+                replay_findings=[dataclasses.asdict(_REPLAY_FINDING)],
+            ),
+        )
+    # HogQL findings first, replay appended — keeps the `query:<n>` numbering stable.
+    assert synth_mock.call_args.kwargs["findings"] == [_FINDING, _REPLAY_FINDING]
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.investigation == [dataclasses.asdict(_FINDING), dataclasses.asdict(_REPLAY_FINDING)]
+
+
+async def test_replay_activity_runs_for_goal_brief_with_a_movement(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    with patch(
+        "products.pulse.backend.temporal.activities.run_replay_investigation",
+        new_callable=AsyncMock,
+        return_value=[_REPLAY_FINDING],
+    ) as replay_mock:
+        result = await env.run(
+            investigate_replay_patterns_activity,
+            ReplayPatternsActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(_movement_item())]
+            ),
+        )
+    assert result == [dataclasses.asdict(_REPLAY_FINDING)]
+    assert replay_mock.await_args.kwargs["goal_text"] == "Increase subscription usage"
+    assert [movement.kind for movement in replay_mock.await_args.kwargs["movements"]] == ["movement"]
+
+
+async def test_replay_activity_skips_goalless_brief(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.run_replay_investigation") as replay_mock:
+        result = await env.run(
+            investigate_replay_patterns_activity,
+            ReplayPatternsActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(_movement_item())]
+            ),
+        )
+    assert result == []
+    replay_mock.assert_not_called()
+
+
+async def test_replay_activity_skips_when_no_movements(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    health_item = SourceItem(
+        source="stub", kind="health", title="Broken insight", description="d", fingerprint_hint="h:0"
+    )
+    with patch("products.pulse.backend.temporal.activities.run_replay_investigation") as replay_mock:
+        result = await env.run(
+            investigate_replay_patterns_activity,
+            ReplayPatternsActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(health_item)]
+            ),
+        )
+    assert result == []
+    replay_mock.assert_not_called()
+
+
+async def test_replay_activity_survives_a_stage_failure(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    with patch(
+        "products.pulse.backend.temporal.activities.run_replay_investigation",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("summary down"),
+    ):
+        result = await env.run(
+            investigate_replay_patterns_activity,
+            ReplayPatternsActivityInputs(
+                team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(_movement_item())]
+            ),
+        )
+    assert result == []

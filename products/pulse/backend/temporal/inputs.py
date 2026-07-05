@@ -21,10 +21,20 @@ class GenerateBriefWorkflowInputs:
 
 
 @dataclasses.dataclass
+class ReplayPatternsActivityInputs:
+    team_id: int
+    brief_id: str
+    items: list[dict]
+
+
+@dataclasses.dataclass
 class SynthesizeActivityInputs:
     team_id: int
     brief_id: str
     items: list[dict]
+    # Replay-pattern findings computed in their own activity (group summarization runs minutes,
+    # past the investigate stage deadline), merged into the investigation before synthesis.
+    replay_findings: list[dict] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
