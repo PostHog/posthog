@@ -936,10 +936,16 @@ impl<'c, 'a> Walker<'c, 'a> {
                 out,
                 &mut |w, key, vstart, out| match &w.bytes[key.0..key.1] {
                     b"attributes" if w.bytes.get(vstart) == Some(&b'{') => {
-                        let kind = if MEDIA_SRC_ATTRS
-                            .iter()
-                            .any(|a| matches!(w.find_member(vstart, a.as_bytes()), Ok(Some(_))))
-                        {
+                        // `find_member`'s `Err(Fallback)` (prescan budget / structural surprise)
+                        // must decline to the parse, not silently classify as non-media.
+                        let mut is_media = false;
+                        for a in MEDIA_SRC_ATTRS {
+                            if w.find_member(vstart, a.as_bytes()).ok()?.is_some() {
+                                is_media = true;
+                                break;
+                            }
+                        }
+                        let kind = if is_media {
                             TagKind::Media
                         } else {
                             TagKind::Other

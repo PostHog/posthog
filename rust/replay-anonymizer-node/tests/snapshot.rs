@@ -590,3 +590,26 @@ fn differential_cv_stream_vs_tree() {
         assert_stream_matches_tree(&allow, &inner, label);
     }
 }
+
+#[test]
+fn mutation_media_attr_past_the_prescan_budget_declines_to_the_parse() {
+    // A media `src` positioned past the byte walk's 4 KB attribute prescan budget: the walk's
+    // media probe hits its fallback there, which must decline to the tree (not silently classify
+    // the attributes as non-media and scrub the src as a plain URL). The differential fails on the
+    // stream-vs-tree divergence if that decline is dropped.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let padding = "x".repeat(5000);
+    let inner = snapshot_message(json!([{
+        "type": 3,
+        "timestamp": TS0,
+        "data": { "source": 0, "attributes": [
+            { "id": 1, "attributes": { "data-pad": padding, "src": "https://cdn.corp.com/a.png" } }
+        ]}
+    }]));
+    let inner_json = serde_json::to_string(&inner).unwrap();
+    assert_stream_matches_tree(
+        &allow,
+        &inner_json,
+        "media src past the attribute prescan budget",
+    );
+}
