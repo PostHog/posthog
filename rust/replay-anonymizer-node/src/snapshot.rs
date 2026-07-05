@@ -128,10 +128,9 @@ pub struct SnapshotMeta {
     pub events: Vec<EventMeta>,
 }
 
-/// Which implementation produced the output. Both are differential-tested identical, so routing is
-/// free to choose per message; the label feeds the canary metrics that tune the routing threshold.
-/// Deliberately not part of [`SnapshotMeta`]: the differential tests assert meta equality across
-/// paths.
+/// Which implementation produced the output (tree = the whole-message fallback fired). Both are
+/// differential-tested identical. Deliberately not part of [`SnapshotMeta`]: the differential tests
+/// assert meta equality across paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
     Stream,
@@ -150,22 +149,15 @@ impl Route {
 /// Options for the anonymize entry points. `Default` is the production configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct AnonymizeOpts {
-    /// Route snapshot-dominated messages through the tree path (one SIMD parse of everything beats
-    /// streaming's scan+parse duplication when most bytes get parsed anyway). The differential
-    /// tests turn this off so the streaming path is the one being exercised.
-    pub adaptive_routing: bool,
     /// Scrub the bulk routes (snapshots, mutations, inputs) with the parse-free byte walk
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
-    /// back to the parse per event.
+    /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
-        Self {
-            adaptive_routing: true,
-            byte_walk: true,
-        }
+        Self { byte_walk: true }
     }
 }
 
@@ -376,9 +368,8 @@ pub fn anonymize_snapshot_data_opts(
     let ctx = Ctx::new(allow);
     match stream_message(&ctx, distinct_id, inner, opts)? {
         StreamOutcome::Done(msg) => Ok(msg),
-        // Escaped/duplicate envelope keys (only a real parse resolves them) or a snapshot-dominated
-        // message (adaptive routing): nothing was consumed before either signal, so the tree path
-        // re-reads (and now consumes) the intact buffer.
+        // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
+        // consumed before the signal, so the tree path re-reads the intact buffer.
         StreamOutcome::Tree => anonymize_via_tree_mut(&ctx, distinct_id, inner),
     }
 }
@@ -404,8 +395,8 @@ struct ScannedEnvelope {
 
 enum StreamOutcome {
     Done(AnonymizedMessage),
-    /// Re-process via the tree (escaped/duplicate envelope keys, or adaptive routing). Only ever
-    /// returned while the buffer is intact.
+    /// Re-process via the tree (escaped/duplicate envelope keys). Only ever returned while the
+    /// buffer is intact.
     Tree,
 }
 
@@ -447,7 +438,6 @@ fn stream_message(
     let mut items_not_array = false;
     // First event-processing failure; surfaced only after envelope validation passes.
     let mut deferred: Option<Failure> = None;
-    let mut use_tree = false;
 
     // Escaped or duplicate envelope keys need JSON.parse semantics — the tree run. That is only
     // possible while the buffer is intact.
@@ -545,8 +535,8 @@ fn stream_message(
                                 ppos = vspan.1;
                                 continue;
                             }
-                            // Stream the events right here. After a deferred failure or a routing
-                            // abort, the remaining items are only skipped to find the array's end.
+                            // Stream the events right here. After a deferred failure, the remaining
+                            // items are only skipped to find the array's end.
                             let mut ipos = pvstart + 1;
                             let mut ifirst = true;
                             loop {
@@ -564,20 +554,14 @@ fn stream_message(
                                     ipos += 1;
                                 }
                                 ifirst = false;
-                                if deferred.is_some() || use_tree {
+                                if deferred.is_some() {
                                     let span = scan::locate_value(inner, ipos)
                                         .map_err(|e| non_snapshot(e.0))?;
                                     ipos = span.1;
                                     continue;
                                 }
                                 match process_event_at(ctx, inner, ipos, &mut sink, opts) {
-                                    Ok(EventStep::Next(p)) => ipos = p,
-                                    Ok(EventStep::UseTree) => {
-                                        use_tree = true;
-                                        let span = scan::locate_value(inner, ipos)
-                                            .map_err(|e| non_snapshot(e.0))?;
-                                        ipos = span.1;
-                                    }
+                                    Ok(p) => ipos = p,
                                     Err(e) => {
                                         deferred = Some(e);
                                         let span = scan::locate_value(inner, ipos)
@@ -676,9 +660,6 @@ fn stream_message(
         snapshot_library: opt_string(lib_span, "$lib")?,
     };
 
-    if use_tree {
-        return Ok(StreamOutcome::Tree);
-    }
     if let Some(e) = deferred {
         return Err(e);
     }
@@ -703,12 +684,12 @@ struct Sink {
     console: [u32; 3], // info, warn, error
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
-    /// Whether an in-place parse has consumed a span yet — routing to the tree path is only sound
-    /// while the buffer is intact.
+    /// Whether an in-place parse has consumed a span yet — the tree fallback is only sound while
+    /// the buffer is intact.
     mutated: bool,
-    /// Copy-parse budget for early scrub events (real messages open with a small Meta event before
-    /// the full snapshot; consuming it in place would foreclose adaptive routing). Small events
-    /// parse from `scratch` until the budget runs out; everything after parses in place.
+    /// Copy-parse budget for early scrub events: keeping the buffer intact through them preserves
+    /// the tree fallback for escaped/duplicate envelope keys discovered later in the walk. Small
+    /// events parse from `scratch` until the budget runs out; everything after parses in place.
     scratch_budget: usize,
     scratch: Vec<u8>,
 }
@@ -930,18 +911,6 @@ fn scan_event_data(inner: &[u8], start: usize, es: &mut EventScan) -> SResult<us
     }
 }
 
-enum EventStep {
-    /// Continue with the next array item at this position.
-    Next(usize),
-    /// Abort streaming and route the whole message through the tree path.
-    UseTree,
-}
-
-/// A scrub-routed data span holding most of the message means the tree path's single SIMD parse of
-/// everything beats streaming's scan-then-parse duplication. Tuned from the canary's route-labelled
-/// duration metrics.
-const TREE_ROUTE_MIN_DATA_FRACTION: usize = 2; // data > inner.len() / 2
-
 /// How many scrub-routed bytes may copy-parse via scratch before switching to in-place parses.
 const SCRATCH_BUDGET: usize = 64 * 1024;
 
@@ -953,12 +922,12 @@ fn process_event_at(
     item_pos: usize,
     sink: &mut Sink,
     opts: AnonymizeOpts,
-) -> SResult<EventStep> {
+) -> SResult<usize> {
     let start = scan::skip_ws(inner, item_pos);
     // Non-object events fail SnapshotEventSchema and are silently skipped, like the TS parse step.
     if inner.get(start) != Some(&b'{') {
         let span = scan::locate_value(inner, start).map_err(|e| non_snapshot(e.0))?;
-        return Ok(EventStep::Next(span.1));
+        return Ok(span.1);
     }
 
     let (es, end) = scan_event(inner, start)?;
@@ -969,11 +938,11 @@ fn process_event_at(
     // through verbatim (a stream-vs-tree divergence). The `< 0x20` scan autovectorizes.
     if es.fallback || inner[span.0..span.1].iter().any(|&b| b < 0x20) {
         process_event_via_tree(ctx, inner, span, sink)?;
-        return Ok(EventStep::Next(end));
+        return Ok(end);
     }
 
     let Some(ts) = valid_timestamp(es.ts.and_then(|s| scan::parse_number(inner, s))) else {
-        return Ok(EventStep::Next(end)); // invalid/missing timestamp: the event is filtered out
+        return Ok(end); // invalid/missing timestamp: the event is filtered out
     };
     let ty = es
         .ty
@@ -985,7 +954,7 @@ fn process_event_at(
     // type/source never routes to a scrubber) pass through byte-identical.
     let Some(data) = es.data else {
         pass_through(inner, span, ts, ty, None, sink);
-        return Ok(EventStep::Next(end));
+        return Ok(end);
     };
 
     let needs_parse = match ty {
@@ -997,7 +966,7 @@ fn process_event_at(
     };
     if !needs_parse {
         pass_through(inner, span, ts, ty, es.data_is_object.then_some(&es), sink);
-        return Ok(EventStep::Next(end));
+        return Ok(end);
     }
 
     // Incremental events only route to a scrubber for mutation/input/canvas sources.
@@ -1012,7 +981,7 @@ fn process_event_at(
         )
     {
         pass_through(inner, span, ts, ty, Some(&es), sink);
-        return Ok(EventStep::Next(end));
+        return Ok(end);
     }
 
     // Parse-free byte walk first: the bulk routes get scrubbed straight from the bytes, with
@@ -1020,7 +989,7 @@ fn process_event_at(
     // which is what makes emitting original bytes safe (no shadowed duplicate content can survive);
     // anything it can't prove — escaped keys, cv payloads, canvas/meta/custom/plugin routes — is
     // declined and handled by the parse below. The walk never mutates the buffer, so falling
-    // through (and adaptive routing) stay sound.
+    // through stays sound.
     if opts.byte_walk {
         let mark = sink.lines.len();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
@@ -1046,20 +1015,10 @@ fn process_event_at(
                     flags: flags_of(ty, source, interaction),
                     href: scanned_href(inner, &es),
                 });
-                return Ok(EventStep::Next(end));
+                return Ok(end);
             }
             None => sink.lines.truncate(mark),
         }
-    }
-
-    // Adaptive routing: only while nothing has been consumed — the tree run re-reads the buffer.
-    // The scratch budget below keeps the buffer intact through the small Meta/input events that
-    // ordinarily precede a full snapshot, so the dominant case still aborts at zero cost.
-    if opts.adaptive_routing
-        && !sink.mutated
-        && (data.1 - data.0) > inner.len() / TREE_ROUTE_MIN_DATA_FRACTION
-    {
-        return Ok(EventStep::UseTree);
     }
 
     // Scrub route: parse the data span — in place for the bulk (simd-json only mutates within the
@@ -1111,7 +1070,7 @@ fn process_event_at(
     scratch.clear();
     sink.scratch = scratch;
     result?;
-    Ok(EventStep::Next(end))
+    Ok(end)
 }
 
 /// Emit a pass-through event: memcpy the span, derive meta from the scans.

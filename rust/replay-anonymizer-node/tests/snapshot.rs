@@ -8,7 +8,7 @@
 use replay_anonymizer_node::allow_lists::AllowLists;
 use replay_anonymizer_node::snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_via_tree, AnonymizeOpts,
-    AnonymizedMessage, FailKind, Failure, Route, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
+    AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
     FLAG_MOUSE_ACTIVITY,
 };
 use replay_anonymizer_node::Ctx;
@@ -296,59 +296,6 @@ fn decompress_payload_matches_the_capture_producer_format() {
     assert_eq!(err.kind.reason(), "invalid_compressed_data");
 }
 
-#[test]
-fn adaptive_routing_only_takes_the_tree_before_any_in_place_parse() {
-    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-    // A full snapshot big enough to dominate the message (> half the inner bytes).
-    let big_snapshot = json!({ "type": 2, "timestamp": TS0, "data": {
-        "node": { "type": 0, "childNodes": [
-            { "type": 2, "tagName": "div", "attributes": {}, "childNodes": [
-                { "type": 3, "textContent": "x".repeat(200_000) }
-            ]}
-        ]},
-        "initialOffset": { "top": 0, "left": 0 }
-    }});
-    // The byte walk handles snapshots without parsing, so routing only governs its fallback path —
-    // pin these cases with the walk off.
-    let opts = AnonymizeOpts {
-        adaptive_routing: true,
-        byte_walk: false,
-        ..Default::default()
-    };
-    let run_opts = |payload: &str| {
-        let mut bytes = payload.as_bytes().to_vec();
-        anonymize_kafka_payload_opts(&allow, &mut bytes, opts)
-    };
-
-    // The realistic message shape: a small scrub-routed Meta event precedes the snapshot. It must
-    // parse from scratch (not in place), or adaptive routing could never fire in production.
-    let meta_event =
-        json!({ "type": 4, "timestamp": TS0, "data": { "href": "https://x.example.com/p", "width": 1, "height": 1 } });
-    let dominated = payload_of(&snapshot_message(json!([meta_event, big_snapshot.clone()])));
-    let out = run_opts(&dominated).expect("anonymizes");
-    assert_eq!(out.route, Route::Tree, "snapshot-dominated routes to tree");
-
-    // A scrub-routed event too big for the scratch budget has already consumed its span in place —
-    // the buffer is no longer intact, so aborting to the tree would re-parse garbage and drop a
-    // valid message. Routing must stay on the streaming path and still succeed.
-    let big_input = json!({ "type": 3, "timestamp": TS0, "data": {
-        "source": 5, "id": 1, "text": "y ".repeat(50_000)
-    }});
-    let mutated_first =
-        payload_of(&snapshot_message(json!([big_input, big_snapshot.clone()])));
-    let out = run_opts(&mutated_first).expect("must not abort after an in-place parse");
-    assert_eq!(out.route, Route::Stream, "mutated buffer stays on stream");
-    assert_eq!(parse_lines(&out.lines).len(), 2);
-
-    // With the walk on (the default), the same dominated message never needs the tree.
-    let dominated_walk = payload_of(&snapshot_message(json!([
-        json!({ "type": 4, "timestamp": TS0, "data": { "href": "https://x.example.com/p", "width": 1, "height": 1 } }),
-        big_snapshot
-    ])));
-    let out = run(&allow, &dominated_walk).expect("anonymizes");
-    assert_eq!(out.route, Route::Stream, "the byte walk keeps snapshots on stream");
-}
-
 // ---------------------------------------------------------------------------
 // Differential: streaming vs tree on the shared fixtures plus seeded variations.
 // ---------------------------------------------------------------------------
@@ -399,18 +346,14 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     let ctx = Ctx::new(allow);
     let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    // Adaptive routing off: the differential must pin the *streaming* implementations against the
-    // tree, not let snapshot-dominated cases silently compare the tree against itself. Both scrub
-    // engines are pinned: the parse-free byte walk (with its per-event fallbacks) and the simd path.
+    // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks) and
+    // the simd path.
     for byte_walk in [true, false] {
         let mut bytes = payload.as_bytes().to_vec();
         let stream = anonymize_kafka_payload_opts(
             allow,
             &mut bytes,
-            AnonymizeOpts {
-                adaptive_routing: false,
-                byte_walk,
-            },
+            AnonymizeOpts { byte_walk },
         );
         match (&stream, &tree) {
             (Ok(s), Ok(t)) => {
