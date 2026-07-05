@@ -393,6 +393,28 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
         assert filtered["results"][0]["elements"][0]["text"] == "sign up"
 
+    def test_element_stats_bounds_chain_depth_to_requested_max(self) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="button", text="sign up", order=0),
+                Element(tag_name="div", order=1),
+                Element(tag_name="body", order=2),
+            ],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+        full = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert len(full["results"][0]["elements"]) == 3
+
+        bounded = self.client.get("/api/element/stats/?paginate_response=true&max_element_chain_depth=1").json()
+        bounded_elements = bounded["results"][0]["elements"]
+        assert len(bounded_elements) == 1
+        assert bounded_elements[0]["tag_name"] == "button"
+
     def test_element_stats_returns_stable_chain_hashes(self) -> None:
         self._setup_events()
 
@@ -424,6 +446,8 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("zero_sampling_factor", "sampling_factor=0"),
             ("sampling_factor_above_one", "sampling_factor=1.5"),
             ("negative_sampling_factor", "sampling_factor=-0.5"),
+            ("non_numeric_max_element_chain_depth", "max_element_chain_depth=not-a-number"),
+            ("zero_max_element_chain_depth", "max_element_chain_depth=0"),
         ]
     )
     def test_element_stats_rejects_invalid_query_params(self, _name: str, query: str) -> None:

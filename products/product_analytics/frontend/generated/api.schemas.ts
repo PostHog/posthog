@@ -7823,6 +7823,10 @@ export type ElementsStatsRetrieveParams = {
      */
     limit?: number
     /**
+     * Maximum number of elements returned per chain, keeping the clicked element (order 0) and its nearest ancestors. Bounds the deep DOM ancestor chain up to <body> that inflates responses. Defaults to unbounded (the full chain).
+     */
+    max_element_chain_depth?: number
+    /**
      * Pagination offset
      */
     offset?: number

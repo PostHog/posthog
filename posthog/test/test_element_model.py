@@ -86,7 +86,48 @@ class TestElement(ClickhouseTestMixin, BaseTest):
     )
     def test_chain_to_element_dicts_matches_serialized_models(self, _name: str, chain: str) -> None:
         via_models = cast(list[dict], ElementSerializer(chain_to_elements(chain), many=True).data)
+        # chain_to_element_dicts intentionally drops the redundant attr__class from the
+        # attributes map (the class list already lives in the top-level attr_class array),
+        # unlike the model-serialization path used for event display; mirror that here
+        for element in via_models:
+            element["attributes"].pop("attr__class", None)
         assert chain_to_element_dicts(chain) == via_models
+
+    @parameterized.expand(
+        [
+            ("depth of one keeps only the clicked element", 1, 1),
+            ("depth of two keeps the clicked element and one ancestor", 2, 2),
+            ("depth larger than the chain keeps every element", 10, 3),
+            ("no cap keeps every element", None, 3),
+        ]
+    )
+    def test_chain_to_element_dicts_bounds_chain_depth(
+        self, _name: str, max_depth: int | None, expected_count: int
+    ) -> None:
+        chain = 'button:nth-child="0";div:nth-child="1";body:nth-child="2"'
+        element_dicts = chain_to_element_dicts(chain, max_depth=max_depth)
+        assert [element["order"] for element in element_dicts] == list(range(expected_count))
+        # the clicked element (order 0) is always kept first
+        assert element_dicts[0]["tag_name"] == "button"
+
+    def test_chain_to_element_dicts_does_not_duplicate_attr_class(self) -> None:
+        chain = 'svg.LemonIcon.text-3xl:attr__class="LemonIcon text-3xl"attr__fill="currentColor"nth-child="1"'
+        element = chain_to_element_dicts(chain)[0]
+        assert element["attr_class"] == ["LemonIcon", "text-3xl"]
+        assert "attr__class" not in element["attributes"]
+        assert element["attributes"] == {"attr__fill": "currentColor"}
+
+    def test_chain_to_element_dicts_backfills_attr_class_when_tag_has_no_classes(self) -> None:
+        # some chains carry attr__class without the tag's .class tokens; keep the class list
+        chain = 'div:attr__class="one two"nth-child="0"'
+        element = chain_to_element_dicts(chain)[0]
+        assert element["attr_class"] == ["one", "two"]
+        assert "attr__class" not in element["attributes"]
+
+    def test_chain_to_element_dicts_keeps_attr_class_when_explicitly_requested(self) -> None:
+        chain = 'svg.LemonIcon:attr__class="LemonIcon"nth-child="1"'
+        element = chain_to_element_dicts(chain, build_attributes_filter(["class"]))[0]
+        assert element["attributes"] == {"attr__class": "LemonIcon"}
 
     @parameterized.expand(
         [

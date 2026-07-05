@@ -2272,7 +2272,7 @@
         }
     },
     "elements-stats-retrieve": {
-        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Each result row echoes the clicked element's full DOM ancestor chain up to <body>, with a full attribute map on every ancestor, so responses get very large fast on busy projects. To keep responses small, pass `max_element_chain_depth` (e.g. 3) to return only the clicked element and its nearest ancestors, pass `data_attributes` (e.g. data-attr) to drop attributes you do not need, and pass a small `limit` (e.g. 20), paginating with `offset` for more results.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get element click stats",

@@ -118,6 +118,15 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             ),
             OpenApiParameter(
+                "max_element_chain_depth",
+                type=int,
+                description=(
+                    "Maximum number of elements returned per chain, keeping the clicked element (order 0) "
+                    "and its nearest ancestors. Bounds the deep DOM ancestor chain up to <body> that inflates "
+                    "responses. Defaults to unbounded (the full chain)."
+                ),
+            ),
+            OpenApiParameter(
                 "date_from",
                 type=str,
                 description="Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
@@ -208,6 +217,17 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
 
+                max_element_chain_depth_param = request.query_params.get("max_element_chain_depth")
+                if max_element_chain_depth_param is None:
+                    max_element_chain_depth = None
+                else:
+                    try:
+                        max_element_chain_depth = int(max_element_chain_depth_param)
+                    except ValueError:
+                        raise ValidationError("max_element_chain_depth must be an integer")
+                    if max_element_chain_depth < 1:
+                        raise ValidationError("max_element_chain_depth must be greater than zero")
+
                 # HogQL resolves property access per the team's modifiers (materialized
                 # columns, person-on-events mode), so no per-mode handling is needed here
                 select = parse_select(
@@ -267,7 +287,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "count": int(count),
                         "hash": f"{chain_hash:x}",
                         "type": event_type,
-                        "elements": chain_to_element_dicts(chain, attributes_filter),
+                        "elements": chain_to_element_dicts(chain, attributes_filter, max_element_chain_depth),
                     }
                     for chain, count, event_type, chain_hash in result[:limit]
                 ]

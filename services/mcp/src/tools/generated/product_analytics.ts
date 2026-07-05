@@ -182,6 +182,7 @@ const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, S
                 filter_test_accounts: params.filter_test_accounts,
                 include: params.include,
                 limit: params.limit,
+                max_element_chain_depth: params.max_element_chain_depth,
                 offset: params.offset,
                 properties: params.properties,
                 sampling_factor: params.sampling_factor,
