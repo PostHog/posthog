@@ -419,33 +419,39 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
-        heatmapJsData: [
-            (s) => [
-                s.heatmapElements,
-                s.windowWidth,
-                s.windowWidthOverride,
-                s.heatmapFixedPositionMode,
-                s.heatmapBoundsFilter,
-            ],
-            (
-                heatmapElements,
-                windowWidth,
-                windowWidthOverride,
-                heatmapFixedPositionMode,
-                heatmapBoundsFilter
-            ): HeatmapJsData => {
+        // the one place the area bounds filter applies, so rendering (heatmapJsData) and
+        // click-to-view-events hit testing can't disagree about which points exist
+        filteredHeatmapElements: [
+            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapBoundsFilter],
+            (heatmapElements, windowWidth, windowWidthOverride, heatmapBoundsFilter): HeatmapElement[] => {
+                if (!heatmapBoundsFilter) {
+                    return heatmapElements
+                }
                 const width = windowWidthOverride ?? windowWidth
-                const data = heatmapElements.reduce((acc, element) => {
+                return heatmapElements.filter((element) =>
+                    isWithinBounds(
+                        {
+                            x: Math.round(element.xPercentage * width),
+                            y: Math.round(element.y),
+                            targetFixed: element.targetFixed,
+                        },
+                        heatmapBoundsFilter
+                    )
+                )
+            },
+        ],
+
+        heatmapJsData: [
+            (s) => [s.filteredHeatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
+            (filteredHeatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+                const width = windowWidthOverride ?? windowWidth
+                const data = filteredHeatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
                         return acc
                     }
 
                     const y = Math.round(element.y)
                     const x = Math.round(element.xPercentage * width)
-
-                    if (!isWithinBounds({ x, y, targetFixed: element.targetFixed }, heatmapBoundsFilter)) {
-                        return acc
-                    }
 
                     acc.push({ x, y, value: element.count })
                     return acc

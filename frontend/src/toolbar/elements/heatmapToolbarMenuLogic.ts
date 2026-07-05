@@ -652,9 +652,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         // components), so keep the display honest with a containment check —
                         // composed-tree containment, since matches can live inside shadow roots
                         const withinArea =
-                            !trimmed ||
                             !heatmapAreaFilter?.element.isConnected ||
-                            containsInComposedTree(heatmapAreaFilter.element, trimmed)
+                            (trimmed !== null && containsInComposedTree(heatmapAreaFilter.element, trimmed))
                         if (
                             trimmed &&
                             withinArea &&
