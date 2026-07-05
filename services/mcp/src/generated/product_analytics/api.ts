@@ -3,10 +3,57 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * The original version of this API always and only returned $autocapture elements
+ * If no include query parameter is sent this remains true.
+ * Now, you can pass a combination of include query parameters to get different types of elements
+ * Currently only $autocapture and $rageclick and $dead_click are supported
+ */
+export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    data_attributes: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response."
+        ),
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.'),
+    date_to: zod.string().optional().describe('End of the date range (e.g. 2024-01-31). Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .optional()
+        .describe("When true, applies the project's internal-and-test-account filters to the underlying events."),
+    include: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.'
+        ),
+    limit: zod.number().optional().describe('Maximum rows per page'),
+    offset: zod.number().optional().describe('Pagination offset'),
+    properties: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+        ),
+    sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
+})
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.

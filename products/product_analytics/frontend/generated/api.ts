@@ -18,6 +18,7 @@ import type {
     ElementStatsResponseApi,
     ElementsListParams,
     ElementsStatsRetrieveParams,
+    ElementsValuesListParams,
     InsightApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
@@ -39,6 +40,7 @@ import type {
     InsightsViewedCreateParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
+    PaginatedElementValueListApi,
     PaginatedInsightListApi,
     PaginatedTrendingInsightListApi,
     PatchedColumnConfigurationApi,
@@ -308,12 +310,28 @@ export const elementsStatsRetrieve = async (
     })
 }
 
-export const getElementsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/values/`
+export const getElementsValuesListUrl = (projectId: string, params: ElementsValuesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/elements/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/values/`
 }
 
-export const elementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsValuesRetrieveUrl(projectId), {
+export const elementsValuesList = async (
+    projectId: string,
+    params: ElementsValuesListParams,
+    options?: RequestInit
+): Promise<PaginatedElementValueListApi> => {
+    return apiMutator<PaginatedElementValueListApi>(getElementsValuesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

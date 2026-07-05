@@ -18361,6 +18361,11 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    export interface ElementValue {
+      /** A distinct value of the requested element property */
+      name: string;
+    }
+
     /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
@@ -31671,6 +31676,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Element[];
+    }
+
+    export interface PaginatedElementValueList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ElementValue[];
     }
 
     export interface PaginatedEndpointResponseList {
@@ -56492,7 +56506,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[];
     /**
@@ -56504,9 +56522,32 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string;
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number;
+    };
+
+    export type EnvironmentsElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
+     */
+    key: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string;
     };
 
     export type EnvironmentsEndpointsListParams = {
@@ -62575,7 +62616,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[];
     /**
@@ -62587,9 +62632,32 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string;
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number;
+    };
+
+    export type ElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
+     */
+    key: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string;
     };
 
     export type EndpointsListParams = {

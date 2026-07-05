@@ -270,7 +270,14 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert results == expected_rage_click_data_response_results
 
     # no include params is equivalent to autocapture and rageclick
-    @parameterized.expand(["&include=$rageclick&include=$autocapture", ""])
+    @parameterized.expand(
+        [
+            "&include=$rageclick&include=$autocapture",
+            "",
+            '&include=["$rageclick","$autocapture"]',
+            "&include=$rageclick,$autocapture",
+        ]
+    )
     def test_element_stats_can_load_rageclick_and_autocapture_data(self, include_params) -> None:
         self._setup_events()
 
@@ -365,6 +372,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("non_numeric_limit", "limit=not-a-number"),
             ("non_numeric_offset", "offset=not-a-number"),
             ("unexpected_include", "include=$autocapture&include=$rageclick&include=$pageview"),
+            ("malformed_json_include", "include=%5Bnot-json"),
             ("zero_limit", "limit=0"),
             ("negative_limit", "limit=-1"),
             ("limit_at_printer_cap", "limit=1000000"),

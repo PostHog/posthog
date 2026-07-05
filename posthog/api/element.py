@@ -1,5 +1,6 @@
+import json
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 
 from django.conf import settings
 
@@ -20,11 +21,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
-from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Element, Filter
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
-from posthog.models.element.sql import GET_VALUES
 from posthog.utils import format_query_params_absolute_url
 
 tracer = trace.get_tracer(__name__)
@@ -74,6 +73,10 @@ class ElementStatsResponseSerializer(serializers.Serializer):
     previous = serializers.CharField(allow_null=True, help_text="URL for the previous page of results, if any")
 
 
+class ElementValueSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="A distinct value of the requested element property")
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "element"
@@ -89,7 +92,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "include",
                 type=str,
                 many=True,
-                description="Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.",
+                description=(
+                    "Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. "
+                    "Accepts repeated parameters, a JSON array, or a comma-separated list."
+                ),
             ),
             OpenApiParameter("limit", type=int, description="Maximum rows per page"),
             OpenApiParameter("offset", type=int, description="Pagination offset"),
@@ -111,6 +117,21 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "date_to",
                 type=str,
                 description="End of the date range (e.g. 2024-01-31). Defaults to now.",
+            ),
+            OpenApiParameter(
+                "properties",
+                type=str,
+                description=(
+                    "JSON-encoded list of property filters to apply to the underlying events, e.g. "
+                    '[{"key": "$current_url", "value": "https://example.com/page"}] or '
+                    '[{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. '
+                    "Supports event, person, cohort, element, and HogQL property filter types."
+                ),
+            ),
+            OpenApiParameter(
+                "filter_test_accounts",
+                type=bool,
+                description="When true, applies the project's internal-and-test-account filters to the underlying events.",
             ),
         ],
         responses=ElementStatsResponseSerializer,
@@ -265,7 +286,20 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "$rageclick",
             "$dead_click",
         }
-        events_to_include = set(request.query_params.getlist("include", []))
+        # accept repeated params (the toolbar), a JSON array string (the MCP client
+        # serializes arrays with JSON.stringify), or a comma-separated list
+        events_to_include: set[str] = set()
+        for raw in request.query_params.getlist("include", []):
+            if raw.startswith("["):
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    raise ValidationError("include must be a valid JSON array when passed as one")
+                if not isinstance(parsed, list):
+                    raise ValidationError("include must be a JSON array of event names")
+                events_to_include.update(parsed)
+            else:
+                events_to_include.update(part for part in raw.split(",") if part)
 
         if not events_to_include:
             return tuple(supported_events)
@@ -273,8 +307,24 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not events_to_include.issubset(supported_events):
             raise ValidationError("Only $autocapture, $rageclick, and $dead_click are supported.")
 
-        return tuple(events_to_include)
+        return tuple(cast(set[Literal["$autocapture", "$rageclick", "$dead_click"]], events_to_include))
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "key",
+                type=str,
+                required=True,
+                description="Element property to list values for: tag_name, text, href, attr_class, or attr_id.",
+            ),
+            OpenApiParameter(
+                "value",
+                type=str,
+                description="Optional substring to filter values by (case-sensitive contains match).",
+            ),
+        ],
+        responses=ElementValueSerializer(many=True),
+    )
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
         with (
@@ -305,16 +355,29 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else:
                     filter_regex = select_regex
 
-            result = sync_execute(
-                GET_VALUES.format(),
-                {
-                    "team_id": self.team.id,
-                    "regex": select_regex,
-                    "filter_regex": filter_regex,
+            select = parse_select(
+                """
+                SELECT extract(elements_chain, {select_regex}) AS value, count() AS occurrences
+                FROM (
+                    SELECT elements_chain
+                    FROM events
+                    WHERE event = '$autocapture'
+                        AND elements_chain != ''
+                        AND match(elements_chain, {filter_regex})
+                    LIMIT 100000
+                )
+                GROUP BY value
+                ORDER BY occurrences DESC
+                LIMIT 100
+                """,
+                placeholders={
+                    "select_regex": ast.Constant(value=select_regex),
+                    "filter_regex": ast.Constant(value=filter_regex),
                 },
             )
+            result = execute_hogql_query(query=select, team=self.team, query_type="elements_values").results
             span.set_attribute("result_count", len(result))
-            return response.Response([{"name": value[0]} for value in result])
+            return response.Response([{"name": row[0]} for row in result])
 
 
 class LegacyElementViewSet(ElementViewSet):

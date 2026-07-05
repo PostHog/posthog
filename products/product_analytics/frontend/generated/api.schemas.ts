@@ -205,6 +205,20 @@ export interface ElementStatsResponseApi {
     previous: string | null
 }
 
+export interface ElementValueApi {
+    /** A distinct value of the requested element property */
+    name: string
+}
+
+export interface PaginatedElementValueListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ElementValueApi[]
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -7806,7 +7820,11 @@ export type ElementsStatsRetrieveParams = {
      */
     date_to?: string
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[]
     /**
@@ -7818,9 +7836,32 @@ export type ElementsStatsRetrieveParams = {
      */
     offset?: number
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number
+}
+
+export type ElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
+     */
+    key: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string
 }
 
 export type InsightsListParams = {

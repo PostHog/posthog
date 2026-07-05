@@ -2315,6 +2315,20 @@
             "readOnlyHint": true
         }
     },
+    "elements-stats-retrieve": {
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\".",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get element click stats",
+        "title": "Get element click stats",
+        "required_scopes": ["element:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "endpoint-create": {
         "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
         "category": "Endpoints",
