@@ -184,11 +184,16 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
     if cached is not None:
         return cached
 
-    try:
+    def _fn() -> list[dict[str, Any]]:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
         client = require_personhog_client()
+        return _fetch_group_types_via_personhog(client, project_id)
+
+    try:
         result = personhog_call(
             "get_group_types_for_project",
-            lambda: _fetch_group_types_via_personhog(client, project_id),
+            _fn,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project'}",
             reraise_as=DatabaseError,
         )
@@ -223,11 +228,15 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
 
 def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog."""
-    try:
+
+    def _fn() -> list[dict[str, Any]]:
         client = require_personhog_client()
+        return _fetch_group_types_for_team_via_personhog(client, team_id)
+
+    try:
         return personhog_call(
             "get_group_types_for_team",
-            lambda: _fetch_group_types_for_team_via_personhog(client, team_id),
+            _fn,
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_team'}",
             reraise_as=DatabaseError,
         )
@@ -374,14 +383,17 @@ def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list
     """Count group type mappings per team via personhog."""
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
-    try:
+    def _fn() -> list[dict[str, int]]:
         client = require_personhog_client()
+        return [
+            {"team_id": c.team_id, "total": c.count}
+            for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+        ]
+
+    try:
         return personhog_call(
             "count_group_type_mappings_per_team",
-            lambda: [
-                {"team_id": c.team_id, "total": c.count}
-                for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
-            ],
+            _fn,
             caller_tag=f"group_type_mapping/{caller_tag or 'count_group_type_mappings_per_team'}",
             reraise_as=DatabaseError,
         )
@@ -464,10 +476,9 @@ def _fetch_group_types_for_project_direct(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    client = require_personhog_client()
-    return personhog_call(
-        "get_group_types_for_project_direct",
-        lambda: sorted(
+    def _fn() -> list[dict[str, Any]]:
+        client = require_personhog_client()
+        return sorted(
             [
                 proto_group_type_mapping_to_dict(m)
                 for m in client.get_group_type_mappings_by_project_id(
@@ -478,7 +489,11 @@ def _fetch_group_types_for_project_direct(
                 ).mappings
             ],
             key=lambda d: d["group_type_index"],
-        ),
+        )
+
+    return personhog_call(
+        "get_group_types_for_project_direct",
+        _fn,
         caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project_direct'}",
         reraise_as=DatabaseError,
     )
