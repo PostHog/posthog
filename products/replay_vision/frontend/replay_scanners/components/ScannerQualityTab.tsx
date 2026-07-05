@@ -321,7 +321,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     }
 
     return (
-        <div className="border rounded p-4 bg-surface-primary space-y-3">
+        <div className="border rounded p-4 bg-surface-primary space-y-4">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">Prompt recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
@@ -349,7 +349,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 </div>
             </div>
             {body}
-            <div>
+            <div className="border-t pt-3">
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
@@ -667,7 +667,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
     ]
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. PostHog AI
                 turns your team's ratings into the prompt recommendation below.
@@ -677,11 +677,11 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
 
             <RatingsOverTimePanel scannerId={scannerId} />
 
-            <div className="space-y-2">
+            <div className="space-y-3">
                 <div className="flex items-start gap-3">
                     <div>
                         <h3 className="font-semibold text-base m-0">Rate results</h3>
-                        <p className="text-muted text-xs m-0">
+                        <p className="text-muted text-xs m-0 mt-0.5">
                             The more results your team rates, and the more feedback you leave, the better the prompt
                             recommendations get.
                         </p>
