@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import time
 import datetime as dt
+from uuid import UUID
 
+import structlog
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
@@ -23,10 +25,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.notebooks.backend.facade import api as notebooks
 from products.pulse.backend.generation.prompts import sanitize_for_prompt
-from products.pulse.backend.generation.research import run_research
+from products.pulse.backend.generation.research import ResearchRunResult, run_research
 from products.pulse.backend.generation.research_notebook import build_research_notebook
 from products.pulse.backend.models import Opportunity
 from products.pulse.backend.temporal.inputs import RESEARCH_OPPORTUNITY_WORKFLOW_NAME, ResearchOpportunityWorkflowInputs
+
+logger = structlog.get_logger(__name__)
 
 RESEARCH_ACTIVITY_START_TO_CLOSE_SECONDS = 20 * 60
 RESEARCH_ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS = 5 * 60
@@ -58,8 +62,26 @@ async def research_opportunity_activity(inputs: ResearchOpportunityWorkflowInput
         )
     opportunity = await sync_to_async(_get_opportunity, thread_sensitive=False)(inputs.team_id, inputs.opportunity_id)
     user = await User.objects.aget(id=inputs.user_id)
-    goal = await sync_to_async(_resolve_goal, thread_sensitive=False)(opportunity)
+    try:
+        await _run_and_persist(team=team, opportunity=opportunity, user=user)
+    except Exception as exc:
+        # With no status field on the row, the failure event + log ARE the diagnosis surface —
+        # without them a failed run is only visible as Temporal-UI archaeology and the
+        # requested/completed event pair silently undercounts.
+        logger.exception(
+            "pulse_research_failed",
+            team_id=inputs.team_id,
+            opportunity_id=inputs.opportunity_id,
+            error_type=type(exc).__name__,
+        )
+        await sync_to_async(_report_research_failed, thread_sensitive=False)(
+            user=user, opportunity=opportunity, error_type=type(exc).__name__
+        )
+        raise
 
+
+async def _run_and_persist(*, team: Team, opportunity: Opportunity, user: User) -> None:
+    goal = await sync_to_async(_resolve_goal, thread_sensitive=False)(opportunity)
     opportunity_context = _build_opportunity_context(opportunity, goal)
 
     started = time.monotonic()
@@ -82,19 +104,18 @@ async def research_opportunity_activity(inputs: ResearchOpportunityWorkflowInput
         created_by_id=user.id,
         last_modified_by_id=user.id,
     )
-
-    await sync_to_async(_persist_notebook_id, thread_sensitive=False)(
-        inputs.team_id, inputs.opportunity_id, notebook.id
+    # Logged before the back-reference persists so a failed update leaves a traceable, not
+    # silently orphaned, notebook.
+    logger.info(
+        "pulse_research_notebook_created",
+        team_id=team.id,
+        opportunity_id=str(opportunity.id),
+        notebook_id=str(notebook.id),
     )
 
-    proposal_count = len(result.report.proposals)
+    await sync_to_async(_persist_notebook_id, thread_sensitive=False)(team.id, str(opportunity.id), notebook.id)
     await sync_to_async(_report_research_completed, thread_sensitive=False)(
-        user=user,
-        opportunity=opportunity,
-        duration_s=duration_s,
-        web_call_count=result.web_call_count,
-        internal_query_count=result.internal_query_count,
-        proposal_count=proposal_count,
+        user=user, opportunity=opportunity, duration_s=duration_s, result=result
     )
 
 
@@ -113,7 +134,7 @@ def _resolve_goal(opportunity: Opportunity) -> str | None:
     return goal or None
 
 
-def _persist_notebook_id(team_id: int, opportunity_id: str, notebook_id: object) -> None:
+def _persist_notebook_id(team_id: int, opportunity_id: str, notebook_id: UUID) -> None:
     Opportunity.objects.for_team(team_id).filter(id=opportunity_id).update(research_notebook_id=notebook_id)
 
 
@@ -141,13 +162,7 @@ def _build_opportunity_context(opportunity: Opportunity, goal: str | None) -> st
 
 
 def _report_research_completed(
-    *,
-    user: User,
-    opportunity: Opportunity,
-    duration_s: float,
-    web_call_count: int,
-    internal_query_count: int,
-    proposal_count: int,
+    *, user: User, opportunity: Opportunity, duration_s: float, result: ResearchRunResult
 ) -> None:
     # ph_scoped_capture (not posthoganalytics.capture): outside request context the global client's
     # flush may never run before the worker moves on, silently losing the event.
@@ -160,8 +175,23 @@ def _report_research_completed(
                 "kind": opportunity.kind,
                 "goal_relevant": opportunity.goal_relevant,
                 "duration_s": round(duration_s, 1),
-                "web_call_count": web_call_count,
-                "internal_query_count": internal_query_count,
-                "proposal_count": proposal_count,
+                "web_call_count": result.web_call_count,
+                "internal_query_count": result.internal_query_count,
+                "proposal_count": len(result.report.proposals),
+                "fallback": result.fallback,
+            },
+        )
+
+
+def _report_research_failed(*, user: User, opportunity: Opportunity, error_type: str) -> None:
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=user.distinct_id,
+            event="opportunity_research_failed",
+            properties={
+                "opportunity_id": str(opportunity.id),
+                "kind": opportunity.kind,
+                # Type name only — error messages can echo team-scoped identifiers.
+                "error_type": error_type,
             },
         )

@@ -9,6 +9,7 @@ survive verbatim to link back to the real resources.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
@@ -24,6 +25,7 @@ from products.notebooks.backend.facade.content import (
     create_paragraph_with_text,
     create_text_content,
 )
+from products.pulse.backend.generation.research import DataFinding, MarketFinding, ResearchReport
 from products.pulse.backend.models import Opportunity
 
 # Generous per-field clamps: the notebook is a read artifact, but an unbounded LLM/web string
@@ -31,20 +33,28 @@ from products.pulse.backend.models import Opportunity
 _TITLE_MAX = 300
 _TEXT_MAX = 4000
 
-# Opportunity evidence citation types that resolve to an in-app link. Mirrors the frontend
-# CITATION_TYPES table; unknown types render as plain text.
-_CITATION_PATHS: dict[str, Any] = {
+
+def _numeric_path(template: str) -> Callable[[str], str | None]:
+    # Flags/experiments/annotations are cited by numeric scene id — a hallucinated non-numeric
+    # ref degrades to plain text, mirroring the frontend's numericSceneUrl guard.
+    return lambda ref: template.format(ref=ref) if ref.isdigit() else None
+
+
+# Opportunity evidence citation types that resolve to an in-app link, matching the linkable subset
+# of the frontend CITATION_TYPES table (the `opportunity` type deliberately stays a plain tag —
+# its scene-tab link adds nothing inside a notebook). Unknown types render as plain text.
+_CITATION_PATHS: dict[str, Callable[[str], str | None]] = {
     "insight": lambda ref: f"/insights/{ref}",
     "dashboard": lambda ref: f"/dashboard/{ref}",
-    "annotation": lambda ref: f"/data-management/annotations/{ref}",
+    "flag": _numeric_path("/feature_flags/{ref}"),
+    "experiment": _numeric_path("/experiments/{ref}"),
+    "annotation": _numeric_path("/data-management/annotations/{ref}"),
 }
 
 _EFFORT_IMPACT = {"low": "Low", "medium": "Medium", "high": "High"}
 
 
-def build_research_notebook(*, opportunity: Opportunity, goal: str | None, report: Any) -> dict[str, Any]:
-    """Compose the research notebook. `report` is a ResearchReport (typed loosely to keep this
-    module free of the ee/langchain import path that research.py pulls in)."""
+def build_research_notebook(*, opportunity: Opportunity, goal: str | None, report: ResearchReport) -> dict[str, Any]:
     content: TipTapContent = []
 
     title = _clean(opportunity.title, _TITLE_MAX) or "opportunity"
@@ -52,8 +62,16 @@ def build_research_notebook(*, opportunity: Opportunity, goal: str | None, repor
 
     _append_opportunity_context(content, opportunity, goal)
     _append_diagnosis(content, report)
-    _append_market_findings(content, report)
-    _append_data_findings(content, report)
+    _append_bullet_section(
+        content,
+        "What comparable products do",
+        [node for finding in report.market_findings if (node := _market_finding_node(finding)) is not None],
+    )
+    _append_bullet_section(
+        content,
+        "What your data says",
+        [node for finding in report.data_findings if (node := _data_finding_node(finding)) is not None],
+    )
     _append_proposals(content, report)
 
     content.append(create_heading_with_text("About this research", level=3, collapsed=True))
@@ -92,8 +110,8 @@ def _append_opportunity_context(content: TipTapContent, opportunity: Opportunity
     content.append(create_empty_paragraph())
 
 
-def _append_diagnosis(content: TipTapContent, report: Any) -> None:
-    problem = _clean(getattr(report, "problem_class", ""), _TITLE_MAX)
+def _append_diagnosis(content: TipTapContent, report: ResearchReport) -> None:
+    problem = _clean(report.problem_class, _TITLE_MAX)
     if not problem:
         return
     content.append(create_heading_with_text("Problem diagnosis", level=2))
@@ -101,45 +119,32 @@ def _append_diagnosis(content: TipTapContent, report: Any) -> None:
     content.append(create_empty_paragraph())
 
 
-def _append_market_findings(content: TipTapContent, report: Any) -> None:
-    findings = getattr(report, "market_findings", None) or []
-    rendered = [node for finding in findings if (node := _market_finding_node(finding)) is not None]
+def _append_bullet_section(content: TipTapContent, heading: str, rendered: list[TipTapContent]) -> None:
     if not rendered:
         return
-    content.append(create_heading_with_text("What comparable products do", level=2))
+    content.append(create_heading_with_text(heading, level=2))
     content.append(create_bullet_list(rendered))
     content.append(create_empty_paragraph())
 
 
-def _append_data_findings(content: TipTapContent, report: Any) -> None:
-    findings = getattr(report, "data_findings", None) or []
-    rendered = [node for finding in findings if (node := _data_finding_node(finding)) is not None]
-    if not rendered:
-        return
-    content.append(create_heading_with_text("What your data says", level=2))
-    content.append(create_bullet_list(rendered))
-    content.append(create_empty_paragraph())
-
-
-def _append_proposals(content: TipTapContent, report: Any) -> None:
-    proposals = getattr(report, "proposals", None) or []
+def _append_proposals(content: TipTapContent, report: ResearchReport) -> None:
     content.append(create_heading_with_text("Proposed solutions", level=2))
     any_rendered = False
-    for index, proposal in enumerate(proposals, start=1):
-        title = _clean(getattr(proposal, "title", ""), _TITLE_MAX)
-        description = _clean(getattr(proposal, "description", ""), _TEXT_MAX)
+    for index, proposal in enumerate(report.proposals, start=1):
+        title = _clean(proposal.title, _TITLE_MAX)
+        description = _clean(proposal.description, _TEXT_MAX)
         if not title and not description:
             continue
         any_rendered = True
-        effort = _EFFORT_IMPACT.get(getattr(proposal, "effort", ""), "")
-        impact = _EFFORT_IMPACT.get(getattr(proposal, "impact", ""), "")
+        effort = _EFFORT_IMPACT.get(proposal.effort, "")
+        impact = _EFFORT_IMPACT.get(proposal.impact, "")
         heading = f"{index}. {title or 'Proposal'}"
         if effort and impact:
             heading += f" · effort {effort.lower()}, impact {impact.lower()}"
         content.append(create_heading_with_text(heading, level=3))
         if description:
             content.append(create_paragraph_with_text(description))
-        source_nodes = _source_nodes(getattr(proposal, "sources", None) or [])
+        source_nodes = _source_nodes(proposal.sources)
         if source_nodes:
             content.append(create_bullet_list(source_nodes))
     if not any_rendered:
@@ -147,12 +152,12 @@ def _append_proposals(content: TipTapContent, report: Any) -> None:
     content.append(create_empty_paragraph())
 
 
-def _market_finding_node(finding: Any) -> TipTapContent | None:
-    claim = _clean(getattr(finding, "claim", ""), _TEXT_MAX)
+def _market_finding_node(finding: MarketFinding) -> TipTapContent | None:
+    claim = _clean(finding.claim, _TEXT_MAX)
     if not claim:
         return None
-    source_name = _clean(getattr(finding, "source_name", ""), _TITLE_MAX)
-    url = _safe_url(getattr(finding, "source_url", ""))
+    source_name = _clean(finding.source_name, _TITLE_MAX)
+    url = _safe_url(finding.source_url)
     nodes: TipTapContent = [create_text_content(claim)]
     if source_name or url:
         nodes.append(create_text_content(" — "))
@@ -164,18 +169,18 @@ def _market_finding_node(finding: Any) -> TipTapContent | None:
     return [create_paragraph_with_content(nodes)]
 
 
-def _data_finding_node(finding: Any) -> TipTapContent | None:
-    observation = _clean(getattr(finding, "observation", ""), _TEXT_MAX)
+def _data_finding_node(finding: DataFinding) -> TipTapContent | None:
+    observation = _clean(finding.observation, _TEXT_MAX)
     if not observation:
         return None
     nodes: TipTapContent = [create_text_content(observation)]
-    query = _clean(getattr(finding, "query", ""), _TEXT_MAX)
+    query = _clean(finding.query, _TEXT_MAX)
     if query:
         nodes.append(create_text_content(f" (query: {query})", is_italic=True))
     return [create_paragraph_with_content(nodes)]
 
 
-def _source_nodes(sources: list[Any]) -> list[TipTapContent]:
+def _source_nodes(sources: list[str]) -> list[TipTapContent]:
     rendered: list[TipTapContent] = []
     for source in sources:
         text = _clean(str(source), _TEXT_MAX)
@@ -204,7 +209,8 @@ def _evidence_nodes(evidence: Any) -> list[TipTapContent]:
             continue
         path_builder = _CITATION_PATHS.get(entry_type)
         # Refs are code-generated (not LLM output), so they're safe to place in a URL verbatim.
-        url = _safe_url(absolute_uri(path_builder(ref))) if path_builder and ref else None
+        path = path_builder(ref) if path_builder and ref else None
+        url = _safe_url(absolute_uri(path)) if path else None
         node = _link_text(text, url) if url else create_text_content(text)
         rendered.append([create_paragraph_with_content([node])])
     return rendered

@@ -2,7 +2,7 @@
 
 Every product-analytics event Pulse emits, with its properties and the dashboard panel(s) that consume it.
 This is the contract the Pulse health dashboard (and the future feedback-driven tuning loop) builds against — treat property renames as breaking changes and update this file in the same PR.
-The contract is maintained by hand (deliberate for 7 events): emission _shapes_ are pinned by tests (`test_feedback_api.py`, `test_activities.py`), so a property rename fails tests; keeping this file in sync is part of those PRs.
+The contract is maintained by hand (deliberate for 10 events): emission _shapes_ are pinned by tests (`test_feedback_api.py`, `test_activities.py`, `test_opportunity_api.py`), so a property rename fails tests; keeping this file in sync is part of those PRs.
 The dashboard is defined as code in `terraform/us/project-2/team-analytics-platform/pulse-health/`; its README carries the panel ↔ event table this file's "Dashboard panels" lines mirror.
 
 All events are captured against the acting user's distinct id.
@@ -92,8 +92,20 @@ Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` (Temporal w
 | `web_call_count`       | int        | Web searches the agent made (capped at 8).                                 |
 | `internal_query_count` | int        | HogQL queries over the team's own data the agent ran (capped at 6).        |
 | `proposal_count`       | int        | Ranked solution proposals in the produced notebook.                        |
+| `fallback`             | bool       | True when the notebook carries a degraded placeholder report (LLM failure / invalid final output). |
 
-Dashboard panels: future — research adoption (requested vs completed), proposal volume, cost bounds (`web_call_count`, `internal_query_count`, `duration_s`). Not yet charted.
+### `opportunity_research_failed`
+
+Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` when a research run raises past the researcher's own best-effort handling (notebook create/persist failure, consent revoked mid-run).
+There is no research status field on the row, so this event (plus the `pulse_research_failed` log) is the failure-diagnosis surface; requested minus (completed + failed) should be ~0.
+
+| Property         | Type       | Meaning                                                                 |
+| ---------------- | ---------- | ------------------------------------------------------------------------ |
+| `opportunity_id` | str (UUID) | The opportunity whose research run failed.                               |
+| `kind`           | str        | `build`, `fix`, or `instrument`.                                         |
+| `error_type`     | str        | Exception class name only — messages can echo team-scoped identifiers.   |
+
+Dashboard panels: future — research adoption (requested vs completed vs failed), proposal volume, degraded-run rate (`fallback`), cost bounds (`web_call_count`, `internal_query_count`, `duration_s`). Not yet charted.
 
 ## Helpfulness feedback
 

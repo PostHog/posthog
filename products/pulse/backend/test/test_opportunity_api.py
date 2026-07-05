@@ -179,6 +179,28 @@ class TestOpportunityAPI(APIBaseTest):
         assert self.mock_report.call_args.args[1] == "opportunity_research_requested"
 
     @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_requires_flag(self, mock_connect: MagicMock) -> None:
+        opportunity = self._opportunity()
+        self.mock_flag.return_value = False
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/research/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_connect.assert_not_called()
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_is_team_scoped(self, mock_connect: MagicMock) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other = self._opportunity(team=other_team)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{other.id}/research/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_connect.assert_not_called()
+        other.refresh_from_db()
+        assert other.research_requested_at is None
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
     def test_research_requires_ai_consent(self, mock_connect: MagicMock) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()

@@ -23,7 +23,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
 from products.notebooks.backend.facade import api as notebooks
-from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
+from products.pulse.backend.api.brief import AI_CONSENT_ERROR_CODE, PULSE_FEATURE_FLAG
 from products.pulse.backend.api.feedback import (
     FeedbackFieldsSerializerMixin,
     FeedbackVoteRequestSerializer,
@@ -262,9 +262,13 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         if not self.team.organization.is_ai_data_processing_approved:
             raise ValidationError(
                 "AI data processing must be approved for this organization to research opportunities.",
-                code="ai_consent_required",
+                code=AI_CONSENT_ERROR_CODE,
             )
         opportunity = self.get_object()
+        # Soft cap, deliberately cheap: counts opportunities researched in the window (a re-research
+        # overwrites its own timestamp, so it stays counted once), and the count-then-stamp pair is
+        # unlocked, so concurrent clicks can slip slightly past the cap. Single-flight + the bounded
+        # run keep worst-case spend acceptable for v1.
         since = timezone.now() - timedelta(hours=24)
         recent_runs = Opportunity.objects.for_team(self.team_id).filter(research_requested_at__gte=since).count()
         if recent_runs >= RESEARCH_DAILY_CAP:

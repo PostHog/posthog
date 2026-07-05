@@ -8,12 +8,12 @@ from parameterized import parameterized
 from products.pulse.backend.generation.research import (
     MAX_INTERNAL_QUERIES,
     MAX_ITERATIONS,
+    MAX_WEB_CALLS,
     DataFinding,
     MarketFinding,
     ResearchProposal,
     ResearchReport,
     run_research,
-    web_search_available,
 )
 from products.pulse.backend.generation.research_notebook import build_research_notebook
 from products.pulse.backend.models import Opportunity
@@ -30,12 +30,14 @@ class _FakeResponse:
 
 class _FakeLLM:
     """One shared response queue across every bind_tools() runnable, so the loop and the forced
-    finalize turn draw from the same script."""
+    finalize turn draw from the same script. Bound tool lists are recorded for wiring asserts."""
 
     def __init__(self, responses: list[_FakeResponse]) -> None:
         self.queue = list(responses)
+        self.bound_tools: list[list] = []
 
-    def bind_tools(self, tools: object, **kwargs: object) -> object:
+    def bind_tools(self, tools: list, **kwargs: object) -> object:
+        self.bound_tools.append(tools)
         queue = self.queue
 
         class _Runnable:
@@ -54,16 +56,19 @@ def _report_call(report: ResearchReport | None = None) -> dict:
     return {"name": "submit_research_report", "args": report.model_dump(), "id": "r"}
 
 
-def _drive_research(responses: list[_FakeResponse], executor: MagicMock) -> object:
+def _drive_research(
+    responses: list[_FakeResponse], executor: MagicMock, *, web_search_supported: bool = False
+) -> tuple[object, _FakeLLM]:
     team = MagicMock(id=1)
     user = MagicMock(id=2, distinct_id="d")
+    llm = _FakeLLM(responses)
     with (
-        patch(_LLM_PATH, return_value=_FakeLLM(responses)),
+        patch(_LLM_PATH, return_value=llm),
         patch(_EXECUTOR_PATH, return_value=executor),
-        patch("products.pulse.backend.generation.research.web_search_available", return_value=False),
+        patch("products.pulse.backend.generation.research.is_web_search_supported", return_value=web_search_supported),
         patch("products.pulse.backend.generation.research._build_callbacks", return_value=[]),
     ):
-        return asyncio.run(run_research(team=team, user=user, opportunity_context="ctx"))
+        return asyncio.run(run_research(team=team, user=user, opportunity_context="ctx")), llm
 
 
 class TestResearchLoop:
@@ -76,9 +81,10 @@ class TestResearchLoop:
         report = ResearchReport(problem_class="Checkout friction", proposals=[])
         executor = self._executor()
 
-        result = _drive_research([_FakeResponse(tool_calls=[_report_call(report)])], executor)
+        result, _ = _drive_research([_FakeResponse(tool_calls=[_report_call(report)])], executor)
 
         assert result.report.problem_class == "Checkout friction"
+        assert result.fallback is False
         executor.arun_and_format_query.assert_not_called()
 
     def test_internal_query_budget_caps_hogql_execution(self) -> None:
@@ -89,7 +95,7 @@ class TestResearchLoop:
         loop_responses = [_FakeResponse(tool_calls=[_run_hogql_call(call_id=str(i))]) for i in range(MAX_ITERATIONS)]
         forced_final = _FakeResponse(tool_calls=[_report_call()])
 
-        result = _drive_research([*loop_responses, forced_final], executor)
+        result, _ = _drive_research([*loop_responses, forced_final], executor)
 
         assert executor.arun_and_format_query.call_count == MAX_INTERNAL_QUERIES
         assert result.internal_query_count == MAX_INTERNAL_QUERIES
@@ -103,31 +109,26 @@ class TestResearchLoop:
         with (
             patch(_LLM_PATH, return_value=failing),
             patch(_EXECUTOR_PATH, return_value=self._executor()),
-            patch("products.pulse.backend.generation.research.web_search_available", return_value=False),
+            patch("products.pulse.backend.generation.research.is_web_search_supported", return_value=False),
             patch("products.pulse.backend.generation.research._build_callbacks", return_value=[]),
         ):
             result = asyncio.run(run_research(team=team, user=user, opportunity_context="ctx"))
 
         assert result.report.problem_class == "Inconclusive"
+        assert result.fallback is True
 
+    @parameterized.expand([("supported", True), ("unsupported", False)])
+    def test_web_search_tool_bound_only_when_supported(self, _name: str, supported: bool) -> None:
+        _, llm = _drive_research(
+            [_FakeResponse(tool_calls=[_report_call()])], self._executor(), web_search_supported=supported
+        )
 
-class TestWebSearchGating:
-    @parameterized.expand(
-        [
-            ("bedrock_primary_disables", "gateway-bedrock", "http://gw", "key", False),
-            ("bedrock_without_gateway_allows", "gateway-bedrock", "", "", True),
-            ("anthropic_allows", "gateway-anthropic", "http://gw", "key", True),
-            ("control_allows", "control", "", "", True),
-        ]
-    )
-    def test_web_search_availability(self, _name: str, variant: str, gw_url: str, gw_key: str, expected: bool) -> None:
-        with (
-            patch("products.pulse.backend.generation.research.get_llm_gateway_variant", return_value=variant),
-            patch("products.pulse.backend.generation.research.settings") as mock_settings,
-        ):
-            mock_settings.LLM_GATEWAY_URL = gw_url
-            mock_settings.LLM_GATEWAY_API_KEY = gw_key
-            assert web_search_available(MagicMock(), MagicMock()) is expected
+        # First bind is the loop toolset; the web_search server tool must ride the support gate.
+        loop_tools = llm.bound_tools[0]
+        web_tools = [t for t in loop_tools if isinstance(t, dict) and t.get("type") == "web_search_20250305"]
+        assert (len(web_tools) == 1) is supported
+        if supported:
+            assert web_tools[0]["max_uses"] == MAX_WEB_CALLS
 
 
 class TestResearchNotebook:

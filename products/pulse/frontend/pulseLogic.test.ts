@@ -750,6 +750,50 @@ describe('pulseLogic', () => {
         expect(infoSpy).toHaveBeenCalledWith('Daily research limit reached for this team — try again later')
     })
 
+    it('clears the spinner and info-toasts when research is already running (409)', async () => {
+        const infoSpy = jest.spyOn(lemonToast, 'info')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/research/': () => [
+                    409,
+                    { detail: 'Research is already in progress for this opportunity.' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.researchOpportunity('opp-1')
+        }).toDispatchActions(['researchStarted', 'researchFailed'])
+        expect(logic.values.researchInFlight).toEqual({})
+        expect(infoSpy).toHaveBeenCalledWith('Research is already running for this opportunity')
+    })
+
+    it('shows the consent banner instead of a toast when research hits the AI consent gate', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/research/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'ai_consent_required',
+                        detail: 'AI data processing must be approved for this organization to research opportunities.',
+                        attr: null,
+                    },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.researchOpportunity('opp-1')
+        }).toDispatchActions(['researchStarted', 'researchFailed', 'setAiConsentRequired'])
+        expect(logic.values.researchInFlight).toEqual({})
+        expect(logic.values.aiConsentRequired).toBe(true)
+    })
+
     it('clears the research spinner once the notebook lands on a list refresh', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadOpportunitiesSuccess([openOpportunity])

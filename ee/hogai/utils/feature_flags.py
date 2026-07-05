@@ -1,5 +1,7 @@
 from typing import Literal, cast
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.models import Team, User
@@ -158,6 +160,17 @@ def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
     if isinstance(variant, str) and variant in _VALID_LLM_GATEWAY_VARIANTS:
         return cast("LlmGatewayVariant", variant)
     return "control"
+
+
+def is_web_search_supported(team: Team, user: User) -> bool:
+    """Whether Anthropic's server-side web_search tool can be bound for this workspace.
+
+    Web search isn't supported when AWS Bedrock is the primary provider (gateway-bedrock
+    variant with the gateway configured). Single source of truth for every agent that
+    binds the web_search server tool."""
+    variant = get_llm_gateway_variant(team, user)
+    uses_bedrock_primary = variant == "gateway-bedrock" and settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY
+    return not bool(uses_bedrock_primary)
 
 
 def has_business_knowledge_feature_flag(team: Team) -> bool:

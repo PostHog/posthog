@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from django.conf import settings
-
 import posthoganalytics
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -41,7 +39,7 @@ from products.pulse.backend.generation.prompts import sanitize_for_prompt
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool_errors import safe_error_message_for_llm
-from ee.hogai.utils.feature_flags import get_llm_gateway_variant
+from ee.hogai.utils.feature_flags import is_web_search_supported
 
 logger = logging.getLogger(__name__)
 
@@ -126,17 +124,12 @@ class ResearchRunResult:
     report: ResearchReport
     web_call_count: int
     internal_query_count: int
+    # True when the report is a degraded placeholder (LLM failure / invalid final output), so the
+    # completed event can separate real syntheses from fallbacks.
+    fallback: bool = False
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
-
-
-def web_search_available(team: Team, user: User) -> bool:
-    """Mirror the assistant's gate (ee/hogai/chat_agent/toolkit.py): Anthropic web search isn't
-    supported when the workspace routes through AWS Bedrock as its primary provider."""
-    variant = get_llm_gateway_variant(team, user)
-    uses_bedrock_primary = variant == "gateway-bedrock" and settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY
-    return not uses_bedrock_primary
 
 
 async def run_research(
@@ -167,7 +160,7 @@ async def run_research(
     }
 
     tools: list[dict[str, Any]] = [run_hogql_tool, final_report_tool]
-    if web_search_available(team, user):
+    if is_web_search_supported(team, user):
         # Server-side tool: Anthropic executes the searches and returns web_search_tool_result
         # blocks; max_uses is the hard bound on web calls for the whole run.
         tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": MAX_WEB_CALLS})
@@ -203,6 +196,7 @@ async def run_research(
                 report=_fallback_report(f"Research LLM loop failed: {err}"),
                 web_call_count=web_call_count,
                 internal_query_count=internal_query_count,
+                fallback=True,
             )
         messages.append(response)
         web_call_count += _count_web_searches(response)
@@ -256,6 +250,7 @@ async def run_research(
             report=_fallback_report(f"Research finalize call failed: {err}"),
             web_call_count=web_call_count,
             internal_query_count=internal_query_count,
+            fallback=True,
         )
     web_call_count += _count_web_searches(final)
     report = _report_from_tool_calls(getattr(final, "tool_calls", None) or [])
@@ -263,6 +258,7 @@ async def run_research(
         report=report if report is not None else _fallback_report("The model did not return a valid research report."),
         web_call_count=web_call_count,
         internal_query_count=internal_query_count,
+        fallback=report is None,
     )
 
 

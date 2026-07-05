@@ -35,6 +35,9 @@ from products.pulse.backend.temporal.inputs import (
 )
 
 PULSE_FEATURE_FLAG = "pulse"
+# Cross-boundary contract: pulseLogic's AI_CONSENT_ERROR_CODE matches this to show the consent
+# banner — rename both sides together.
+AI_CONSENT_ERROR_CODE = "ai_consent_required"
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -268,11 +271,9 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     @action(methods=["POST"], detail=False, url_path="generate")
     def generate(self, request: Request, **kwargs) -> Response:
         if not self.team.organization.is_ai_data_processing_approved:
-            # Cross-boundary contract: the frontend (pulseLogic AI_CONSENT_ERROR_CODE) matches this
-            # code to show the consent banner — rename both sides together.
             raise ValidationError(
                 "AI data processing must be approved for this organization to generate briefs.",
-                code="ai_consent_required",
+                code=AI_CONSENT_ERROR_CODE,
             )
 
         request_serializer = GenerateBriefRequestSerializer(data=request.data)
