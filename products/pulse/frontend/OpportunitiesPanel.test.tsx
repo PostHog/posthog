@@ -20,6 +20,9 @@ const baseOpportunity: OpportunityApi = {
     goal_relevant: false,
     proposed_experiment: null,
     first_seen_brief: null,
+    research_notebook_id: null,
+    research_notebook_short_id: null,
+    research_requested_at: null,
     my_vote: null,
     helpful_count: 0,
     not_helpful_count: 0,
@@ -110,6 +113,28 @@ describe('OpportunitiesPanel', () => {
         render(<ProposedExperimentSummary proposal={proposal} />)
         expect(screen.getByText('Hypothesis:')).toBeInTheDocument()
         expect(screen.queryByText('Target metric:') !== null).toBe(metricVisible)
+    })
+
+    it.each<[string, OpportunityApi, boolean, boolean]>([
+        ['an open row', baseOpportunity, true, false],
+        ['an acted row', { ...baseOpportunity, status: 'acted' }, true, false],
+        ['a dismissed row', { ...baseOpportunity, status: 'dismissed' }, false, false],
+        [
+            'a row with a research notebook',
+            { ...baseOpportunity, research_notebook_short_id: 'nb1' },
+            false,
+            true,
+        ],
+    ])('gates the research control for %s', (_name, opportunity, buttonVisible, chipVisible) => {
+        logic.actions.loadOpportunitiesSuccess([opportunity])
+        render(
+            <Provider>
+                <OpportunitiesPanel />
+            </Provider>
+        )
+        expect(screen.queryByText('Research solutions') !== null).toBe(buttonVisible)
+        // Once the notebook exists, the action is replaced by the link chip to it.
+        expect(screen.queryByText('View research') !== null).toBe(chipVisible)
     })
 
     it("highlights only the caller's own vote and shows the counts", () => {

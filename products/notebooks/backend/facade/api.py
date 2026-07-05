@@ -168,6 +168,10 @@ def create_notebook(
     return _to_notebook_data(notebook)
 
 
+def soft_delete_notebook(team_id: int, notebook_id: UUID) -> bool:
+    return logic.soft_delete_notebook(team_id, notebook_id)
+
+
 def migrate_notebooks_to_markdown(
     *,
     user: "User",

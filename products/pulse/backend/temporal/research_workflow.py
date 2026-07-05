@@ -74,9 +74,17 @@ async def research_opportunity_activity(inputs: ResearchOpportunityWorkflowInput
             opportunity_id=inputs.opportunity_id,
             error_type=type(exc).__name__,
         )
-        await sync_to_async(_report_research_failed, thread_sensitive=False)(
-            user=user, opportunity=opportunity, error_type=type(exc).__name__
-        )
+        try:
+            await sync_to_async(_report_research_failed, thread_sensitive=False)(
+                user=user, opportunity=opportunity, error_type=type(exc).__name__
+            )
+        except Exception:
+            # Telemetry must never mask the real failure — log and fall through to re-raise `exc`.
+            logger.warning(
+                "pulse_research_failed_report_error",
+                team_id=inputs.team_id,
+                opportunity_id=inputs.opportunity_id,
+            )
         raise
 
 
@@ -135,7 +143,25 @@ def _resolve_goal(opportunity: Opportunity) -> str | None:
 
 
 def _persist_notebook_id(team_id: int, opportunity_id: str, notebook_id: UUID) -> None:
+    previous_notebook_id = (
+        Opportunity.objects.for_team(team_id)
+        .filter(id=opportunity_id)
+        .values_list("research_notebook_id", flat=True)
+        .first()
+    )
     Opportunity.objects.for_team(team_id).filter(id=opportunity_id).update(research_notebook_id=notebook_id)
+    # Re-researching replaces the link; archive the superseded notebook so it doesn't linger in the
+    # team's list with no back-reference. Best-effort — a failed archive must never block the new link.
+    if previous_notebook_id and previous_notebook_id != notebook_id:
+        try:
+            notebooks.soft_delete_notebook(team_id, previous_notebook_id)
+        except Exception:
+            logger.warning(
+                "pulse_research_prior_notebook_archive_failed",
+                team_id=team_id,
+                opportunity_id=opportunity_id,
+                notebook_id=str(previous_notebook_id),
+            )
 
 
 def _build_opportunity_context(opportunity: Opportunity, goal: str | None) -> str:

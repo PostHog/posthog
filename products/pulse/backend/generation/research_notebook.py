@@ -157,7 +157,11 @@ def _market_finding_node(finding: MarketFinding) -> TipTapContent | None:
     if not claim:
         return None
     source_name = _clean(finding.source_name, _TITLE_MAX)
-    url = _safe_url(finding.source_url)
+    # source_url is model-authored after reading arbitrary web pages — clean it like every other
+    # free-text field (framing-strip + length cap) before scheme-guarding, and use the cleaned
+    # value for both the href and the visible-label fallback (mirrors _source_nodes).
+    cleaned_url = _clean(finding.source_url, _TEXT_MAX)
+    url = _safe_url(cleaned_url)
     nodes: TipTapContent = [create_text_content(claim)]
     if source_name or url:
         nodes.append(create_text_content(" — "))

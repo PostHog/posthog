@@ -177,7 +177,11 @@ async def run_research(
         posthog_properties={"ai_product": "pulse", "ai_feature": "opportunity_research"},
     )
     llm_with_tools = llm.bind_tools(tools)
-    llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
+    # Bind the FULL toolset on the forced finalize turn (not just the report tool): the message
+    # history carries Anthropic server_tool_use/web_search_tool_result blocks from earlier
+    # web_search, and dropping web_search from the binding would leave that history referencing an
+    # undeclared tool. tool_choice still forces the single report call.
+    llm_with_final_report = llm.bind_tools(tools, tool_choice=FINAL_REPORT_TOOL_NAME)
 
     config: RunnableConfig = {"callbacks": _build_callbacks(team=team)}
     messages: list[Any] = [

@@ -194,7 +194,9 @@ export const MAX_CONSECUTIVE_POLL_FAILURES = 5
 /** Research runs on a Temporal workflow (minutes); the opportunities list is polled until the
  * notebook appears. Bounded so a slow/failed run clears the spinner instead of spinning forever. */
 export const RESEARCH_POLL_INTERVAL_MS = 5000
-export const MAX_RESEARCH_POLL_ROUNDS = 90
+// The research activity's start_to_close is 20min (see research_workflow.py); the poll window must
+// comfortably exceed it so a slow-but-succeeding run isn't misreported as stalled. 260 × 5s ≈ 21.7min.
+export const MAX_RESEARCH_POLL_ROUNDS = 260
 
 /** First page only — deliberate for alpha; load-more is a follow-up. */
 const LIST_PAGE_SIZE = 100
@@ -866,11 +868,11 @@ export const pulseLogic = kea<pulseLogicType>([
                         return
                     }
                     if (error instanceof ApiError && error.status === 429) {
-                        lemonToast.info('Daily research limit reached for this team — try again later')
+                        lemonToast.info(error.detail || 'Daily research limit reached — try again later')
                         return
                     }
                     if (error instanceof ApiError && error.status === 409) {
-                        lemonToast.info('Research is already running for this opportunity')
+                        lemonToast.info(error.detail || 'Research is already running for this opportunity')
                         return
                     }
                     lemonToast.error(

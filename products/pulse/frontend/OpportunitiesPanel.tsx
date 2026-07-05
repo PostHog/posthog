@@ -121,8 +121,13 @@ function ResearchControl({ opportunity }: { opportunity: OpportunityApi }): JSX.
 
     if (opportunity.research_notebook_short_id) {
         return (
-            <LemonButton size="small" type="secondary" to={urls.notebook(opportunity.research_notebook_short_id)}>
-                Research
+            <LemonButton
+                size="small"
+                type="secondary"
+                to={urls.notebook(opportunity.research_notebook_short_id)}
+                tooltip="Open the research notebook for this opportunity."
+            >
+                View research
             </LemonButton>
         )
     }

@@ -747,7 +747,7 @@ describe('pulseLogic', () => {
             logic.actions.researchOpportunity('opp-1')
         }).toDispatchActions(['researchStarted', 'researchFailed'])
         expect(logic.values.researchInFlight).toEqual({})
-        expect(infoSpy).toHaveBeenCalledWith('Daily research limit reached for this team — try again later')
+        expect(infoSpy).toHaveBeenCalledWith('Daily research limit reached for this team. Try again later.')
     })
 
     it('clears the spinner and info-toasts when research is already running (409)', async () => {
@@ -767,7 +767,7 @@ describe('pulseLogic', () => {
             logic.actions.researchOpportunity('opp-1')
         }).toDispatchActions(['researchStarted', 'researchFailed'])
         expect(logic.values.researchInFlight).toEqual({})
-        expect(infoSpy).toHaveBeenCalledWith('Research is already running for this opportunity')
+        expect(infoSpy).toHaveBeenCalledWith('Research is already in progress for this opportunity.')
     })
 
     it('shows the consent banner instead of a toast when research hits the AI consent gate', async () => {

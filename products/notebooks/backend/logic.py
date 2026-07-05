@@ -157,6 +157,11 @@ def create_notebook(
     )
 
 
+def soft_delete_notebook(team_id: int, notebook_id: UUID) -> bool:
+    updated = _base_queryset(team_id).filter(id=notebook_id).update(deleted=True)
+    return updated > 0
+
+
 def get_group_notebook_short_id(group_id: int) -> str | None:
     link = ResourceNotebook.objects.filter(group=group_id).select_related("notebook").first()
     return link.notebook.short_id if link else None
