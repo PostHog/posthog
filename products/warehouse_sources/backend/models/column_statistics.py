@@ -30,8 +30,8 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_statistics"
     )
-    column_name = models.CharField(max_length=400)
-    column_type = models.CharField(max_length=400, blank=True, default="")
+    column_name = models.TextField()
+    column_type = models.TextField(blank=True, default="")
 
     # Denormalised onto every column row — one recompute writes them all atomically.
     row_count = models.BigIntegerField(null=True)

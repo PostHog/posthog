@@ -192,6 +192,28 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_persists_column_name_and_type_over_400_chars(self) -> None:
+        # column_name/column_type used to be varchar(400); a nested ClickHouse type or a long column key
+        # overflowed the cap and the upsert raised StringDataRightTruncation. Both are TextField now, so
+        # oversized values must persist without error. Guards against reverting the widening.
+        long_name = "col_" + "a" * 500
+        # Multi-line nested type: clean_type's `\(.+\)+` strip can't cross newlines, so it survives at
+        # full length (the exact shape that overflowed varchar(400) in production).
+        long_type = "Tuple(" + ",\n".join(f"field_{i} String" for i in range(60)) + ")"
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={long_name: {"clickhouse": long_type}})
+        add_actions = pa.table({"num_records": [1], f"min.{long_name}": [1], f"max.{long_name}": [1]})
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name=long_name)
+        assert len(stat.column_name) > 400
+        assert len(stat.column_type) > 400
+
     def test_runs_without_ai_data_processing_consent(self) -> None:
         # Statistics never leave our infra, so — unlike enrichment — they must NOT be gated on AI consent.
         # Guards against someone copy-pasting enrichment's consent gate into this path.
