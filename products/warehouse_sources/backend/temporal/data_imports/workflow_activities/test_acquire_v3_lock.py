@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
     ReleaseV3LockActivityInputs,
+    _describe_holder_workflow,
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
@@ -158,7 +159,7 @@ class TestTakeOverStaleLock:
         assert self._run() is True
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None))
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None, None))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_holder_workflow_running(
@@ -166,7 +167,7 @@ class TestTakeOverStaleLock:
     ) -> None:
         assert self._run() is False
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None))
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None, "temporal_describe_failed"))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_describe_fails(
@@ -176,7 +177,7 @@ class TestTakeOverStaleLock:
 
     @patch(f"{MODULE}.acquire_v3_pipeline_lock")
     @patch(f"{MODULE}.release_v3_pipeline_lock")
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.COMPLETED, None))
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None, "no_job_row"))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_no_job_row(
@@ -190,6 +191,25 @@ class TestTakeOverStaleLock:
         assert self._run() is False
         mock_release.assert_not_called()
         mock_acquire.assert_not_called()
+
+    @patch(f"{MODULE}.sync_connect")
+    @patch(f"{MODULE}.ExternalDataJob")
+    def test_describe_holder_workflow_fails_closed_when_job_row_missing(
+        self,
+        mock_job_model: MagicMock,
+        mock_sync_connect: MagicMock,
+    ) -> None:
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
+        inputs = AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID)
+
+        workflow_status, holder_job, ambiguity_reason = _describe_holder_workflow(
+            inputs, self.HOLDER_TOKEN, MagicMock()
+        )
+
+        assert workflow_status is None
+        assert holder_job is None
+        assert ambiguity_reason == "no_job_row"
+        mock_sync_connect.assert_not_called()
 
     @pytest.mark.parametrize(
         "holder_status",
@@ -212,7 +232,7 @@ class TestTakeOverStaleLock:
         holder_job.status = holder_status
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, None),
         ):
             assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
@@ -230,7 +250,7 @@ class TestTakeOverStaleLock:
         holder_job.status = "Running"
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, None),
         ):
             assert self._run() is False
         mock_stale.assert_called_once()

@@ -1,6 +1,6 @@
-import uuid
 import dataclasses
-from typing import Any
+import uuid
+from typing import Any, Literal
 
 from django.db import close_old_connections
 
@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 LOGGER = get_logger(__name__)
+
+TakeoverAmbiguityReason = Literal["missing_workflow_id", "no_job_row", "temporal_describe_failed"]
 
 
 @dataclasses.dataclass
@@ -126,30 +128,29 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
     close_old_connections()
 
     # Step 1: check if the holder's Temporal workflow is still running
-    workflow_status, holder_job = _describe_holder_workflow(inputs, holder, logger)
+    workflow_status, holder_job, ambiguity_reason = _describe_holder_workflow(inputs, holder, logger)
     if workflow_status is None:
-        # Describe failed - fail closed (ambiguous)
         logger.warning(
             "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
             holder_token=holder,
-            reason="temporal_describe_failed",
+            reason=ambiguity_reason or "temporal_describe_failed",
         )
         return False
 
     if workflow_status == WorkflowExecutionStatus.RUNNING:
         return False
 
-    # Step 2/3: workflow is terminal, check the job row
     if holder_job is None:
         logger.warning(
             "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
             holder_token=holder,
-            reason="no_job_row",
+            reason="missing_holder_job_after_describe",
         )
         return False
 
+    # Step 3: workflow is terminal, check the job row
     if holder_job.status in TERMINAL_JOB_STATUSES:
         logger.warning(
             "v3_pipeline_lock_taking_over",
@@ -168,8 +169,8 @@ def _describe_holder_workflow(
     inputs: AcquireV3LockActivityInputs,
     holder_run_id: str,
     logger: Any,
-) -> tuple[WorkflowExecutionStatus | None, ExternalDataJob | None]:
-    """Describe the holder's Temporal workflow and return (status, job), or (None, None) on error."""
+) -> tuple[WorkflowExecutionStatus | None, ExternalDataJob | None, TakeoverAmbiguityReason | None]:
+    """Describe the holder's Temporal workflow and return status, job, and an ambiguity reason when unavailable."""
     try:
         holder_job = (
             ExternalDataJob.objects.filter(
@@ -181,13 +182,15 @@ def _describe_holder_workflow(
             .only("id", "status", "workflow_id")
             .first()
         )
-        if holder_job is None or not holder_job.workflow_id:
-            return None, holder_job
+        if holder_job is None:
+            return None, None, "no_job_row"
+        if not holder_job.workflow_id:
+            return None, holder_job, "missing_workflow_id"
 
         temporal: Client = sync_connect()
         handle = temporal.get_workflow_handle(holder_job.workflow_id, run_id=holder_run_id)
         desc = async_to_sync(handle.describe)()
-        return desc.status, holder_job
+        return desc.status, holder_job, None
     except Exception as e:
         logger.warning(
             "v3_pipeline_lock_describe_failed",
@@ -196,7 +199,7 @@ def _describe_holder_workflow(
             error=str(e),
         )
         capture_exception(e)
-        return None, None
+        return None, None, "temporal_describe_failed"
 
 
 def _take_over_stale_running_job(
