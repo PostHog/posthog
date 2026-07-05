@@ -14,14 +14,14 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.notebooks.backend.kernel import (
+from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.sandbox.kernel import (
     auth as kernel_auth,
     envelope as kernel_envelope,
     runner as kernel_runner,
 )
-from products.notebooks.backend.kernel.data_plane import DataPlaneError, decode_arrow_stream
-from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.sandbox.kernel.data_plane import DataPlaneError, decode_arrow_stream
 from products.notebooks.backend.sql_v2 import (
     kernel_server_secret,
     mint_callback_token,
@@ -399,7 +399,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         with (
             patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
             patch(
-                "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
                 side_effect=DataPlaneError("no such table"),
             ),
         ):

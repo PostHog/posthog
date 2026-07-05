@@ -30,6 +30,8 @@ def fetch_query_page(
         method="POST",
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected — url is the backend's
+        # own data-plane endpoint from the signed run payload, never user-controlled.
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             return decode_arrow_stream(response)
     except urllib.error.HTTPError as exc:

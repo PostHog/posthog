@@ -14,7 +14,7 @@ from pathlib import Path
 
 SANDBOX_PACKAGE_NAME = "nb_kernel"
 
-_KERNEL_DIR = Path(__file__).parent / "kernel"
+_KERNEL_DIR = Path(__file__).parent / "sandbox" / "kernel"
 
 
 def _kernel_files() -> list[Path]:
