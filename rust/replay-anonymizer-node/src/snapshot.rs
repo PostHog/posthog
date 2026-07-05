@@ -367,10 +367,10 @@ pub fn anonymize_snapshot_data_opts(
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
     let ctx = Ctx::new(allow);
     match stream_message(&ctx, distinct_id, inner, opts)? {
-        StreamOutcome::Done(msg) => Ok(msg),
+        Some(msg) => Ok(msg),
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
-        StreamOutcome::Tree => anonymize_via_tree_mut(&ctx, distinct_id, inner),
+        None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
     }
 }
 
@@ -393,13 +393,6 @@ struct ScannedEnvelope {
     snapshot_library: Option<String>,
 }
 
-enum StreamOutcome {
-    Done(AnonymizedMessage),
-    /// Re-process via the tree (escaped/duplicate envelope keys). Only ever returned while the
-    /// buffer is intact.
-    Tree,
-}
-
 /// One fused walk over the whole message: envelope fields are captured as they pass, and the
 /// events are processed inline the moment `$snapshot_items` is reached — the array is never
 /// pre-skipped just to finish the envelope first. Because prod key order puts `$window_id` after
@@ -416,7 +409,7 @@ fn stream_message(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
-) -> SResult<StreamOutcome> {
+) -> SResult<Option<AnonymizedMessage>> {
     let start = scan::skip_ws(inner, 0);
     if inner.get(start) != Some(&b'{') {
         // Preserve the old classification for non-object roots (including trailing-byte checks).
@@ -448,7 +441,7 @@ fn stream_message(
                     "envelope key needs a full parse after events were consumed",
                 ));
             }
-            return Ok(StreamOutcome::Tree);
+            return Ok(None);
         }};
     }
 
@@ -675,7 +668,7 @@ fn stream_message(
     if let Some(e) = deferred {
         return Err(e);
     }
-    finish(distinct_id, env, sink, Route::Stream).map(StreamOutcome::Done)
+    finish(distinct_id, env, sink, Route::Stream).map(Some)
 }
 
 /// Locate a props value span and advance the cursor past it.

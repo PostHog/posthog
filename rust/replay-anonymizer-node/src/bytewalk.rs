@@ -75,6 +75,7 @@ struct Walker<'c, 'a> {
 
 type FieldFn<'w, 'c, 'a> =
     dyn FnMut(&mut Walker<'c, 'a>, Span, usize, &mut Vec<u8>) -> Option<usize> + 'w;
+type ItemFn<'c, 'a> = dyn FnMut(&mut Walker<'c, 'a>, usize, &mut Vec<u8>) -> Option<usize>;
 
 /// Scrub the `data` span of one event into `out`. `Some(changed)` on success; `None` means
 /// "fall back to the parse" — the caller must discard whatever was written.
@@ -445,7 +446,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         &mut self,
         start: usize,
         out: &mut Vec<u8>,
-        item: &mut dyn FnMut(&mut Walker<'c, 'a>, usize, &mut Vec<u8>) -> Option<usize>,
+        item: &mut ItemFn<'c, 'a>,
     ) -> Option<usize> {
         if self.depth >= MAX_WALK_DEPTH {
             return None;
@@ -460,7 +461,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         &mut self,
         start: usize,
         out: &mut Vec<u8>,
-        item: &mut dyn FnMut(&mut Walker<'c, 'a>, usize, &mut Vec<u8>) -> Option<usize>,
+        item: &mut ItemFn<'c, 'a>,
     ) -> Option<usize> {
         let bytes = self.bytes;
         if bytes.get(start) != Some(&b'[') {
@@ -726,11 +727,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                     emit_deferred_key(bytes, key, &mut emitted, out);
                     self.walk_attrs(v.0, kind, out)?;
                 }
-                for m in [ty_m, tag_m, is_style_m, text_m] {
-                    if let Some((key, v)) = m {
-                        emit_deferred_key(bytes, key, &mut emitted, out);
-                        out.extend_from_slice(&bytes[v.0..v.1]);
-                    }
+                for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
+                    emit_deferred_key(bytes, key, &mut emitted, out);
+                    out.extend_from_slice(&bytes[v.0..v.1]);
                 }
             }
             Some(NODE_TEXT) if parent == ParentKind::Script => {
@@ -758,11 +757,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                         self.scrub_string_value(v.0, out, |w, s| scrub_text(w.ctx.allow, s))?;
                     }
                 }
-                for m in [ty_m, tag_m, is_style_m, attrs_m] {
-                    if let Some((key, v)) = m {
-                        emit_deferred_key(bytes, key, &mut emitted, out);
-                        out.extend_from_slice(&bytes[v.0..v.1]);
-                    }
+                for (key, v) in [ty_m, tag_m, is_style_m, attrs_m].into_iter().flatten() {
+                    emit_deferred_key(bytes, key, &mut emitted, out);
+                    out.extend_from_slice(&bytes[v.0..v.1]);
                 }
             }
             Some(NODE_DOCUMENT) => {
@@ -772,11 +769,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return self.redo_node(start, end, parent, node_mark, out);
                 }
                 // Children stay as walked (documents parent as Other); scalars verbatim.
-                for m in [ty_m, tag_m, is_style_m, text_m] {
-                    if let Some((key, v)) = m {
-                        emit_deferred_key(bytes, key, &mut emitted, out);
-                        out.extend_from_slice(&bytes[v.0..v.1]);
-                    }
+                for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
+                    emit_deferred_key(bytes, key, &mut emitted, out);
+                    out.extend_from_slice(&bytes[v.0..v.1]);
                 }
             }
             // DocumentType/unknown/incompatible shapes: the tree scrubs nothing here. If the
