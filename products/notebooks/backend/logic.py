@@ -113,6 +113,15 @@ async def aupsert_notebook(
     return notebook, created
 
 
+def get_notebook_short_ids_by_ids(team_id: int, notebook_ids: list[UUID]) -> dict[UUID, str]:
+    """Resolve notebook UUIDs to their linkable short_ids in one query, team-scoped. Callers that
+    store a notebook UUID reference (e.g. Pulse opportunities) use this to build notebook URLs."""
+    if not notebook_ids:
+        return {}
+    rows = _base_queryset(team_id, include_deleted=True).filter(id__in=notebook_ids).values_list("id", "short_id")
+    return {row[0]: row[1] for row in rows}
+
+
 def get_notebook_short_ids_for_creator(project_id: int, user_id: int) -> list[str]:
     return list(
         Notebook.objects.filter(created_by_id=user_id, team__project_id=project_id).values_list("short_id", flat=True)

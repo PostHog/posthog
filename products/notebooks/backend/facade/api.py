@@ -69,6 +69,10 @@ def get_notebook_short_ids_for_creator(project_id: int, user_id: int) -> list[st
     return logic.get_notebook_short_ids_for_creator(project_id, user_id)
 
 
+def get_notebook_short_ids_by_ids(team_id: int, notebook_ids: list[UUID]) -> dict[UUID, str]:
+    return logic.get_notebook_short_ids_by_ids(team_id, notebook_ids)
+
+
 def get_notebook_activity_summary(team_id: int, limit: int) -> contracts.NotebookActivitySummary:
     total, recent = logic.get_notebook_activity_summary(team_id, limit)
     return contracts.NotebookActivitySummary(
