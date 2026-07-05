@@ -360,20 +360,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         rageclick_event_1 = next(row for row in first if row["type"] == "$rageclick")
         assert autocapture_event_1["hash"] == rageclick_event_1["hash"]
 
-    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
-        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
-        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
-        response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
     @parameterized.expand(
         [
+            ("non_numeric_limit", "limit=not-a-number"),
+            ("non_numeric_offset", "offset=not-a-number"),
+            ("unexpected_include", "include=$autocapture&include=$rageclick&include=$pageview"),
             ("zero_limit", "limit=0"),
             ("negative_limit", "limit=-1"),
             ("negative_offset", "offset=-1"),
@@ -382,7 +373,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("negative_sampling_factor", "sampling_factor=-0.5"),
         ]
     )
-    def test_element_stats_rejects_out_of_range_query_params(self, _name: str, query: str) -> None:
+    def test_element_stats_rejects_invalid_query_params(self, _name: str, query: str) -> None:
         response = self.client.get(f"/api/element/stats/?{query}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

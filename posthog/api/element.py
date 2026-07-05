@@ -151,7 +151,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 try:
                     limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
-                    raise ValidationError("Limit must be an integer")
+                    raise ValidationError("limit must be an integer")
                 # keep the limit + 1 pagination probe below the printer's hard cap, so
                 # has_next can still see the extra row instead of it being clamped away
                 if not 0 < limit < MAX_SELECT_HEATMAPS_LIMIT:
