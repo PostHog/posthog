@@ -45,6 +45,11 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
     }
 
     app.post('/scrub', shedIfBusy, express.raw({ type: () => true, limit: maxBodyBytes }), (req, res, next) => {
+        const body = req.body
+        if (!Buffer.isBuffer(body)) {
+            next(new UndecodableImageError('request body is not image bytes'))
+            return
+        }
         const stopTimer = ScrubMetrics.startTimer()
         const controller = new AbortController()
         res.on('close', () => {
@@ -53,7 +58,7 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
             }
         })
         res.on('error', () => {})
-        scrub(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), controller.signal)
+        scrub(body, controller.signal)
             .then((out) => {
                 if (controller.signal.aborted) {
                     ScrubMetrics.incAborted()

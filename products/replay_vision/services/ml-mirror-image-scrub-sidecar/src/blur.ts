@@ -24,8 +24,8 @@ export async function blurOnly(input: Buffer): Promise<Buffer> {
     } catch (e) {
         throw new UndecodableImageError(String(e))
     }
-    if (width === undefined || height === undefined) {
-        throw new UndecodableImageError('image has no readable dimensions')
+    if (!width || !height) {
+        throw new UndecodableImageError('image has invalid dimensions')
     }
     const [tw, th] = targetDims(width, height)
     return sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })

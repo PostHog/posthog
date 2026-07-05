@@ -40,6 +40,11 @@ describe('image-scrub sidecar server', () => {
         expect(res.status).toBe(413)
     })
 
+    it('422s a request with no body', async () => {
+        const res = await fetch(`${base}/scrub`, { method: 'POST' })
+        expect(res.status).toBe(422)
+    })
+
     it('serves health + metrics', async () => {
         expect((await fetch(`${base}/_health`)).status).toBe(200)
         const metrics = await fetch(`${base}/metrics`)
