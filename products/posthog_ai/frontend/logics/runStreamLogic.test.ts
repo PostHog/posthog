@@ -28,6 +28,7 @@ import {
     SSE_RECONNECT_BASE_DELAY_MS,
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './runStreamLogic'
+import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
@@ -287,6 +288,61 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.currentRunStatus).toEqual('completed')
+        })
+    })
+
+    describe('tool stream events', () => {
+        const issueCall = sessionUpdate({
+            sessionUpdate: 'tool_call',
+            toolCallId: 'tse1',
+            serverName: 'github',
+            toolName: 'create_issue',
+            status: 'in_progress',
+        })
+        const issueDone = sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'tse1', status: 'completed' })
+
+        it('publishes started/completed with resolved names for live frames; replay only reaches includeReplay listeners', async () => {
+            const liveListener = jest.fn()
+            const replayListener = jest.fn()
+            // The bus is connect-mounted by the stream logic, so listeners can register directly.
+            toolStreamEventsLogic.actions.registerToolListener('live', {
+                tools: ['create_issue'],
+                onEvent: liveListener,
+            })
+            toolStreamEventsLogic.actions.registerToolListener('replay', {
+                tools: '*',
+                onEvent: replayListener,
+                includeReplay: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(issueCall)
+                logic.actions.ingestAcpFrame(issueDone)
+            }).toFinishAllListeners()
+
+            expect(liveListener.mock.calls.map(([event]) => [event.phase, event.toolName])).toEqual([
+                ['started', 'create_issue'],
+                ['completed', 'create_issue'],
+            ])
+
+            liveListener.mockClear()
+            replayListener.mockClear()
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 'tse2',
+                        serverName: 'github',
+                        toolName: 'create_issue',
+                        status: 'in_progress',
+                    }),
+                    'replay'
+                )
+            }).toFinishAllListeners()
+
+            expect(liveListener).not.toHaveBeenCalled()
+            expect(replayListener).toHaveBeenCalledTimes(1)
+            expect(replayListener.mock.calls[0][0].source).toEqual('replay')
         })
     })
 

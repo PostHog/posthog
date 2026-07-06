@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -272,6 +273,46 @@ describe('runInteractionLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
         expect(onRunStarted).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('continue from here')
+    })
+
+    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per run', async () => {
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups' },
+            { type: 'text', value: 'always resend me' },
+        ])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'why the drop?' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const firstSend = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+            params: { content: string }
+        }
+        // The wire content carries the invisible context block; the echoed human message stays raw.
+        expect(firstSend.params.content).toContain('<posthog_context>')
+        expect(firstSend.params.content).toContain('- insight sig ("Signups")')
+        expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
+        await expectLogic(stream).toDispatchActions([
+            (action) =>
+                action.type === stream.actionTypes.pushHumanMessage && action.payload.content === 'why the drop?',
+        ])
+
+        // A second send in the same run must not re-inflate already-sent entity refs — but `text`
+        // items are never deduped (repeated text is intentional, mirroring the backend).
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const secondSend = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+            params: { content: string }
+        }
+        expect(secondSend.params.content).not.toContain('- insight sig')
+        expect(secondSend.params.content).toContain('- text: "always resend me"')
+        expect(secondSend.params.content.endsWith('follow up')).toBe(true)
     })
 
     const setProjectId = (id: number | null): void =>

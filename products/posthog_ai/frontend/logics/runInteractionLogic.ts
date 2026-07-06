@@ -16,6 +16,9 @@ import {
     type ReasoningEffortEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { attachedContextItemKey } from '../types/contextTypes'
+import { wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { attachedContextLogic } from './attachedContextLogic'
 import type { runInteractionLogicType } from './runInteractionLogicType'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 
@@ -76,6 +79,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['currentProjectId'],
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking'],
+            attachedContextLogic,
+            ['contextItems'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -110,6 +115,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // `set_config_option` when the pick actually differs from what the session is already running.
         setSentModel: (model: string) => ({ model }),
         setSentEffort: (effort: string) => ({ effort }),
+        // Internal: record which attached-context items were already wrapped into a sent message this
+        // run, so static on-screen context isn't re-inflated onto every follow-up (mirrors the backend's
+        // `prune_repeated_entity_refs`).
+        markContextSent: (keys: string[]) => ({ keys }),
     }),
 
     reducers({
@@ -173,6 +182,23 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 setSentEffort: (_, { effort }) => effort,
             },
         ],
+        // Per-run set of `attachedContextItemKey`s already wrapped into a sent message. The logic is keyed
+        // by `runId`, so a fresh run starts empty.
+        sentContextKeys: [
+            new Set<string>(),
+            {
+                markContextSent: (state, { keys }) => {
+                    if (keys.length === 0) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    for (const key of keys) {
+                        next.add(key)
+                    }
+                    return next
+                },
+            },
+        ],
     }),
 
     forms(({ actions, values }) => ({
@@ -232,6 +258,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
         // In-flight indicator for the composer's send button — a live send or a new-run start.
         isSubmitting: [(s) => [s.sending, s.startingRun], (sending, startingRun): boolean => sending || startingRun],
+        // Attached context not yet wrapped into a message this run — the snapshot the next send wraps.
+        // `text` items are never deduped (matches the backend's `prune_repeated_entity_refs`: repeated
+        // text is intentional, e.g. consecutive error snippets).
+        pendingContextItems: [
+            (s) => [s.contextItems, s.sentContextKeys],
+            (contextItems, sentContextKeys) =>
+                contextItems.filter(
+                    (item) => item.type === 'text' || !sentContextKeys.has(attachedContextItemKey(item))
+                ),
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -291,13 +327,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     })
                     actions.setSentEffort(values.selectedEffort)
                 }
+                // Wrap the outgoing content with the on-screen context block (invisible to the user —
+                // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
+                const pendingContext = values.pendingContextItems
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
                     method: 'user_message',
-                    params: { content },
+                    params: { content: wrapWithPosthogContext(content, pendingContext) },
                 })
-                // The SSE echo (`pushHumanMessage`) reopens the turn.
+                // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                 actions.pushHumanMessage(content)
+                const sentKeys = pendingContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (sentKeys.length > 0) {
+                    actions.markContextSent(sentKeys)
+                }
             } catch {
                 // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                 // anything typed during the failed send, queue content re-stages ahead of anything staged since.
@@ -339,15 +382,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 // from the finished run so the new run continues the thread, and carrying the picked model /
                 // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                 // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
+                const pendingContext = values.pendingContextItems
                 const createRequest: ClaudeTaskRunCreateSchemaApi = {
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                     model: values.selectedModel,
                     reasoning_effort: values.selectedEffort,
                     resume_from_run_id: props.runId,
-                    pending_user_message: content,
+                    pending_user_message: wrapWithPosthogContext(content, pendingContext),
                 }
                 const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                 actions.resetComposerForm()
+                const sentKeys = pendingContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (sentKeys.length > 0) {
+                    actions.markContextSent(sentKeys)
+                }
                 if (result.latest_run) {
                     props.onRunStarted?.(result.latest_run)
                 }

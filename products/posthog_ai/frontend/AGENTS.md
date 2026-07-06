@@ -71,9 +71,13 @@ The headline exports per module:
   presenters, and the permission/question/resource surfaces.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
-  (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), and thinking-message helpers. Imports only
-  `logics/*` + `utils/*` — never a component or the registry, so it's the clean headless lane.
-- **`api/types`** — folded-thread + tool domain types (pure types).
+  (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
+  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3), and
+  **`toolStreamEventsLogic`** + **`useToolStreamListener`** (tool-stream subscriptions, see §3).
+  Imports only `logics/*` + `hooks/*` + `utils/*` — never a component or the registry. The two hooks are a
+  deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
+  components, so the lane stays registry- and presenter-free.
+- **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
 - **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
@@ -127,6 +131,30 @@ Supporting modules live in `policy/` (tool policy + permission/question utils) a
 (`streamTypes` = folded thread shapes; `wireTypes` = ACP wire shapes + guards). Wire types are
 loosely typed — guard at the parse boundary with runtime checks; never assume a field is present.
 
+**Context injection (`logics/attachedContextLogic.ts`):** a global registry of on-screen context. A provider
+(a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic dispatching
+`registerContext(providerId, items)` in `afterMount` and `deregisterContext` in `beforeUnmount`) contributes
+abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight'`, `'dashboard'`, `'trace'`,
+`'text'`…; never an enumerated union), plus `key`/`label`/`value`. `contextItems` flattens and dedupes by
+`${type}:${key ?? value}`. At send time the send paths (`runInteractionLogic.sendNow`/`startNewRun`,
+`taskTrackerSceneLogic.submitNewTask`) wrap the outgoing message with
+`wrapWithPosthogContext` (`utils/posthogContextBlock.ts`) — a `<posthog_context>` prefix that is **invisible
+to the user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserMessageContent` strips
+the block on history replay. The open/close **tags** must stay identical to the backend template
+(`products/posthog_ai/backend/context_wrapper.py`) — stripping works on the tags, not the body.
+`runInteractionLogic` prunes entity refs already sent this run (`sentContextKeys`); `text` items are never
+deduped — repeated text is intentional, mirroring the backend's `prune_repeated_entity_refs`.
+
+**Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
+tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via
+`toolResolver` (inner PostHog MCP tool, e.g. `create_dashboard`). Subscribe with `useToolStreamListener({
+tools, onEvent })`, or kea-natively by connecting to the bus and listening to
+`toolStreamEventsLogic.actionTypes.emitToolEvent`. Replay-sourced events are suppressed unless the
+subscription sets `includeReplay` (a reload must not re-trigger UI reactions). Caveat: for exec-wrapped
+PostHog tools the resolved name may be `__posthog_exec_unknown__` at `started` (the `command` streams in via
+updates) and is reliable by `completed` — match on `completed`, or also check `rawToolName`, when you need
+certainty. Subscriber callbacks are isolated (a throwing listener is captured, never breaks ingestion).
+
 ## 4. Conventions
 
 - **Logic in the logic, never in a component.** Wire parsing, log folding, SSE handling, telemetry, and
@@ -159,19 +187,23 @@ api/                # public API facade — the contract (import api/<module>, n
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question/resource
-  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
-  types.ts          #   Tier 3: folded-thread + tool domain types (pure types)
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
+  types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
-                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/
+                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/;
+                    #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
+hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
+logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, toolStreamEventsLogic;
+                    #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
-types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes, taskTypes (task/run domain)
+types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes
+                    #   (AttachedContextItem), toolTypes, taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
-utils/              # thinkingMessages
+utils/              # thinkingMessages, posthogContextBlock (<posthog_context> builder)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)
 scenes/             # standalone scenes registered via ../manifest.tsx
   TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)

@@ -29,6 +29,7 @@ import type {
     ThreadItemType,
     ToolInvocation,
     ToolInvocationStatus,
+    ToolStreamPhase,
 } from '../types/streamTypes'
 import {
     type PermissionOption,
@@ -49,6 +50,7 @@ import {
     isTaskRunStateFrame,
 } from '../types/wireTypes'
 import type { runStreamLogicType } from './runStreamLogicType'
+import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type RunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
@@ -215,7 +217,7 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
  * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
  * the live send path echoed via `pushHumanMessage`.
  */
-function unwrapUserMessageContent(content: string): string {
+export function unwrapUserMessageContent(content: string): string {
     const closeTag = '</posthog_context>'
     if (content.startsWith('<posthog_context>')) {
         const closeIdx = content.indexOf(closeTag)
@@ -1229,7 +1231,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             ['isDev'],
             userLogic,
             ['user'],
+            toolStreamEventsLogic,
+            ['toolListeners'],
         ],
+        actions: [toolStreamEventsLogic, ['emitToolEvent']],
     })),
     actions({
         /**
@@ -2543,11 +2548,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const method = notification.method
             const isReplay = source === 'replay'
 
-            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry,
-            // read from the projection BEFORE the append folds this update in. Live only — replay
-            // suppresses the telemetry, so the lookup (and its O(N) re-fold) is skipped for history.
+            // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
+            // (so history replay doesn't pay per-frame resolution for nobody).
+            const emitToolStream = !isReplay || hasReplayListener(values.toolListeners)
+
+            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry and the
+            // tool-stream phase, read from the projection BEFORE the append folds this update in.
             let preToolStatus: ToolInvocationStatus | undefined
-            if (!isReplay && method === 'session/update') {
+            if (emitToolStream && method === 'session/update') {
                 const u = notification.params?.update
                 if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
                     preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
@@ -2665,6 +2673,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
                 return
             }
+            if (update.sessionUpdate === 'tool_call') {
+                // A fresh tool call — the projection folded it into `toolInvocations` above, so resolve
+                // its name off the merged invocation and publish a `started` event on the bus.
+                if (emitToolStream) {
+                    const toolCallId = String(update.toolCallId ?? '')
+                    const invocation = toolCallId ? values.toolInvocations.get(toolCallId) : undefined
+                    if (invocation) {
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase: 'started',
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
             if (update.sessionUpdate === 'tool_call_update') {
                 // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
                 // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
@@ -2694,9 +2722,32 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         execution_type: 'sandbox',
                     })
                 }
+                // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
+                // into a terminal status is `completed`/`failed`; any other update is `updated`.
+                if (emitToolStream) {
+                    const invocation = values.toolInvocations.get(toolCallId)
+                    if (invocation) {
+                        const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
+                        const phase: ToolStreamPhase =
+                            !wasTerminal && status === 'completed'
+                                ? 'completed'
+                                : !wasTerminal && status === 'failed'
+                                  ? 'failed'
+                                  : 'updated'
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase,
+                            invocation,
+                            source,
+                        })
+                    }
+                }
                 return
             }
-            // agent_message_chunk / agent_message / agent_thought_chunk / tool_call → projection only.
+            // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
         },
     })),
 ])

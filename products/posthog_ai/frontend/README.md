@@ -30,12 +30,12 @@ re-introduce the exact bundling problem the split solves. Always import an `api/
 
 Pick the **lowest tier** that does the job.
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                       | Use when                                                                                                                                                                    |
-| ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                                                        | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the whole `/tasks` product" → `EmbeddedRunner` (Max). |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces | Custom layout, or a bespoke/compact thread.                                                                                                                                 |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers; folded-thread + tool types                                                                                   | Status badge or automation — no React, no registry.                                                                                                                         |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                   | Your product renders tool cards (insights, dashboards…). Register them from your own scene.                                                                                 |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                                                                                                                               | Use when                                                                                                                                                                    |
+| ------------------------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                                                                                                                                                                | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the whole `/tasks` product" → `EmbeddedRunner` (Max). |
+| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                                                                         | Custom layout, or a bespoke/compact thread.                                                                                                                                 |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread + tool types, `AttachedContextItem`, `ToolStreamEvent` | Status badge, automation, context injection, tool-event listeners — no presenters, no registry.                                                                             |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                           | Your product renders tool cards (insights, dashboards…). Register them from your own scene.                                                                                 |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -179,6 +179,48 @@ const done = isTerminalRunStatus(currentRunStatus)
 ```
 
 No React presenters, no tool registry — this import lane stays out of those chunks.
+
+### Inject context the agent should see
+
+Register the resource(s) the user is looking at; while registered, every message sent from the surface is
+prefixed with an invisible `<posthog_context>` block describing them (the user only ever sees their own
+text). Items are abstract — `type` is any string (`'insight'`, `'trace'`, `'text'`…), plus
+`key`/`label`/`value` — and are deduped across providers and across sends within a run (except `text`,
+which always resends).
+
+```tsx
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
+// In your scene/component — registered while mounted, removed on unmount:
+useAttachedContext([{ type: 'insight', key: insight.short_id, label: insight.name }])
+```
+
+JSX-only call sites can render `<AttachedContextProvider items={...} />` (`api/primitives`) instead. A kea
+logic connects to `attachedContextLogic` and dispatches `registerContext(providerId, items)` in
+`afterMount` / `deregisterContext(providerId)` in `beforeUnmount`.
+
+### React to the agent invoking a tool
+
+Subscribe to tool-call lifecycle events (resolved tool names) — e.g. refresh a list when the agent creates
+a dashboard. Replay events are suppressed by default so a page reload never re-triggers your handler; opt
+in with `includeReplay` if you need them.
+
+```ts
+import { useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+
+useToolStreamListener({
+  tools: ['create_dashboard'],
+  onEvent: (event) => {
+    if (event.phase === 'completed') {
+      loadDashboards()
+    }
+  },
+})
+```
+
+Kea-natively: connect to `toolStreamEventsLogic` and listen to its `emitToolEvent` action. Note: for
+exec-wrapped PostHog tools the resolved name can be unknown at `phase: 'started'` (the command streams in
+later) — match on `completed` when you need certainty.
 
 ## 4. Coupling boundary
 
