@@ -320,6 +320,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             lemonToast.success('Custom property deleted')
         },
         deleteDefinitionFailure: ({ error }) => {
+            // An already-deleted definition (double-click, stale table, concurrent delete) 404s.
+            // The delete effectively succeeded, so refresh the table without capturing an exception.
+            if ((error as { status?: number })?.status === 404) {
+                actions.loadDefinitions()
+                lemonToast.success('Custom property deleted')
+                return
+            }
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.delete' })
             lemonToast.error('Failed to delete custom property')
         },
