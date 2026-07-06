@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JobNimbusSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.jobnimbus import (
     JobNimbusResumeConfig,
-    check_access,
     jobnimbus_source,
+    validate_credentials as _validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import (
     ENDPOINTS,
@@ -110,12 +110,7 @@ You can create an API key under **Settings → API** in [JobNimbus](https://app.
         self, config: JobNimbusSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid JobNimbus API key"
-        return False, message or "Could not validate JobNimbus API key"
+        return _validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[JobNimbusResumeConfig]:
         return ResumableSourceManager[JobNimbusResumeConfig](inputs, JobNimbusResumeConfig)
