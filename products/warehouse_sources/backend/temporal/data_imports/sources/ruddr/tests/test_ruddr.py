@@ -38,7 +38,8 @@ class _FakeResumableManager:
 
 
 def _full_page(start_id: int) -> list[dict]:
-    return [{"id": start_id + i} for i in range(PAGE_SIZE)]
+    # Ruddr resource ids are strings, and the cursor (RuddrResumeConfig.cursor) is typed str | None.
+    return [{"id": str(start_id + i)} for i in range(PAGE_SIZE)]
 
 
 class TestGetRows:
@@ -75,21 +76,21 @@ class TestGetRows:
     def test_follows_cursor_pagination_until_hasmore_false(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         # First page is full with hasMore true; the cursor becomes the last item's id (PAGE_SIZE - 1).
-        pages = {
+        last_id = str(PAGE_SIZE - 1)
+        pages: dict[str | None, tuple[list[dict], bool]] = {
             None: (_full_page(0), True),
-            PAGE_SIZE - 1: ([{"id": 999}], False),
+            last_id: ([{"id": "999"}], False),
         }
         rows = self._collect(manager, monkeypatch, pages)
         assert len(rows) == PAGE_SIZE + 1
         # State is saved after the first page (cursor advances to the last id), then we stop.
-        assert [s.cursor for s in manager.saved] == [PAGE_SIZE - 1]
+        assert [s.cursor for s in manager.saved] == [last_id]
 
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(RuddrResumeConfig(cursor="cur-99"))
         # The initial (cursor=None) page must never be fetched on resume.
-        pages = {"cur-99": ([{"id": 5}], False)}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 5}]
+        rows = self._collect(manager, monkeypatch, {"cur-99": ([{"id": "5"}], False)})
+        assert rows == [{"id": "5"}]
 
     def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
