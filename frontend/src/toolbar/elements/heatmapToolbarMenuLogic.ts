@@ -128,8 +128,9 @@ export function stepAreaCandidate(anchor: HTMLElement, candidate: HTMLElement, d
     if (candidate === anchor) {
         return candidate
     }
-    // the anchor is always a descendant of (or equal to) the candidate, so the way down
-    // is the chain from the anchor up to just below the candidate
+    // pointer hover keeps the anchor a descendant of the candidate, so the way down is
+    // the chain from the anchor up to just below the candidate; hovering an overlapping
+    // candidate box can break that, in which case the guard below makes "down" a no-op
     const path: HTMLElement[] = []
     let current: HTMLElement | null = anchor
     while (current && current !== candidate) {
@@ -848,8 +849,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (productTours?.values.isSelecting) {
                 productTours.actions.setEditorState({ mode: 'idle' })
             }
-            actions.setAreaCandidates(computeAreaCandidates())
-            toolbarPosthogJS.capture('toolbar heatmap area selection started')
+            const candidates = computeAreaCandidates()
+            actions.setAreaCandidates(candidates)
+            toolbarPosthogJS.capture('toolbar heatmap area selection started', {
+                candidate_count: candidates.length,
+                capped: candidates.length === AREA_CANDIDATE_LIMIT,
+            })
         },
 
         stepAreaHover: ({ direction }) => {
@@ -909,6 +914,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     actions.setHeatmapAreaFilter(null, null)
                     toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
                         enabled: false,
+                        has_selector: !!filter.selector,
+                        tag_name: filter.element.tagName.toLowerCase(),
                         trigger: 'element_lost',
                     })
                 }
@@ -1074,6 +1081,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 debounceTimer = setTimeout(() => {
                     invalidatePageElementsCache(cache as ElementProcessingCache)
                     invalidateZoomCache()
+                    // mid-pick DOM churn would leave the candidate boxes pointing at stale nodes
+                    if (values.areaSelectionActive) {
+                        actions.setAreaCandidates(computeAreaCandidates())
+                    }
                     // layout shifts move the filtered area; this also re-resolves or clears
                     // the filter when the picked node was replaced by a re-render
                     if (values.heatmapAreaFilter) {
@@ -1133,6 +1144,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             const onKeyDown = (e: KeyboardEvent): void => {
                 if (!values.areaSelectionActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) {
+                    return
+                }
+                const target = e.target as HTMLElement | null
+                if (target && isToolbarElement(target)) {
                     return
                 }
                 // arrows refine the selection, so they must not scroll the page mid-pick

@@ -172,6 +172,31 @@ A user paginating emits one event per page with cumulative `event_count` — gro
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
+### `toolbar heatmap area selection started`
+
+Fired when the user starts picking an area to filter the heatmap/clickmap to (the target icon in the heatmap menu).
+
+| Property          | Type      | Description                                                                       |
+| ----------------- | --------- | --------------------------------------------------------------------------------- |
+| `candidate_count` | `number`  | Area candidates rendered as hover targets                                         |
+| `capped`          | `boolean` | Whether the candidate list hit its rendering cap, so some candidates were dropped |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
+### `toolbar heatmap area filter changed`
+
+Fired when the heatmap area filter is applied, changed, or cleared.
+
+| Property        | Type                       | Description                                                                                                       |
+| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `enabled`       | `boolean`                  | Whether a filter is now applied (`false` = cleared)                                                               |
+| `has_selector`  | `boolean`                  | Whether a stable CSS selector was derived for the area (without one, only pixel bounds filtering runs)            |
+| `tag_name`      | `string \| null`           | Lowercase tag name of the selected area element                                                                   |
+| `trigger`       | `'user' \| 'element_lost'` | `user` = picked or cleared in the UI; `element_lost` = the tracked node left the DOM and could not be re-resolved |
+| `arrow_stepped` | `boolean`                  | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                         |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
 ## Element inspection
 
 ### `toolbar selected HTML element`

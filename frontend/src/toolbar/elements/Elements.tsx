@@ -14,7 +14,7 @@ import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLo
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ElementWithMetadata } from '~/toolbar/types'
-import { getBoxColors, getHeatMapHue, getRectForElement, getToolbarRootElement } from '~/toolbar/utils'
+import { getBoxColors, getHeatMapHue, getToolbarRootElement } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
@@ -76,7 +76,7 @@ export function Elements(): JSX.Element {
             areaSelectionActive
                 ? areaCandidates
                       .filter((element) => element.isConnected)
-                      .map((element) => ({ element, rect: getRectForElement(element) }))
+                      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
                 : [],
         [areaSelectionActive, areaCandidates, rectUpdateCounter] // eslint-disable-line react-hooks/exhaustive-deps
     )
