@@ -193,7 +193,7 @@ Fired when the heatmap area filter is applied, changed, or cleared.
 | `has_selector`  | `boolean`                  | Whether a stable CSS selector was derived for the area (without one, only pixel bounds filtering runs)            |
 | `tag_name`      | `string \| null`           | Lowercase tag name of the selected area element                                                                   |
 | `trigger`       | `'user' \| 'element_lost'` | `user` = picked or cleared in the UI; `element_lost` = the tracked node left the DOM and could not be re-resolved |
-| `arrow_stepped` | `boolean`                  | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                         |
+| `arrow_stepped` | `boolean \| undefined`     | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                         |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
