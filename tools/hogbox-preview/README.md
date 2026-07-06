@@ -40,7 +40,7 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    `frontend/dist`, ships it into the box, and `swap_frontend` re-runs
    `collectstatic` before the web recreate. Non-FE PRs keep the golden's
    `:master` SPA and stay ~1 min.
-4. **Delta-migrate** — only the PR's *unapplied* migrations on top of the seeded
+4. **Delta-migrate** — only the PR's _unapplied_ migrations on top of the seeded
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 

@@ -9,16 +9,16 @@ prod-us, golden `snap-085a84dd47cd` (8 vCPU / 16 GiB / 100 GiB mirrored).
 Ground-truth per-phase wall time (in-box `date` markers, so poll granularity
 doesn't distort it):
 
-| phase | cold | what it does |
-|---|---|---|
-| restore (VM resume) | 38s | server blocks until the box is `running` |
-| ssh / exec ready | 36s | sshd/hogpanion start accepting after resume |
-| `start-docker` | **75s** | `systemctl start docker`; containerd cold-reads its content store |
-| `up-deps` | 36s | recreate 6 dep containers (the bake `down`s them), wait pg healthy |
-| `migrate` (pg) | **126s** | `run --rm web manage.py migrate` — a **no-op** on the golden (`No planned migration operations`) |
-| `migrate_clickhouse` | **147s** | same, 281 CH migrations, all no-ops |
-| `up-web` | 2s | create the web container |
-| web `/_health` | **117s** | Nginx Unit + workers import `posthog.wsgi`, then serve |
+| phase                | cold     | what it does                                                                                     |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| restore (VM resume)  | 38s      | server blocks until the box is `running`                                                         |
+| ssh / exec ready     | 36s      | sshd/hogpanion start accepting after resume                                                      |
+| `start-docker`       | **75s**  | `systemctl start docker`; containerd cold-reads its content store                                |
+| `up-deps`            | 36s      | recreate 6 dep containers (the bake `down`s them), wait pg healthy                               |
+| `migrate` (pg)       | **126s** | `run --rm web manage.py migrate` — a **no-op** on the golden (`No planned migration operations`) |
+| `migrate_clickhouse` | **147s** | same, 281 CH migrations, all no-ops                                                              |
+| `up-web`             | 2s       | create the web container                                                                         |
+| web `/_health`       | **117s** | Nginx Unit + workers import `posthog.wsgi`, then serve                                           |
 
 ## Root cause: cold page-faulting through S3-backed chunkfs — not Django CPU
 
@@ -92,8 +92,9 @@ cold. The recipe is now the default in hogland `scripts/posthog-preview-setup.sh
 (bakes warm instead of `down` + stop-docker).
 
 Two hard constraints learned the hard way:
+
 - The golden **must** be built by `snapshot-build` (cold-boot seed). `box snapshot`
-  of a *restored* box bakes in the source's TAP name and fails to re-restore
+  of a _restored_ box bakes in the source's TAP name and fails to re-restore
   (`Open tap device ... kn-box-XXXX`). So there's no "warm a box then snapshot it"
   shortcut — the warm state has to be produced inside the cold-boot bake.
 - Cold-boot bakes need real host NVMe (fresh rootfs + 8.7GB image pull). A node
@@ -110,7 +111,7 @@ per-box without a web recreate, which would bring real previews toward ~32s too.
 ## Wake-on-request (shipped): warm restore of a hibernated preview
 
 The same warm-restore physics enable the end goal: hibernate an idle preview
-(snapshot the *ready* box — stack up, PR code current — then destroy it, zero
+(snapshot the _ready_ box — stack up, PR code current — then destroy it, zero
 node cost) and **wake it on the first HTTP request**. Because the snapshot is the
 fully-brought-up preview, waking is a warm restore, not a rebuild: **~30–40s to
 serving even on a cold node** (UFFD restores the page cache; the serving working
@@ -120,7 +121,7 @@ pen resolver + the wake-on-request interstitial at that 503 seam (#325), the
 server-side hibernate/wake verbs, the idle-TTL reaper that auto-hibernates an
 `on_idle=hibernate` pen (#329), and the pen-delete cascade that reaps the box +
 hibernate snapshot on teardown (#328). The former blocker — hibernate snapshots
-a *restored* box, which baked the source TAP name and wouldn't re-restore (C7) —
+a _restored_ box, which baked the source TAP name and wouldn't re-restore (C7) —
 was fixed by the TAP-remap (#322). So an idle preview now sleeps after its
 `ttl_seconds` and wakes on the next visit, with no preview-tool changes needed
 (this tool already tags its pens `on_idle=hibernate` / `wake=on-request`).
@@ -130,7 +131,7 @@ was fixed by the TAP-remap (#322). So an idle preview now sleeps after its
 Hard-won in PR #308 (the golden bake) + the warm-golden work. The bake script
 encodes them, but they're easy to regress, so they live here too:
 
-- **`compose run` has no `--no-build`.** Only a *present* image stops it from
+- **`compose run` has no `--no-build`.** Only a _present_ image stops it from
   silently starting dev-full's ~20-min `build: .`. Pull the image upfront and
   hard-fail if it's absent — don't discover the build at the migrate step.
 - **Never `compose restart web`.** Nginx Unit installs its `*:8000` listener only
@@ -146,7 +147,7 @@ encodes them, but they're easy to regress, so they live here too:
   (`Open tap device ... kn-box-XXXX`).
 - **Watch node disk.** Cold-boot bakes need real host NVMe (fresh rootfs + ~8.7GB
   image pull). A stuck/abandoned box wedges placement with `no space left on
-  device`, which fails restores too. Abandoned *running* boxes aren't auto-reaped.
+device`, which fails restores too. Abandoned _running_ boxes aren't auto-reaped.
 - **No-TTY seed box → `DEBIAN_FRONTEND=noninteractive`.** apt's `-y` doesn't
   suppress debconf prompts (tzdata/locale); without it a bake can hang.
 - **Hard-fail the postgres wait loop.** A silent timeout falls through to a
