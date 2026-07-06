@@ -18,7 +18,14 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertySource
+from products.customer_analytics.backend.logic.custom_property_definitions import InvalidCustomPropertyOptions
+from products.customer_analytics.backend.logic.custom_property_values import set_custom_property_value
+from products.customer_analytics.backend.models import (
+    Account,
+    CustomPropertyDefinition,
+    CustomPropertySource,
+    CustomPropertyValue,
+)
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
@@ -493,6 +500,117 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             )
             is None
         )
+
+
+class TestCustomPropertyDefinitionOptionsFacade(TeamScopedTestMixin, BaseTest):
+    OPTIONS = [
+        {"label": "Red", "color": "preset-1"},
+        {"label": "Blue", "color": "preset-2"},
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _create_select(self, options=None):
+        return facade.create_custom_property_definition(
+            team_id=self.team.id,
+            name="Stage",
+            description=None,
+            display_type="select",
+            is_big_number=False,
+            options=self.OPTIONS if options is None else options,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _update(self, definition_id, **fields):
+        return facade.update_custom_property_definition(
+            team_id=self.team.id,
+            definition_id=definition_id,
+            fields=fields,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _set_value(self, definition_id, value, account_id=None):
+        return set_custom_property_value(
+            team_id=self.team.id,
+            account_id=account_id or self.account.id,
+            definition_id=definition_id,
+            value=value,
+        )
+
+    def _values(self, definition_id):
+        return CustomPropertyValue.objects.for_team(self.team.id).filter(definition_id=definition_id)
+
+    def test_create_assigns_option_ids(self):
+        view = self._create_select()
+
+        assert view.options is not None
+        assert [option.label for option in view.options] == ["Red", "Blue"]
+        assert all(option.id for option in view.options)
+
+    def test_create_select_without_options_raises(self):
+        with pytest.raises(InvalidCustomPropertyOptions):
+            self._create_select(options=[])
+
+    def test_rename_backfills_active_and_historical_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue")  # supersedes: the "Red" row becomes historical
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Crimson", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Blue", "color": "preset-2"},
+            ],
+        )
+
+        stored = list(self._values(view.id).order_by("created_at").values_list("value_str", "is_deleted"))
+        assert stored == [("Crimson", True), ("Blue", False)]
+
+    def test_removed_option_soft_deletes_active_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, options=[{"id": view.options[1].id, "label": "Blue", "color": "preset-2"}])
+
+        assert updated is not None and [option.label for option in updated.options] == ["Blue"]
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is True
+
+    def test_label_swap_between_options_does_not_cascade(self):
+        view = self._create_select()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue", account_id=other_account.id)
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Blue", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Red", "color": "preset-2"},
+            ],
+        )
+
+        by_account = {row.account_id: row.value_str for row in self._values(view.id)}
+        assert by_account == {self.account.id: "Blue", other_account.id: "Red"}
+
+    def test_converting_select_to_text_keeps_values_and_clears_options(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, display_type="text")
+
+        assert updated is not None and updated.options is None
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is False
 
 
 class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
