@@ -20,7 +20,6 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -120,7 +119,11 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        # Local import: this module loads during django.setup() (via posthog.models), and the
+        # error_tracking facade pulls in posthog.event_usage -> posthog.models (circular).
+        from products.error_tracking.backend import facade as error_tracking  # noqa: PLC0415
+
+        return error_tracking.has_resolved_issues(self.team_id)
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()

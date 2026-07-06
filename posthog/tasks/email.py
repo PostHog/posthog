@@ -469,11 +469,12 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_mfa_link(user_id: int, token: str) -> None:
+def send_email_mfa_link(user_id: int, token: str, next_url: str | None = None) -> None:
     """Send email MFA verification link"""
     user: User = User.objects.get(pk=user_id)
 
-    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}"
+    next_query = f"&next={quote(next_url, safe='')}" if next_url else ""
+    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}{next_query}"
 
     message = EmailMessage(
         use_http=True,

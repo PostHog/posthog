@@ -326,7 +326,8 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
     Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
     (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
-    (owned by the prewarmed reaper), ``error`` (transient).
+    (owned by the prewarmed reaper), ``skipped_local`` (desktop-driven run, nothing to recover),
+    ``error`` (transient).
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
 
@@ -337,6 +338,13 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     )
     if task_run is None:
         return "left_queue"
+
+    # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
+    # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
+    # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
+    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    if task_run.environment == TaskRun.Environment.LOCAL:
+        return "skipped_local"
 
     # Prewarmed runs idle in QUEUED awaiting the user's first message; the dedicated prewarmed
     # reaper *kills* them if never activated. Recovering one would boot an agent with no prompt
@@ -410,6 +418,13 @@ def signal_task_followup_message(workflow_id: str, message: str | None, artifact
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
     asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+
+def signal_agent_text_delta(workflow_id: str, text: str) -> None:
+    """Push text into the live agent-design plan-block stream for a running task."""
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    asyncio.run(handle.signal("agent_text_delta", text))
 
 
 def execute_posthog_code_agent_relay_workflow(

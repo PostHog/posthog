@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db import InterfaceError, OperationalError
+
 import structlog
 
 from posthog.exceptions_capture import capture_exception
@@ -55,6 +57,18 @@ def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDat
             "sync_revenue_analytics_views_completed",
             team_id=schema.team_id,
             source_id=str(source.id),
+        )
+    except (OperationalError, InterfaceError) as e:
+        # Transient DB connection drop (the pgbouncer pooler recycling / closing a stale
+        # connection mid-query). This isn't a real failure of the view sync: the data-import
+        # pipeline retries the post-load hook on a fresh connection. Log for visibility but
+        # don't capture_exception — a momentary pooler blip shouldn't spin up an error
+        # tracking issue.
+        logger.warning(
+            "sync_revenue_analytics_views_transient_db_error",
+            team_id=schema.team_id,
+            source_id=str(source.id),
+            error=str(e),
         )
     except Exception as e:
         logger.exception(

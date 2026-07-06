@@ -7,8 +7,6 @@ import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -18,6 +16,11 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.embeddings import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_PRODUCT,
+    OBSERVATION_EMBEDDING_MODEL,
+)
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -86,9 +89,9 @@ SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = dedent("""
     - The user wants recordings whose observed reasoning mentions a concept, even if worded differently
 
     # Scope
-    - If a `scanner_id` is available (the user is looking at a specific scanner), the search is scoped to it.
-    - Otherwise the search spans every Replay Vision scanner the user can read — use this to find recordings
-      across the whole project. Leave `scanner_id` unset for a project-wide search.
+    - Pass a `scanner_id` to search one specific scanner.
+    - When `scanner_id` is unset, the search defaults to the scanner the user is currently viewing; if they
+      aren't on a scanner page it spans every Replay Vision scanner they can read.
 
     Works for every scanner type (monitor, classifier, scorer, summarizer).
 
@@ -109,10 +112,6 @@ SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = dedent("""
     synthesize the reasons rather than restating each row.
     """).strip()
 
-# Reasoning/summary embeddings are written with the large model; the query must be embedded with the same one.
-SEARCH_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
-_EMBEDDING_PRODUCT = "replay-vision"
-_EMBEDDING_DOCUMENT_TYPE = "replay-observation"
 # Default and hard cap on how many observations the search returns to Max's context.
 DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
@@ -195,12 +194,8 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
                 e,
                 properties={"team_id": self._team.id, "user_id": self._user.id, "scanner_id": str(resolved_id)},
             )
-            # Generic content — Max may relay it to the user, so don't surface the raw exception.
-            # Raw detail stays in the artifact (not user-visible) for debugging.
-            return "Something went wrong loading the summaries. Please try again.", {
-                "error": "fetch_failed",
-                "details": str(e),
-            }
+            # Generic content and artifact — the raw exception goes to error tracking above, not the conversation.
+            return "Something went wrong loading the summaries. Please try again.", {"error": "fetch_failed"}
 
     @database_sync_to_async
     def _fetch_and_format(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
@@ -329,7 +324,10 @@ class SearchObservationsArgs(BaseModel):
     )
     scanner_id: str | None = Field(
         default=None,
-        description="Scope the search to a single scanner. Omit to search across every scanner the user can read.",
+        description=(
+            "Scope the search to a single scanner. When omitted, defaults to the scanner the user is viewing, "
+            "or every scanner they can read when not on a scanner page."
+        ),
     )
     verdict: list[str] | None = Field(
         default=None,
@@ -373,8 +371,8 @@ class SearchReplayVisionObservationsTool(MaxTool):
         max_score: float | None = None,
         limit: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        # A scanner in scene context scopes the search; otherwise it spans every scanner the user can read.
-        resolved_id = self.context.get("scanner_id") or scanner_id
+        # Explicit argument wins; scene context is only the default scope when the model passed nothing.
+        resolved_id = scanner_id or self.context.get("scanner_id")
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
@@ -412,7 +410,9 @@ class SearchReplayVisionObservationsTool(MaxTool):
         scanner_ids, scope_label, cross_scanner, capped_limit = resolved_scope
 
         try:
-            embedding_response = await async_generate_embedding(self._team, query, model=SEARCH_EMBEDDING_MODEL.value)
+            embedding_response = await async_generate_embedding(
+                self._team, query, model=OBSERVATION_EMBEDDING_MODEL.value
+            )
         except Exception:
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self._team.id, exc_info=True)
             # Could be a timeout, a transport error, or (commonly) the org not having opted into AI data processing.
@@ -541,9 +541,9 @@ class SearchReplayVisionObservationsTool(MaxTool):
         """
         placeholders: dict[str, ast.Expr] = {
             "embedding": ast.Constant(value=query_vector),
-            "model_name": ast.Constant(value=SEARCH_EMBEDDING_MODEL.value),
-            "product": ast.Constant(value=_EMBEDDING_PRODUCT),
-            "document_type": ast.Constant(value=_EMBEDDING_DOCUMENT_TYPE),
+            "model_name": ast.Constant(value=OBSERVATION_EMBEDDING_MODEL.value),
+            "product": ast.Constant(value=EMBEDDING_PRODUCT),
+            "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
             "team_id": ast.Constant(value=self._team.id),
             "scanner_ids": ast.Constant(value=scanner_ids),
             "candidate_cap": ast.Constant(value=_MAX_CANDIDATE_ROWS),
@@ -570,5 +570,5 @@ class SearchReplayVisionObservationsTool(MaxTool):
             LIMIT {{limit}}
         """
         tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH)
-        result = execute_hogql_query(query=hogql_query, team=self._team, placeholders=placeholders)
+        result = execute_hogql_query(query=hogql_query, team=self._team, user=self._user, placeholders=placeholders)
         return [row[0] for row in (result.results or [])]

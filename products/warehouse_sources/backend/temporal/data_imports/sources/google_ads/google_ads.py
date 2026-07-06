@@ -659,6 +659,30 @@ def _is_stale_page_token_error(exc: GoogleAdsException) -> bool:
     return any(request_error in failure_text for request_error in _STALE_PAGE_TOKEN_REQUEST_ERRORS)
 
 
+def _is_rejected_page_token_error(exc: GoogleAdsException, page_token: str) -> bool:
+    """Return True if the failure names ``page_token`` as the value that triggered it.
+
+    Google sometimes rejects a stale page token with a ``request_error`` code newer than the
+    pinned client library knows, which the SDK surfaces as ``request_error: UNKNOWN`` /
+    "The error code is not in this version." rather than the ``INVALID_PAGE_TOKEN`` /
+    ``EXPIRED_PAGE_TOKEN`` that ``_is_stale_page_token_error`` matches — so that check misses it
+    and the sync fails permanently. The failure still echoes the offending value in an error
+    ``trigger``, so when a trigger equals the token we sent, treat it as a stale token and
+    restart pagination from the first page. Matched on the exact token (not the volatile error
+    code) to stay low-false-positive.
+    """
+    if not page_token:
+        return False
+    failure = getattr(exc, "failure", None)
+    if failure is None:
+        return False
+    for error in getattr(failure, "errors", None) or []:
+        trigger = getattr(error, "trigger", None)
+        if trigger is not None and getattr(trigger, "string_value", None) == page_token:
+            return True
+    return False
+
+
 def _search_as_arrow_tables(
     service: GoogleAdsServiceClient,
     customer_id: str | None,
@@ -676,9 +700,10 @@ def _search_as_arrow_tables(
       over ``primary_keys`` dedupe those repeated rows.
     * A resumed token may have expired between runs (Google Ads page tokens are
       short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` or
-      ``EXPIRED_PAGE_TOKEN`` we discard the saved token and restart pagination
-      from the first page — the same merge semantics make re-yielding
-      already-synced rows safe.
+      ``EXPIRED_PAGE_TOKEN`` — or an unrecognised error code whose ``trigger``
+      names the token we sent (see ``_is_rejected_page_token_error``) — we
+      discard the saved token and restart pagination from the first page. The
+      same merge semantics make re-yielding already-synced rows safe.
     """
     page_token = ""
     if resumable_source_manager.can_resume():
@@ -703,7 +728,7 @@ def _search_as_arrow_tables(
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
-            if page_token and _is_stale_page_token_error(e):
+            if page_token and (_is_stale_page_token_error(e) or _is_rejected_page_token_error(e, page_token)):
                 resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
                 page_token = ""
                 continue

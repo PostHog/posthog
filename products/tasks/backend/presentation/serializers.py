@@ -1,24 +1,29 @@
 import base64
+import logging
 import binascii
 from typing import Any, cast
 from zoneinfo import available_timezones
 
+import posthoganalytics
 from croniter import croniter
 from drf_spectacular.utils import PolymorphicProxySerializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
+    ChannelDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
     TaskRunDetailDTO,
     TaskSummaryDTO,
+    TaskThreadMessageDTO,
     TaskUserBasicInfo,
 )
 from products.tasks.backend.facade.run_config import (
@@ -32,6 +37,51 @@ from products.tasks.backend.facade.run_config import (
     RuntimeAdapter,
     get_reasoning_effort_error,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _capture_rejected_reasoning_effort(
+    context: dict[str, Any],
+    *,
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    error: str,
+) -> None:
+    """Record a rejected runtime_adapter/model/reasoning_effort combination server-side.
+
+    This validation only ever reached the caller as a 400 response body, so recurring
+    misconfigurations (e.g. a model missing from the supported-effort map) were invisible
+    beyond individual client-side error toasts.
+    """
+    team = context.get("team")
+    logger.warning(
+        "Rejected task run reasoning_effort/model combination",
+        extra={
+            "team_id": getattr(team, "id", None),
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        },
+    )
+
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="task run reasoning effort rejected",
+        properties={
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "error": error,
+        },
+        groups=groups(team=team),
+    )
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -285,6 +335,7 @@ class TaskSerializer(DataclassSerializer):
             "updated_at",
             "created_by",
             "ci_prompt",
+            "channel",
         ]
 
 
@@ -415,6 +466,12 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
+    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        allow_null=True,
+        help_text="Channel this task is owned by (the channel it was kicked off in).",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -423,6 +480,16 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
+        # Channel queryset comes from the facade so presentation stays off tasks models.
+        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+
+    def validate_channel(self, value):
+        """Personal channels are private: only their owner may file tasks into them."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+            raise serializers.ValidationError("Personal channels can only be used by their owner")
+        return value
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -922,9 +989,15 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
-    internal = serializers.BooleanField(
+    internal = serializers.ChoiceField(
         required=False,
-        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether "
+            "it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal "
+            "and user-facing tasks, or 'true' to list only internal tasks. All values are available to any "
+            "team member; access stays governed by task visibility."
+        ),
     )
     archived = serializers.ChoiceField(
         required=False,
@@ -934,6 +1007,42 @@ class TaskListQuerySerializer(serializers.Serializer):
             "archived tasks, 'false' for the default, or 'all' to include both."
         ),
     )
+    channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+
+
+class ChannelSerializer(DataclassSerializer):
+    """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelDTO
+        fields = ["id", "name", "channel_type", "created_at", "created_by"]
+
+
+class ChannelWriteSerializer(serializers.Serializer):
+    """Request body for creating (resolve-or-create) or renaming a public channel."""
+
+    name = serializers.CharField(
+        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+    )
+
+
+class TaskThreadMessageSerializer(DataclassSerializer):
+    """Response shape for one message in a task's thread."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    forwarded_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskThreadMessageDTO
+        fields = ["id", "task", "content", "created_at", "author", "forwarded_to_agent_at", "forwarded_by"]
+
+
+class TaskThreadMessageWriteSerializer(serializers.Serializer):
+    """Request body for posting a thread message."""
+
+    content = serializers.CharField(help_text="Message text.")
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):
@@ -1161,6 +1270,13 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -1300,6 +1416,13 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)

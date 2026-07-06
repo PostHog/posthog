@@ -110,10 +110,10 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
-        # Creator can see it; an unrelated user cannot.
-        self.assertTrue(facade.is_task_visible_to_user(task.id, self.user.id))
+        # Creator can control it; an unrelated user cannot.
+        self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
-        self.assertFalse(facade.is_task_visible_to_user(task.id, other_user.id))
+        self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
@@ -195,12 +195,23 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         fresh = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         stale = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        stale_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
         past = django_timezone.now() - timedelta(hours=48)
-        TaskRun.objects.filter(pk=stale.pk).update(updated_at=past)
+        TaskRun.objects.filter(pk__in=[stale.pk, stale_local.pk]).update(updated_at=past)
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
+        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
+
+        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
+        # one starts a cloud workflow that hijacks and eventually fails the live local session.
+        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        self.assertIn(stale.id, cloud_ids)
+        self.assertNotIn(stale_local.id, cloud_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
@@ -209,6 +220,50 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    @parameterized.expand(
+        [
+            # A directory snapshot captured at a still-allowed path is carried into the new run.
+            ("workspace_path", "/tmp/workspace", True),
+            # A legacy "/tmp" capture is unusable (its content only fits that path, and mounting
+            # over the live /tmp killed sandboxes) — resuming must drop it, not carry it forward
+            # with the path stripped, or downstream defaulting would remount mismatched content.
+            ("legacy_tmp_path", "/tmp", False),
+        ]
+    )
+    def test_run_task_resume_carries_only_usable_directory_snapshots(
+        self, _name: str, prior_mount_path: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "snapshot_external_id": "im-dir",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": prior_mount_path,
+            },
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("snapshot_external_id"), "im-dir")
+            self.assertEqual(new_run.state.get("snapshot_kind"), "directory")
+            self.assertEqual(new_run.state.get("snapshot_mount_path"), prior_mount_path)
+        else:
+            self.assertNotIn("snapshot_external_id", new_run.state)
+            self.assertNotIn("snapshot_kind", new_run.state)
+            self.assertNotIn("snapshot_mount_path", new_run.state)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()

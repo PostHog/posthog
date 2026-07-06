@@ -21,6 +21,7 @@ read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -217,6 +218,42 @@ class WorkflowRunDetail:
 
 
 @dataclass(frozen=True)
+class WorkflowRunActivityPoint:
+    """A single workflow run reduced to the fields the run-activity chart plots: start time, duration,
+    conclusion, branch, and attributed PR. Deliberately leaner than ``WorkflowRunDetail`` so the chart can
+    load far more runs across the full window (for the scatter, the in-flight band, and the focus-lens
+    brush) than the capped run-detail table, without the per-row wire cost of the full detail shape.
+    """
+
+    run_id: int
+    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / ...), or None while still running.
+    conclusion: str | None
+    # Always set here (unlike the shared WorkflowRunDetail shape): the windowed query filters on
+    # run_started_at, so a run with no parseable start timestamp is excluded — it can't be placed on the
+    # chart's time axis anyway. Non-null keeps the contract honest for this chart-only endpoint.
+    run_started_at: datetime
+    # None until the run completes — duration is only computed for completed runs.
+    duration_seconds: int | None
+    head_branch: str
+    # Attributed pull request number, or 0 when unattributed.
+    pr_number: int
+
+
+@dataclass(frozen=True)
+class WorkflowRunActivity:
+    """The run-activity chart's data for one workflow over a window: compact per-run points plus an
+    explicit truncation signal. ``points`` is capped at ``limit`` (newest first); ``truncated`` is True
+    when more runs matched than the cap, so the chart can label itself as covering only the most recent
+    runs rather than the full window. Higher-capped than the run-detail table, so the chart still spans
+    multiple days on busy workflows where the smaller table cap would collapse to a sliver.
+    """
+
+    points: list[WorkflowRunActivityPoint]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class WorkflowJob:
     """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
     is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the
@@ -397,6 +434,8 @@ class CIStatusRollup:
     passing: int
     failing: int
     pending: int
+    # The workflow names behind `failing`, sorted — what the UI names under the CI tag.
+    failing_workflows: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -575,3 +614,120 @@ class WorkflowHealthItem:
     # the job-level source isn't synced (run-level health alone carries no runner tier).
     billable_minutes: float | None = None
     estimated_cost_usd: float | None = None
+    # Runs in the window that were a 2nd+ attempt.
+    rerun_cycles: int = 0
+    # Success rate over the equal-length window before date_from; None when it had no completed runs.
+    success_rate_prev: float | None = None
+
+
+@dataclass(frozen=True)
+class CostPerMergeBucket:
+    """One time bucket of the repo's CI cost normalized by merged PRs — the "is CI spend per shipped
+    change trending up" series. ``cost_per_merge_usd`` is the headline: estimated Depot cost over a
+    trailing window ending at this bucket (24 h / 7 d / 4 w to match the grain) divided by PRs merged
+    in the same trailing window. The rolling ratio exists because a strict per-bucket division has a
+    hole in every bucket that shipped nothing and pairs spend with merges that usually happened a
+    bucket later. Cost counts by run start and merges by merge time — the same coarse alignment the
+    daily depot tooling uses. ``estimated_cost_usd`` and ``merges`` stay bucket-local (the raw inputs);
+    empty buckets are zero-filled: ``merges`` 0, cost None.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Estimated Depot CI cost (USD) of all runs started in this bucket. None when nothing was costable
+    # (no billable self-hosted Linux jobs, or the job source isn't synced).
+    estimated_cost_usd: float | None
+    # PRs merged in this bucket (all authors, bots included — matches the cost numerator's population).
+    merges: int
+    # Trailing-window cost / trailing-window merges (window sized to the grain). None when the trailing
+    # window had no merges or no costable cost, so a dead stretch is never shown as an infinite or zero
+    # cost-per-merge.
+    cost_per_merge_usd: float | None
+
+
+@dataclass(frozen=True)
+class RepoOverview:
+    """Repo-level headline aggregates for the landing page, each with its previous-window twin
+    so the UI renders honest deltas. The previous window has the same length as the current one
+    and ends where it starts. Cost figures are None when the job-level source isn't synced
+    (``jobs_available``); the PR merge median excludes bots and drafts per the locked recipe.
+    """
+
+    run_count: int
+    run_count_prev: int
+    success_rate: float | None
+    success_rate_prev: float | None
+    rerun_cycles: int
+    rerun_cycles_prev: int
+    # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
+    median_open_to_merge_seconds: float | None
+    median_open_to_merge_seconds_prev: float | None
+    billable_minutes: float | None
+    billable_minutes_prev: float | None
+    estimated_cost_usd: float | None
+    estimated_cost_usd_prev: float | None
+    jobs_available: bool
+    # 'master' or 'main', picked by observed run volume in the current window.
+    default_branch: str
+    # Cost-per-merged-PR trend across the window, oldest first, zero-filled, bucketed by
+    # `cost_series_granularity`. Empty when the job-level source isn't synced.
+    cost_series: list[CostPerMergeBucket]
+    # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    cost_series_granularity: str
+
+
+@dataclass(frozen=True)
+class MasterFailureGroup:
+    """One group of default-branch failures: a (workflow, de-sharded failing job) signature with
+    its run count and first/last seen — the error-tracking-style triage row. ``failed_job`` is ''
+    when the job-level source isn't synced and the group degrades to workflow level.
+    """
+
+    repo: RepoRef
+    workflow_name: str
+    failed_job: str
+    run_count: int
+    first_seen: datetime
+    last_seen: datetime
+    # The most recent failing run in the group — the drill-down anchor.
+    latest_run_id: int
+
+
+@dataclass(frozen=True)
+class RunFailureLogs:
+    """Thinned CI failure logs for a single workflow run, grouped by failed job. Same log substrate
+    as ``CIFailureLogs`` but keyed directly by run id, for surfaces that aren't PR-scoped (the
+    default-branch failures feed and the run page). ``logs_available`` is False when no failure-log
+    records exist for the run — it didn't fail, or the logs aged out of the short Logs retention.
+    """
+
+    run_id: int
+    logs_available: bool
+    jobs: list[CIJobFailureLog]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class WorkflowJobAggregate:
+    """Per-job aggregates for one workflow over a window, one row per de-sharded job name
+    (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
+    Rates and percentiles are over completed jobs; cost is None when every instance ran on
+    an unknown tier."""
+
+    job_name: str
+    # Job instances observed in the window (all shards, all attempts).
+    job_count: int
+    # Distinct raw job names inside the group — the observed matrix width.
+    shard_count: int
+    # Distinct workflow runs the job appeared in.
+    runs_in: int
+    # runs_in / the workflow's total runs in the window — below 1.0 means the job is conditional.
+    run_share: float | None
+    queue_p50_seconds: float | None
+    p50_seconds: float | None
+    p95_seconds: float | None
+    failure_rate: float | None
+    # Job instances that ran on a 2nd+ run attempt.
+    retry_job_count: int
+    billable_minutes: float | None
+    estimated_cost_usd: float | None
