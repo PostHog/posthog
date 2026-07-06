@@ -15,8 +15,8 @@
  *       track shows a centered dash (most minimal, reads like a "blocked/mixed" badge).
  *   F — Same as E, but the track keeps the regular unchecked switch fill gray instead of
  *       the border gray.
- *   G — A + B combined: the handle parks mid-track (as in A) and carries the minus glyph
- *       on a "checked"-filled track (as in B).
+ *   G — A + B + C combined: the handle parks mid-track (A), stretches to half the track
+ *       width (C), and carries the minus glyph on a "checked"-filled track (B).
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -170,14 +170,17 @@ export function VariantFNoHandleDashFillGray(props: PrototypeSwitchProps): JSX.E
     )
 }
 
-/** G — A + B combined: centered handle carrying the minus glyph on a "checked"-filled track. */
+/** G — A + B + C combined: centered half-width handle carrying the minus glyph on a "checked"-filled track. */
 export function VariantGCenteredHandleDash(props: PrototypeSwitchProps): JSX.Element {
     return (
         <SwitchShell
             {...props}
             trackStyle={{ backgroundColor: 'var(--color-accent)' }}
-            handleStyle={{ transform: CENTERED_TRANSLATE }}
-            handleContent={<Dash color="var(--color-accent)" width="55%" />}
+            handleStyle={{
+                width: 'calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)',
+                transform: 'translateX(calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 4))',
+            }}
+            handleContent={<Dash color="var(--color-accent)" width="40%" />}
         />
     )
 }

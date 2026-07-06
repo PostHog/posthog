@@ -54,8 +54,9 @@ const VARIANTS: {
     },
     {
         key: 'G',
-        name: 'Centered handle with dash',
-        description: 'A + B combined: handle parks mid-track and carries the minus glyph on a "checked"-filled track.',
+        name: 'Centered half-width handle with dash',
+        description:
+            'A + B + C combined: half-width handle parks mid-track and carries the minus glyph on a "checked"-filled track.',
         Component: VariantGCenteredHandleDash,
     },
     {
