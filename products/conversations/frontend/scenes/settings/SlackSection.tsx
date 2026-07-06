@@ -132,10 +132,10 @@ function SlackChannelSection(): JSX.Element {
                         <div>
                             <label className="font-medium">Ticket nudges</label>
                             <p className="text-xs text-muted-alt">
-                                When someone posts in any other channel the bot is in, SupportHog replies in-thread
-                                asking whether to open a ticket — so they don't need to remember the emoji reaction or
-                                @mention. Support channels are unaffected: messages there always create tickets
-                                automatically.
+                                When enabled, SupportHog replies in-thread asking whether the customer wants to open a
+                                ticket. This means customers don't have to remember the emoji reaction or @mention.
+                                'Support channels' will still have tickets created for every thread, and no nudge is
+                                sent.
                             </p>
                         </div>
                         <LemonCheckbox
