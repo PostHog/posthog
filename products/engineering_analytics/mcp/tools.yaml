@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-author-workflow-costs:
+        operation: engineering_analytics_author_workflow_costs
+        enabled: false
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false

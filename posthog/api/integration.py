@@ -1170,7 +1170,7 @@ class IntegrationViewSet(
         """List the Search Console properties the connected Google account has access to."""
         # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
         # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             google_search_console_session,
             list_sites,
         )

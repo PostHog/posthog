@@ -53,7 +53,7 @@ def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
 def _build_slack_blocks(config: Config, result: TestSuiteResult) -> list[dict[str, Any]]:
     """Build Slack blocks for the test result notification."""
     blocks: list[dict[str, Any]] = [
-        _build_header_block(result),
+        _build_header_block(config),
         _build_summary_block(result),
         {"type": "divider"},
     ]
@@ -63,14 +63,13 @@ def _build_slack_blocks(config: Config, result: TestSuiteResult) -> list[dict[st
     return blocks
 
 
-def _build_header_block(result: TestSuiteResult) -> dict[str, Any]:
+def _build_header_block(config: Config) -> dict[str, Any]:
     # Only called when there are failures (send_slack_notification returns early on success)
-    _ = result  # Unused but kept for API consistency
     return {
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": ":bomb: *Unsuccessful run for Ingestion Acceptance Tests*",
+            "text": f":bomb: *Unsuccessful run in {config.lane} lane for Ingestion Acceptance Tests*",
         },
     }
 
@@ -101,6 +100,7 @@ def _build_summary_block(result: TestSuiteResult) -> dict[str, Any]:
 
 def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
     text = (
+        f":traffic_light: Lane: {config.lane} | "
         f":globe_with_meridians: Env: {config.api_host} | "
         f":file_folder: Team: {config.team_id} | "
         f":hourglass: Duration: {result.total_duration_seconds:.2f}s"
@@ -136,7 +136,7 @@ def send_slack_timeout_notification(config: Config, running_tests: list[RunningT
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": ":hourglass: *Ingestion Acceptance Tests Timed Out*",
+                "text": f":hourglass: *Ingestion Acceptance Tests Timed Out in {config.lane} lane*",
             },
         },
         {
@@ -145,6 +145,7 @@ def send_slack_timeout_notification(config: Config, running_tests: list[RunningT
                 {
                     "type": "mrkdwn",
                     "text": (
+                        f":traffic_light: Lane: {config.lane} | "
                         f":globe_with_meridians: Env: {config.api_host} | "
                         f":file_folder: Team: {config.team_id} | "
                         f":stopwatch: Timeout: {config.activity_timeout_seconds}s | "
