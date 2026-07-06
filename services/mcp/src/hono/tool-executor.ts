@@ -375,10 +375,10 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
-            if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
+            if (toolName === EXECUTE_SQL_TOOL_NAME && properties.validated_input) {
                 void trackExecuteSqlGeneration(
                     toolName,
-                    properties.input,
+                    properties.validated_input,
                     state,
                     {
                         durationMs: properties.duration_ms,

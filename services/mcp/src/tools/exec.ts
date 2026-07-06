@@ -41,11 +41,7 @@ export interface ExecInnerCallProperties {
      */
     input_tokens?: number
     output_tokens?: number
-    /**
-     * Parsed input of the inner call (post-validation). Not captured wholesale —
-     * consumed by tool-specific analytics (execute-sql's `$ai_generation`).
-     */
-    input?: Record<string, unknown>
+    validated_input?: Record<string, unknown>
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -442,7 +438,7 @@ export function createExecTool(
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
-                            input,
+                            validated_input: input,
                         })
                         throw err
                     }
@@ -478,7 +474,7 @@ export function createExecTool(
                             output_format: 'structured',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
-                            input,
+                            validated_input: input,
                         })
                         return payload
                     }
@@ -506,7 +502,7 @@ export function createExecTool(
                         output_format: useJson ? 'json' : 'text',
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
-                        input,
+                        validated_input: input,
                     })
                     return outputText
                 }

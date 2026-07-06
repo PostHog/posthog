@@ -245,9 +245,7 @@ describe('exec tool', () => {
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
             expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
             expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
-            // Parsed input must reach the tracker — tool-specific analytics
-            // (execute-sql $ai_generation) read it off the inner call.
-            expect(calls[0]!.properties.input).toEqual({ query: 'SELECT 1' })
+            expect(calls[0]!.properties.validated_input).toEqual({ query: 'SELECT 1' })
         })
 
         it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {
