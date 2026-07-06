@@ -35,6 +35,7 @@ jobs:
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
+                      - '!common/hogql_parser/CONTRIBUTING.md'
                       workflow:
                       - .github/workflows/build-hogql-parser.yml
 
@@ -51,6 +52,11 @@ jobs:
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     local=$(cd common/hogql_parser && python setup.py --version)
+                    npm_version=$(node -p "require('./common/hogql_parser/package.json').version")
+                    if [[ "$npm_version" != "$local" ]]; then
+                      echo "::error::hogql-parser versions diverge: setup.py has $local but package.json has $npm_version. Bump both to the same new version."
+                      exit 1
+                    fi
                     # 200 = version already on PyPI, 404 = needs release.
                     http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
                     if [[ "$http_code" == '404' ]]; then
@@ -60,15 +66,32 @@ jobs:
                         GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py --clear "version bumped to $local"
                       fi
                     elif [[ "$http_code" == '200' ]]; then
-                      message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
-                      message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
-                      if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
-                      fi
-                      if [ -f .github/scripts/post-reminder-section.mjs ]; then
-                        BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py warn "version bump needed"
+                      pin=$(grep -oE 'hogql-parser==[0-9][0-9a-z.]*' pyproject.toml | cut -d= -f3 || true)
+                      base=$(git show origin/master:common/hogql_parser/setup.py 2>/dev/null | grep -oE 'version="[^"]+"' | cut -d'"' -f2 || true)
+                      if [[ "$pin" == "$local" && "$local" != "$base" ]]; then
+                        # Bumped, published, and pinned by an earlier run of this PR: consistent state, nothing to release.
+                        if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py --clear "version $local published and pinned"
+                        fi
                       else
-                        echo "Skipping hogql-parser-py section — script not present on this checkout"
+                        if [[ "$local" == "$base" ]]; then
+                          reason="The code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local."
+                        else
+                          latest=$(curl -sSL https://pypi.org/pypi/hogql-parser/json | jq -r .info.version 2>/dev/null || echo 'unknown')
+                          reason="This PR bumps \`hogql-parser\` to $local, but that version is already published on PyPI (latest release: $latest), so this PR's parser changes would never ship."
+                        fi
+                        message_body="$reason 🚨"
+                        message_body+=$'\n'"Bump the version in \`common/hogql_parser/setup.py\` and \`common/hogql_parser/package.json\` to an unused one before merging; this check fails until then."
+                        if [[ "$IS_FORK" == 'true' ]]; then
+                          message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
+                        fi
+                        if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py warn "version bump needed"
+                        else
+                          echo "Skipping hogql-parser-py section: script not present on this checkout"
+                        fi
+                        echo "::error::$reason Bump common/hogql_parser/setup.py and package.json to an unused version."
+                        exit 1
                       fi
                     else
                       echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."

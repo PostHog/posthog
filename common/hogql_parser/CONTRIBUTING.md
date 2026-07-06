@@ -1,5 +1,20 @@
 # Developing `hogql-parser`
 
+## Releasing a new version
+
+This directory ships as two packages: `hogql-parser` on PyPI (C++ extension, `setup.py`) and `@posthog/hogql-parser` on npm (WASM, `package.json`).
+Publishing happens from the PR itself, via `.github/workflows/build-hogql-parser.yml` and `build-hogql-parser-npm.yml`.
+
+In the same PR as your code change:
+
+1. Bump the version in **both** `setup.py` and `package.json` to the **same, never-before-published** version.
+   Check what's taken: <https://pypi.org/pypi/hogql-parser/json> and `npm view @posthog/hogql-parser version`.
+2. Push. CI builds the wheels/WASM, publishes both packages, and bot-commits the pin updates back to your branch (`pyproject.toml` + `uv.lock`, `frontend/package.json` + `pnpm-lock.yaml`).
+3. Merge only after the bot pin commits have landed on your branch.
+
+CI fails the `check-version` jobs red when parser code changed but the version wasn't bumped, when the version was bumped to a number already on the registry (the fix would silently never ship), or when `setup.py` and `package.json` disagree.
+It also fails the publish jobs if a published release didn't move the corresponding pin.
+
 ## Mandatory reading
 
 If you're new to Python C/C++ extensions, there are some things you must have in mind. The [Python/C API Reference Manual](https://docs.python.org/3/c-api/index.html) is worth a read as a whole.

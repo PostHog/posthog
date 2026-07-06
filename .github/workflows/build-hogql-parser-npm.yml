@@ -36,6 +36,7 @@ jobs:
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
+                      - '!common/hogql_parser/CONTRIBUTING.md'
 
             - name: Check package version and detect an update
               id: check-package-version
@@ -43,7 +44,7 @@ jobs:
               with:
                   path: common/hogql_parser
 
-            - name: Comment on PR if version not bumped
+            - name: Fail if version not bumped
               if: steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'false'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,8 +52,17 @@ jobs:
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
-                  message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"
+                  pin=$(node -p "require('./frontend/package.json').dependencies['@posthog/hogql-parser']")
+                  base=$(git show origin/master:common/hogql_parser/package.json 2>/dev/null | jq -r .version || true)
+                  if [[ "$pin" == "$COMMITTED_VERSION" && "$COMMITTED_VERSION" != "$base" ]]; then
+                    # Bumped, published, and pinned by an earlier run of this PR: consistent state, nothing to release.
+                    if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-npm --clear "version $COMMITTED_VERSION published and pinned"
+                    fi
+                    exit 0
+                  fi
+                  message_body="The code of \`@posthog/hogql-parser\` (npm) changed in this PR, but version $COMMITTED_VERSION is already published on npm, so this PR's parser changes would never ship. 🚨"
+                  message_body+=$'\n'"Bump the version in \`common/hogql_parser/package.json\` and \`common/hogql_parser/setup.py\` to an unused one before merging; this check fails until then."
                   if [[ "$IS_FORK" == 'true' ]]; then
                     message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
                   fi
@@ -61,6 +71,8 @@ jobs:
                   else
                     echo "Skipping hogql-parser-npm section — script not present on this checkout"
                   fi
+                  echo "::error::@posthog/hogql-parser code changed but version $COMMITTED_VERSION is already on npm. Bump common/hogql_parser/package.json and setup.py to an unused version."
+                  exit 1
 
             # Version was bumped — mark any reminder from an earlier push resolved.
             - name: Clear version reminder
@@ -195,3 +207,16 @@ jobs:
                   file_pattern: 'frontend/package.json pnpm-lock.yaml'
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Fail if pin update produced no commit
+              # This job only runs when a genuinely new version was published
+              # (build-wasm is gated on is-new-version), so the pin must move.
+              shell: bash
+              env:
+                  CHANGED: ${{ steps.check-pin.outputs.changed }}
+              run: |
+                  if [[ "$CHANGED" != "true" ]]; then
+                    echo "::error::@posthog/hogql-parser was published to npm but the frontend/package.json pin was not updated."
+                    echo "Check the 'Update @posthog/hogql-parser in frontend' step above for why pnpm add did not produce a diff."
+                    exit 1
+                  fi
