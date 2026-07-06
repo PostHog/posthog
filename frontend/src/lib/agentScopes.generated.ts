@@ -37,6 +37,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'error_tracking:write',
     'evaluation:read',
     'evaluation:write',
+    'element:read',
     'event_definition:read',
     'event_definition:write',
     'experiment:read',
