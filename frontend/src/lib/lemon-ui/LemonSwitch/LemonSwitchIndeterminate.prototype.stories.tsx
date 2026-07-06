@@ -18,6 +18,7 @@ import {
     VariantENoHandleDash,
     VariantFNoHandleDashFillGray,
     VariantGCenteredHandleDash,
+    VariantHFullWidthHandleDashAccent,
 } from './LemonSwitchIndeterminate.prototype'
 
 const meta: Meta = {
@@ -64,6 +65,12 @@ const VARIANTS: {
         name: 'Full-width handle with dash',
         description: 'Handle stretches across the entire track and carries the minus glyph. No position to misread.',
         Component: VariantDFullWidthHandleDash,
+    },
+    {
+        key: 'H',
+        name: 'Full-width handle with dash (accent)',
+        description: 'Like D, but the full-width handle is filled with the active accent blue and the dash is white.',
+        Component: VariantHFullWidthHandleDashAccent,
     },
     {
         key: 'E',

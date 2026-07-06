@@ -17,6 +17,8 @@
  *       the border gray.
  *   G — A + B + C combined: the handle parks mid-track (A), stretches to half the track
  *       width and sits on a half-gray, half-accent track (C), carrying the minus glyph (B).
+ *   H — Same as D, but the full-width handle is filled with the active accent blue and the
+ *       dash is white.
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -142,6 +144,22 @@ export function VariantDFullWidthHandleDash(props: PrototypeSwitchProps): JSX.El
                 transform: 'none',
             }}
             handleContent={<Dash color="var(--color-accent)" width="35%" />}
+        />
+    )
+}
+
+/** H — like D, but the full-width handle is filled with the active accent blue and the dash is white. */
+export function VariantHFullWidthHandleDashAccent(props: PrototypeSwitchProps): JSX.Element {
+    return (
+        <SwitchShell
+            {...props}
+            trackStyle={{ backgroundColor: 'var(--color-accent)' }}
+            handleStyle={{
+                width: 'calc(var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter))',
+                transform: 'none',
+                backgroundColor: 'var(--color-accent)',
+            }}
+            handleContent={<Dash color="var(--color-bg-surface-primary)" width="35%" />}
         />
     )
 }
