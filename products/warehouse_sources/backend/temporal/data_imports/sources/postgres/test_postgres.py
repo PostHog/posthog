@@ -4937,6 +4937,19 @@ class TestHasDuplicatePrimaryKeys:
         assert result is False
         mock_capture.assert_called_once()
 
+    def test_reraises_permission_denied_without_capturing(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        # The sync role lacks SELECT on the table (SQLSTATE 42501). This is already non-retryable
+        # via get_non_retryable_errors, so the probe must propagate it, not capture it as noise.
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege("permission denied for table orders")
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
+        mock_capture.assert_not_called()
+
 
 class TestIsReadReplica:
     @pytest.mark.django_db
