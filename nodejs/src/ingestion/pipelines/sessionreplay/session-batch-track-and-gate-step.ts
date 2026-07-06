@@ -33,14 +33,14 @@ import { SessionTracker } from './sessions/session-tracker'
  * limiting and fail open, so a Redis blip there under-limits rather than halting.
  */
 /** The minimal per-element shape this step needs to track and rate-limit a session. */
-type Trackable = {
+type TrackAndGateStepInput = {
     message: Pick<Message, 'partition' | 'offset'>
     team: TeamForReplay
     headers: SessionReplayHeaders
     retentionPeriod: RetentionPeriod
 }
 
-export function createTrackAndGateStep<T extends Trackable>(
+export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
     sessionTracker: SessionTracker,
     sessionFilter: SessionFilter
 ): BatchProcessingStep<T, Gated<T & NewSessionFlag>> {
