@@ -30,6 +30,13 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// Per-product per-shard wall-clock target override. A product that runs a large temporal suite in
+// its own job (warehouse_sources) is split more aggressively so the long integration tests fan out
+// across more shards. Kept modest — every extra shard pays the full docker-stack + temporal-server
+// startup, so over-splitting trades runner cost for little wall-clock once startup dominates.
+const PRODUCT_TARGET_WALL_OVERRIDE = {
+    'warehouse-sources': 6 * 60,
+}
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -41,6 +48,11 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that run their OWN temporal suite inside the product test job (backend:test covers
+// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
+// the temporal durations must count toward product sizing so the product is sharded for that load —
+// otherwise a huge suite lands in one unsharded bucket and times out.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -230,9 +242,12 @@ function getProductDuration(product, durations) {
     }
     const dirName = product.replace(/-/g, '_')
     const prefix = `products/${dirName}/`
+    // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
+    // that runs its own temporal suite in the product job must count them toward its size.
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
@@ -351,8 +366,9 @@ function buildMatrix(products, durations) {
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
         const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
+        const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
+        if (raw > targetWall) {
+            const shards = Math.ceil(raw / targetWall)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {

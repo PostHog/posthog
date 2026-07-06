@@ -2296,14 +2296,15 @@ class TestGitHubTeamIntegrationComplete:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
-    def test_non_admin_member_cannot_complete_team_install(self, client: HttpClient):
+    def test_forged_state_cannot_complete_team_install(self, client: HttpClient):
         member = User.objects.create_and_join(
             self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
         )
         client.force_login(member)
 
         # No valid authorize state — the member supplies the team via the user-controlled `state` `next`,
-        # which resolves team_id purely from the path. Membership alone must not let them complete it.
+        # which resolves team_id purely from the path. Membership now suffices to *add* an integration, so
+        # state-token validation (not the permission gate) is what must stop a forged callback from creating one.
         next_path = f"/project/{self.team.pk}/integrations/github"
         response = client.get(
             "/integrations/github/callback/",
@@ -2316,8 +2317,74 @@ class TestGitHubTeamIntegrationComplete:
         )
 
         assert response.status_code == status.HTTP_302_FOUND
-        assert "github_setup_error=insufficient_permissions" in response["Location"]
+        assert "github_setup_error=invalid_state" in response["Location"]
         assert not Integration.objects.filter(team=self.team, kind="github").exists()
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    def test_member_can_complete_fresh_team_install(
+        self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
+    ):
+        # Adding a brand-new integration only requires project membership.
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+        next_path = f"/project/{self.team.pk}/settings/environment-integrations"
+        state_token = "member-install-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=member.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+        mock_from_code.return_value = self._github_user_authorization()
+        mock_verify.return_value = True
+        # side_effect (not return_value) so the row is created when execute runs — after the
+        # permission check — matching a genuine first-time install where nothing exists yet.
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
+    def test_member_cannot_modify_existing_team_integration(self, client: HttpClient):
+        # An integration already exists, so completing the callback would *modify* it — that still needs admin.
+        existing = self._team_github_integration()
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": "no-such-token"}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error=insufficient_permissions" in response["Location"]
+        # The existing integration must be untouched — no member-driven reconnect.
+        assert Integration.objects.filter(id=existing.id).count() == 1
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -4304,6 +4371,69 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
         mock_report.assert_not_called()
+
+
+class TestIntegrationMembershipPermissions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # A plain project member: allowed to add integrations, but not edit or remove them.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_member_can_create_integration(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert Integration.objects.filter(id=response.json()["id"], team=self.team).exists()
+
+    def test_member_cannot_delete_integration(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_cannot_overwrite_existing_integration(self):
+        # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the
+        # same resource edits an existing integration. Members may add a new one, but overwriting an
+        # existing one is an edit and requires admin — the write must roll back, leaving config intact.
+        email = "svc@proj.iam.gserviceaccount.com"
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="google-cloud-service-account",
+            integration_id=f"{email}-{self.team.pk}-key-file",
+            config={"project_id": "original-project", "service_account_email": email},
+            sensitive_config={"private_key": "orig", "private_key_id": "orig", "token_uri": "orig"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": email,
+                    "project_id": "hijacked-project",
+                    "private_key": "new",
+                    "private_key_id": "new",
+                    "token_uri": "new",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        existing.refresh_from_db()
+        assert existing.config["project_id"] == "original-project"
+        assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
 
 
 class TestGoogleSearchConsoleSitesEndpoint:
