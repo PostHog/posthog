@@ -129,6 +129,7 @@ from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
@@ -1639,10 +1640,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             ) as slo:
                 try:
                     # Abort early if the user doesn't have access to the query runner.
-                    # We'll proceed as usual if there's no user connected to this request, or for a
-                    # shared-link viewer - the share link is its authorization, it has no RBAC identity.
+                    # We'll proceed as usual if there's no user connected to this request, or for an
+                    # anonymous principal (SharedLinkUser) - the share link is its authorization.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if user is not None and not isinstance(user, SharedLinkUser):
+                    if user is not None and not user.is_anonymous:
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:
@@ -2337,8 +2338,8 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
-        before any database exists, which a cache hit never reaches. None unless the principal is a
-        real User - non-real principals (service tokens, shared-link viewers) have no RBAC identity."""
+        before any database exists, which a cache hit never reaches. None if the principal is not a
+        real User (service tokens and shared-link viewers have no RBAC)."""
         user = self.user
         if not isinstance(user, User):
             return None
@@ -2349,9 +2350,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
-        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL
-        # feature is unavailable and a real user is provided (i.e. not a userless query or a
-        # non-real principal such as a project token or shared-link viewer)
+        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL is unavailable
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
         ):
@@ -2388,7 +2387,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
         """Resources the user has no resource-level access to, scoped to the resources this query reads."""
-        user = self.user
+        # user is typed Optional[User] but runtime also passes SyntheticUser (project secret keys)
+        # and SharedLinkUser (shared renders); broaden for isinstance.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
 
         # Userless runs fail-closed - every access-controlled table is denied.
         if user is None:

@@ -13,8 +13,10 @@ from django.dispatch import receiver
 from celery.signals import task_postrun, task_prerun
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership
 from posthog.models.team import Team
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -83,6 +85,8 @@ def _invalidate_restriction_cache_on_change(**_kwargs: object) -> None:
 
 
 if TYPE_CHECKING:
+    from posthog.models import User
+
     from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -275,7 +279,7 @@ def get_non_writable_property_names(
 def get_restricted_properties_for_team(
     *,
     team_id: int,
-    user: User | None,
+    user: User | SyntheticUser | SharedLinkUser | None,
 ) -> set[tuple[str, int]]:
     """
     Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
@@ -292,9 +296,9 @@ def get_restricted_properties_for_team(
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
-    # Non-real principals (shared-link viewers, synthetic service-token users) have no membership
-    # to resolve restrictions against; treat them as userless so only the default rules apply.
-    if user is not None and not isinstance(user, User):
+    # Shared-link user and synthetic user have no membership to resolve restrictions against;
+    # treat them as userless so only the default rules apply.
+    if isinstance(user, SyntheticUser | SharedLinkUser):
         user = None
 
     cache = _restriction_cache_var.get()

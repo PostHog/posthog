@@ -1117,8 +1117,8 @@ class InsightSerializer(InsightBasicSerializer):
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
                 request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
                 if request_user is None and is_shared:
-                    # Anonymous shared views execute as the shared-link viewer, so warehouse-backed
-                    # tiles resolve instead of failing closed userless.
+                    # Anonymous shared views execute as the shared-link user, so
+                    # warehouse-backed tiles resolve instead of failing with "no access"
                     request_user = self.context.get("shared_link_user")
                 # Reuse the request's single UserAccessControl across all of a dashboard's insight
                 # runners, so the cache fingerprint resolves access once per request, not per tile.

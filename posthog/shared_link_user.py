@@ -11,13 +11,7 @@ if TYPE_CHECKING:
 
 
 class SharedLinkUser(AnonymousUser):
-    """Anonymous viewer of a publicly shared dashboard/insight/notebook.
-
-    Publishing a share link is an explicit act, so `Database.create_for` skips warehouse
-    access control for this principal. Everything else stays userless: RBAC-scoped system
-    tables stay hidden and only default property rules apply. Constructable only from an
-    enabled SharingConfiguration.
-    """
+    """Anonymous viewer of a publicly shared dashboard/insight/notebook"""
 
     # Django's AnonymousUser has no email; query modifiers read user.email for internal-user tagging.
     email: str | None = None

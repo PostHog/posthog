@@ -700,14 +700,14 @@ def custom_404_response(request):
 
 
 def _compute_inline_query_results_for_shared_notebook(
-    notebook: Notebook, team: Team, user: Optional[SharedLinkUser]
+    notebook: Notebook, team: Team, user: Optional[User]
 ) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use. Queries run as the shared-link viewer.
+    stale — the same throttle dashboards use. Queries run as the shared-link user (anonymous).
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline
@@ -928,9 +928,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 )
 
         # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
-        # is a bare AnonymousUser. Build the shared-link viewer from the resolved config so shared
-        # queries execute without warehouse access control.
-        shared_link_user = SharedLinkUser(resource) if isinstance(resource, SharingConfiguration) else None
+        # is a bare AnonymousUser. Shared queries execute without warehouse access control.
+        shared_link_user = (
+            cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
+        )
 
         context = {
             "view": self,

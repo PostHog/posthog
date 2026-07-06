@@ -450,7 +450,7 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     system_children = SystemTables().children
 
-    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared viewer / team token).
+    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, {
@@ -1307,10 +1307,10 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            # Principals that skip warehouse access control by design: synthetic principals
-            # (project-wide service tokens, bypass object-level RBAC) and shared-link viewers
-            # (publishing is the explicit access decision). System tables stay scope-gated for
-            # both via _compute_system_table_access_decision above.
+            # Principals that skip warehouse access control by design:
+            # - synthetic users (project-wide service tokens, bypass object-level RBAC)
+            # - shared-link users (publishing is the explicit access grant).
+            # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
