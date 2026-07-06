@@ -51,7 +51,7 @@ export function getSimulationRangeOptions(interval: AlertCalculationInterval): {
 export function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
-            return 'Real time'
+            return 'in real time'
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return '15 minutes'
         case AlertCalculationInterval.HOURLY:

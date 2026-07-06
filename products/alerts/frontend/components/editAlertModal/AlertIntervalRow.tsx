@@ -2,14 +2,23 @@ import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertType, isHogQLAlertConfig, isTrendsAlertConfig, supportsTimeWindow } from 'lib/components/Alerts/types'
+import {
+    AlertType,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+    supportsOngoingInterval,
+    supportsTimeWindow,
+} from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { selectAlertCalculationInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import {
+    cadenceFinerThanInsightInterval,
+    selectAlertCalculationInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { getAlertIntervalOptions } from './editAlertModalUtils'
 
@@ -23,6 +32,8 @@ export interface AlertIntervalRowProps {
     realTimeAlertsEnabled: boolean
     guardAvailableFeature: GuardAvailableFeatureFn
     nextPlannedEvaluationStale: boolean
+    canCheckOngoingInterval: boolean
+    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
 export function AlertIntervalRow({
@@ -35,6 +46,8 @@ export function AlertIntervalRow({
     realTimeAlertsEnabled,
     guardAvailableFeature,
     nextPlannedEvaluationStale,
+    canCheckOngoingInterval,
+    onSetAlertFormValue,
 }: AlertIntervalRowProps): JSX.Element {
     const hogqlEvaluation = isHogQLAlertConfig(alertForm.config) ? alertForm.config.evaluation : null
     const hogqlEvaluatedText =
@@ -46,7 +59,11 @@ export function AlertIntervalRow({
     return (
         <>
             <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                <div>Run alert every</div>
+                <div>
+                    {alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME
+                        ? 'Run alert'
+                        : 'Run alert every'}
+                </div>
                 <LemonField name="calculation_interval">
                     {({ value, onChange }) => (
                         <LemonSelect
@@ -63,7 +80,22 @@ export function AlertIntervalRow({
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {
                                     guardAvailableFeature,
-                                    onSelect: onChange,
+                                    onSelect: (selected) => {
+                                        onChange(selected)
+                                        // A cadence finer than the insight's bucket re-checks a frozen
+                                        // completed value until the bucket closes. Default it to evaluating
+                                        // the ongoing bucket so the faster cadence actually does something.
+                                        if (
+                                            cadenceFinerThanInsightInterval(selected, trendInterval) &&
+                                            canCheckOngoingInterval &&
+                                            supportsOngoingInterval(alertForm.config)
+                                        ) {
+                                            onSetAlertFormValue('config', {
+                                                ...alertForm.config,
+                                                check_ongoing_interval: true,
+                                            })
+                                        }
+                                    },
                                     hasHighFrequencyAlertsEntitlement,
                                     hasRealTimeAlertsEntitlement,
                                 })

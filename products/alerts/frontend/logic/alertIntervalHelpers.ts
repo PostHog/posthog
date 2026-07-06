@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, IntervalType } from '~/types'
 
 export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
     switch (interval) {
@@ -35,6 +35,37 @@ const HIGH_FREQUENCY_INTERVALS = [
 
 export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval): boolean {
     return HIGH_FREQUENCY_INTERVALS.includes(interval)
+}
+
+const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
+    [AlertCalculationInterval.REAL_TIME]: 2,
+    [AlertCalculationInterval.EVERY_15_MINUTES]: 15,
+    [AlertCalculationInterval.HOURLY]: 60,
+    [AlertCalculationInterval.DAILY]: 60 * 24,
+    [AlertCalculationInterval.WEEKLY]: 60 * 24 * 7,
+    [AlertCalculationInterval.MONTHLY]: 60 * 24 * 30,
+}
+
+const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
+    second: 1 / 60,
+    minute: 1,
+    hour: 60,
+    day: 60 * 24,
+    week: 60 * 24 * 7,
+    month: 60 * 24 * 30,
+}
+
+/** An alert re-checks the insight's last completed bucket, whose size is the insight's grouping
+ * interval. A cadence finer than that bucket re-reads the same frozen value until the bucket closes,
+ * so evaluating the ongoing (incomplete) bucket is what makes the faster cadence meaningful. */
+export function cadenceFinerThanInsightInterval(
+    cadence: AlertCalculationInterval,
+    insightInterval: string | null | undefined
+): boolean {
+    const insightMinutes =
+        INSIGHT_INTERVAL_DURATION_MINUTES[(insightInterval as IntervalType | null) ?? 'day'] ??
+        INSIGHT_INTERVAL_DURATION_MINUTES.day
+    return CADENCE_DURATION_MINUTES[cadence] < insightMinutes
 }
 
 type EntitlementResult =

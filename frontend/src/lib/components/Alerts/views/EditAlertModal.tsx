@@ -312,6 +312,8 @@ export function EditAlertModal({
                                         realTimeAlertsEnabled={realTimeAlertsEnabled}
                                         guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
+                                        canCheckOngoingInterval={can_check_ongoing_interval}
+                                        onSetAlertFormValue={setAlertFormValue}
                                     />
                                 </div>
                             </div>
