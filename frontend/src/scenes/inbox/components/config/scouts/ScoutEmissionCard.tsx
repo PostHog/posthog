@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -119,6 +119,16 @@ export function ScoutEmissionCard({
                 >
                     {emission.description || '_No description._'}
                 </LemonMarkdown>
+
+                {emission.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                        {emission.tags.map((tag) => (
+                            <LemonTag key={tag} size="small" type="muted">
+                                {tag}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
 
                 {report && (
                     <Link
