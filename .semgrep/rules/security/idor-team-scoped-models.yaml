@@ -144,6 +144,7 @@ rules:
                               |ExportedRecording
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
                               |TeamExperimentsConfig
@@ -419,6 +420,7 @@ rules:
                         |ExportedRecording
                         |ExternalDataJob
                         |ExternalDataSchema
+                        |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
                         |TeamExperimentsConfig

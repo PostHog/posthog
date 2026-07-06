@@ -24,6 +24,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
     measure_partition_bytes,
     select_repartition_target,
@@ -47,7 +48,15 @@ MAX_REPARTITION_ATTEMPTS = 3
 
 
 def target_partition_bytes() -> int:
-    return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 1_000_000_000))
+    return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
+
+
+def repartition_oom_threshold() -> int:
+    return int(getattr(settings, "DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD", 3))
+
+
+def repartition_oom_window_days() -> int:
+    return int(getattr(settings, "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7))
 
 
 def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
@@ -150,26 +159,43 @@ async def maybe_flag_for_repartition(
         await asyncio.to_thread(schema.record_partition_measurement, max_bytes)
 
         budget = target_partition_bytes()
-        if max_bytes <= budget:
+        over_budget = max_bytes > budget
+
+        # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
+        # largest partition looks within budget — the compressed at-rest size under-counts the merge's
+        # real working set (e.g. wide nested-JSON columns that decompress far more than typical data).
+        oom_count = await asyncio.to_thread(
+            ExternalDataSchemaOOMEvent.recent_count, schema, days=repartition_oom_window_days()
+        )
+        oom_triggered = oom_count >= repartition_oom_threshold()
+
+        if not over_budget and not oom_triggered:
             await logger.adebug(
-                f"repartition: not needed, largest partition within budget schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} partition_count={len(partition_bytes)}",
+                f"repartition: not needed, within budget and no repeated OOMs schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count} "
+                f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
+                recent_oom_count=oom_count,
                 partition_count=len(partition_bytes),
             )
             return
+
+        trigger_reason = "proactive_threshold" if over_budget else "oom_history"
 
         if enabled is None:
             enabled = await asyncio.to_thread(is_auto_repartition_enabled, schema)
         if not enabled:
             await logger.adebug(
-                f"repartition: over budget but skipped, controller disabled by feature flag "
-                f"schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget}",
+                f"repartition: needs repartition but skipped, controller disabled by feature flag "
+                f"schema_id={schema.id} trigger_reason={trigger_reason} max_partition_bytes={max_bytes} "
+                f"budget_bytes={budget} recent_oom_count={oom_count}",
                 schema_id=str(schema.id),
+                trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
+                recent_oom_count=oom_count,
             )
             return
 
@@ -198,13 +224,24 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        target, reason = select_repartition_target(schema, partition_bytes, budget)
+        # OOM-triggered but within the size budget: the compressed size under-counted the working set,
+        # so target roughly half the current largest partition to force a meaningfully finer scheme
+        # (md5 grows buckets, numerical halves the row-size, datetime steps one tier finer).
+        split_budget = budget if over_budget else max(1, max_bytes // 2)
+        target, reason = select_repartition_target(schema, partition_bytes, split_budget)
         if target is None:
-            # Over budget but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
+            # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
             DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
             props = base_event_props(schema, source, str(job.id))
-            props.update({"max_partition_bytes_before": max_bytes, "reason": reason})
+            props.update(
+                {
+                    "max_partition_bytes_before": max_bytes,
+                    "reason": reason,
+                    "trigger_reason": trigger_reason,
+                    "recent_oom_count": oom_count,
+                }
+            )
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
             await logger.adebug(
                 f"repartition: over budget but skipped, no finer partitioning target available "
@@ -222,14 +259,15 @@ async def maybe_flag_for_repartition(
             capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             return
 
-        pending = {**target.to_dict(), "trigger_reason": "proactive_threshold", "attempts": 0}
+        pending = {**target.to_dict(), "trigger_reason": trigger_reason, "attempts": 0}
         await asyncio.to_thread(schema.set_repartition_pending, pending)
 
         props = base_event_props(schema, source, str(job.id))
         props.update(
             {
                 "max_partition_bytes_before": max_bytes,
-                "trigger_reason": "proactive_threshold",
+                "trigger_reason": trigger_reason,
+                "recent_oom_count": oom_count,
                 "partition_mode_after": target.partition_mode,
                 "partition_format_after": target.partition_format,
                 "partition_count_after": target.partition_count,

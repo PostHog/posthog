@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     reset_rows_synced_if_needed,
     run_pre_write_defensive_compact,
@@ -221,6 +222,10 @@ class PipelineNonDLT(Generic[ResumableData]):
             py_table = None
             row_count = 0
             chunk_index = 0
+
+            # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
+            # merge) before extraction so it self-heals in this run instead of looping forever.
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
             await handle_reset_or_full_refresh(
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger

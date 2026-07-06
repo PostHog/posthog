@@ -706,3 +706,70 @@ class TestWriteMisalignedDecimalEndToEnd:
         assert set(final.column("amount").to_pylist()) == {5, 7}
         closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
         assert closed.column("valid_to").to_pylist() == [ts2]
+
+
+class TestVacuumIfStale:
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (last_vacuum_version, expect_vacuum, expected_return) — current version=150, threshold=100.
+            # First encounter must seed the watermark WITHOUT vacuuming (else every existing table vacuums
+            # at once on deploy); below threshold must skip (else vacuum runs every sync); at/above threshold
+            # must vacuum (else tombstones accumulate forever on tables that never reach post-load compaction).
+            ("first_encounter_seeds_no_vacuum", None, False, 150),
+            ("below_threshold_skips", 100, False, None),
+            ("at_threshold_vacuums", 50, True, 150),
+            ("above_threshold_vacuums", 40, True, 150),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_vacuum_cadence(
+        self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
+    ):
+        helper = self._helper()
+        table = MagicMock()
+        table.version = MagicMock(return_value=150)
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+        ):
+            result = await helper.vacuum_if_stale(last_version, 100)
+
+        assert result == expected_return
+        assert vacuum.await_count == (1 if expect_vacuum else 0)
+
+
+class TestIsTableCorrupted:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (is_deltatable, open_exception, expected_corrupt) — only DeltaError/FileNotFoundError on a
+            # table whose _delta_log exists count as corrupt; a missing table or an unknown error must NOT,
+            # so we never trigger a destructive revive on a non-existent table or a transient failure.
+            ("not_a_delta_table", False, None, False),
+            ("opens_fine", True, None, False),
+            ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
+            ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
+            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_is_table_corrupted(self, _name: str, is_delta: bool, open_exc: Exception | None, expected: bool):
+        helper = self._helper()
+        with (
+            patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
+        ):
+            mock_dt.is_deltatable = MagicMock(return_value=is_delta)
+            if open_exc is not None:
+                mock_dt.side_effect = open_exc
+            result = await helper.is_table_corrupted()
+
+        assert result is expected
