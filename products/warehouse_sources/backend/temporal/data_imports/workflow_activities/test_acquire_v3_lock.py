@@ -334,7 +334,7 @@ class TestSweepStaleRunningJobs:
 
     @staticmethod
     def _set_stale_jobs(mock_job_model: MagicMock, jobs: list[MagicMock]) -> None:
-        mock_job_model.objects.filter.return_value.exclude.return_value.order_by.return_value = jobs
+        mock_job_model.objects.filter.return_value.exclude.return_value.only.return_value.order_by.return_value = jobs
 
     @pytest.mark.parametrize(
         "workflow_status, summary, expect_finalized",

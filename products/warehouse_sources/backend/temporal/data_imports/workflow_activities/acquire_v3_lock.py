@@ -355,6 +355,7 @@ def _sweep_stale_running_jobs(inputs: AcquireV3LockActivityInputs, token: str, l
                 workflow_run_id__isnull=False,
             )
             .exclude(workflow_run_id=token)
+            .only("id", "status", "workflow_id", "workflow_run_id")
             .order_by("created_at")
         )
         for job in stale_jobs:
