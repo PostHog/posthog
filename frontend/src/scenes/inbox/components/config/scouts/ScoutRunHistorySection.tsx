@@ -86,7 +86,9 @@ const ScoutRunRow = memo(function ScoutRunRow({ run }: { run: SignalScoutRunSumm
                 <TZLabel
                     time={run.started_at}
                     showPopover={false}
-                    className="whitespace-nowrap text-[11px] text-muted"
+                    formatDate="MMMM DD, YYYY"
+                    formatTime="h:mm:ss A"
+                    className="text-[11px] text-muted"
                 />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
                 {failureKind && (

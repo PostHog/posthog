@@ -106,7 +106,9 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                     <TZLabel
                         time={emission.emitted_at}
                         showPopover={false}
-                        className="whitespace-nowrap text-[11px] text-muted"
+                        formatDate="MMMM DD, YYYY"
+                        formatTime="h:mm:ss A"
+                        className="text-[11px] text-muted"
                     />
                 </button>
                 <LemonButton
