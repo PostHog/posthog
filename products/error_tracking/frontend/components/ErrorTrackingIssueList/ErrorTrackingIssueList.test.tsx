@@ -46,7 +46,7 @@ describe('ErrorTrackingIssueListRow', () => {
             </Provider>
         )
 
-        expect(screen.getByText(/Unassigned/i).closest('[role="button"]')).toBeNull()
+        expect(screen.getByText(/Unassigned/i).closest('button, [role="button"]')).toBeNull()
         expect(screen.getAllByRole('link')).toHaveLength(1)
     })
 

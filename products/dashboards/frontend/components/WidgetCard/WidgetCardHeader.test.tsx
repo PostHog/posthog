@@ -113,7 +113,6 @@ describe('WidgetCardHeader', () => {
         )
 
         expect(screen.getByText('Top issues').closest('a')).toBeNull()
-        expect(screen.getByText('Top issues')).toBeInTheDocument()
     })
 
     it('links the title in view mode when editing controls are shown', () => {
