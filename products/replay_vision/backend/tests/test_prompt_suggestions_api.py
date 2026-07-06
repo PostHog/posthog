@@ -114,6 +114,22 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(body["status"], "applied")
         self.assertIsNotNone(body["applied_at"])
 
+    def test_apply_rejects_superseded_and_version_mismatched_suggestions(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        superseded_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        pending_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+
+        # A stale tab submitting the superseded suggestion must not roll the prompt back.
+        resp = self.client.post(self._suggestions_url(f"{superseded_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+
+        # The prompt changed (version bump) since the pending suggestion was generated.
+        self.scanner.scanner_config = {**self.scanner.scanner_config, "prompt": "edited by hand"}
+        self.scanner.save()
+        resp = self.client.post(self._suggestions_url(f"{pending_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"], "edited by hand")
+
     def test_dismiss_marks_suggestion_dismissed(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
