@@ -23,14 +23,14 @@ async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
 
 
 async def _classify(team_id: int, ticket_context: str) -> ClassifyOutput:
-    system = """You triage incoming customer support tickets for a SaaS analytics product.
+    system = """You triage incoming customer support tickets for a product.
 Classify the ticket into exactly one type and propose search queries to start retrieval.
 
 ticket_type — one of:
-- how_to: a usage/"how do I X" question answerable from documentation or the team's knowledge base.
+- how_to: any question the customer wants answered that can be addressed from documentation or the team's knowledge base — product usage ("how do I X"), as well as questions about the company, its policies, security/vulnerability reporting, legal/terms, pricing info, and similar. When in doubt between how_to and unactionable, choose how_to.
 - diagnostic: the customer reports something broken, failing, or behaving unexpectedly for their account; answering it requires investigating their actual data.
 - account_billing: a question about the customer's plan, usage, limits, invoices, or billing.
-- unactionable: spam, bare feedback/thanks, automated noise, or no answerable support question at all.
+- unactionable: ONLY spam, bare feedback/thanks with no question, or automated noise. If the customer is asking anything they want answered, do NOT use this type.
 
 Return a JSON object with these keys:
 - ticket_type: one of how_to | diagnostic | account_billing | unactionable.

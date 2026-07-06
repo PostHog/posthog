@@ -343,6 +343,27 @@ tools:
     generate-conversations-public-token-create:
         operation: organizations_projects_generate_conversations_public_token_create
         enabled: false
+    identity-provider-configs-create:
+        operation: identity_provider_configs_create
+        enabled: false
+    identity-provider-configs-destroy:
+        operation: identity_provider_configs_destroy
+        enabled: false
+    identity-provider-configs-list:
+        operation: identity_provider_configs_list
+        enabled: false
+    identity-provider-configs-partial-update:
+        operation: identity_provider_configs_partial_update
+        enabled: false
+    identity-provider-configs-retrieve:
+        operation: identity_provider_configs_retrieve
+        enabled: false
+    identity-provider-configs-scim-token-create:
+        operation: identity_provider_configs_scim_token_create
+        enabled: false
+    identity-provider-configs-update:
+        operation: identity_provider_configs_update
+        enabled: false
     insights-sharing-list:
         operation: insights_sharing_list
         enabled: false
@@ -421,6 +442,9 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    product-enablement-create:
+        operation: product_enablement_create
+        enabled: false
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -432,10 +456,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:

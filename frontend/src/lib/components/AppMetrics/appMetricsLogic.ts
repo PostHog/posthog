@@ -96,7 +96,7 @@ export const loadAppMetricsTotals = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
     const res: AppMetricsTotalsResponse = {}
@@ -210,7 +210,7 @@ const loadAppMetricsTimeSeries = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
     const labels = response.results?.[0]?.[0].map((label: string) => {

@@ -253,7 +253,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_workflow_runs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_runs", return_value=[_workflow_run()]) as listing:
-            response = self.client.get(self._url("workflow_runs"), {"workflow_name": "CI", "repo": "PostHog/posthog"})
+            response = self.client.get(
+                self._url("workflow_runs"), {"workflow_name": "CI", "repo": "PostHog/posthog", "branch": "main"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -261,11 +263,24 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0]["id"] == 7777
         assert listing.call_args.kwargs["workflow_name"] == "CI"
         assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
+        # The detail page's branch scope must reach the read layer, or the runs list widens to all branches.
+        assert listing.call_args.kwargs["branch"] == "main"
 
     def test_workflow_runs_400_when_params_missing(self) -> None:
         response = self.client.get(self._url("workflow_runs"), {"workflow_name": "CI"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_workflow_runner_costs_passes_branch_through(self) -> None:
+        # The cost breakdown shares the detail page's branch scope, so the branch must reach the read layer.
+        with mock.patch(f"{_VIEWS}.get_workflow_runner_costs", return_value=[]) as get_costs:
+            response = self.client.get(
+                self._url("workflow_runner_costs"),
+                {"workflow_name": "CI", "repo": "PostHog/posthog", "branch": "main"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get_costs.call_args.kwargs["branch"] == "main"
 
     def test_pr_runs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_pr_runs", return_value=[_workflow_run()]) as listing:

@@ -5,7 +5,7 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
-from typing import Annotated, Any, Literal, Optional, Union, cast
+from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
@@ -32,12 +32,12 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import FlagVersionConflictError, batch_evaluate_flag_for_team
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -45,6 +45,7 @@ from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search, normalize_search_term
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
@@ -291,12 +292,14 @@ class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
 DATE_OPERATORS = ("is_date_after", "is_date_before")
 
 
-class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
-    type: Literal["person"]
-    key: str
+class PersonValueValidationMixin(BaseModel):
+    """Shared value/operator presence and date-value validation for the person and
+    person_metadata filter variants. `_filter_noun` names the variant in error messages."""
+
+    _filter_noun: ClassVar[str]
+
     operator: str | None = None  # accept any legacy operator
     value: Any | None = None  # mostly likely it's list[str], str, or None
-    negation: bool = False
 
     @model_validator(mode="after")
     def _missing_keys_check(self):
@@ -312,7 +315,7 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
             missing.append("operator")
 
         if missing:
-            raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
+            raise ValueError(f"Missing required keys for {self._filter_noun} filter: {', '.join(missing)}")
 
         return self
 
@@ -329,8 +332,34 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
         return self
 
 
+class PersonFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbid"):
+    _filter_noun: ClassVar[str] = "person"
+
+    type: Literal["person"]
+    key: str
+    negation: bool = False
+
+
+class PersonMetadataFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbid"):
+    """Filter on a top-level persons-table column (e.g. created_at) rather than the
+    properties JSON. The matching key must be one of PERSON_METADATA_FIELDS."""
+
+    _filter_noun: ClassVar[str] = "person_metadata"
+
+    type: Literal["person_metadata"]
+    key: str
+    negation: bool = False
+
+    @model_validator(mode="after")
+    def _validate_key(self):
+        if self.key not in PERSON_METADATA_FIELDS:
+            allowed = ", ".join(sorted(PERSON_METADATA_FIELDS))
+            raise ValueError(f"Unsupported person_metadata key '{self.key}'. Allowed keys: {allowed}.")
+        return self
+
+
 PropertyFilter = Annotated[
-    Union[BehavioralFilter, CohortFilter, PersonFilter],
+    Union[BehavioralFilter, CohortFilter, PersonFilter, PersonMetadataFilter],
     Field(discriminator="type"),
 ]
 
@@ -354,6 +383,12 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
             if not _calculate_realtime_support(cast(CohortFilterGroup, value)):
                 return False
         else:  # It's a filter
+            # person_metadata reads top-level persons-table columns, which the realtime
+            # precalculated_person_properties table doesn't carry. Any cohort referencing one
+            # must use the standard (non-realtime) calculation path, so force the whole cohort
+            # non-realtime as soon as a person_metadata filter appears in any group.
+            if getattr(value, "type", None) == "person_metadata":
+                return False
             # Check if filter has FilterBytecodeMixin and valid bytecode
             if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
                 if value.bytecode is None or value.bytecode_error is not None:
@@ -515,7 +550,7 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -553,6 +588,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "is_static",
             "cohort_type",
             "experiment_set",
+            "search_match_type",
             "_create_in_folder",
             "_create_static_person_ids",
         ]
@@ -1375,6 +1411,18 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     list=extend_schema(
         parameters=[
             OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Match against cohort `name`. Returns case-insensitive substring matches and "
+                    "fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered "
+                    "exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. "
+                    "When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries "
+                    "return a 400 error."
+                ),
+            ),
+            OpenApiParameter(
                 name="hide_behavioral_cohorts",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
@@ -1409,8 +1457,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         context["basic_cohort_list"] = self._is_basic_list_request()
         return context
 
-    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
+        # Returns (queryset, search_ordered). `search_ordered` is True only when a non-blank
+        # search applied trigram relevance ordering, so the caller knows not to re-impose the
+        # default ordering on top of it.
         filters = request.GET.dict()
+        search_ordered = False
 
         for key in filters:
             if key == "type":
@@ -1422,11 +1474,25 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
-                queryset = queryset.filter(name__icontains=request.GET["search"])
+                search = request.GET["search"]
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                if normalize_search_term(search):
+                    queryset = apply_trigram_search(
+                        queryset,
+                        search,
+                        span_prefix="cohort.search",
+                        fields=(NAME_FIELD,),
+                        tiebreakers=("-created_at",),
+                    )
+                    search_ordered = True
 
-        return queryset
+        return queryset, search_ordered
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        search_ordered = False
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1447,7 +1513,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
-            queryset = self._filter_request(self.request, queryset)
+            queryset, search_ordered = self._filter_request(self.request, queryset)
 
             # `?basic=true` callers never read these columns, so skip reading them
             # off disk (the serializer drops them too; see CohortSerializer.__init__).
@@ -1467,12 +1533,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
         # `experiment_set` is a reverse relation, so it stays prefetched.
-        return (
+        queryset = (
             queryset.annotate(last_error_code=last_error_code_subquery)
             .select_related("created_by", "team")
             .prefetch_related("experiment_set")
-            .order_by("-created_at")
         )
+
+        if not search_ordered:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset
 
     @extend_schema(
         parameters=[

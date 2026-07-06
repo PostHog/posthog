@@ -158,5 +158,34 @@ def create_batch_hog_flow_job_invocation(
     )
 
 
+def rerun_hog_invocations(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    payload: dict,
+) -> requests.Response:
+    """
+    Trigger a rerun of past hog function / hog flow invocations.
+
+    `payload` is one of:
+      - {"invocation_ids": ["uuid", ...]}                   -> rerun these specific runs
+      - {"filter": {"window_start": "...", "window_end": "...", "status": [...], ...}}
+
+    The Node side (`nodejs/src/cdp/rerun`) reads the matching rows from
+    `hog_invocation_results`, rehydrates the invocation from the stored
+    `invocation_globals`, and re-enqueues onto cyclotron with `is_retry=1`.
+    """
+    logger.info(
+        "Triggering rerun of hog invocations",
+        function_kind=function_kind,
+        function_id=function_id,
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/rerun",
+        json=payload,
+        headers=get_internal_api_headers(),
+    )
+
+
 def get_plugin_server_status() -> requests.Response:
     return internal_requests.get(CDP_API_URL + f"/_health")

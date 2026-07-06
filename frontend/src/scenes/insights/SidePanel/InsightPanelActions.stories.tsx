@@ -6,6 +6,10 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __dataTableHogQL from '../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import __dataVisualizationHogQL from '../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'
+import __trendsLine from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Side Panel Actions',
@@ -35,29 +39,18 @@ export default meta
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 
-export const SavedTrendsInsight: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
-    'view',
-    false,
-    { openSidePanel: true }
-)
+export const SavedTrendsInsight: Story = createInsightStory(__trendsLine as any, 'view', false, { openSidePanel: true })
 
-export const SavedHogQLDataTable: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
-    'view',
-    false,
-    { openSidePanel: true }
-)
+export const SavedHogQLDataTable: Story = createInsightStory(__dataTableHogQL as any, 'view', false, {
+    openSidePanel: true,
+})
 
-export const SavedDataVisualization: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
-    'view',
-    false,
-    { openSidePanel: true }
-)
+export const SavedDataVisualization: Story = createInsightStory(__dataVisualizationHogQL as any, 'view', false, {
+    openSidePanel: true,
+})
 
 const unsavedInsight = {
-    ...require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    ...(__trendsLine as any),
     id: undefined,
     short_id: undefined,
     saved: false,

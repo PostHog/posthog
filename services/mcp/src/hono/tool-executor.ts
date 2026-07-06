@@ -229,9 +229,16 @@ export class ToolExecutor {
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
-            classifyToolError(error, tool.name)
+            const classification = classifyToolError(error, tool.name)
 
-            void trackToolCall(tool.name, Date.now() - startMs, true, state, undefined, intentMeta)
+            void trackToolCall(
+                tool.name,
+                Date.now() - startMs,
+                true,
+                state,
+                errorAnalyticsProperties(classification),
+                intentMeta
+            )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
@@ -301,9 +308,16 @@ export class ToolExecutor {
             if (!execMetrics.innerToolName) {
                 toolCallsTotal.inc({ tool: 'exec', status: 'error' })
             }
-            classifyToolError(error, metricTool)
+            const classification = classifyToolError(error, metricTool)
 
-            void trackToolCall(metricTool, Date.now() - startMs, true, state, undefined, intentMeta)
+            void trackToolCall(
+                metricTool,
+                Date.now() - startMs,
+                true,
+                state,
+                errorAnalyticsProperties(classification),
+                intentMeta
+            )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
@@ -397,35 +411,89 @@ export class ToolExecutor {
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
             stop({ status: 'error' })
-            classifyToolError(error, 'render-ui')
-            void trackToolCall('render-ui', Date.now() - startMs, true, state, undefined, intentMeta)
+            const classification = classifyToolError(error, 'render-ui')
+            void trackToolCall(
+                'render-ui',
+                Date.now() - startMs,
+                true,
+                state,
+                errorAnalyticsProperties(classification),
+                intentMeta
+            )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
         }
     }
 }
 
-function classifyToolError(error: unknown, toolName: string): void {
+type ToolErrorType =
+    | 'missing_context'
+    | 'validation'
+    | 'permission'
+    | 'timeout'
+    | 'rate_limited'
+    | 'api_5xx'
+    | 'api_4xx'
+    | 'internal'
+
+interface ToolErrorClassification {
+    errorType: ToolErrorType
+    /** Upstream HTTP status, when the failure came from a PostHog API error. */
+    status?: number
+}
+
+/**
+ * Buckets a thrown tool error into a low-cardinality category, increments the
+ * Prometheus counter, and returns the classification so the caller can also
+ * surface it on the `$mcp_tool_call` event (`$mcp_error_type` / `$mcp_error_status`).
+ * Without that, the MCP analytics dashboard only sees the `$mcp_is_error`
+ * boolean and can't break failures down by reason.
+ */
+function classifyToolError(error: unknown, toolName: string): ToolErrorClassification {
+    const classification = resolveToolErrorClassification(error)
+    toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
+    return classification
+}
+
+function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
-        toolErrorsTotal.inc({ tool: toolName, error_type: 'missing_context' })
-    } else if (error instanceof ToolInputValidationError) {
-        toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
-    } else if (findPostHogPermissionError(error)) {
-        toolErrorsTotal.inc({ tool: toolName, error_type: 'permission' })
-    } else if (error instanceof Error && error.name === 'TimeoutError') {
-        toolErrorsTotal.inc({ tool: toolName, error_type: 'timeout' })
-    } else {
-        const apiError = findRecoverableApiError(error)
-        if (apiError instanceof PostHogValidationError) {
-            toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
-        } else if (apiError instanceof PostHogApiError && apiError.status === 429) {
-            toolErrorsTotal.inc({ tool: toolName, error_type: 'rate_limited' })
-        } else if (apiError instanceof PostHogApiError && apiError.status >= 500) {
-            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_5xx' })
-        } else if (apiError instanceof PostHogApiError) {
-            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_4xx' })
-        } else {
-            toolErrorsTotal.inc({ tool: toolName, error_type: 'internal' })
-        }
+        return { errorType: 'missing_context' }
+    }
+    if (error instanceof ToolInputValidationError) {
+        return { errorType: 'validation' }
+    }
+    if (findPostHogPermissionError(error)) {
+        return { errorType: 'permission' }
+    }
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return { errorType: 'timeout' }
+    }
+
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogValidationError) {
+        return { errorType: 'validation' }
+    }
+    if (apiError instanceof PostHogApiError && apiError.status === 429) {
+        return { errorType: 'rate_limited', status: apiError.status }
+    }
+    if (apiError instanceof PostHogApiError && apiError.status >= 500) {
+        return { errorType: 'api_5xx', status: apiError.status }
+    }
+    if (apiError instanceof PostHogApiError) {
+        return { errorType: 'api_4xx', status: apiError.status }
+    }
+    return { errorType: 'internal' }
+}
+
+/**
+ * Properties stamped onto an errored `$mcp_tool_call` so the dashboard can slice
+ * failures by reason. `$mcp_error_type` aligns with the SDK's native field; the
+ * SDK derives a generic type from the thrown error when none is supplied, and an
+ * explicit value here overrides it.
+ */
+function errorAnalyticsProperties(classification: ToolErrorClassification): Record<string, unknown> {
+    return {
+        $mcp_error_type: classification.errorType,
+        ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
     }
 }

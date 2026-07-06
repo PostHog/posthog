@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import { HedgehogXRay } from '@posthog/brand/hoggies'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
 import goImage from 'scenes/onboarding/legacy/sdks/logos/go.svg'
@@ -88,7 +88,7 @@ const NoSpansPrompt = ({ className }: { className?: string }): JSX.Element | nul
             isEmpty={true}
             productKey={ProductKey.TRACING}
             className={className}
-            customHog={XRayHog}
+            customHog={HedgehogXRay}
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
                     <p className="text-sm text-secondary m-0">

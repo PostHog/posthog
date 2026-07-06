@@ -98,7 +98,7 @@
         "description": "This is a starter template for custom transformations",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "alpha",
@@ -128,7 +128,7 @@
         "description": "This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "alpha",
@@ -143,7 +143,7 @@
         "description": "This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "alpha",
@@ -180,7 +180,7 @@
         "description": "Masks sensitive information in URL parameters (query strings) of specified properties",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "alpha",
@@ -223,7 +223,7 @@
         "description": "This transformation hashes sensitive personal data (PII) like email, phone numbers, etc. using SHA-256 to protect user privacy.",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-02.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_02_13ef93b4cb.png"
     },
     {
         "status": "alpha",
@@ -257,7 +257,7 @@
         "description": "Filters out events from known bot user agents. This transformation will drop the event if a bot is detected.",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "stable",
@@ -378,7 +378,7 @@
         "description": "Replace the language from the URL with a custom value",
         "filters": null,
         "masking": null,
-        "icon_url": "/static/hedgehog/builder-hog-01.png"
+        "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
     },
     {
         "status": "stable",

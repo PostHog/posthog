@@ -160,8 +160,8 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
+    const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -184,6 +184,8 @@ function ScoutsFleetList(): JSX.Element {
                         config={config}
                         rollup={rollups.get(config.skill_name)}
                         onUpdate={updateScoutConfig}
+                        onDelete={deleteScout}
+                        deleting={deletingScoutIds.includes(config.id)}
                     />
                 ))}
             </div>
@@ -207,14 +209,16 @@ function ScoutsFleetList(): JSX.Element {
  */
 function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { chatTaskRunning } = useValues(scoutFleetLogic)
+    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const isRunning = runningChatPrompt === prompt
+    const anyRunning = runningChatPrompt !== null
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={icon ?? <IconSparkles />}
-            loading={chatTaskRunning}
-            disabledReason={chatTaskRunning ? 'Starting a task…' : undefined}
+            loading={isRunning}
+            disabledReason={anyRunning ? 'Starting a task…' : undefined}
             onClick={() => startScoutChatTask(prompt, label, label)}
         >
             {label}

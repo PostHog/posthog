@@ -7,10 +7,9 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -29,6 +28,7 @@ use crate::observability::metrics::{
     STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
     SWEEP_KEYS_EVICTED_TOTAL,
 };
+use crate::partitions::intake::MeteredReceiver;
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
@@ -41,9 +41,12 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
-use crate::workers::event_path::{process_event, schedule_deadline, SkipReason};
+use crate::workers::event_path::{
+    process_event_with_memo, schedule_deadline, EventNameGating, SkipReason,
+};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
+use crate::workers::person_memo::{PersonMemo, PersonMemoConfig};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -56,24 +59,57 @@ const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
 
+/// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
+/// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
+/// wall-clock interval adapts to per-event cost across catalogs of different sizes.
+const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
+
 pub struct Stage1Worker {
     partition_id: u16,
     handle: JoinHandle<()>,
 }
 
 impl Stage1Worker {
-    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
-    /// dormant person's `Left` still fires after a crash-restart.
+    /// Spawn with the person memo disabled. The memoizing variant is [`Self::spawn_with_memo`].
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
-        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        receiver: MeteredReceiver,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
+    ) -> Self {
+        Self::spawn_with_memo(
+            partition_id,
+            receiver,
+            store,
+            catalog,
+            sink,
+            tracker,
+            merge,
+            durable_restore,
+            PersonMemoConfig::DISABLED,
+            EventNameGating::Disabled,
+        )
+    }
+
+    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_stage1` on spawn so a
+    /// dormant person's `Left` still fires after a crash-restart.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_with_memo(
+        partition_id: u16,
+        receiver: MeteredReceiver,
+        store: CohortStore,
+        catalog: Arc<CatalogHandle>,
+        sink: Arc<dyn MembershipSink>,
+        tracker: Arc<OffsetTracker>,
+        merge: Arc<MergeWorkerDeps>,
+        durable_restore: bool,
+        person_memo: PersonMemoConfig,
+        event_name_gating: EventNameGating,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -84,6 +120,8 @@ impl Stage1Worker {
             tracker,
             merge,
             durable_restore,
+            person_memo,
+            event_name_gating,
         ));
         Self {
             partition_id,
@@ -103,25 +141,31 @@ impl Stage1Worker {
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
-    mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+    mut receiver: MeteredReceiver,
     store: CohortStore,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
     durable_restore: bool,
+    person_memo: PersonMemoConfig,
+    event_name_gating: EventNameGating,
 ) {
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
+    // Reused across batches so cached results survive between events.
+    let mut person_memo = PersonMemo::new(person_memo);
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
-        rebuild_eviction_queue(partition_id, &store, &mut queue);
+        rebuild_eviction_queue(partition_id, &store, &mut queue).await;
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
     let mut stage2_gc_cursor = Stage2GcCursor::default();
 
+    // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
+    let mut last_yield = Instant::now();
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
         let mut buffer = OutputBuffer::new();
@@ -142,6 +186,8 @@ async fn run_worker(
                         &event,
                         &last_updated,
                         merge.partition_count,
+                        &mut person_memo,
+                        event_name_gating,
                     );
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
@@ -268,6 +314,11 @@ async fn run_worker(
                         );
                     }
                 }
+            }
+
+            if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
+                tokio::task::yield_now().await;
+                last_yield = Instant::now();
             }
         }
 
@@ -441,6 +492,7 @@ struct EventEffects {
     re_keys: Vec<CohortStreamEvent>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_event(
     partition_id: u16,
     store: &CohortStore,
@@ -448,8 +500,11 @@ fn handle_event(
     event: &CohortStreamEvent,
     last_updated: &str,
     partition_count: u32,
+    person_memo: &mut PersonMemo,
+    event_name_gating: EventNameGating,
 ) -> EventEffects {
     let snapshot = catalog.load();
+    let generation = snapshot.generation();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
             .increment(1);
@@ -469,7 +524,15 @@ fn handle_event(
         };
 
     let started = Instant::now();
-    let result = process_event(partition_id, store, filters, &resolved);
+    let result = process_event_with_memo(
+        partition_id,
+        store,
+        filters,
+        generation,
+        &resolved,
+        person_memo,
+        event_name_gating,
+    );
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
     match result {
@@ -771,7 +834,7 @@ async fn handle_sweep(
 /// stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX` deadlines
 /// (permanent). Corrupt records are counted and skipped — the event path re-derives them. A scan error
 /// stops early; new events reschedule any missing keys.
-fn rebuild_eviction_queue(
+async fn rebuild_eviction_queue(
     partition_id: u16,
     store: &CohortStore,
     queue: &mut EvictionQueue<Stage1Key>,
@@ -808,6 +871,9 @@ fn rebuild_eviction_queue(
         if page_len < REBUILD_SCAN_PAGE {
             break;
         }
+        // Workers re-seed concurrently on restart; yield between pages so the boot scan doesn't
+        // saturate the runtime before the consume loop starts.
+        tokio::task::yield_now().await;
     }
     if rebuilt > 0 {
         counter!(EVICTION_QUEUE_REBUILT_KEYS_TOTAL, "partition" => partition_id.to_string())
@@ -868,6 +934,7 @@ mod tombstone_redirect_tests {
     use chrono_tz::UTC;
     use serde_json::json;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
@@ -1025,7 +1092,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event: person_event(person, "u@p.com", 5, 0),
+                event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
             }],
         )
@@ -1126,6 +1193,7 @@ mod tombstone_redirect_tests {
         batch: Vec<ShuffleMessage>,
     ) {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition_id,
             rx,
@@ -1160,7 +1228,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event,
+                event: Box::new(event),
                 cse_offset: 0,
             }],
         )
@@ -1228,6 +1296,8 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
@@ -1392,11 +1462,11 @@ mod tombstone_redirect_tests {
         let batch = || {
             vec![
                 ShuffleMessage::Event {
-                    event: person_event(alice, "u@p.com", 5, 0),
+                    event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
                 },
                 ShuffleMessage::Event {
-                    event: person_event(p_old, "u@p.com", 5, 9),
+                    event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
                 },
             ]
@@ -1479,6 +1549,8 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
@@ -1492,6 +1564,8 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1521,6 +1595,8 @@ mod tombstone_redirect_tests {
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
@@ -1545,6 +1621,8 @@ mod tombstone_redirect_tests {
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
@@ -1587,6 +1665,8 @@ mod tombstone_redirect_tests {
             &event,
             "ts",
             COHORT_PARTITION_COUNT,
+            &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());

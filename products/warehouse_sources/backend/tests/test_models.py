@@ -428,6 +428,49 @@ def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
     assert schema.partition_size_override is None
 
 
+def test_reset_pipeline_preserves_partition_mode_override() -> None:
+    # Operator switches a table from md5 to datetime via the admin change-partition-mode action.
+    # The mode/keys overrides must survive the bundled reset (which wipes the auto-detected
+    # partition_mode and partitioning_keys) so the new mode wins the resync.
+    schema = ExternalDataSchema(
+        sync_type_config={
+            "partition_mode": "md5",
+            "partitioning_keys": ["record_id", "action_date"],
+            "partition_count": 30,
+            "partition_mode_override": "datetime",
+            "partitioning_keys_override": ["action_date"],
+            "partition_format": "month",
+            "partitioning_enabled": True,
+        }
+    )
+    with patch.object(schema, "save"):
+        schema.update_sync_type_config_for_reset_pipeline()
+    assert "partition_mode" not in schema.sync_type_config
+    assert "partitioning_keys" not in schema.sync_type_config
+    assert schema.partition_mode_override == "datetime"
+    assert schema.partitioning_keys_override == ["action_date"]
+    # partition_format is never reset, so the datetime granularity carries into the resync.
+    assert schema.partition_format == "month"
+
+
+def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
+    schema = ExternalDataSchema(
+        sync_type_config={"partition_mode_override": "datetime", "partitioning_keys_override": ["action_date"]}
+    )
+    with patch.object(schema, "save"):
+        schema.set_partitioning_enabled(
+            partitioning_keys=["action_date"],
+            partition_count=None,
+            partition_size=None,
+            partition_mode="datetime",
+            partition_format="month",
+        )
+    assert schema.partition_mode == "datetime"
+    assert schema.partitioning_keys == ["action_date"]
+    assert schema.partition_mode_override is None
+    assert schema.partitioning_keys_override is None
+
+
 def test_process_incremental_value_xid_returns_value_as_is() -> None:
     assert process_incremental_value(4294967396, IncrementalFieldType.XID) == 4294967396
     assert process_incremental_value(None, IncrementalFieldType.XID) is None

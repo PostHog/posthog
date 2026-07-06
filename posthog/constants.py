@@ -40,6 +40,7 @@ class AvailableFeature(StrEnum):
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
     HIGH_FREQUENCY_ALERTS = "high_frequency_alerts"
+    REAL_TIME_ALERTS = "real_time_alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"

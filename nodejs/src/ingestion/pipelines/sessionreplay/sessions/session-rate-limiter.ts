@@ -13,34 +13,36 @@ export class SessionRateLimiter {
 
     constructor(private readonly maxEventsPerSession: number = Number.MAX_SAFE_INTEGER) {}
 
+    private static key(teamId: number, sessionId: string): string {
+        return `${teamId}$${sessionId}`
+    }
+
     /**
      * Handle a message for a session
-     * @param sessionKey - Unique session identifier (e.g., "teamId$sessionId")
-     * @param partition - Partition number for this message
-     * @param message - The message containing events
      * @returns true if message should be processed, false if rate limited
      */
-    public handleMessage(sessionKey: string, partition: number, message: ParsedMessageData): boolean {
+    public handleMessage(teamId: number, sessionId: string, partition: number, message: ParsedMessageData): boolean {
+        const key = SessionRateLimiter.key(teamId, sessionId)
+
         // Count total events in the message across all windows
         let eventCount = 0
         for (const events of Object.values(message.eventsByWindowId)) {
             eventCount += events.length
         }
 
-        const currentCount = this.eventCounts.get(sessionKey) ?? 0
-        const newCount = currentCount + eventCount
+        const newCount = (this.eventCounts.get(key) ?? 0) + eventCount
 
         // Always increment the count and track partition
-        this.eventCounts.set(sessionKey, newCount)
-        this.sessionPartitions.set(sessionKey, partition)
+        this.eventCounts.set(key, newCount)
+        this.sessionPartitions.set(key, partition)
 
-        if (this.limitedSessions.has(sessionKey)) {
+        if (this.limitedSessions.has(key)) {
             SessionBatchMetrics.incrementEventsRateLimited()
             return false
         }
 
         if (newCount > this.maxEventsPerSession) {
-            this.limitedSessions.add(sessionKey)
+            this.limitedSessions.add(key)
             SessionBatchMetrics.incrementSessionsRateLimited()
             SessionBatchMetrics.incrementEventsRateLimited()
             return false
@@ -52,33 +54,29 @@ export class SessionRateLimiter {
     /**
      * Get current event count for a session
      */
-    public getEventCount(sessionKey: string): number {
-        return this.eventCounts.get(sessionKey) ?? 0
+    public getEventCount(teamId: number, sessionId: string): number {
+        return this.eventCounts.get(SessionRateLimiter.key(teamId, sessionId)) ?? 0
     }
 
     /**
      * Remove tracking for a session (used when partition is discarded)
      */
-    public removeSession(sessionKey: string): void {
-        this.eventCounts.delete(sessionKey)
-        this.limitedSessions.delete(sessionKey)
-        this.sessionPartitions.delete(sessionKey)
+    public removeSession(teamId: number, sessionId: string): void {
+        this.removeByKey(SessionRateLimiter.key(teamId, sessionId))
     }
 
     /**
      * Discard all sessions for a given partition
      */
     public discardPartition(partition: number): void {
-        const sessionsToRemove: string[] = []
-
-        for (const [sessionKey, sessionPartition] of this.sessionPartitions.entries()) {
+        const keysToRemove: string[] = []
+        for (const [key, sessionPartition] of this.sessionPartitions.entries()) {
             if (sessionPartition === partition) {
-                sessionsToRemove.push(sessionKey)
+                keysToRemove.push(key)
             }
         }
-
-        for (const sessionKey of sessionsToRemove) {
-            this.removeSession(sessionKey)
+        for (const key of keysToRemove) {
+            this.removeByKey(key)
         }
     }
 
@@ -89,5 +87,11 @@ export class SessionRateLimiter {
         this.eventCounts.clear()
         this.limitedSessions.clear()
         this.sessionPartitions.clear()
+    }
+
+    private removeByKey(key: string): void {
+        this.eventCounts.delete(key)
+        this.limitedSessions.delete(key)
+        this.sessionPartitions.delete(key)
     }
 }

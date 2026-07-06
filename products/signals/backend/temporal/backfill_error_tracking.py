@@ -10,7 +10,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 BACKFILL_WINDOW_DAYS = 30
-BACKFILL_ISSUE_LIMIT = 100
+BACKFILL_ISSUE_LIMIT = 5
 
 
 @dataclass

@@ -5,27 +5,43 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.api_core.exceptions import (
+    BadRequest,
+    Forbidden,
+    InternalServerError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    ServiceUnavailable,
+)
 from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_INVALID_IDENTIFIER_ERROR,
+    BIGQUERY_QUERY_JOB_RETRY,
+    BIGQUERY_READ_ROWS_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
+    BigQueryInvalidIdentifierError,
     BigQueryTokenRefreshError,
     _bq_select_clause,
+    _get_primary_keys_for_table,
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _is_transient_job_not_found,
+    _query_result_with_job_retry,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
     _resolve_query_project,
     _resolve_region,
+    _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
     validate_bigquery_credentials,
 )
@@ -156,6 +172,36 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     # The raw 404 (job id, location internals) must not survive into the message.
     assert "Job ID" not in str(exc_info.value)
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
+    """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
+    `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
+    the offending value and BigQuery job internals, and that wording must stay non-retryable."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = BadRequest(
+        f"400 {phrase}. Dataset IDs must be alphanumeric. Location: US Job ID: f2bf3ba8-4c4b"
+    )
+
+    with pytest.raises(BigQueryInvalidIdentifierError) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert str(exc_info.value) == BIGQUERY_INVALID_IDENTIFIER_ERROR
+    # The raw 400 (offending id, job id) must not survive into the message.
+    assert "Job ID" not in str(exc_info.value)
+    assert "(default)" not in str(exc_info.value)
+    assert BIGQUERY_INVALID_IDENTIFIER_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+def test_bigquery_get_columns_propagates_unrelated_bad_request():
+    """A BadRequest that isn't an invalid-identifier error (e.g. a malformed query) must propagate
+    unchanged rather than being mislabeled as an invalid project/dataset ID."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = BadRequest("400 Syntax error: Unexpected keyword SELECT")
+
+    with pytest.raises(BadRequest):
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
 
 
 @pytest.mark.parametrize(
@@ -348,6 +394,37 @@ def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
     assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
+    # The COUNT query hits BigQuery's job-metadata race; it must be retried and yield the real
+    # count, not swallowed into the catch-all that returns 0 and captures error-tracking noise.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = [NotFound("404 Not found: Job proj:US.job_abc123"), iter([[123]])]
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 123
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+    mock_capture.assert_not_called()
+
+
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
@@ -382,26 +459,30 @@ def test_bigquery_get_query_row_filters_compose_with_incremental():
 
 
 @pytest.mark.parametrize(
-    "field_type,last_value,expected_clause,offset_present",
+    "field_type,column_bq_type,last_value,expected_clause,offset_present",
     [
         # DATETIME columns are timezone-naive — a tz-aware literal can't be cast and BigQuery rejects it
         # with "Could not cast literal ... to type DATETIME". On the first incremental sync the cursor
         # defaults to the 1970-01-01 UTC initial value, whose isoformat carries a '+00:00' offset; for a
         # DATETIME field the literal must be naive.
-        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
+        (IncrementalFieldType.DateTime, "DATETIME", None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
         # A tz-aware value carried over from a previous sync is also rendered naive for DATETIME fields.
         (
             IncrementalFieldType.DateTime,
+            "DATETIME",
             parser.parse("2024-03-11T09:26:04+00:00"),
             "WHERE `cursor` > '2024-03-11T09:26:04'",
             False,
         ),
         # TIMESTAMP columns are timezone-aware, so the offset must be preserved in the literal.
-        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
+        (IncrementalFieldType.Timestamp, "TIMESTAMP", None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
     ],
 )
-def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
+def test_bigquery_get_query_datetime_cursor_timezone_offset(
+    field_type, column_bq_type, last_value, expected_clause, offset_present
+):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type=column_bq_type)]
     sql, _ = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
@@ -411,6 +492,36 @@ def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_val
     )
     assert expected_clause in sql
     assert ("+00:00" in sql) is offset_present
+
+
+@pytest.mark.parametrize(
+    "field_type,last_value,expected_clause",
+    [
+        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01'"),
+        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01'"),
+        (
+            IncrementalFieldType.DateTime,
+            parser.parse("2024-03-11T09:26:04+00:00"),
+            "WHERE `cursor` > '2024-03-11'",
+        ),
+    ],
+)
+def test_bigquery_get_query_date_column_with_datetime_cursor(field_type, last_value, expected_clause):
+    # A column retyped to DATE in BigQuery after discovery still carries a DateTime/Timestamp cursor
+    # here, whose datetime-shaped literal ("1970-01-01T00:00:00") BigQuery refuses to cast to DATE
+    # ("Could not cast literal ... to type DATE"). The literal must follow the column's live type.
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type="DATE")]
+    sql, _ = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=last_value,
+        bq_table=bq_table,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
+    )
+    assert expected_clause in sql
+    assert "T00:00:00" not in sql
+    assert "+00:00" not in sql
 
 
 @pytest.mark.parametrize(
@@ -552,11 +663,12 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
     [
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
+    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
@@ -787,11 +899,80 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
                 "permission for 'projects/some-project'"
             )
         ),
+        # Storage Read API stream-read denial — the session can be created but the account lacks
+        # `bigquery.readsessions.getData`. `str(PermissionDenied)` is "there was an error operating
+        # on '.../streams/...': the user does not have 'bigquery.readsessions.getData' permission for
+        # '...'", which neither the "Access Denied:" / "403 request failed" nor the readsessions.create
+        # keys cover.
+        str(
+            PermissionDenied(
+                "there was an error operating on 'projects/some-project/locations/us/sessions/sess/"
+                "streams/strm': the user does not have 'bigquery.readsessions.getData' permission for "
+                "'projects/some-project/locations/us/sessions/sess/streams/strm'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error,expected_key,expected_word",
+    [
+        # Overwriting a PostHog temp table — denied with bigquery.tables.update on the table.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
+                    "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.update",
+            "write access",
+        ),
+        # Creating a PostHog temp table — denied with bigquery.tables.create on the dataset.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Dataset prj:ds: Permission bigquery.tables.create denied on dataset "
+                    "prj:ds (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.create",
+            "create",
+        ),
+    ],
+)
+def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
+    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
+    # write-specific key match. external_data_job surfaces the first matching key's message, so the
+    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
+    # access to fix a write/create failure.
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == expected_key
+    assert friendly is not None
+    assert expected_word in friendly
+
+
+def test_job_create_denial_surfaces_job_permission_guidance():
+    # A bigquery.jobs.create denial also contains "Access Denied:", so both keys match.
+    # external_data_job surfaces the first matching key's message, so the job-creation key must sit
+    # above "Access Denied:" — otherwise the customer is told to grant read access to fix a failure
+    # that read access can't resolve.
+    observed_error = str(
+        Forbidden(
+            "POST https://bigquery.googleapis.com/bigquery/v2/projects/p/jobs?prettyPrint=false: "
+            "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.jobs.create"
+    assert friendly is not None
+    assert "run query jobs" in friendly
 
 
 @pytest.mark.parametrize(
@@ -937,6 +1118,198 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The transient `jobInternalError` from `jobs.getQueryResults` (volatile project/job id redacted).
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
+            "Retrying the job may solve the problem."
+        ),
+        # The library default's own retryable reasons must still be honoured.
+        BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
+        BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
+        # A per-second rate quota (reason `quotaExceeded`, which the library's own predicates don't
+        # retry) is transient — the quota window resets each second — so it must be retried in place
+        # rather than crashing the sync. Volatile project/job ids redacted.
+        Forbidden(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: Quota exceeded: Your project:<redacted> "
+            "exceeded quota for tabledata.list bytes per second per project. For more information, "
+            "see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+        ),
+    ],
+)
+def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
+    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # A genuinely malformed query is deterministic — retrying never helps, so it must surface.
+        BadRequest("Syntax error: Unexpected keyword SELECT"),
+        BadRequest("query failed", errors=[{"reason": "invalidQuery", "message": "bad SQL"}]),
+        # The administrator-set "Custom quota exceeded" daily cost cap resets only on Google's daily
+        # schedule — the per-second rate-quota retry must not catch it and hammer the endpoint.
+        Forbidden(
+            "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+            "which is set by your administrator.; reason: quotaExceeded"
+        ),
+    ],
+)
+def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
+    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The observed transient: a dropped Storage Read stream surfaced as a gRPC INTERNAL. The
+        # library default only reconnects on ServiceUnavailable, so this escaped and crashed the read.
+        InternalServerError("Received RST_STREAM with error code 2"),
+        ServiceUnavailable("503 The service is currently unavailable."),
+    ],
+)
+def test_bigquery_read_rows_retry_reconnects_on_transient_stream_errors(exc):
+    assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # Deterministic failures must surface rather than reconnect forever.
+        NotFound("404 Requested stream was not found."),
+        BadRequest("400 request failed"),
+    ],
+)
+def test_bigquery_read_rows_retry_does_not_reconnect_on_deterministic_errors(exc):
+    assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is False
+
+
+def test_bigquery_get_primary_keys_for_table_passes_job_retry():
+    """The primary-key probe must run under the extended job retry so a transient BigQuery job
+    error is re-tried in place instead of crashing the import."""
+    table = mock.MagicMock()
+    table.schema = []
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+
+    _get_primary_keys_for_table(table, client)
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+def test_run_destination_query_passes_job_retry():
+    """The copy-into-temp-table query — where the production sync crashed on a transient per-second
+    rate quota — must run under the extended job retry so it waits the rate limit out in place
+    instead of aborting the import."""
+    client = mock.MagicMock()
+
+    _run_destination_query_with_job_retry(
+        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+    )
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+def test_query_result_passes_job_retry():
+    """The read/count query must likewise run under the extended job retry so a transient per-second
+    rate quota is retried in place rather than surfacing."""
+    client = mock.MagicMock()
+
+    _query_result_with_job_retry(client, "SELECT COUNT(*)", job_config=mock.MagicMock(), project="prj")
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "404 GET https://bigquery.googleapis.com/.../jobs/abc?projection=full: Not found: Job prj:US.abc",
+        "Not found: Job prj:EU.job_xyz",
+        "Job not found: job_xyz",
+    ],
+)
+def test_is_transient_job_not_found_matches_job_race(message):
+    assert _is_transient_job_not_found(NotFound(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # A missing dataset/table (or a dataset absent from the queried region) is genuinely
+        # non-retryable and must not be mistaken for the job race, even though the raw dataset 404
+        # can carry a trailing "Job ID:".
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7",
+        "404 Not found: Table prj:ds.tbl",
+    ],
+)
+def test_is_transient_job_not_found_ignores_other_not_found(message):
+    assert _is_transient_job_not_found(NotFound(message)) is False
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_retries_transient_job_not_found(mock_sleep):
+    """The copy-into-temp-table query is where the production sync crashed on BigQuery's job-metadata
+    race; a transient job-not-found must be retried with a fresh job instead of aborting the import."""
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    _run_destination_query_with_job_retry(
+        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+    )
+
+    assert client.query.call_count == 2
+    ok_job.result.assert_called_once()
+    mock_sleep.assert_called_once()
+    # WRITE_TRUNCATE keeps the re-run idempotent against a temp table a lost first attempt populated.
+    assert client.query.call_args.kwargs["job_config"].write_disposition == "WRITE_TRUNCATE"
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_does_not_retry_genuine_not_found(mock_sleep):
+    """A genuine `NotFound` (missing dataset/table) is not the job race, so it surfaces immediately
+    rather than looping until the attempt cap."""
+    client = mock.MagicMock()
+    client.query.side_effect = NotFound("404 Not found: Table prj:ds.tbl")
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery._JOB_NOT_FOUND_MAX_ATTEMPTS",
+    4,
+)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
+    """The race almost always clears within moments, but a persistent job-not-found must still stop
+    at the attempt cap and surface the error instead of retrying forever."""
+    client = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc") for _ in range(4)]
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 4
+    # No back-off after the final, failed attempt.
+    assert mock_sleep.call_count == 3
 
 
 @pytest.mark.parametrize(
@@ -1097,3 +1470,23 @@ def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error)
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert "un-applied upsert data that is not fresh enough" not in other_error
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def test_bigquery_resources_exceeded_is_non_retryable():
+    """A `resourcesExceeded` query failure exceeds a worker's memory deterministically (heavy sorts /
+    analytic OVER() clauses over a large table or view), so retrying the identical temp-table copy in
+    `_run_destination_query_with_job_retry` always fails — it must be recognised as non-retryable
+    rather than retried on every attempt."""
+    error_msg = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=us-central1&prettyPrint=false: Resources exceeded during query "
+            "execution: The query could not be executed in the allotted memory. Peak usage: 122% of limit."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)

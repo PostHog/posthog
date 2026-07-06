@@ -16,6 +16,7 @@ from rest_framework import exceptions
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
+from posthog.api.streaming import sse_streaming_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
@@ -186,13 +187,11 @@ def _make_streaming_response(
     async_generator_factory: Callable[[], AsyncGenerator[bytes]],
 ) -> StreamingHttpResponse:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
-    return StreamingHttpResponse(
-        (
-            async_generator_factory()
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(async_generator_factory)
-        ),
-        content_type="text/event-stream",
+    return sse_streaming_response(
+        async_generator_factory()
+        if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+        else async_to_sync(async_generator_factory),
+        endpoint="sandbox_execute",
     )
 
 

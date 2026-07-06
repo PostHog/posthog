@@ -22,7 +22,8 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
-from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH
+from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -217,6 +218,100 @@ class ScoutEmissionReportLinkSerializer(serializers.Serializer):
     report = LinkedSignalReportSerializer(
         allow_null=True,
         help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
+# Upper bound on run ids accepted by the batched emissions / emission-reports endpoints. The findings
+# UI caps its window at 120 emitted runs (`MAX_FLEET_EMITTED_RUNS`); this sits above that with headroom
+# and bounds a pathological request rather than coupling tightly to the client cap.
+SCOUT_RUNS_BATCH_LIMIT = 200
+
+
+class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
+    """Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+    resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+    reports lookup, one ClickHouse round-trip — per emitted run) into a single request."""
+
+    run_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=SCOUT_RUNS_BATCH_LIMIT,
+        help_text=(
+            "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
+            "team are silently ignored (they contribute no rows) rather than failing the whole request. "
+            f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
+        ),
+    )
+
+
+class RecentEmissionsQuerySerializer(serializers.Serializer):
+    """Query parameters for `recent-emissions` — recent findings across every run on the team.
+
+    The cross-run counterpart to the per-run `emissions` action: instead of resolving a list of
+    run ids first, ask for the team's recent emitted findings directly, newest-first, optionally
+    scoped to one scout or a time window. Pure Postgres — no ClickHouse round-trip.
+    """
+
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission "
+            "from the prior page)."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows "
+            "to findings one specialist surfaced; omit to span every scout on the team."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=200,
+        help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+
+class FleetFindingsSummarySerializer(serializers.Serializer):
+    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+    renders from one cheap query instead of the client walking the whole paginated runs window."""
+
+    count = serializers.IntegerField(
+        help_text=(
+            "Total findings the fleet emitted in the window — the sum of each emitted run's "
+            "`emitted_count`, over the most recent 120 emitted runs."
+        )
+    )
+    scout_count = serializers.IntegerField(
+        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+    )
+    latest_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
+            "falling back to run creation), or null when nothing was emitted in the window."
+        ),
+    )
+
+
+class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
+    """Query parameters for the `findings/summary` action."""
+
+    window_hours = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_FINDINGS_WINDOW_HOURS,
+        help_text=(
+            f"Lookback window in hours over runs' `created_at` "
+            f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
     )
 
 
@@ -477,6 +572,14 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
+            "skip isn't something the scout can act on."
+        ),
+    )
 
 
 # --- Report authoring (emit_report / edit_report) --------------------------
@@ -496,6 +599,39 @@ class ReportEvidenceSerializer(serializers.Serializer):
         min_value=0.0,
         help_text="Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
     )
+
+
+class SuggestedReviewerSerializer(serializers.Serializer):
+    """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+
+    The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+    org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+    `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+    reviewer is never silently dropped."""
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text=(
+            "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
+            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "`github_login`) or git history when you only have a name."
+        ),
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
+            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each reviewer must include `github_login` or `user_uuid` (or both).")
+        return attrs
 
 
 class EmitReportRequestSerializer(serializers.Serializer):
@@ -561,10 +697,13 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_reviewers = serializers.ListField(
         required=False,
-        child=serializers.CharField(),
+        child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
         help_text=(
-            "Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if "
-            "at least one clears their autonomy threshold; omit to skip the PR path."
+            "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
+            "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
+            "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
+            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
 
@@ -588,6 +727,14 @@ class EmitReportResponseSerializer(serializers.Serializer):
     safety_explanation = serializers.CharField(
         allow_null=True,
         help_text="When the safety judge suppressed the report, why; null when safe.",
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when the report was authored "
+            "or the skip isn't something the scout can act on."
+        ),
     )
 
 
@@ -618,6 +765,17 @@ class EditReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    suggested_reviewers = serializers.ListField(
+        required=False,
+        child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        help_text=(
+            "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
+            "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
+            "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
+            "empty list is a no-op (existing reviewers are left untouched, never cleared)."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -627,6 +785,7 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
 
 
 # --- Project profile ------------------------------------------------------
@@ -685,6 +844,29 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
     disabled = serializers.ListField(
         child=SignalSourceConfigEntrySerializer(),
         help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class EmitEligibilitySerializer(serializers.Serializer):
+    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+
+    ai_processing_approved = serializers.BooleanField(
+        help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+    )
+    source_enabled = serializers.BooleanField(
+        help_text="Whether the `signals_scout` signal source is enabled for this team.",
+    )
+    can_emit = serializers.BooleanField(
+        help_text=(
+            "True only when both team/org-level gates pass, so scout findings (signal and report "
+            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
+            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
+            "own dry-run `emit` toggle, which is per-config, not team-wide."
+        ),
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
     )
 
 
@@ -816,6 +998,33 @@ class RecentActivitySerializer(serializers.Serializer):
     by_scope = serializers.ListField(
         child=ScopeActivityEntrySerializer(),
         help_text="Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+    )
+
+
+class ReviewerCorrectionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_reviewer_corrections.corrections`."""
+
+    report_id = serializers.CharField(help_text="UUID of the report whose reviewers a human edited.")
+    report_title = serializers.CharField(allow_null=True, help_text="Report title at the time of the edit.")
+    before = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report before the human edit (lowercased)."
+    )
+    after = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
+
+
+class RecentReviewerCorrectionsSerializer(serializers.Serializer):
+    """`inventory.recent_reviewer_corrections` — human edits to report reviewer lists."""
+
+    window_days = serializers.IntegerField(help_text="Lookback window in days the corrections cover.")
+    corrections = serializers.ListField(
+        child=ReviewerCorrectionEntrySerializer(),
+        help_text=(
+            "Human reviewer edits, newest first. A human swapping a report's suggested "
+            "reviewers is authoritative ownership precedent — route to who they chose."
+        ),
     )
 
 
@@ -1055,6 +1264,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     signal_source_configs = SignalSourceConfigsBucketsSerializer(
         help_text="Signal source configs split into enabled / disabled buckets.",
     )
+    emit_eligibility = EmitEligibilitySerializer(
+        help_text=(
+            "Whether scout findings can actually reach the inbox for this team — the org-level AI "
+            "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
+            "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
+    )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
@@ -1066,6 +1282,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
             "in lately before drilling down via the per-entity readers or `activity-log-list`."
+        ),
+    )
+    recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
+        help_text=(
+            "Recent human edits to report reviewer lists (before/after GitHub logins). "
+            "The strongest ownership precedent available — check it before setting "
+            "`suggested_reviewers` and fold what it shows into `reviewer:` memory keys."
         ),
     )
     recent_dashboards = serializers.ListField(
@@ -1308,6 +1531,26 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         return value
 
 
+class SignalScoutManualRunSerializer(serializers.Serializer):
+    """Response for an on-demand (`run now`) scout dispatch.
+
+    The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+    row yet at response time — the bridge row is created once the run's first turn starts.
+    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    """
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the dispatched run. The run executes asynchronously; poll the "
+            "scout's runs to see the resulting run row, its status, and any emitted findings."
+        )
+    )
+    started = serializers.BooleanField(
+        help_text="True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress."
+    )
+
+
 # --- Team metadata ---------------------------------------------------------
 
 
@@ -1352,3 +1595,42 @@ class ScoutMetadataSerializer(serializers.Serializer):
         help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
     )
     limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Members (reviewer routing) --------------------------------------------
+
+
+class ScoutMembersQuerySerializer(serializers.Serializer):
+    """Query params for `signals-scout-members-list`."""
+
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive substring filter over member email and first/last name. Use it to narrow a "
+            "large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+    )
+
+
+class ScoutMemberSerializer(serializers.Serializer):
+    """One project member's routing identity, for picking a `suggested_reviewers` entry on a report."""
+
+    user_uuid = serializers.CharField(
+        help_text=(
+            "The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on "
+            "entities they own. A durable handle for this person across runs."
+        )
+    )
+    email = serializers.EmailField(help_text="The member's email — use to match a finding's owner by name/email.")
+    first_name = serializers.CharField(help_text="The member's first name (may be empty).")
+    last_name = serializers.CharField(help_text="The member's last name (may be empty).")
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's resolved GitHub login (lowercased), already resolved server-side — put this value "
+            "in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null "
+            "when the member has no linked GitHub identity: a null-login member can't be routed to at all "
+            "(neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` "
+            "empty."
+        ),
+    )

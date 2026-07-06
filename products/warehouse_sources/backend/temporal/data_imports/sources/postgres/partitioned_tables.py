@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 # how to handle it (e.g. retry the whole sync at a higher level).
 WINDOW_MAX_QUERY_CANCELED_RETRIES = 3
 WINDOW_MAX_SERIALIZATION_RETRIES = 5
+# Mirrors the server-cursor read path's successive-connection-error abort: a transient
+# mid-stream drop is retried in-process (reconnect + replay the window) up to this many
+# times before giving up and re-raising so the activity can restart from scratch.
+WINDOW_MAX_CONNECTION_DROP_RETRIES = 10
 
 _RANGE_BOUND_RE = re.compile(r"FOR VALUES FROM \((.*)\) TO \((.*)\)", re.DOTALL)
 
@@ -368,6 +372,7 @@ def iterate_date_windows(
     max_window_multiplier: int = 30,
     min_window_divisor: int = 10,
     using_read_replica: bool = False,
+    is_connection_dropped: Callable[[BaseException], bool] = lambda _e: False,
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> Iterator[pa.Table]:
@@ -413,6 +418,7 @@ def iterate_date_windows(
     empty_streak = 0
     qc_retries = 0
     sf_retries = 0
+    cd_retries = 0
     windows_run = 0
     start = clock()
 
@@ -466,12 +472,31 @@ def iterate_date_windows(
             )
             sleeper(2 * sf_retries)
             continue
+        except psycopg.Error as e:
+            # A mid-stream connection drop (idle cull, failover, pooler/SSL EOF) surfaces here as a
+            # ProtocolViolation/OperationalError ("server conn crashed?"). It's transient and recovers
+            # on a fresh connection — the same class the server-cursor read path resumes in-process —
+            # so reconnect and replay the window instead of letting it escape and fail the whole
+            # activity. Only safe before any chunk of this window has been yielded; once a chunk is out,
+            # replaying the window would duplicate it, so re-raise and let the sync restart.
+            if not is_connection_dropped(e) or rows_this_window > 0:
+                raise
+            cd_retries += 1
+            if cd_retries > WINDOW_MAX_CONNECTION_DROP_RETRIES:
+                logger.exception(f"iterate_date_windows: exhausted connection-drop retries at lo={lo} hi={hi}")
+                raise
+            logger.warning(
+                f"iterate_date_windows: connection dropped at lo={lo} hi={hi} (retry {cd_retries}), reconnecting"
+            )
+            sleeper(min(2 * cd_retries, 30))
+            continue
 
         elapsed = clock() - w_start
         total_rows += rows_this_window
         windows_run += 1
         qc_retries = 0
         sf_retries = 0
+        cd_retries = 0
         logger.info(
             f"iterate_date_windows: window {lo}..{hi} done: {rows_this_window} rows in {elapsed:.1f}s (window={window})"
         )
@@ -662,6 +687,7 @@ def is_supported_incremental_type_for_window(field_type: Optional[IncrementalFie
 
 
 __all__ = [
+    "WINDOW_MAX_CONNECTION_DROP_RETRIES",
     "WINDOW_MAX_QUERY_CANCELED_RETRIES",
     "WINDOW_MAX_SERIALIZATION_RETRIES",
     "ChildPartition",

@@ -1,0 +1,82 @@
+<!--
+This is the user-facing source doc. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/e-conomic.md (served at /docs/cdp/sources/e-conomic). It lives here only
+because no posthog.com checkout was available when the source was implemented — move it there and
+delete this copy. The slug `e-conomic` must match `docsUrl` in get_source_config.
+-->
+
+---
+
+title: Linking e-conomic as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: EConomic
+beta: true
+
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+Sync your [Visma e-conomic](https://www.e-conomic.com/) accounting data — customers, suppliers,
+products, invoices, the chart of accounts, and more — into PostHog so you can join financial data with
+product and revenue analytics.
+
+## Prerequisites
+
+To connect e-conomic you need two tokens:
+
+- An **app secret token** for a registered e-conomic app (created in the [e-conomic Developer
+  portal](https://www.e-conomic.com/developer)).
+- An **agreement grant token**, issued when an e-conomic user grants your app access to their agreement
+  via the app's installation URL.
+
+Both tokens grant read access to the whole agreement — e-conomic has no per-resource scopes.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+Provide:
+
+- **App secret token** — your app's secret from the e-conomic Developer portal.
+- **Agreement grant token** — the grant token issued for the agreement you want to sync.
+
+PostHog sends these as the `X-AppSecretToken` and `X-AgreementGrantToken` headers on every request.
+
+## Sync modes
+
+<SyncModes />
+
+Most e-conomic tables are full-refresh only. Tables that expose a reliable server-side cursor support
+**incremental** sync:
+
+- `customers` and `products` sync incrementally on `lastUpdated`.
+- `invoices_booked` syncs incrementally on `bookedInvoiceNumber` (booked invoices are immutable and
+  numbered sequentially, so this never skips or re-counts entries).
+
+Draft invoices carry a `lastUpdated` timestamp, but e-conomic does not allow sorting by it, so they are
+synced as full refresh to avoid missing edits.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **401 Unauthorized** — one or both tokens are invalid or revoked. e-conomic returns the same status
+  for a bad app secret token and a bad agreement grant token. Re-check both, re-grant the app access to
+  the agreement if needed, and reconnect.
+- **Rate limiting (429)** — e-conomic throttles heavy traffic. PostHog retries with backoff
+  automatically; large initial syncs may simply take longer.
+
+<TroubleshootingLink />

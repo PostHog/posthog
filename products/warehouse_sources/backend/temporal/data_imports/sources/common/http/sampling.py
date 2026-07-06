@@ -76,6 +76,7 @@ _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
         "authorization",
         "x-api-key",
         "x-sn-apikey",
+        "x-ck-api-key",
         "x-auth-token",
         "x-metabase-session",
         "ob-token-v1",

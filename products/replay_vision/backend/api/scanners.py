@@ -1,7 +1,5 @@
-import datetime as dt
 from typing import Any, NoReturn, cast
 
-from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import CharField, Count, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, NullIf
@@ -9,30 +7,20 @@ from django.utils import timezone
 
 import structlog
 import django_filters
-from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from temporalio.common import SearchAttributePair, TypedSearchAttributes
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.search_attributes import (
-    POSTHOG_SCANNER_ID_KEY,
-    POSTHOG_SESSION_RECORDING_ID_KEY,
-    POSTHOG_TEAM_ID_KEY,
-)
 
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -41,8 +29,12 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
+from products.replay_vision.backend.api.trigger import (
+    WorkflowStartOutcome,
+    check_observation_quota,
+    start_apply_scanner_workflow,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -52,21 +44,25 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
+    MIN_SAMPLING_RATE,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
-from products.replay_vision.backend.temporal.constants import (
-    APPLY_SCANNER_WORKFLOW_NAME,
-    MAX_SESSION_ID_LENGTH,
-    build_apply_scanner_workflow_id,
-)
+from products.replay_vision.backend.quota import sum_enabled_scanner_estimates
+from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
-from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+_MAX_PROMPT_LENGTH = 20_000
+_MAX_TAGS = 100
+_MAX_TAG_LENGTH = 100
+_MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
 
@@ -85,15 +81,27 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     prompt = scanner_config.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
+    if len(prompt) > _MAX_PROMPT_LENGTH:
+        return f"Prompt can be at most {_MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
         if len(tags) == 0:
             return "Tag vocabulary must have at least one tag."
+        if len(tags) > _MAX_TAGS:
+            return f"Tag vocabulary can have at most {_MAX_TAGS} tags."
         if any(not isinstance(t, str) or not t.strip() for t in tags):
             return "Tags can't be blank."
-        normalized = {t.strip().lower() for t in tags}
-        if len(normalized) != len(tags):
-            return "Tags must be unique."
+        if any(len(t) > _MAX_TAG_LENGTH for t in tags):
+            return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
+        # Uniqueness on the slug, since filtering/stripping/search all compare slugified tags downstream.
+        slugged: dict[str, str] = {}
+        for t in tags:
+            slug = slugify_tag(t)
+            if not slug:
+                return "Tags must contain letters or numbers."
+            if slug in slugged:
+                return f"Tags must be unique: '{slugged[slug]}' and '{t}' are the same tag."
+            slugged[slug] = t
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):
@@ -104,9 +112,13 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
         if min_v >= max_v:
             return "Scale max must be greater than min."
     try:
-        validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
+        scanner = validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
     except (ValueError, PydanticValidationError):
         return "Scanner configuration is invalid."
+    # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
+    unknown = set(scanner_config) - set(type(scanner).model_fields)
+    if unknown:
+        return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
 
 
@@ -118,6 +130,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=_MAX_DESCRIPTION_LENGTH,
         help_text="Free-form description shown in the scanner management UI.",
     )
     scanner_type = serializers.ChoiceField(
@@ -143,7 +156,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         required=False,
         min_value=0.0,
         max_value=1.0,
-        help_text="0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).",
+        help_text=(
+            "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). "
+            "Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below "
+            "the sampling precision."
+        ),
     )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
@@ -228,6 +245,14 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         self._validate_and_strip_query(attrs)
         return attrs
 
+    def validate_sampling_rate(self, value: float) -> float:
+        # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
+        if 0 < value < MIN_SAMPLING_RATE:
+            raise serializers.ValidationError(
+                f"Sampling rate must be 0 (paused) or at least {MIN_SAMPLING_RATE} (0.01%)."
+            )
+        return value
+
     def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
         if self.instance is None or "scanner_type" not in attrs:
             return
@@ -273,6 +298,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
         try:
+            # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
@@ -438,6 +464,14 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
+    scanner_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't "
+            "double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+        ),
+    )
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -499,8 +533,74 @@ class EstimateResponseSerializer(serializers.Serializer):
     estimated_observations_per_month = serializers.IntegerField(
         help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
     )
+    other_enabled_scanners_monthly = serializers.IntegerField(
+        help_text=(
+            "Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from "
+            "their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count "
+            "the edited scanner."
+        ),
+    )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
+    )
+
+
+class SuggestTagsRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
+
+    prompt = serializers.CharField(
+        max_length=10000,
+        help_text="The classifier's instruction prompt — the single dimension to categorize sessions by.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        max_length=200,
+        help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
+    )
+    multi_label = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether the classifier assigns multiple tags per session.",
+    )
+    allow_freeform_tags = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the classifier may emit tags outside the fixed vocabulary.",
+    )
+    scanner_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has "
+            "already produced on real recordings). Omit for an unsaved scanner."
+        ),
+    )
+
+
+class TagSuggestionSerializer(serializers.Serializer):
+    """One grounded tag suggestion."""
+
+    tag = serializers.CharField(help_text="Suggested tag to add to the vocabulary, normalized to lowercase.")
+    rationale = serializers.CharField(
+        help_text="One sentence explaining the specific evidence this tag is grounded in."
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["observed", "product", "prompt"],
+        help_text=(
+            "Primary grounding: observed=a category this scanner already emitted on recordings; "
+            "product=the org's events/screens; prompt=the scanner's stated goal."
+        ),
+    )
+
+
+class SuggestTagsResponseSerializer(serializers.Serializer):
+    """Grounded tag suggestions for the classifier config editor."""
+
+    suggestions = TagSuggestionSerializer(
+        many=True,
+        help_text="Suggested tags to add, most relevant first. May be empty when the evidence is too thin.",
     )
 
 
@@ -607,55 +707,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if snapshot.exhausted:
-            raise QuotaLimitExceeded(
-                detail=(
-                    f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
-                    f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
-                )
-            )
+        check_observation_quota(self.team.organization_id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
         user = cast(User, request.user)
 
-        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
-        try:
-            client = sync_connect()
-            async_to_sync(client.start_workflow)(  # type: ignore[misc]
-                APPLY_SCANNER_WORKFLOW_NAME,  # type: ignore[arg-type]
-                ApplyScannerInputs(  # type: ignore[arg-type]
-                    scanner_id=scanner.id,
-                    session_id=session_id,
-                    team_id=scanner.team_id,
-                    triggered_by=ObservationTrigger.ON_DEMAND,
-                    triggered_by_user_id=user.id,
-                ),
-                id=workflow_id,
-                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                execution_timeout=dt.timedelta(hours=1),
-                # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
-                search_attributes=TypedSearchAttributes(
-                    search_attributes=[
-                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id),
-                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_id),
-                        SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(scanner.id)),
-                    ]
-                ),
-            )
-        except WorkflowAlreadyStartedError as exc:
-            # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.
-            if exc.workflow_id != workflow_id:
-                logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
-                return Response(
-                    {"error": "Failed to start observation workflow"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
-            logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        except Exception:
-            logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+        workflow_id, outcome = start_apply_scanner_workflow(scanner, session_id, triggered_by_user_id=user.id)
+        if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -687,6 +747,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         sampling_rate: float = body.validated_data["sampling_rate"]
 
+        # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
+        scanner_id = body.validated_data.get("scanner_id")
+        if scanner_id is not None and not ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).exists():
+            raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
+
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
@@ -695,13 +760,67 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
+        # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this
+        # estimate on top of a consistent snapshot instead of subtracting a possibly-stale per-scanner field.
+        other_enabled_scanners_monthly = sum_enabled_scanner_estimates(
+            self.team.organization_id, exclude_scanner_id=scanner_id
+        )
+
         return Response(
             EstimateResponseSerializer(
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
                     "estimated_observations_per_month": observations_per_month,
+                    "other_enabled_scanners_monthly": other_enabled_scanners_monthly,
                     "sampling_rate": sampling_rate,
                 }
             ).data
         )
+
+    @extend_schema(
+        request=SuggestTagsRequestSerializer,
+        responses={200: SuggestTagsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="suggest_tags",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def suggest_tags(self, request: Request, **kwargs: Any) -> Response:
+        """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
+        # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Suggesting classifier tags requires session_recording read access.")
+
+        body = SuggestTagsRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+
+        scanner: ReplayScanner | None = None
+        scanner_id = data.get("scanner_id")
+        if scanner_id is not None:
+            scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+            # Observations inherit the scanner's RBAC; treat missing access as not-found so existence doesn't leak.
+            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+                raise NotFound("Scanner not found.")
+
+        try:
+            suggestions = suggest_classifier_tags(
+                team=self.team,
+                user=cast(User, request.user),
+                prompt=data["prompt"],
+                current_tags=data["tags"],
+                multi_label=data["multi_label"],
+                allow_freeform_tags=data["allow_freeform_tags"],
+                scanner=scanner,
+                user_access_control=self.user_access_control,
+            )
+        except SuggestionError:
+            return Response(
+                {"error": "Couldn't generate tag suggestions right now. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)

@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { AddTilePickerModal } from './AddTilePickerModal'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
@@ -84,7 +83,6 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                             }}
                         />
                     )}
-                    <AddTilePickerModal />
                     <DeleteDashboardModal />
                     <DuplicateDashboardModal />
                     <DashboardInsightColorsModal />

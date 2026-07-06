@@ -5,8 +5,8 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 /**
- * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `RunViewer` chunk's
- * Suspense fallback, and `RunViewer`'s in-stream bootstrap. Mirrors `ThreadView`'s centered `max-w-180`
+ * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `ReadonlyRunSurface`
+ * chunk's Suspense fallback, and the `RunSurface` in-stream bootstrap. Mirrors `ThreadView`'s centered `max-w-180`
  * column and `MessageTemplate`'s rounded left/right bubbles so the surface keeps its shape when content
  * mounts. A `LemonSkeleton`-only leaf, so it stays out of the heavy chunk and is safe as a fallback.
  */
