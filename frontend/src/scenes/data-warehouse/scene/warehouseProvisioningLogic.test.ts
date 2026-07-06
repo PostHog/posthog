@@ -73,6 +73,27 @@ describe('warehouseProvisioningLogic', () => {
         expect(deleteOrg).toHaveBeenCalledTimes(1)
     })
 
+    it('retries removing the org record when the first delete-org attempt fails', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({ state: 'deleted' } as any)
+        const deleteOrg = jest
+            .spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy')
+            .mockRejectedValueOnce({ message: 'boom' })
+            .mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        // First attempt fails and settles, clearing the in-flight guard.
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete'])
+        expect(logic.values.isDeletingOrg).toBe(false)
+
+        // The next poll re-observing `deleted` re-fires delete-org rather than staying stuck.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleted' } as any)
+        }).toDispatchActions(['deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(2)
+    })
+
     it('flags a stuck teardown once it sits in `deleting` past the warn threshold', async () => {
         logic = warehouseProvisioningLogic()
         logic.mount()

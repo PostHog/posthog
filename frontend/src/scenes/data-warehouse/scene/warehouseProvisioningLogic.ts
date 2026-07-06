@@ -61,7 +61,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         deprovisionWarehouse: true,
         deprovisionWarehouseComplete: true,
         deleteOrg: true,
-        deleteOrgComplete: true,
+        deleteOrgComplete: (success: boolean) => ({ success }),
         resetPassword: true,
         resetPasswordComplete: true,
         setInitialPassword: (password: string) => ({ password }),
@@ -122,12 +122,22 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 deprovisionWarehouse: () => 0,
             },
         ],
-        // Guards the automatic delete-org call so it fires once per `deleted` observation
-        // rather than on every re-render/poll. Cleared when a new deprovision starts.
-        orgDeletionRequested: [
+        // In-flight flag for the automatic delete-org call. Doubles as the fire guard: while a
+        // delete-org is running we don't start another, but once it settles (success or failure)
+        // the next `deleted` poll can retry.
+        isDeletingOrg: [
             false,
             {
                 deleteOrg: () => true,
+                deleteOrgComplete: () => false,
+            },
+        ],
+        // Whether the last delete-org attempt failed, so we notify the user once per failure
+        // streak instead of on every 10s retry. Cleared on success and on a new deprovision.
+        orgDeletionFailed: [
+            false,
+            {
+                deleteOrgComplete: (_, { success }) => !success,
                 deprovisionWarehouse: () => false,
             },
         ],
@@ -378,28 +388,33 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     // returns to the provisioning form.
                     await dataWarehouseDeleteOrgDestroy(currentProjectId())
                     actions.loadWarehouseStatus()
+                    actions.deleteOrgComplete(true)
                 } catch (e: any) {
-                    lemonToast.error(`Failed to finish removing the warehouse: ${e.message || 'Unknown error'}`)
+                    // Polling stays active while `deleted`, so the next tick retries this; notify
+                    // once per failure streak rather than on every retry.
+                    if (!values.orgDeletionFailed) {
+                        lemonToast.error(`Failed to finish removing the warehouse: ${e.message || 'Unknown error'}`)
+                    }
+                    actions.deleteOrgComplete(false)
                 }
-                actions.deleteOrgComplete()
             },
 
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
-                if (warehouseStatus?.state === 'deleted') {
+                const state = warehouseStatus?.state
+                if (state === 'deleted') {
                     actions.setLastRequestedDatabaseName(null)
                     window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
-                    // Teardown finished, so remove the org row to free the name. Guarded so it fires
-                    // once, not on every poll/re-render that still reports `deleted`.
-                    if (!values.orgDeletionRequested) {
+                    // Teardown finished, so remove the org row to free the name. Guarded on the
+                    // in-flight flag so only one attempt runs at a time; a failed attempt retries
+                    // on the next poll.
+                    if (!values.isDeletingOrg) {
                         actions.deleteOrg()
                     }
                 }
-                if (
-                    warehouseStatus &&
-                    (warehouseStatus.state === 'pending' ||
-                        warehouseStatus.state === 'provisioning' ||
-                        warehouseStatus.state === 'deleting')
-                ) {
+                // Keep polling while teardown is in flight, and while the org record still needs
+                // removing (`deleted`) so a failed delete-org retries on the next tick. A
+                // successful delete-org 404s the next read, which falls through to stopPolling.
+                if (state === 'pending' || state === 'provisioning' || state === 'deleting' || state === 'deleted') {
                     actions.pollStatus()
                 } else {
                     actions.stopPolling()
