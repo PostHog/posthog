@@ -2327,6 +2327,21 @@
             "readOnlyHint": true
         }
     },
+    "endpoint-materialization-conditions": {
+        "description": "Get the source code of the live checks that decide whether an endpoint query can be materialized, plus the rewrite contract a fix must obey. Use this to rewrite a rejected query yourself: fetch the conditions, produce a semantically equivalent query that passes every check (same results for all variable values, keep every variable placeholder unchanged), update the endpoint with it, then confirm with the materialization status tool. Alternatively, call the materialization suggestion tool to have PostHog produce a validated rewrite for you.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get materialization conditions",
+        "title": "Get materialization conditions",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "endpoints-ai-materialization-fix"
+    },
     "endpoint-materialization-status": {
         "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
         "category": "Endpoints",
@@ -2340,6 +2355,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "endpoint-materialization-suggestion": {
+        "description": "Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose materialization status reports can_materialize false. Requires the organization's AI data processing approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the materialization conditions tool.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Suggest materialization fix",
+        "title": "Suggest materialization fix",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "endpoints-ai-materialization-fix"
     },
     "endpoint-openapi-spec": {
         "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",

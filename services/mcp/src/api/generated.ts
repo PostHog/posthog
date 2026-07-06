@@ -18600,6 +18600,75 @@ export namespace Schemas {
       saved_query_id?: string | null;
     }
 
+    /**
+     * The live materialization rules, for agents that want to rewrite a rejected query themselves.
+     */
+    export interface EndpointMaterializationConditions {
+      /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
+      conditions_source: string;
+      /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
+      rewrite_contract: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `cannot_fix` - cannot_fix
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type SuggestionStatusEnum = typeof SuggestionStatusEnum[keyof typeof SuggestionStatusEnum];
+
+
+    export const SuggestionStatusEnum = {
+      Ok: 'ok',
+      CannotFix: 'cannot_fix',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    /**
+     * AI-suggested query rewrite that would make the endpoint materializable.
+     */
+    export interface EndpointMaterializationSuggestion {
+      /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
+       *
+       * * `ok` - ok
+       * * `cannot_fix` - cannot_fix
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      suggestion_status: SuggestionStatusEnum;
+      /**
+         * The complete rewritten SQL query, or null when no rewrite was produced.
+         * @nullable
+         */
+      suggested_query: string | null;
+      /**
+         * User-facing explanation of what was changed and why, or why no fix exists.
+         * @nullable
+         */
+      explanation: string | null;
+      /** How many suggest→validate rounds were used. */
+      attempts: number;
+      /**
+         * Last validation failure when the suggestion did not pass the checks.
+         * @nullable
+         */
+      error: string | null;
+      /** The materialization blocker that triggered the suggestion. */
+      original_reason: string;
+    }
+
+    /**
+     * Request body for the AI materialization-fix suggestion action.
+     */
+    export interface EndpointMaterializationSuggestionRequest {
+      /**
+         * Endpoint version to suggest a fix for. Defaults to the latest version.
+         * @nullable
+         */
+      version?: number | null;
+    }
+
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
 
 

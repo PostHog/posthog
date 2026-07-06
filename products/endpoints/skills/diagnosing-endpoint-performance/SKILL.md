@@ -25,14 +25,16 @@ If the question is project-wide ("what should I clean up?"), use `auditing-endpo
 
 ## Available tools
 
-| Tool                                | Purpose                                                                                        |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `endpoint-get`                      | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
-| `endpoint-versions`                 | History of every version (query + materialisation state); which version is current             |
-| `endpoint-materialization-status`   | Whether materialisation is eligible, current state, last run, last error                       |
-| `endpoints-materialization-preview` | What the materialised query would look like, plus the rejection reason if ineligible           |
-| `endpoints-last-execution-times`    | When was it last called (endpoint-level sanity-check that it is in active use)                 |
-| `execute-sql`                       | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
+| Tool                                  | Purpose                                                                                        |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `endpoint-get`                        | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
+| `endpoint-versions`                   | History of every version (query + materialisation state); which version is current             |
+| `endpoint-materialization-status`     | Whether materialisation is eligible, current state, last run, last error                       |
+| `endpoints-materialization-preview`   | What the materialised query would look like, plus the rejection reason if ineligible           |
+| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks           |
+| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting           |
+| `endpoints-last-execution-times`      | When was it last called (endpoint-level sanity-check that it is in active use)                 |
+| `execute-sql`                         | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
 
 ## The decision tree
 
@@ -80,8 +82,18 @@ a note about which variables become required.
 
 ### Step 3 — Does the query need rewriting?
 
-If the endpoint isn't eligible for materialisation, the rejection reason from
-`endpoints-materialization-preview` is usually the lead:
+For a SQL endpoint that isn't eligible, try the fast path first: call
+`endpoint-materialization-suggestion`. PostHog rewrites the query into a semantically equivalent
+form and validates it against the live eligibility checks before returning it — `ok` means the
+rewrite passes; apply it with `endpoint-update` (creates a new version), then confirm with
+`endpoint-materialization-status`. `cannot_fix` means no equivalent rewrite exists (e.g. an
+`OR {variables.x} = 'all'` optional-variable idiom) — say so rather than forcing a change in
+behaviour. Requires the org's AI data processing approval; without it, or to reason about the
+rewrite yourself, call `endpoint-materialization-conditions` — it returns the actual source code
+of the checks this instance enforces plus the rewrite contract. Treat that as authoritative; the
+bullet list below is a summary and may lag it.
+
+Otherwise, the rejection reason from `endpoints-materialization-preview` is usually the lead:
 
 - **Cohort breakdown / compare mode rejection** → regular property breakdowns materialise fine;
   only cohort breakdowns and compare mode are blocked. Swap a cohort breakdown for a property
