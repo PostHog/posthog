@@ -62,7 +62,7 @@ export function TracingFilterBar(): JSX.Element {
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        {showFacetRail && (
+                        {showFacetRail && !compareMode && (
                             <LemonButton
                                 size="small"
                                 type="secondary"
