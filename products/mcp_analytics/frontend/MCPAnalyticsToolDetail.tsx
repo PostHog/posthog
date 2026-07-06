@@ -397,6 +397,11 @@ function DescriptionBlock({
 
 function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
+        curve: 'monotone',
+        showAxisLines: true,
+        showTickMarks: true,
+        showCrosshair: true,
+        showGrid: true,
         yAxis,
         xAxis: { interval: 'day', timezone },
         tooltip: { placement: 'cursor' },

@@ -40,6 +40,11 @@ export function ToolUsageChart({
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
+            barCornerRadius: 4,
+            showAxisLines: true,
+            showTickMarks: true,
+            showCrosshair: true,
+            showGrid: true,
             xAxis: { interval, timezone },
             tooltip: { placement: 'cursor' },
         }),

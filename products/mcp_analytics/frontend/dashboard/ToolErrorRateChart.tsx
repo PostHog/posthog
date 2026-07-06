@@ -55,6 +55,10 @@ export function ToolErrorRateChart({
         return {
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
+            showAxisLines: true,
+            showTickMarks: true,
+            showCrosshair: true,
+            showGrid: true,
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
