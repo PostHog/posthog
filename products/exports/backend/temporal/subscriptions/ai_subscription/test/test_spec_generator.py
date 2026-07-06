@@ -351,6 +351,28 @@ class TestContextBlob(APIBaseTest):
         assert "Group/account types (reference as group_<index>.properties.<name>" in blob
         assert "group_0 = organization" in blob
 
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_no_data_line_uses_floored_dormancy_cutoff_on_short_refire(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        # A gap-free re-fire minutes after a successful daily send: window.start is minutes ago, but the
+        # dormancy cutoff floors to a full day back. An event seen 12h ago is still active for the cadence
+        # and must NOT be listed as "no data" — only the genuinely dormant one should appear. Guards
+        # build_context_blob keying off window.dormancy_cutoff rather than window.start.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        EventDefinition.objects.create(team=self.team, name="active_today", last_seen_at=now - timedelta(hours=12))
+        EventDefinition.objects.create(team=self.team, name="truly_dormant", last_seen_at=now - timedelta(days=30))
+        window = compute_report_window(
+            self.team, last_successful_delivery_at=now - timedelta(minutes=10), now=now, window_days=1
+        )
+
+        blob = build_context_blob(self.team, window)
+
+        assert "truly_dormant" in blob
+        # Without the floor (cutoff == window.start, minutes ago), active_today would be flagged dormant.
+        assert "active_today" not in blob
+
     @parameterized.expand(
         [
             ("single_property", ["format"], "format"),
