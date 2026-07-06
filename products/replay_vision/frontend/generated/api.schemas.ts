@@ -861,6 +861,65 @@ export const ReplayScannerPromptSuggestionStatusEnumApi = {
     NoChange: 'no_change',
 } as const
 
+export interface PromptEvaluationResultApi {
+    /** The rated session that was re-run with the suggested prompt. */
+    session_id: string
+    /** The original rated observation the comparison is against. */
+    observation_id: string
+    /** The team's rating of the original output (thumbs up = true). */
+    rated_correct: boolean
+    /**
+     * The original output's primary outcome.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * The suggested prompt's outcome for the same session; null when the run errored.
+     * @nullable
+     */
+    after: string | null
+    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+    outcome: string
+    /**
+     * Why this session's re-run failed, when it did.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface PromptEvaluationSummaryApi {
+    /** Thumbs-up sessions whose output is unchanged. */
+    kept: number
+    /** Thumbs-up sessions whose output changed. */
+    regressed: number
+    /** Thumbs-down sessions whose output changed. */
+    fixed: number
+    /** Thumbs-down sessions whose output is unchanged. */
+    still_wrong: number
+    /** Sessions whose re-run failed. */
+    errors: number
+}
+
+export interface PromptSuggestionEvaluationApi {
+    /** running, succeeded, or failed. */
+    status: string
+    /** When the evaluation started. */
+    started_at: string
+    /**
+     * When the evaluation finished, if it has.
+     * @nullable
+     */
+    finished_at: string | null
+    /** How many rated sessions are being re-run. */
+    total: number
+    /** The rated set the evaluation ran against. */
+    labels_fingerprint: string
+    /** Per-session outcomes, in completion order. */
+    results: PromptEvaluationResultApi[]
+    /** Outcome counts; null while the evaluation is running. */
+    summary: PromptEvaluationSummaryApi | null
+}
+
 export interface ReplayScannerPromptSuggestionApi {
     readonly id: string
     /** pending (current), applied, dismissed, or superseded by a newer suggestion.
@@ -890,6 +949,8 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly applied_at: string | null
     /** User who applied this suggestion to the scanner; null unless applied. */
     readonly applied_by: UserBasicApi | null
+    /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+    readonly evaluation: PromptSuggestionEvaluationApi | null
 }
 
 export interface PaginatedReplayScannerPromptSuggestionListApi {

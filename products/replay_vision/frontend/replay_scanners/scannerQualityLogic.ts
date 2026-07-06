@@ -9,6 +9,7 @@ import {
     visionScannersPromptSuggestionsApplyCreate,
     visionScannersPromptSuggestionsCurrentRetrieve,
     visionScannersPromptSuggestionsDismissCreate,
+    visionScannersPromptSuggestionsEvaluateCreate,
     visionScannersPromptSuggestionsGenerateCreate,
     visionScannersPromptSuggestionsList,
 } from '../generated/api'
@@ -61,6 +62,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         dismissSuggestion: (suggestionId: string) => ({ suggestionId }),
         dismissSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
         dismissSuggestionFailure: true,
+        evaluateSuggestion: (suggestionId: string) => ({ suggestionId }),
+        evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
+        evaluateSuggestionFailure: true,
         loadSuggestionHistory: true,
         loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => ({ history }),
         loadSuggestionHistoryFailure: true,
@@ -132,6 +136,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 generateSuggestionSuccess: (_, { suggestion }) => suggestion,
                 applySuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
                 dismissSuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
+                evaluateSuggestionSuccess: (state, { suggestion }) =>
+                    state?.id === suggestion.id ? suggestion : state,
             },
         ],
         suggestionStale: [
@@ -177,6 +183,14 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 dismissSuggestion: () => true,
                 dismissSuggestionSuccess: () => false,
                 dismissSuggestionFailure: () => false,
+            },
+        ],
+        evaluating: [
+            false,
+            {
+                evaluateSuggestion: () => true,
+                evaluateSuggestionSuccess: () => false,
+                evaluateSuggestionFailure: () => false,
             },
         ],
         suggestionHistory: [
@@ -269,6 +283,39 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             } catch {
                 actions.loadCurrentSuggestionFailure()
             }
+        },
+
+        // Poll while an evaluation runs. The breakpoint cancels on unmount and re-arms on
+        // every refresh, so only one poll chain is alive.
+        loadCurrentSuggestionSuccess: async ({ current }, breakpoint) => {
+            if (current.suggestion?.evaluation?.status === 'running') {
+                await breakpoint(4000)
+                actions.loadCurrentSuggestion()
+            }
+        },
+
+        evaluateSuggestion: async ({ suggestionId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.evaluateSuggestionFailure()
+                return
+            }
+            try {
+                const suggestion = await visionScannersPromptSuggestionsEvaluateCreate(
+                    String(teamId),
+                    props.scannerId,
+                    suggestionId
+                )
+                actions.evaluateSuggestionSuccess(suggestion)
+            } catch (error: any) {
+                lemonToast.error(`Couldn't start the test${error.detail ? `: ${error.detail}` : ''}`)
+                actions.evaluateSuggestionFailure()
+            }
+        },
+
+        evaluateSuggestionSuccess: async (_, breakpoint) => {
+            await breakpoint(4000)
+            actions.loadCurrentSuggestion()
         },
 
         generateSuggestion: async () => {

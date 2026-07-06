@@ -66,11 +66,18 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
-        _load_llm_inputs(inputs.observation_id),
-    )
+    if inputs.snapshot_override is not None:
+        snapshot = inputs.snapshot_override
+        team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
+    else:
+        snapshot, team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
     scanner = scanner_from_snapshot(snapshot)
 
     preamble_text = scanner.preamble(team_name=team_name, session_metadata=llm_inputs.metadata.as_prompt_dict())

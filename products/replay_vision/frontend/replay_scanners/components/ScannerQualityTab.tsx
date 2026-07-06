@@ -208,6 +208,97 @@ function SuggestionMeta({ suggestion }: { suggestion: ReplayScannerPromptSuggest
     )
 }
 
+const EVALUATION_OUTCOME_TAGS: Record<string, { type: LemonTagType; label: string }> = {
+    kept: { type: 'success', label: 'Kept' },
+    fixed: { type: 'success', label: 'Fixed' },
+    regressed: { type: 'danger', label: 'Regressed' },
+    still_wrong: { type: 'danger', label: 'Still wrong' },
+    error: { type: 'muted', label: 'Error' },
+}
+
+/** Test-before-apply results: the suggested prompt re-run against rated sessions. */
+function SuggestionEvaluationPanel({
+    suggestion,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+}): JSX.Element | null {
+    const [detailsOpen, setDetailsOpen] = useState(false)
+    const evaluation = suggestion.evaluation
+    if (!evaluation) {
+        return null
+    }
+
+    if (evaluation.status === 'running') {
+        return (
+            <div className="border rounded p-3 flex items-center gap-2 text-sm text-muted">
+                <Spinner />
+                Testing against rated sessions… {evaluation.results.length} of {evaluation.total || '?'} done
+            </div>
+        )
+    }
+
+    if (evaluation.status === 'failed' && !evaluation.results.length) {
+        return (
+            <div className="border rounded p-3 text-sm text-muted">
+                The test didn't finish. Run it again to check this prompt against your rated sessions.
+            </div>
+        )
+    }
+
+    const summary = evaluation.summary ?? { kept: 0, regressed: 0, fixed: 0, still_wrong: 0, errors: 0 }
+    const downTotal = summary.fixed + summary.still_wrong
+    const upTotal = summary.kept + summary.regressed
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                {downTotal > 0 && (
+                    <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                        <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
+                            {summary.fixed}/{downTotal} wrong now different
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {upTotal > 0 && (
+                    <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                        <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
+                            {summary.kept}/{upTotal} right unchanged
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+            </div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={detailsOpen ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setDetailsOpen(!detailsOpen)}
+                data-attr="vision-quality-evaluation-details-toggle"
+            >
+                Per-session results
+            </LemonButton>
+            {detailsOpen && (
+                <div className="space-y-1">
+                    {evaluation.results.map((result) => (
+                        <div key={result.session_id} className="flex flex-wrap items-center gap-2 text-xs">
+                            <LemonTag type={EVALUATION_OUTCOME_TAGS[result.outcome]?.type ?? 'muted'}>
+                                {EVALUATION_OUTCOME_TAGS[result.outcome]?.label ?? result.outcome}
+                            </LemonTag>
+                            <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                {result.session_id.slice(0, 8)}…
+                            </Link>
+                            <span className="text-muted">
+                                rated {result.rated_correct ? 'right' : 'wrong'} · {result.before ?? 'n/a'} →{' '}
+                                {result.after ?? (result.error ? `failed: ${result.error.slice(0, 80)}` : 'n/a')}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
     const {
@@ -218,11 +309,16 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         generating,
         applying,
         dismissing,
+        evaluating,
         suggestionHistory,
         suggestionHistoryLoading,
     } = useValues(logic)
-    const { generateSuggestion, applySuggestion, dismissSuggestion, loadSuggestionHistory } = useActions(logic)
+    const { generateSuggestion, applySuggestion, dismissSuggestion, evaluateSuggestion, loadSuggestionHistory } =
+        useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { isDarkModeOn } = useValues(themeLogic)
+    // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
+    const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -286,9 +382,26 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
                     isDarkModeOn={isDarkModeOn}
                 />
+                {currentSuggestion.status === 'pending' && <SuggestionEvaluationPanel suggestion={currentSuggestion} />}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
+                        {currentSuggestion.status === 'pending' && evaluationSupported && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (ratedCount === 0 ? 'Rate at least one result first' : undefined)
+                                }
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying"
+                                onClick={() => evaluateSuggestion(currentSuggestion.id)}
+                                data-attr="vision-quality-evaluate-suggestion"
+                            >
+                                {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
+                            </LemonButton>
+                        )}
                         {currentSuggestion.status === 'pending' && (
                             <LemonButton
                                 size="small"

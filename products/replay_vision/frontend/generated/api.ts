@@ -669,6 +669,32 @@ export const visionScannersPromptSuggestionsDismissCreate = async (
     )
 }
 
+export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/evaluate/`
+}
+
+/**
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field; poll `current` while status is running. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsEvaluateCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsEvaluateCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getVisionScannersPromptSuggestionsCurrentRetrieveUrl = (projectId: string, scannerId: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/current/`
 }
