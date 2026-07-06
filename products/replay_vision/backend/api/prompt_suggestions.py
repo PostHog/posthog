@@ -292,6 +292,9 @@ class ReplayScannerPromptSuggestionViewSet(
             raise ValidationError("Testing is available for monitor and classifier scanners.")
         if self._rated_count(scanner) == 0:
             raise ValidationError("Rate some results first; they are what the suggestion is tested against.")
+        # A test already in flight keeps reporting its state even if quota ran out meanwhile.
+        if isinstance(suggestion.evaluation, dict) and suggestion.evaluation.get("status") == "running":
+            return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
         # Test runs create no observations, so they bypass quota accounting. Still refuse when the
         # org is out of quota: they cost the same to serve.
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
@@ -302,8 +305,6 @@ class ReplayScannerPromptSuggestionViewSet(
                     f"Resets {quota.period_end.strftime('%b')} {quota.period_end.day}."
                 )
             )
-        if isinstance(suggestion.evaluation, dict) and suggestion.evaluation.get("status") == "running":
-            return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
         # Stamp running before starting the workflow so the UI never sees a gap. The select activity
         # replaces this stub with the real total and fingerprint.

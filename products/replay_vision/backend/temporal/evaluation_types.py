@@ -38,7 +38,7 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     suggestion_id: UUID
     team_id: int
     session: EvaluationSession
-    # The fresh scanner output for the session (None when the run errored).
+    # The fresh scanner output, None when the run errored.
     after_output: dict[str, Any] | None = None
     error: str | None = None
 
