@@ -17,16 +17,15 @@
 //     blended would track the week's run-mix, not duration), and to master
 //     specifically because its gating workflows don't supersede-cancel, so
 //     cancelled-run durations barely pollute the percentile there.
+//   - Flaky tests: the product's per-test leaderboard (flaky_tests) over the week's CI
+//     test spans — tests that passed on retry or failed across distinct PRs. Absolute
+//     signal counts only, never rates (the emitter drops fast passes, so any
+//     denominator would be biased).
 //
-// Still deferred — signals the read layer can't compute honestly yet:
-//   - A fully clean all-branch CI-speed percentile: workflow_health's p50/p95 is over
-//     status='completed' with no conclusion filter, so off-master durations are
-//     polluted by supersede-cancels. Needs a conclusion='success' percentile upstream.
-//   - Test-level failure triage: master_failures groups at (workflow, de-sharded job)
-//     level, which is dominated by rollup gate jobs ("X Tests Pass") and matrix shard
-//     names — not actionable in a digest. The product's `flaky_tests` endpoint (per-test
-//     leaderboard over CI test spans) is the right source; add that section once it
-//     ships.
+// Still deferred (the one signal the read layer can't compute honestly yet): a fully
+// clean all-branch CI-speed percentile — workflow_health's p50/p95 is over
+// status='completed' with no conclusion filter, so off-master durations are polluted
+// by supersede-cancels. Needs a conclusion='success' percentile upstream.
 //
 // Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill a
 // missed window, so a webhook outage undercounts that week's COUNT-based lines (runs,
@@ -329,6 +328,36 @@ async function ciSpeedSection(now) {
     return lines.join('\n')
 }
 
+// Flaky tests — the product's per-test leaderboard over the week's CI test spans,
+// ranked upstream by flake signal (pass-on-retry + distinct PRs hit). Counts are
+// absolute, never rates: the span emitter drops fast passing tests, so a denominator
+// would be biased. Threshold defaults (rerun_passed >= 1 OR failures on >= 3 distinct
+// PRs) live upstream too — this relays, it doesn't re-derive.
+async function flakyTestsSection(now) {
+    const [thisWin] = weekWindows(now)
+    const list = await api('flaky_tests', thisWin)
+    const header = '*Flakiest tests (last 7d)*'
+    if (list.items.length === 0) {
+        return `${header}\n_No test met the flake thresholds._`
+    }
+    const qualifying = `${list.items.length}${list.truncated ? '+' : ''}`
+    const lines = [header, `${qualifying} tests met flake thresholds. Top:`]
+    for (const t of list.items.slice(0, TOP_N)) {
+        const signals = []
+        if (t.rerun_passed_count > 0) {
+            signals.push(`passed on retry ×${t.rerun_passed_count}`)
+        }
+        if (t.failed_pr_count > 0) {
+            signals.push(`failed on ${t.failed_pr_count} PRs`)
+        }
+        if (t.xfailed_count > 0) {
+            signals.push(`xfailed ×${t.xfailed_count}`)
+        }
+        lines.push(`• \`${slackEscape(t.nodeid)}\` — ${signals.join(', ')}`)
+    }
+    return lines.join('\n')
+}
+
 // Returns { blocks, succeeded } — succeeded counts sections that produced content, so
 // main can refuse to post (and fail loudly) when every section errored.
 async function buildDigest(now) {
@@ -341,6 +370,7 @@ async function buildDigest(now) {
     const sections = [
         { name: 'Throughput & CI health', run: () => headlineSection(now) },
         { name: 'CI speed', run: () => ciSpeedSection(now) },
+        { name: 'Flaky tests', run: () => flakyTestsSection(now) },
     ]
     const results = await Promise.allSettled(sections.map((s) => s.run()))
     let succeeded = 0
