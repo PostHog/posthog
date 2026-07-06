@@ -369,9 +369,6 @@ export type ValueDomain =
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
-    cornerRadius?: number
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
@@ -412,7 +409,7 @@ export interface BarsConfig {
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
-     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  corners round at the full `barCornerRadius` even when the edge segment is a thin sliver (e.g.
      *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
      *  clamps the radius to the sliver's half-width. Defaults to `false`. */
     roundStackEnds?: boolean
@@ -421,10 +418,12 @@ export interface BarsConfig {
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    /** Bar appearance + band-layout details (track, shadow, padding, fill style…). */
     bars?: BarsConfig
-    /** Fallback for {@link BarsConfig.cornerRadius} (which wins when set). Same top-level key as
-     *  the time-series/combo configs, so shared config defaults can target every bar chart. */
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment (or the whole stack with {@link BarsConfig.roundStackEnds}). Defaults to 0 (square).
+     *  Same top-level key as the time-series/combo configs, so one config shape rounds every bar
+     *  chart and shared config defaults can target them all. */
     barCornerRadius?: number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig

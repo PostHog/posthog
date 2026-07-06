@@ -79,9 +79,9 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
     } = config ?? {}
     const {
-        cornerRadius: barCornerRadius = config?.barCornerRadius ?? 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,

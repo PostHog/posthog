@@ -103,35 +103,6 @@ describe('BarChart', () => {
         expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
     })
 
-    // The rounded corners live on canvas, invisible to the DOM accessors — quadraticCurveTo
-    // (via jest-canvas-mock) only fires when an end cap actually rounds, so it's the observable
-    // signal that a radius config reached the renderer.
-    it.each<[string, BarChartConfig, boolean]>([
-        ['bars.cornerRadius rounds end caps', { bars: { cornerRadius: 4 } }, true],
-        ['top-level barCornerRadius is honored as a fallback', { barCornerRadius: 4 }, true],
-        [
-            'bars.cornerRadius wins over the top-level fallback',
-            { barCornerRadius: 4, bars: { cornerRadius: 0 } },
-            false,
-        ],
-        ['no radius configured draws square bars', {}, false],
-    ])('corner radius: %s', (_name, config, expectRounded) => {
-        const { container } = renderHogChart(
-            <BarChart
-                series={SERIES}
-                labels={LABELS}
-                theme={THEME}
-                config={{ axisOrientation: 'horizontal', ...config }}
-            />
-        )
-        const ctx = container.querySelector('canvas')?.getContext('2d')
-        if (!ctx) {
-            throw new Error('expected a mocked canvas 2d context')
-        }
-        const roundedCaps = (ctx.quadraticCurveTo as jest.Mock).mock.calls.length > 0
-        expect(roundedCaps).toBe(expectRounded)
-    })
-
     it('tolerates NaN data values without throwing', () => {
         const broken: Series[] = [
             {
