@@ -21,7 +21,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
-import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
+import { shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -644,19 +644,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         response: {
-            // Keep the previous results on an aborted/superseded request (it's a cancellation, not a
-            // real failure) or when the surface opts into `keepDataOnError`, so the view doesn't blank
-            // and flicker while a newer request is in flight or on a transient error. Otherwise clear
-            // it so the error state is shown and we don't present stale data as if it were fresh.
-            loadDataFailure: (state, { errorObject }) =>
-                props.keepDataOnError || isAbortedRequest(errorObject) ? state : null,
+            // Keep the previous results on failure when the surface opts into `keepDataOnError` (table
+            // surfaces like Activity explore / person events), so a failed reload doesn't blank the feed
+            // and swap in a full-screen error state - the error is surfaced as an inline banner instead.
+            // Otherwise clear it so the error state shows and we don't present stale data as if it were fresh.
+            // Note: superseded in-flight requests never reach here (kea's breakpoint swallows them), so this
+            // only fires for genuine failures, timeouts, and explicit cancellations.
+            loadDataFailure: (state) => (props.keepDataOnError ? state : null),
         },
         responseErrorObject: [
             null as Record<string, any> | null,
             {
                 loadData: () => null,
-                // Aborted/superseded requests are cancellations, not real errors - leave the error unset.
-                loadDataFailure: (_, { errorObject }) => (isAbortedRequest(errorObject) ? null : errorObject),
+                loadDataFailure: (_, { errorObject }) => errorObject,
                 loadDataSuccess: () => null,
             },
         ],
@@ -666,10 +666,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadNewData: () => null,
                 loadDataFailure: (_, { error, errorObject }) => {
-                    // Aborted/superseded requests are cancellations, not real errors - don't surface them.
-                    if (isAbortedRequest(errorObject)) {
-                        return null
-                    }
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error ?? 'Error loading data'
                     }
@@ -679,9 +675,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return error ?? 'Error loading data'
                 },
                 loadNewDataFailure: (_, { error, errorObject }) => {
-                    if (isAbortedRequest(errorObject)) {
-                        return null
-                    }
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error ?? 'Error loading data'
                     }
