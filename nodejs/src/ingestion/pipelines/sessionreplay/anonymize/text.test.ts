@@ -1,5 +1,5 @@
 import { defaultAllowLists } from './default-dict'
-import { scrubText } from './text'
+import { redactEmails, scrubText } from './text'
 
 describe('anonymize/text', () => {
     const allow = defaultAllowLists()
@@ -55,5 +55,26 @@ describe('anonymize/text', () => {
         // `to`/`in` are stop-words the tokenizer would keep, but the email pass nukes the address first.
         expect(scrub('to jane.doe@in.example.com')).toBe('to ' + '*'.repeat('jane.doe@in.example.com'.length))
         expect(scrub('email a@b.co')).not.toContain('a@b.co')
+    })
+
+    test.each([
+        ['a@.co', 'a@.co'],
+        ['a@b.c', 'a@b.c'],
+        ['a@b.co', '******'],
+        ['user@example.com2', '****************2'],
+        ['a@b@c.com', 'a@*******'],
+        ['first@a.com second@b.org', '*********** ************'],
+        ['user@example.co.uk', '******************'],
+        ['trailing@dot.com...', '****************...'],
+    ])('redactEmails boundary semantics: %s', (input, expected) => {
+        expect(redactEmails(input).value).toBe(expected)
+    })
+
+    it('scales linearly on a long unbroken email-charset run (no regex backtracking)', () => {
+        // A backtracking email regex is O(n²) here: ~35s at this size vs ~10ms linear.
+        const run = 'A1b2C3d4'.repeat((256 * 1024) / 8)
+        const start = performance.now()
+        scrub(run)
+        expect(performance.now() - start).toBeLessThan(5000)
     })
 })

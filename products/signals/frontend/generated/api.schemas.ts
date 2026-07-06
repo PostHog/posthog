@@ -103,6 +103,11 @@ export interface SignalReportApi {
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
      * PR URL from the latest implementation task run, if available.
      * @nullable
      */
@@ -489,6 +494,22 @@ export interface PatchedSignalScoutConfigApi {
 }
 
 /**
+ * Response for an on-demand (`run now`) scout dispatch.
+ *
+ * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+ * row yet at response time — the bridge row is created once the run's first turn starts.
+ * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ */
+export interface SignalScoutManualRunApi {
+    /** The `signals-scout-*` skill that was dispatched. */
+    skill_name: string
+    /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+    workflow_id: string
+    /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+    started: boolean
+}
+
+/**
  * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
  */
 export interface ScoutMemberApi {
@@ -630,6 +651,23 @@ export interface SignalSourceConfigsBucketsApi {
 }
 
 /**
+ * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ */
+export interface EmitEligibilityApi {
+    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
+    ai_processing_approved: boolean
+    /** Whether the `signals_scout` signal source is enabled for this team. */
+    source_enabled: boolean
+    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    can_emit: boolean
+    /**
+     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * @nullable
+     */
+    remediation: string | null
+}
+
+/**
  * One bucket in `inventory.existing_inbox_reports.by_status`.
  */
 export interface InboxReportStatusBucketApi {
@@ -674,6 +712,38 @@ export interface RecentActivityApi {
     window_days: number
     /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
     by_scope: ScopeActivityEntryApi[]
+}
+
+/**
+ * One row in `inventory.recent_reviewer_corrections.corrections`.
+ */
+export interface ReviewerCorrectionEntryApi {
+    /** UUID of the report whose reviewers a human edited. */
+    report_id: string
+    /**
+     * Report title at the time of the edit.
+     * @nullable
+     */
+    report_title: string | null
+    /** GitHub logins on the report before the human edit (lowercased). */
+    before: string[]
+    /** GitHub logins on the report after the human edit (lowercased). */
+    after: string[]
+    /**
+     * ISO-8601 timestamp of the edit.
+     * @nullable
+     */
+    at: string | null
+}
+
+/**
+ * `inventory.recent_reviewer_corrections` — human edits to report reviewer lists.
+ */
+export interface RecentReviewerCorrectionsApi {
+    /** Lookback window in days the corrections cover. */
+    window_days: number
+    /** Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose. */
+    corrections: ReviewerCorrectionEntryApi[]
 }
 
 /**
@@ -1034,10 +1104,14 @@ export interface ProjectProfileInventoryApi {
     external_data_sources: ExternalDataSourceEntryApi[]
     /** Signal source configs split into enabled / disabled buckets. */
     signal_source_configs: SignalSourceConfigsBucketsApi
+    /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
+    emit_eligibility: EmitEligibilityApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
     recent_activity: RecentActivityApi
+    /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
+    recent_reviewer_corrections: RecentReviewerCorrectionsApi
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
     /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
@@ -1227,11 +1301,11 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
+    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
 }
 
@@ -1468,6 +1542,11 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     safety_explanation: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
 }
 
 /**
@@ -1558,6 +1637,11 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when emitted normally or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
 }
 
 /**
@@ -1571,6 +1655,22 @@ export interface ScoutRunIdsBatchRequestApi {
      * @maxItems 200
      */
     run_ids: string[]
+}
+
+/**
+ * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+ * renders from one cheap query instead of the client walking the whole paginated runs window.
+ */
+export interface FleetFindingsSummaryApi {
+    /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+    count: number
+    /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+    scout_count: number
+    /**
+     * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+     * @nullable
+     */
+    latest_at: string | null
 }
 
 /**
@@ -1681,6 +1781,7 @@ export const SourceProductEnumApi = {
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * * `evaluation` - Evaluation
+ * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
  * * `issue_created` - Issue created
@@ -1699,6 +1800,7 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',
     IssueCreated: 'issue_created',
@@ -1915,6 +2017,15 @@ export type SignalsScoutRunsRecentEmissionsParams = {
      * @minLength 1
      */
     skill_name?: string
+}
+
+export type SignalsScoutRunsFindingsSummaryParams = {
+    /**
+     * Lookback window in hours over runs' `created_at` (default 72, hard cap 168).
+     * @minimum 1
+     * @maximum 168
+     */
+    window_hours?: number
 }
 
 export type SignalsScoutScratchpadSearchParams = {

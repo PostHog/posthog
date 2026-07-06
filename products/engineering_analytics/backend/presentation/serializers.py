@@ -12,8 +12,12 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CICardSummary,
+    CIFailureLogLine,
+    CIFailureLogs,
+    CIJobFailureLog,
     CIStatusRollup,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -24,12 +28,17 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    RepoOverview,
     RepoRef,
     RunCost,
+    RunFailureLogs,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
+    WorkflowRunActivity,
+    WorkflowRunActivityPoint,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -114,6 +123,63 @@ class PRLifecycleSerializer(DataclassSerializer):
         }
 
 
+class CIFailureLogLineSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CIFailureLogLine
+        extra_kwargs = {
+            "original_line": {
+                "help_text": "1-based line number in the full pre-thinning job log, or null for a "
+                "'... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.",
+                "allow_null": True,
+            },
+            "text": {"help_text": "The log line text, or the omission-marker text."},
+        }
+
+
+class CIJobFailureLogSerializer(DataclassSerializer):
+    lines = CIFailureLogLineSerializer(
+        many=True, help_text="The thinned failure-log lines in original order, with omission markers."
+    )
+
+    class Meta:
+        dataclass = CIJobFailureLog
+        extra_kwargs = {
+            "job_id": {"help_text": "GitHub Actions job id of the failed job."},
+            "run_id": {"help_text": "Workflow run id the job belongs to."},
+            "conclusion": {
+                "help_text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",
+            },
+            "branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
+            "original_total_lines": {
+                "help_text": "Total lines in the full job log before thinning (the denominator for each line's "
+                "original_line); 0 when unknown.",
+            },
+            "line_count": {"help_text": "Number of lines returned for this job (after the per-job cap)."},
+            "truncated": {"help_text": "True when the job had more failure lines than the per-job cap."},
+        }
+
+
+class CIFailureLogsSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
+    jobs = CIJobFailureLogSerializer(
+        many=True, help_text="Failed CI jobs with their thinned failure logs, grouped by job."
+    )
+
+    class Meta:
+        dataclass = CIFailureLogs
+        extra_kwargs = {
+            "pr_number": {"help_text": "Pull request number the failure logs are for."},
+            "runs_attributed": {
+                "help_text": "Workflow runs attributed to the PR (across all its pushes) that were searched for logs.",
+            },
+            "logs_available": {
+                "help_text": "False when no failure logs were found — CI hasn't failed, the logs aged out of the "
+                "short Logs retention, or a fork PR carries no run association to resolve.",
+            },
+            "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
+        }
+
+
 class WorkflowRunDetailSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
@@ -144,6 +210,45 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
             },
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivityPointSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowRunActivityPoint
+        extra_kwargs = {
+            "run_id": {"help_text": "GitHub Actions run id."},
+            "conclusion": {
+                "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
+                "or null while still in progress.",
+                "allow_null": True,
+            },
+            "run_started_at": {
+                "help_text": "When the run started. Never null on this endpoint: runs without a parseable "
+                "start timestamp are excluded from the window (they can't be plotted on the chart's time axis).",
+            },
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the run completes.",
+                "allow_null": True,
+            },
+            "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
+            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivitySerializer(DataclassSerializer):
+    points = WorkflowRunActivityPointSerializer(
+        many=True, help_text="Per-run chart points, newest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = WorkflowRunActivity
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more runs matched than the cap; `points` is the newest `limit` runs, so the "
+                "chart covers only the most recent activity, not the full window.",
+            },
+            "limit": {"help_text": "Maximum number of run points returned in `points`."},
         }
 
 
@@ -265,6 +370,10 @@ class CIStatusRollupSerializer(DataclassSerializer):
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
             "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "failing_workflows": {
+                "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
+                "leaving a bare count."
+            },
         }
 
 
@@ -522,6 +631,148 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing "
                 "was costable or the job source isn't synced.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {
+                "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
+                "Null when that window had no completed runs.",
+                "allow_null": True,
+            },
+        }
+
+
+class RepoOverviewSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RepoOverview
+        extra_kwargs = {
+            "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
+            "run_count_prev": {
+                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+            },
+            "success_rate": {
+                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "allow_null": True,
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the previous window. Null if none completed.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
+            "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "median_open_to_merge_seconds": {
+                "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
+                "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "median_open_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) job minutes in the window; null when the job-level source "
+                "isn't synced.",
+                "allow_null": True,
+            },
+            "billable_minutes_prev": {
+                "help_text": "Billable minutes over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated CI cost in USD (billable minutes x runner-tier rate); null when the "
+                "job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd_prev": {
+                "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
+            "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
+        }
+
+
+class MasterFailureGroupSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
+
+    class Meta:
+        dataclass = MasterFailureGroup
+        extra_kwargs = {
+            "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
+            "failed_job": {
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "signature together with the workflow. '' when the job-level source isn't synced and the group "
+                "degrades to workflow level."
+            },
+            "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
+            "first_seen": {"help_text": "When the oldest failing run in the group started."},
+            "last_seen": {"help_text": "When the newest failing run in the group started."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+        }
+
+
+class RunFailureLogsSerializer(DataclassSerializer):
+    jobs = CIJobFailureLogSerializer(
+        many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
+    )
+
+    class Meta:
+        dataclass = RunFailureLogs
+        extra_kwargs = {
+            "run_id": {"help_text": "Workflow run id the failure logs are for."},
+            "logs_available": {
+                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "the short Logs retention.",
+            },
+            "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
+        }
+
+
+class WorkflowJobAggregateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobAggregate
+        extra_kwargs = {
+            "job_name": {
+                "help_text": "De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded "
+                "'${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together."
+            },
+            "job_count": {"help_text": "Job instances observed in the window (all shards, all attempts)."},
+            "shard_count": {"help_text": "Distinct raw job names inside the group - the observed matrix width."},
+            "runs_in": {"help_text": "Distinct workflow runs the job appeared in."},
+            "run_share": {
+                "help_text": "runs_in divided by the workflow's total runs in the window; below 1.0 means the "
+                "job is conditional and skips some runs. Null when the workflow had no runs.",
+                "allow_null": True,
+            },
+            "queue_p50_seconds": {
+                "help_text": "Median queue wait (created to started) in seconds - where runner-capacity problems "
+                "hide. Null when nothing started.",
+                "allow_null": True,
+            },
+            "p50_seconds": {
+                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "failure_rate": {
+                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
+                "none completed.",
+                "allow_null": True,
+            },
+            "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) minutes across the group's instances; null when every "
+                "instance ran on an unknown tier.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD via the runner-tier rate ladder; null when every instance ran "
+                "on an unknown tier.",
                 "allow_null": True,
             },
         }

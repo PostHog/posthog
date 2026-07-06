@@ -1,18 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconKeyboard } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TimezoneSelect } from 'lib/components/TimezoneSelect'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogsExportMenu } from './LogsExportMenu'
 import { logsViewerLogic } from './logsViewerLogic'
@@ -21,24 +19,19 @@ export interface LogsViewerToolbarProps {
     // Used by the export menu for its "all matching logs" label + size limit, not shown as a count here
     // (the lens-aware count indicator lives in the results bar's persistent-left frame).
     totalLogsCount?: number
-    orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
 }
 
 /**
- * Contextual-right cluster of the results bar — live tail plus how the Logs list renders (sort, wrap,
- * timezone, export) and the keyboard-shortcut help. Logs-only: the bar hides this whole cluster in
- * Patterns mode, where none of it applies. Live tail streams the query (the others don't re-run it) —
- * it lives here, technically the "wrong" scope, so it hides with this cluster instead of shifting the
- * top bar's layout when the lens changes.
+ * Contextual-right cluster of the results bar — live tail, the wrap-message toggle, export and the
+ * keyboard-shortcut help. Logs-only: the bar hides this whole cluster in Patterns mode, where none of
+ * it applies. Sort order is driven by the timestamp-column arrow and timezone by the date range picker,
+ * so neither has a control here. Live tail streams the query (the others don't re-run it) — it lives
+ * here, technically the "wrong" scope, so it hides with this cluster instead of shifting the top bar's
+ * layout when the lens changes.
  */
-export const LogsViewerToolbar = ({
-    totalLogsCount,
-    orderBy,
-    onChangeOrderBy,
-}: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, timezone } = useValues(logsViewerLogic)
-    const { setWrapBody, setTimezone } = useActions(logsViewerLogic)
+export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): JSX.Element => {
+    const { wrapBody } = useValues(logsViewerLogic)
+    const { setWrapBody } = useActions(logsViewerLogic)
     const { liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { setLiveTailRunning } = useActions(logsViewerDataLogic)
 
@@ -61,23 +54,7 @@ export const LogsViewerToolbar = ({
                     Live tail
                 </LemonButton>
             </Shortcut>
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={onChangeOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
             <LogsExportMenu totalLogsCount={totalLogsCount} />
             <Tooltip
                 title={

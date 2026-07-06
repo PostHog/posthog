@@ -129,6 +129,20 @@ export class SessionBatchManager {
     }
 
     /**
+     * Track the highest Kafka offset reached per partition for a processed batch, so those offsets get
+     * committed on the next flush. This is the single place offset progress is recorded — the caller
+     * derives the offsets from every message's terminal pipeline result (record / drop / dlq / redirect),
+     * so no disposition is missed and the phases can't race.
+     *
+     * @param offsets - Highest offset seen per partition (raw offset, not the next-to-process offset).
+     */
+    public trackProcessedOffsets(offsets: Map<number, number>): void {
+        for (const [partition, offset] of offsets) {
+            this.offsetManager.trackOffset({ partition, offset })
+        }
+    }
+
+    /**
      * Flushes the current batch and replaces it with a new one
      */
     public async flush(): Promise<void> {

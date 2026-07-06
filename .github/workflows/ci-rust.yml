@@ -11,8 +11,6 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
 
@@ -155,6 +153,7 @@ jobs:
                       "personhog-router": 38,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
+                      "replay-anonymizer-node": 20,
                       "property-vals-rs": 5,
                       "serve-metrics": 14,
                   }
@@ -291,6 +290,9 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         defaults:
             run:

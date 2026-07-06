@@ -338,7 +338,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
-        return sse_streaming_response(generator)
+        return sse_streaming_response(generator, endpoint="wizard_session")
 
 
 async def _wizard_session_event_stream(

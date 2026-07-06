@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    _TABLE_NOT_FOUND_ERROR,
     MSSQLImplementation,
     retry_on_transient_connection_error,
 )
@@ -111,6 +112,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised by `get_table_metadata` when INFORMATION_SCHEMA.COLUMNS returns no columns for a
+            # table we were asked to sync — the table was dropped or renamed at the source after
+            # schema discovery. This is the metadata-lookup counterpart of "Invalid object name"
+            # (SQL Server error 208): the lookup returns an empty result set rather than erroring, so
+            # our own guard fires before the SELECT. The table is gone from the source, so retrying
+            # replays the identical empty lookup. Match the stable prefix, not the schema/table name.
+            _TABLE_NOT_FOUND_ERROR: "One of the tables you're syncing no longer exists in your SQL Server — it was likely dropped or renamed after it was first discovered. Remove it from the sync or restore it at the source, then re-enable the sync.",
         }
 
     def get_schemas(

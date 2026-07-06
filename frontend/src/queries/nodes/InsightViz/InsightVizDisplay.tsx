@@ -277,7 +277,13 @@ export function InsightVizDisplay({
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                return (
+                    <InsightEmptyState
+                        heading={context?.emptyStateHeading}
+                        detail={context?.emptyStateDetail}
+                        sampleDataVariant="funnel"
+                    />
+                )
             }
         }
 

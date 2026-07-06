@@ -126,12 +126,13 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
+        idp_config = organization_domain.idp_config
         return SAMLIdentityProvider(
             self,
             str(organization_domain.id),
-            entity_id=organization_domain.saml_entity_id,
-            url=organization_domain.saml_acs_url,
-            x509cert=organization_domain.saml_x509_cert,
+            entity_id=idp_config.saml_entity_id,
+            url=idp_config.saml_acs_url,
+            x509cert=idp_config.saml_x509_cert,
         )
 
     def auth_url(self):
