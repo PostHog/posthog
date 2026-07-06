@@ -122,6 +122,7 @@ function Login(): JSX.Element {
                     <div className="flex flex-col items-center gap-3">
                         <LemonButton
                             size="large"
+                            type="secondary"
                             center
                             fullWidth
                             disabled={resendResponseLoading}
