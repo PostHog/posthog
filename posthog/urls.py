@@ -209,6 +209,11 @@ def _render_home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
+# Wrapped once at import time (as `login_required(home)` used to be) so the catch-all
+# authenticated route doesn't rebuild the wrapper on every request.
+_login_required_render_home = login_required(_render_home)
+
+
 def home(request, *args, **kwargs):
     """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
     cross-region redirect before rendering so `app.posthog.com` visitors land on their
@@ -227,7 +232,7 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
-    return login_required(_render_home)(request, *args, **kwargs)
+    return _login_required_render_home(request, *args, **kwargs)
 
 
 _CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}
