@@ -375,7 +375,7 @@ export function DashboardItems(): JSX.Element {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
-    }, [updateLayouts, containerRef.current.clientHeight, containerRef.current])
+    }, [updateLayouts])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
