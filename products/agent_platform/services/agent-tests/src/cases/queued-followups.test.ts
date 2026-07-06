@@ -151,10 +151,6 @@ describe('queued follow-ups: real e2e', () => {
         await sendDone!
         await c.drain()
 
-        // `emit('user_message')` only awaits the Redis PUBLISH; delivery to the
-        // bus's separate subscriber connection and this listener is async and
-        // not awaited by drain(). Asserting synchronously here races that
-        // delivery and flakes on contended runners. Wait for the event to land.
         await vi.waitFor(
             () => {
                 const texts = events.filter((e) => e.kind === 'user_message').map((e) => e.data.text)
