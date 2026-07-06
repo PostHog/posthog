@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RECOVERY_GRACE_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
-    _mark_job_failed_if_not_terminal,
+    mark_job_failed_if_not_terminal,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PARTITION_PRUNING_INTERVAL,
@@ -42,6 +42,7 @@ logger = structlog.get_logger(__name__)
 DEFAULT_FAIL_REASON = "manually failed via manage_warehouse_queue"
 MAX_RUNS_DEFAULT = 20
 PRINT_LIMIT = 50
+DRY_RUN_MESSAGE = "Dry run - no changes written. Re-run with --live-run to apply."
 
 
 @dataclass(frozen=True)
@@ -347,7 +348,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"    -> {'; '.join(notes)}")
 
         if not live_run:
-            self.stdout.write("Dry run - no changes written. Re-run with --live-run to apply.")
+            self.stdout.write(DRY_RUN_MESSAGE)
             return
 
         self._confirm(f"Fail {len(targets)} run(s)? Type 'fail' to continue: ", "fail", yes=options["yes"])
@@ -387,7 +388,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR("  queue: FAILED to write failed statuses (see logs)"))
 
         try:
-            transitioned = _mark_job_failed_if_not_terminal(job_id=target.job_id, team_id=target.team_id, error=reason)
+            transitioned = mark_job_failed_if_not_terminal(job_id=target.job_id, team_id=target.team_id, error=reason)
             self.stdout.write("  job: marked Failed" if transitioned else "  job: already terminal - left unchanged")
         except Exception:
             logger.exception("manage_warehouse_queue_fail_run_job_update_failed", job_id=target.job_id)
@@ -457,12 +458,10 @@ class Command(BaseCommand):
                 running_tokens.setdefault(str(job.schema_id), set()).add(job.workflow_run_id)
 
         leases_to_delete: list[tuple[int, str]] = []
-        skipped_live_leases = 0
         if check_leases:
             leases = BatchQueue.get_leases(conn, schema_ids=[schema_id for _, schema_id in pairs])
             for lease in leases:
                 if lease.is_live and not force:
-                    skipped_live_leases += 1
                     self.stdout.write(
                         self.style.WARNING(
                             f"  lease team={lease.team_id} schema={lease.schema_id} is LIVE "
@@ -476,14 +475,12 @@ class Command(BaseCommand):
                 leases_to_delete.append((lease.team_id, lease.schema_id))
 
         redis_to_release: list[tuple[int, str, str]] = []
-        skipped_live_locks = 0
         if check_redis:
             for team_id, schema_id in pairs:
                 holder = get_v3_pipeline_lock_holder(team_id, schema_id)
                 if holder is None:
                     continue
                 if holder in running_tokens.get(schema_id, set()) and not force:
-                    skipped_live_locks += 1
                     self.stdout.write(
                         self.style.WARNING(
                             f"  redis lock team={team_id} schema={schema_id} is held by a Running job "
@@ -499,7 +496,7 @@ class Command(BaseCommand):
             return
 
         if not live_run:
-            self.stdout.write("Dry run - no changes written. Re-run with --live-run to apply.")
+            self.stdout.write(DRY_RUN_MESSAGE)
             return
 
         self._confirm(

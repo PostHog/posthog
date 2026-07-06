@@ -581,7 +581,7 @@ class TestReconcileFailedRuns:
                 return_value=[ref],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
                 return_value=True,
             ) as mock_mark,
             patch(
@@ -605,7 +605,7 @@ class TestReconcileFailedRuns:
                 return_value=[ref],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
                 return_value=False,
             ) as mock_mark,
             patch(
@@ -630,7 +630,7 @@ class TestReconcileFailedRuns:
                 return_value=[ref_a, ref_b],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
                 side_effect=[Exception("db down"), True],
             ) as mock_mark,
             patch(

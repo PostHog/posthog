@@ -85,6 +85,11 @@ def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "L
     """
 
 
+def pending_batch_predicate(status_alias: str) -> str:
+    """A batch is pending (still actionable) when it has no status row yet or its latest state is non-terminal."""
+    return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
+
+
 # Shared between the async consumer path and the sync ops command so both agree
 # on what counts as a pending (fail-able) batch.
 FAIL_RUN_SQL = f"""
@@ -95,8 +100,26 @@ FAIL_RUN_SQL = f"""
     WHERE
         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
         AND b.run_uuid = %(run_uuid)s
-        AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+        AND {pending_batch_predicate("s")}
 """
+
+
+def _stale_executing_sql(scope_sql: str = "") -> str:
+    """Shared body of the stale-executing sweep (async consumer and its sync ops twin)."""
+    return f"""
+        SELECT
+            {pending_batch_select_columns("s")}
+        FROM {BATCH_TABLE} b
+        {latest_status_lateral("b", "s", join="INNER")}
+        LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+        WHERE
+            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND s.job_state = 'executing'
+            AND s.created_at <= now() - make_interval(secs => %(grace)s)
+            AND (l.team_id IS NULL OR l.expires_at <= now())
+            {scope_sql}
+        ORDER BY b.created_at ASC, b.batch_index ASC
+    """
 
 
 # Retained for the duckgres sink, which still coordinates via session advisory
@@ -549,22 +572,7 @@ class BatchQueue:
         this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT
-                    {pending_batch_select_columns("s")}
-                FROM {BATCH_TABLE} b
-                {latest_status_lateral("b", "s", join="INNER")}
-                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s.job_state = 'executing'
-                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND (l.team_id IS NULL OR l.expires_at <= now())
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                """,
-                {"grace": grace_seconds},
-            )
+            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
@@ -818,7 +826,7 @@ class BatchQueue:
         ``run_uuid`` lookups where a fully-terminal run should still be visible.
         """
         scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
-        having = "HAVING COUNT(*) FILTER (WHERE s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing')) > 0"
+        having = f"HAVING COUNT(*) FILTER (WHERE {pending_batch_predicate('s')}) > 0"
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -830,7 +838,7 @@ class BatchQueue:
                     MAX(b.source_id) AS source_id,
                     MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
                     COUNT(*) FILTER (
-                        WHERE s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing')
+                        WHERE {pending_batch_predicate("s")}
                     ) AS pending_batches,
                     COUNT(*) AS total_batches,
                     GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
@@ -943,23 +951,7 @@ class BatchQueue:
         scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
         params["grace"] = grace_seconds
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                f"""
-                SELECT
-                    {pending_batch_select_columns("s")}
-                FROM {BATCH_TABLE} b
-                {latest_status_lateral("b", "s", join="INNER")}
-                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s.job_state = 'executing'
-                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND (l.team_id IS NULL OR l.expires_at <= now())
-                    {scope_sql}
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                """,
-                params,
-            )
+            cur.execute(_stale_executing_sql(scope_sql), params)
             rows = cur.fetchall()
         return [PendingBatch(**row) for row in rows]
 
