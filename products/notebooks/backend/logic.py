@@ -103,13 +103,13 @@ async def aupsert_notebook(
     if not created:
         notebook.content = content
         notebook.title = title
-        if text_content is not None:
-            notebook.text_content = text_content
         notebook.version += 1
         notebook.last_modified_by_id = last_modified_by_id
-        await notebook.asave(
-            update_fields=["content", "title", "text_content", "version", "last_modified_by", "last_modified_at"]
-        )
+        update_fields = ["content", "title", "version", "last_modified_by", "last_modified_at"]
+        if text_content is not None:
+            notebook.text_content = text_content
+            update_fields.append("text_content")
+        await notebook.asave(update_fields=update_fields)
     return notebook, created
 
 
