@@ -279,6 +279,15 @@ class BatchQueue:
         Per-team fairness: candidates are interleaved round-robin across teams so one
         team's deep backlog cannot monopolize the ``LIMIT`` window; within a team,
         oldest-first order (and so per-run ``batch_index`` ordering) is preserved.
+
+        Disjoint windows across pods: groups live-leased by *another* owner are
+        excluded from candidates entirely, not merely dropped at the claim step.
+        Otherwise every pod computes the same top-``LIMIT`` window and groups
+        already owned elsewhere occupy window slots that losing pods can never
+        claim — with enough of them at the head of the queue the whole window is
+        dead weight and fleet concurrency collapses to roughly one window's worth.
+        Own-leased groups stay in the window so a pod can keep draining a group it
+        already holds.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -331,6 +340,14 @@ class BatchQueue:
                                 AND b_busy.schema_id = b.schema_id
                                 AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s_busy.job_state = 'executing'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {LEASE_TABLE} l_live
+                            WHERE l_live.team_id = b.team_id
+                                AND l_live.schema_id = b.schema_id
+                                AND l_live.expires_at > now()
+                                AND l_live.owner_token != %(owner)s
                         )
                     ORDER BY
                         row_number() OVER (
@@ -675,3 +692,32 @@ class BatchQueue:
             has_non_terminal=non_terminal_count > 0,
             is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
         )
+
+    @staticmethod
+    def count_batches_for_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+    ) -> int:
+        """Count queue batches enqueued for a job, regardless of status.
+
+        Unlike ``get_run_activity_summary`` (which inner-joins the status view and so
+        reports ``has_batches=False`` for batches the loader hasn't claimed yet), this
+        counts raw batch rows. It lets a caller tell a run that enqueued *nothing* (safe
+        to finalize) apart from one whose batches are merely unclaimed — where the loader
+        still owns completion and failing the job would strand a late load. The pruning
+        window bounds the scan to batches the queue still retains, so a ``0`` here is only
+        trustworthy for jobs newer than ``PARTITION_PRUNING_INTERVAL``.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS batch_count
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return int(row["batch_count"]) if row else 0

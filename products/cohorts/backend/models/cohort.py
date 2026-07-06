@@ -199,6 +199,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     errors_calculating = models.IntegerField(default=0)
     last_error_at = models.DateTimeField(blank=True, null=True)
     last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
+    last_backfill_events_at = models.DateTimeField(blank=True, null=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
@@ -261,10 +262,51 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             should_delete=self.deleted,
         )
 
+    def _has_filter_type(self, filter_type: str) -> bool:
+        """Check whether the cohort's filter tree contains any leaf node of the given type."""
+        if not self.filters:
+            return False
+        properties = self.filters.get("properties")
+        if not properties:
+            return False
+
+        def _check(node) -> bool:
+            if not isinstance(node, dict):
+                return False
+            node_type = node.get("type")
+            if node_type in ("AND", "OR"):
+                return any(_check(child) for child in node.get("values", []))
+            return node_type == filter_type
+
+        return _check(properties)
+
     @property
     def is_flag_compatible(self) -> bool:
-        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups."""
-        return self.cohort_type == CohortType.REALTIME and self.last_backfill_person_properties_at is not None
+        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
+
+        Gates on both person property and event backfills based on which filter types the cohort uses:
+        - Cohorts with person property filters require last_backfill_person_properties_at
+        - Cohorts with behavioral event filters require last_backfill_events_at
+        - Cohorts with both require both timestamps
+        - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
+          are not flag-compatible, even if stale timestamps are set, because HogQLRealtimeCohortQuery
+          cannot evaluate them.
+        """
+        if self.cohort_type != CohortType.REALTIME:
+            return False
+
+        has_person_filters = self._has_filter_type("person")
+        has_behavioral_filters = self._has_filter_type("behavioral")
+
+        if not (has_person_filters or has_behavioral_filters):
+            return False
+
+        if has_person_filters and self.last_backfill_person_properties_at is None:
+            return False
+        if has_behavioral_filters and self.last_backfill_events_at is None:
+            return False
+
+        return True
 
     @property
     def properties(self) -> PropertyGroup:

@@ -709,3 +709,49 @@ class TestGetRunActivitySummary:
         assert summary.has_batches is False
         assert summary.has_non_terminal is False
         assert summary.is_stale is True
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimWindowSkipsForeignLeasedGroups:
+    @pytest.mark.asyncio
+    async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):
+        # Two claimable groups; A is older so it sits at the head of the window.
+        await _insert_batch(conn, team_id=1, schema_id="schema-A", job_id="job-A", run_uuid="run-A")
+        await _insert_batch(conn, team_id=2, schema_id="schema-B", job_id="job-B", run_uuid="run-B")
+
+        got_b = await _claim(conn_b, owner=OWNER_B, limit=1)
+        assert [b.schema_id for b in got_b] == ["schema-A"]
+
+        # OWNER_A polls with a window of 1. If foreign-leased groups occupied window
+        # slots (the pre-fix behavior), group A would fill the window, its lease claim
+        # would fail, and OWNER_A would get nothing while group B sat claimable —
+        # window starvation. The fix hands the slot to group B instead.
+        got_a = await _claim(conn, owner=OWNER_A, limit=1)
+        assert [b.schema_id for b in got_a] == ["schema-B"]
+
+        # A holder's own live lease keeps its group claimable (group continuation).
+        got_b_again = await _claim(conn_b, owner=OWNER_B, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_b_again}
+
+        # Expired foreign leases stop shielding the group.
+        await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        got_a_after_expiry = await _claim(conn, owner=OWNER_A, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_a_after_expiry}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountBatchesForRun:
+    @pytest.mark.asyncio
+    async def test_counts_unclaimed_batches_and_zero_when_none(self, conn, _db_url):
+        # Freshly inserted batches have no status row until the loader claims them. The count
+        # must still see them: it exists so the CDC orphan reconciler can tell a run that
+        # enqueued nothing (safe to fail) from one whose batches are merely unclaimed (a
+        # status-view JOIN would report the latter as zero and strand a late load).
+        await _insert_batch(conn, job_id="job-A", batch_index=0)
+        await _insert_batch(conn, job_id="job-A", batch_index=1)
+        await _insert_batch(conn, job_id="job-B", batch_index=0)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0

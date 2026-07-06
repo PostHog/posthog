@@ -13,7 +13,10 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
+
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -27,7 +30,10 @@ from products.customer_analytics.backend.logic.custom_property_values import (
 )
 from products.customer_analytics.backend.models import Account, CustomPropertySource
 
+logger = structlog.get_logger(__name__)
+
 _WRITE_CONFLICT_RETRIES = 3
+_SYNC_KEYS_PER_QUERY = 1000
 
 # Mirrors data_modeling's CONSECUTIVE_TIMEOUTS_TO_PAUSE: auto-disable a source that keeps failing.
 MAX_CONSECUTIVE_SYNC_FAILURES = 5
@@ -39,6 +45,8 @@ class SyncResult:
     view_found: bool
     written: int = 0
     unmatched_keys: int = 0
+    accounts_total: int = 0
+    rows_fetched: int = 0
     source_errors: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
@@ -71,34 +79,40 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
     ordered = sorted(selected_columns)
     column_index = {column: position for position, column in enumerate(ordered)}
-    rows = _read_view(Team.objects.get(id=team_id), saved_query.name, ordered)
-    accounts = _accounts_by_external_id(team_id, rows, column_index, usable)
+    account_ids_by_external_id = _get_account_ids_by_external_id(team_id)
+    external_ids = sorted(account_ids_by_external_id)
+    team = Team.objects.get(id=team_id)
+    rows_by_key_column = {
+        key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
+        for key_column in sorted({source.key_column for source in usable})
+    }
+    result.accounts_total = len(account_ids_by_external_id)
+    result.rows_fetched = sum(len(rows) for rows in rows_by_key_column.values())
 
     unmatched: set[Any] = set()
     for source in usable:
         key_index, value_index = column_index[source.key_column], column_index[source.source_column]
-        for row in rows:
+        for row in rows_by_key_column[source.key_column]:
             key = row[key_index]
             if key is None:
                 continue
-            account = accounts.get(str(key))
-            if account is None:
+            account_id = account_ids_by_external_id.get(str(key))
+            if account_id is None:
                 unmatched.add(key)
                 continue
             if row[value_index] is None:
                 continue
-            if _write(team_id=team_id, account_id=account.id, source=source, value=row[value_index], result=result):
+            if _write(team_id=team_id, account_id=account_id, source=source, value=row[value_index], result=result):
                 result.written += 1
     result.unmatched_keys = len(unmatched)
     return result
 
 
-def _accounts_by_external_id(
-    team_id: int, rows: list, column_index: dict[str, int], sources: list[CustomPropertySource]
-) -> dict[str | None, Account]:
-    keys = {row[column_index[source.key_column]] for source in sources for row in rows}
-    external_ids = [str(key) for key in keys if key is not None]
-    return {a.external_id: a for a in Account.objects.for_team(team_id).filter(external_id__in=external_ids)}
+def _get_account_ids_by_external_id(team_id: int) -> dict[str, UUID]:
+    accounts = Account.objects.for_team(team_id).exclude(external_id=None).exclude(external_id="")
+    return {
+        external_id: account_id for external_id, account_id in accounts.values_list("external_id", "id") if external_id
+    }
 
 
 def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value: Any, result: SyncResult) -> bool:
@@ -123,13 +137,37 @@ def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value
     return False
 
 
-def _read_view(team: Team, view_name: str, columns: list[str]) -> list:
-    query = ast.SelectQuery(
-        select=[ast.Field(chain=[column]) for column in columns],
-        select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-    )
+def _read_view(team: Team, view_name: str, columns: list[str], key_column: str, external_ids: list[str]) -> list:
+    """Reads only view rows whose key matches a known account external_id, batching the key filter to
+    keep each query small. An unfiltered read would be silently capped by the HogQL default limit —
+    views are often orders of magnitude larger than the account set they enrich. Filtering on a single
+    key column keeps batches disjoint: a row matches at most one batch, so no duplicates accumulate."""
+    rows: list = []
     with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
-        return execute_hogql_query(query, team=team).results or []
+        for start in range(0, len(external_ids), _SYNC_KEYS_PER_QUERY):
+            batch = external_ids[start : start + _SYNC_KEYS_PER_QUERY]
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=[column]) for column in columns],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=[key_column])]),
+                    right=ast.Array(exprs=[ast.Constant(value=external_id) for external_id in batch]),
+                ),
+                limit=ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+            )
+            # Runs as a userless system sync, so bypass user-scoped warehouse-view access control
+            # (it fails closed without a user); tenant isolation still holds via team.
+            batch_rows = execute_hogql_query(query, team=team, bypass_warehouse_access_control=True).results or []
+            if len(batch_rows) >= MAX_SELECT_RETURNED_ROWS:
+                logger.warning(
+                    "custom_property_sync.view_read_truncated",
+                    team_id=team.pk,
+                    view_name=view_name,
+                    batch_keys=len(batch),
+                )
+            rows.extend(batch_rows)
+    return rows
 
 
 def record_sync_outcome(
@@ -186,5 +224,16 @@ def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> Syn
         saved_query_id=saved_query_id,
         view_found=result.view_found,
         source_errors=result.source_errors,
+    )
+    logger.info(
+        "custom_property_sync.completed",
+        team_id=team_id,
+        saved_query_id=str(saved_query_id),
+        view_found=result.view_found,
+        written=result.written,
+        unmatched_keys=result.unmatched_keys,
+        accounts_total=result.accounts_total,
+        rows_fetched=result.rows_fetched,
+        source_errors=len(result.source_errors),
     )
     return result

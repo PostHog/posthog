@@ -119,6 +119,12 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
+// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
+// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
+// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+const LEGACY_ONBOARDING_EVENT_PROPS = { version: 1, flow_variant: 'legacy' } as const
+
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
     const multiplier = unitToDays[metric.retention_window_unit]
@@ -737,40 +743,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_id: string
                 metric_kind: string
                 execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
-        }),
-        reportExperimentMetricError: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId: number | null | undefined,
-            queryId: string | null,
-            context: {
-                duration_ms: number
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                error_type:
-                    | 'timeout'
-                    | 'out_of_memory'
-                    | 'server_error'
-                    | 'network_error'
-                    | 'not_found'
-                    | 'authentication'
-                    | 'authorization'
-                    | 'validation_error'
-                    | 'unknown'
-                error_code: string | null
-                error_message: string | null
-                error_detail: string | null
-                status_code: number | null
             }
         ) => ({
             experimentId,
@@ -1906,15 +1878,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...context,
             })
         },
-        reportExperimentMetricError: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric error', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                ...context,
-            })
-        },
         reportExperimentResultsRefreshCompleted: ({ experimentId, teamId, context }) => {
             posthog.capture('experiment results refresh completed', {
                 experiment_id: experimentId,
@@ -2319,6 +2282,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingStarted: ({ entrypoint }) => {
             posthog.capture('onboarding started', {
                 entry_point: entrypoint,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
@@ -2327,23 +2291,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSkipped: () => {
@@ -2379,6 +2347,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
                 selected,
                 recommendation_source: recommendationSource,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
     mockCaptureToolCall: vi.fn(),
     mockCaptureInitialize: vi.fn(),
-    // `capture` backs the temporary dual-emit of the legacy `mcp_*` event names.
+    // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
 
@@ -73,15 +73,12 @@ describe('Hono MCP analytics contexts', () => {
         mockCapture.mockClear()
     })
 
-    it('dual-emits the legacy mcp_tool_call / mcp_initialize names during the cutover', async () => {
-        // TRANSITION SHIM coverage — delete alongside the dual-emit once insights
-        // are migrated to the `$mcp_*` names.
+    it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
+        // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
         await trackToolCall('user-get', 12, false, makeState())
 
-        const legacyEvents = mockCapture.mock.calls.map((c) => c[0].event)
-        expect(legacyEvents).toContain('mcp_initialize')
-        expect(legacyEvents).toContain('mcp_tool_call')
+        expect(mockCapture).not.toHaveBeenCalled()
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {

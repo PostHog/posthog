@@ -15,6 +15,7 @@ config-only importer never drags docker/temporalio onto the ``django.setup()`` p
 Functions that bridge to those heavy surfaces import them lazily inside the function body.
 """
 
+import re
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
@@ -22,7 +23,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -37,6 +38,7 @@ from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIAB
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
+    Channel,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -46,9 +48,10 @@ from products.tasks.backend.models import (
     Task,
     TaskAutomation,
     TaskRun,
+    TaskThreadMessage,
 )
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
-from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
+from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
 
@@ -123,6 +126,7 @@ __all__ = [
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
+    "get_resume_snapshot_carry_state",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
@@ -137,7 +141,7 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
-    "is_task_visible_to_user",
+    "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
@@ -381,6 +385,7 @@ def _task_detail_to_dto(
         updated_at=task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
+        channel=task.channel_id,
     )
 
 
@@ -415,6 +420,16 @@ def _sandbox_snapshot_to_dto(snapshot: SandboxSnapshot) -> contracts.SandboxSnap
 # --- Reads ---
 
 
+def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[str, Any]:
+    """State keys a successor run must merge (whole dict, never ``snapshot_external_id`` alone)
+    to resume from a prior run's sandbox snapshot; empty when there is no usable snapshot."""
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        parse_run_state,
+    )
+
+    return parse_run_state(run_state).resume_snapshot_carry_state()
+
+
 def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")
@@ -440,13 +455,14 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
 
 
-def is_task_visible_to_user(task_id: str | UUID, user_id: int | None) -> bool:
-    """Whether the task is visible to the user under the task visibility rules.
+def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
+    """Whether the user may mutate the task under the task control rules.
 
     Tasks belong to their creator, plus team-wide signal-pipeline tasks and legacy unowned
-    tasks. Used by core's file-system flow to gate delete/restore on a filed task.
+    tasks. Used by core's file-system flow to gate delete/restore on a filed task; public-channel
+    read visibility deliberately does not qualify.
     """
-    return Task.objects.filter(task_visibility_q(user_id), pk=task_id).exists()
+    return Task.objects.filter(task_control_q(user_id), pk=task_id).exists()
 
 
 def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDTO | None:
@@ -1233,8 +1249,9 @@ def _task_run_queryset():
     )
 
 
-def _get_task_for_run_visibility(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
-    return Task.objects.filter(id=task_id, team_id=team_id).filter(task_visibility_q(user_id)).first()
+def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
+    """The task, only if the user may drive runs on it (``task_control_q``, not mere visibility)."""
+    return Task.objects.filter(id=task_id, team_id=team_id).filter(task_control_q(user_id)).first()
 
 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
@@ -1243,17 +1260,24 @@ def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> T
 
 
 def task_accessible_for_run_view(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
 ) -> bool:
     """Whether the parent task exists and (unless bypassed) is visible to the user.
 
     Mirrors the parent-task gate in ``TaskRunViewSet.safely_get_queryset``: runs are always scoped
     to a task, and access to that task is gated by ``task_visibility_q`` except for internal-debug
-    read actions, which the caller signals via ``bypass_visibility``.
+    read actions, which the caller signals via ``bypass_visibility``. Run-mutating actions pass
+    ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
+    teammates watch a run, not drive it.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id)
     if not bypass_visibility:
-        task_filter = task_filter.filter(task_visibility_q(user_id))
+        task_filter = task_filter.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
     return task_filter.exists()
 
 
@@ -1444,6 +1468,15 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
+        # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
+        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
+        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        try:
+            run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
+            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     return _task_run_detail_to_dto(run)
 
@@ -2187,7 +2220,7 @@ def bootstrap_task_run(
         get_reasoning_effort_error,
     )
 
-    task = _get_task_for_run_visibility(task_id, team_id, user_id)
+    task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
 
@@ -2504,6 +2537,18 @@ def signal_report_queryset():
     return SignalReport.objects.all()
 
 
+def channel_queryset():
+    """Live ``Channel`` queryset for the task write serializer's channel FK field.
+
+    Kept here so presentation never imports tasks models directly. Deliberately
+    ``unscoped()``: the serializer is also instantiated without team context (e.g.
+    drf-spectacular schema generation), where the fail-closed manager would raise.
+    Team scoping comes from the serializer's team-scoped field, ownership of
+    personal channels from ``validate_channel``.
+    """
+    return Channel.objects.unscoped().filter(deleted=False)
+
+
 def is_internal_debug_team(team_id: int | None) -> bool:
     """Whether the team is the PostHog-internal debugging team. Mirrors the original view helper."""
     from django.conf import settings  # noqa: PLC0415
@@ -2519,10 +2564,12 @@ def _task_detail_queryset():
     ).prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False):
+def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+    """Team-scoped live tasks, gated by read visibility — or by the narrower
+    control predicate when ``for_control`` (mutations, runs, agent commands)."""
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(task_visibility_q(user_id))
+        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
     return qs
 
 
@@ -2570,14 +2617,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
 
 
-def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
     Mirrors the existence gate ``TaskViewSet.get_object()`` applied (team + ``deleted=False`` +
     ``task_visibility_q``). Used by the ``run`` action to 404 before the usage gate, preserving
-    the original ordering.
+    the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
+    the task.
     """
-    return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
 async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
@@ -2627,6 +2675,10 @@ def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) ->
 
     if created_by:
         qs = qs.filter(created_by_id=created_by)
+
+    channel = filters.get("channel")
+    if channel:
+        qs = qs.filter(channel_id=channel)
 
     if search:
         search_term = search.strip()
@@ -2812,6 +2864,10 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 warm_task.title = generate_task_title(message)
                 warm_task.title_manually_set = False
                 warm_task.save(update_fields=["title", "title_manually_set", "updated_at"])
+            channel = validated_data.get("channel")
+            if channel is not None and warm_task.channel_id != channel.id:
+                warm_task.channel = channel
+                warm_task.save(update_fields=["channel", "updated_at"])
             _activate_warm_run(warm_run, warm_task, team_id, message=message or None, artifact_ids=[])
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -2874,8 +2930,8 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 def update_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskDetailDTO | None:
-    """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/visible."""
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -2900,8 +2956,8 @@ def update_task(
 
 
 def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
-    """Soft-delete a task. Returns whether a task was found/visible and deleted."""
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    """Soft-delete a task. Returns whether a task was found/controllable and deleted."""
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return False
     logger.info("Soft deleting task %s", task.id)
@@ -2931,7 +2987,8 @@ def prepare_task_staged_artifacts(
         get_safe_artifact_name,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    # Staged artifacts feed the task's next run, so this is control, not viewing.
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -2992,7 +3049,7 @@ def finalize_task_staged_artifacts(
         get_task_run_artifact_max_size_bytes,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -3257,7 +3314,7 @@ def run_task(
         parse_run_state,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -3331,15 +3388,7 @@ def run_task(
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        # An unusable directory snapshot (see RunState.resume_snapshot_is_usable) must not be
-        # carried into the new run's state — the stripped mount path would get re-defaulted
-        # downstream and mount mismatched content.
-        if prev_state.snapshot_external_id and prev_state.resume_snapshot_is_usable():
-            extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
-            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
-            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
-            if snapshot_mount_path is not None:
-                extra_state["snapshot_mount_path"] = snapshot_mount_path
+        extra_state.update(prev_state.resume_snapshot_carry_state())
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
@@ -3909,3 +3958,209 @@ def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
 
     run = TaskRun.objects.select_related("task").get(id=run_id)
     return _send_cancel(run, auth_token=auth_token)
+
+
+# --- Channels & task threads ---
+
+
+def normalize_channel_name(name: str) -> str:
+    """Slack-style channel key: lowercase, whitespace collapsed to dashes.
+
+    Channels are resolved by name from client-side surfaces (folder names), so the
+    stored key must be canonical for the (team, name) uniqueness to mean anything.
+    """
+    return re.sub(r"\s+", "-", name.strip().lower())[:128]
+
+
+def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
+    return contracts.ChannelDTO(
+        id=channel.id,
+        name=channel.name,
+        channel_type=channel.channel_type,
+        created_at=channel.created_at,
+        created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
+    )
+
+
+def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+    # select_related so _channel_to_dto doesn't lazy-load created_by per call.
+    try:
+        channel, _ = Channel.objects.select_related("created_by").get_or_create(
+            team_id=team_id,
+            created_by_id=user_id,
+            channel_type=Channel.ChannelType.PERSONAL,
+            deleted=False,
+            defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
+        )
+    except IntegrityError:
+        channel = Channel.objects.select_related("created_by").get(
+            team_id=team_id,
+            created_by_id=user_id,
+            channel_type=Channel.ChannelType.PERSONAL,
+            deleted=False,
+        )
+    return channel
+
+
+def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
+    """All live public channels plus the requester's personal channel (provisioned lazily),
+    personal first, then by name."""
+    channels: list[Channel] = []
+    if user_id is not None:
+        channels.append(_ensure_personal_channel(team_id, user_id))
+    channels.extend(
+        Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
+        .select_related("created_by")
+        .order_by("name")
+    )
+    return [_channel_to_dto(channel) for channel in channels]
+
+
+def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
+    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names."""
+    normalized = normalize_channel_name(name)
+    if not normalized:
+        return None
+    try:
+        channel, _ = Channel.objects.select_related("created_by").get_or_create(
+            team_id=team_id,
+            name=normalized,
+            channel_type=Channel.ChannelType.PUBLIC,
+            deleted=False,
+            defaults={"created_by_id": user_id},
+        )
+    except IntegrityError:
+        channel = Channel.objects.select_related("created_by").get(
+            team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
+        )
+    return _channel_to_dto(channel)
+
+
+def rename_channel(channel_id: str | UUID, team_id: int, *, name: str) -> contracts.ChannelDTO | str:
+    """Rename a public channel. Returns the DTO, or an error kind: ``not_found`` /
+    ``invalid_name`` / ``personal`` / ``name_taken``."""
+    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return "not_found"
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        return "personal"
+    normalized = normalize_channel_name(name)
+    if not normalized:
+        return "invalid_name"
+    channel.name = normalized
+    try:
+        channel.save(update_fields=["name", "updated_at"])
+    except IntegrityError:
+        return "name_taken"
+    return _channel_to_dto(channel)
+
+
+def delete_channel(channel_id: str | UUID, team_id: int) -> str:
+    """Soft-delete a public channel. Returns ``ok`` / ``not_found`` / ``personal``."""
+    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return "not_found"
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        return "personal"
+    channel.deleted = True
+    channel.save(update_fields=["deleted", "updated_at"])
+    return "ok"
+
+
+def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
+    return contracts.TaskThreadMessageDTO(
+        id=message.id,
+        task=message.task_id,
+        content=message.content,
+        created_at=message.created_at,
+        author=_user_basic_info(message.author if message.author_id else None),
+        forwarded_to_agent_at=message.forwarded_to_agent_at,
+        forwarded_by=_user_basic_info(message.forwarded_by if message.forwarded_by_id else None),
+    )
+
+
+def _visible_task(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
+    return _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+
+
+def list_thread_messages(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.TaskThreadMessageDTO] | None:
+    """A task's thread, ascending. ``None`` when the task isn't visible to the user."""
+    if _visible_task(task_id, team_id, user_id) is None:
+        return None
+    messages = (
+        TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
+        .select_related("author", "forwarded_by")
+        .order_by("created_at", "id")
+    )
+    return [_thread_message_to_dto(message) for message in messages]
+
+
+def create_thread_message(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, content: str
+) -> contracts.TaskThreadMessageDTO | None:
+    """Add a thread message as the requester. ``None`` when the task isn't visible."""
+    if _visible_task(task_id, team_id, user_id) is None:
+        return None
+    message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
+    # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
+    return _thread_message_to_dto(message)
+
+
+def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
+    """Delete own thread message. Returns ``ok`` / ``not_found`` / ``forbidden``."""
+    message = TaskThreadMessage.objects.filter(id=message_id, task_id=task_id, team_id=team_id).first()
+    if message is None or _visible_task(task_id, team_id, user_id) is None:
+        return "not_found"
+    if message.author_id != user_id:
+        return "forbidden"
+    message.delete()
+    return "ok"
+
+
+def forward_thread_message(
+    message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None
+) -> tuple[str, contracts.TaskThreadMessageDTO | None]:
+    """Send a thread message to the task's agent. Task-author only.
+
+    Returns ``(kind, dto)`` where kind is ``ok`` / ``not_found`` / ``forbidden`` /
+    ``already_forwarded`` / ``no_run`` / ``signal_failed``.
+    """
+    task = _visible_task(task_id, team_id, user_id)
+    if task is None:
+        return "not_found", None
+    if task.created_by_id != user_id:
+        return "forbidden", None
+
+    # Lock the message row so concurrent forwards of the same message can't
+    # both pass the forwarded_to_agent_at check and double-signal the agent.
+    with transaction.atomic():
+        # of=("self",) locks only the message row: FOR UPDATE cannot span the nullable
+        # outer joins that select_related on author/forwarded_by introduces.
+        message = (
+            TaskThreadMessage.objects.select_for_update(of=("self",))
+            .select_related("author", "forwarded_by")
+            .filter(id=message_id, task_id=task_id, team_id=team_id)
+            .first()
+        )
+        if message is None:
+            return "not_found", None
+        if message.forwarded_to_agent_at is not None:
+            return "already_forwarded", _thread_message_to_dto(message)
+        run = task.latest_run
+        if run is None or run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
+            return "no_run", None
+
+        author = message.author
+        author_name = (author.get_full_name() or author.email) if author else "A teammate"
+        content = f"[Thread comment from {author_name}] {message.content}"
+        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        if not signal_result:
+            return "signal_failed", None
+
+        message.forwarded_to_agent_at = django_timezone.now()
+        message.forwarded_by_id = user_id
+        message.forwarded_run = run
+        message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
+    return "ok", _thread_message_to_dto(message)

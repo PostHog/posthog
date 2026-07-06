@@ -1424,6 +1424,47 @@ class TestGitHubIntegrationModel(BaseTest):
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    def test_list_cached_repositories_surfaces_optional_fields_when_present(self, mock_list_all):
+        cached_repositories = [
+            {
+                "id": 1,
+                "name": "posthog",
+                "full_name": "PostHog/posthog",
+                "private": True,
+                "default_branch": "master",
+                "language": "Python",
+                "pushed_at": "2026-06-01T00:00:00Z",
+                "archived": False,
+                "can_push": True,
+            },
+            {"id": 2, "name": "legacy", "full_name": "PostHog/legacy"},
+        ]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        integration.repository_cache = cached_repositories
+        integration.repository_cache_updated_at = timezone.now()
+        integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+
+        repos, _ = GitHubIntegration(integration).list_cached_repositories()
+
+        assert repos[0] == {
+            "id": 1,
+            "name": "posthog",
+            "full_name": "PostHog/posthog",
+            "private": True,
+            "default_branch": "master",
+            "language": "Python",
+            "pushed_at": "2026-06-01T00:00:00Z",
+            "archived": False,
+            "can_push": True,
+        }
+        # Repos cached before these fields existed keep their original shape — optional keys are omitted, not nulled.
+        assert repos[1] == {"id": 2, "name": "legacy", "full_name": "PostHog/legacy"}
+        mock_list_all.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_sync_repository_cache_respects_refresh_cooldown(self, mock_list_all):
         cached_repositories = [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
