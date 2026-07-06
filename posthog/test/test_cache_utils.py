@@ -110,7 +110,7 @@ class TestCacheUtils(APIBaseTest):
 
         thread_exceptions: list[type] = []
         original_hook = threading.excepthook
-        threading.excepthook = lambda a: thread_exceptions.append(a.exc_type)  # type: ignore[assignment]
+        threading.excepthook = lambda a: thread_exceptions.append(a.exc_type)
         try:
             with freeze_time("2026-07-06 09:46:00") as frozen:
                 assert flaky(use_cache=True) == "good"
