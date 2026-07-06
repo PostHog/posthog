@@ -557,19 +557,13 @@ class TestSourceMapsRecommendationForDigest(APIBaseTest):
 
 
 class TestSendDigestToWorkflow(SimpleTestCase):
-    @override_settings(CLOUD_DEPLOYMENT=None)
-    def test_raises_when_region_has_no_delivery_workflow(self):
-        with pytest.raises(ValueError):
-            send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
-
-    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
             mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("500")
             with pytest.raises(requests.HTTPError):
                 send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
 
-    @override_settings(WORKFLOWS_WEBHOOK_SECRET="Bearer test-token", CLOUD_DEPLOYMENT="US")
+    @override_settings(WORKFLOWS_WEBHOOK_SECRET="Bearer test-token")
     def test_sends_secret_as_authorization_header(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
             send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
@@ -582,10 +576,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         super().setUpTestData()
         materialize("events", "$exception_issue_id", is_nullable=True)
 
-    @override_settings(
-        ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"],
-        CLOUD_DEPLOYMENT="US",
-    )
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
     def test_task_posts_json_safe_digest_and_dedupes_on_retry(self):
         issue = ErrorTrackingIssue.objects.create(
             id=uuid7(), team=self.team, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"

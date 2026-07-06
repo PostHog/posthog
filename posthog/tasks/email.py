@@ -1877,10 +1877,6 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest per user in an org via the delivery workflow"""
     from posthog.models.organization import Organization
 
-    if not error_tracking_api.get_digest_workflow_webhook_url():
-        logger.warning("Error Tracking weekly digest workflow not configured, skipping")
-        return
-
     try:
         org = Organization.objects.get(id=org_id)
     except Organization.DoesNotExist:

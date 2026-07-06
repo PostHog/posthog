@@ -38,9 +38,6 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         email: str = options["email"]
 
-        if not weekly_digest.get_digest_workflow_webhook_url():
-            raise CommandError("No digest delivery workflow for this region (CLOUD_DEPLOYMENT)")
-
         user = User.objects.filter(email=email).first()
         org = self._resolve_org(options["org_id"], user, email)
 

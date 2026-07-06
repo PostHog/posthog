@@ -455,22 +455,9 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
     return section
 
 
-# Region -> "[Error tracking] Weekly digest email" workflow in that region's internal PostHog
-# project. The webhook is protected by WORKFLOWS_WEBHOOK_SECRET, so the ids are not secrets.
-# Regions without an entry don't send.
-DIGEST_DELIVERY_WORKFLOWS: dict[str, tuple[str, str]] = {
-    "US": ("https://webhooks.us.posthog.com", "019f2754-aeff-0000-6a0d-5d3933a94b08"),
-}
-
-
-def get_digest_workflow_webhook_url() -> str | None:
-    """Public webhook URL of the workflow that delivers the digest email, or None when this region has none."""
-    entry = DIGEST_DELIVERY_WORKFLOWS.get((settings.CLOUD_DEPLOYMENT or "").upper())
-    if not entry:
-        return None
-
-    webhooks_host, workflow_id = entry
-    return f"{webhooks_host}/public/webhooks/{workflow_id}"
+# Webhook trigger of the "[Error tracking] Weekly digest email" workflow in the internal
+# PostHog project. Protected by WORKFLOWS_WEBHOOK_SECRET, so the URL is not a secret.
+DIGEST_WORKFLOW_WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/019f2754-aeff-0000-6a0d-5d3933a94b08"
 
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
@@ -478,10 +465,6 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
 
     Raises on failure so callers (celery autoretry) can retry.
     """
-    webhook_url = get_digest_workflow_webhook_url()
-    if not webhook_url:
-        raise ValueError("No digest delivery workflow for this region (CLOUD_DEPLOYMENT)")
-
     # The workflow trigger's "auth_header" input compares the Authorization header verbatim,
     # so the secret must be the full header value (e.g. "Bearer <token>").
     headers = {}
@@ -489,7 +472,7 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
         headers["Authorization"] = settings.WORKFLOWS_WEBHOOK_SECRET
 
     response = requests.post(
-        webhook_url,
+        DIGEST_WORKFLOW_WEBHOOK_URL,
         json={
             "event": "error_tracking_weekly_digest",
             "distinct_id": distinct_id,

@@ -646,9 +646,5 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
     return weekly_digest.build_team_section_payload(data)
 
 
-def get_digest_workflow_webhook_url() -> str | None:
-    return weekly_digest.get_digest_workflow_webhook_url()
-
-
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     weekly_digest.send_digest_to_workflow(digest, distinct_id)
