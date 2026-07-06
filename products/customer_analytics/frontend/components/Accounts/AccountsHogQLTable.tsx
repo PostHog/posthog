@@ -123,6 +123,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
                 <CopyToClipboardInline
                     explicitValue={externalId}
                     iconStyle={{ color: 'var(--color-accent)' }}
+                    iconSize="xsmall"
                     description="account ID"
                     className="text-xs text-muted"
                 >
