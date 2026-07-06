@@ -484,6 +484,11 @@ class TestSlackConfirmBeforeTicket(BaseTest):
             for element in block["elements"]
         }
         assert action_ids == {TICKET_CONFIRM_ACTION_OPEN, TICKET_CONFIRM_ACTION_DISMISS}
+        # The prompt also points at the other ways to open a ticket.
+        context_texts = [
+            element["text"] for block in kwargs["blocks"] if block["type"] == "context" for element in block["elements"]
+        ]
+        assert any("react to your original message" in text for text in context_texts)
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")

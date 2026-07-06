@@ -765,6 +765,11 @@ def post_ticket_confirmation_prompt(
     client = get_slack_client(team)
     action_value = json.dumps({"channel": slack_channel_id, "message_ts": message_ts})
     prompt_text = f"👋 <@{slack_user_id}> - did you want to open a support ticket?"
+    settings_dict = team.conversations_settings or {}
+    emoji = settings_dict.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+    bot_id = get_bot_user_id_cached(team, client)
+    mention = f"<@{bot_id}>" if bot_id else "the SupportHog bot"
+    hint_text = f"You can also react to your original message with :{emoji}: or tag {mention} to open a ticket."
     try:
         client.chat_postMessage(
             channel=slack_channel_id,
@@ -795,6 +800,10 @@ def post_ticket_confirmation_prompt(
                             "value": action_value,
                         },
                     ],
+                },
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": hint_text}],
                 },
             ],
         )
