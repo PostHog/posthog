@@ -80,7 +80,7 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 
 #### Stacked PRs
 
-Restacking force-pushes every branch, and each push triggers a full CI fan-out. Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s); the overflow fails as `startup_failure`, taking unrelated runs in the same window down too. Draft status doesn't help — runs dispatch before draft/skip logic applies.
+Each PR push fans out to ~40 workflow runs. Restacking force-pushes every branch at once, so a deep stack can create hundreds of runs in one 10-second window and blow past GitHub's per-repo dispatch cap (500 workflow runs / 10s); the overflow fails as `startup_failure`, taking unrelated runs in the same window down with it. Draft status does not help: runs are dispatched before draft/skip logic applies.
 
 - Keep stacks shallow; merge the base before extending.
 - Restack only when you need to — avoid rebasing the whole stack on master repeatedly.
