@@ -2,6 +2,14 @@
 
 Shortcuts taken to ship the first version. Revisit when they bite.
 
+## Select custom property option side effects
+
+- **Rename backfill / removal clearing runs inline.** `update_custom_property_definition` rewrites the definition's `CustomPropertyValue` rows synchronously, inside the definition-save transaction (`apply_option_side_effects` in `logic/custom_property_definitions.py`).
+  For a definition with many account values this makes the PATCH slow and holds the transaction open.
+  Brittle at scale — move to an async backfill job when large value sets bite.
+- **Conversion safety lives in a caller-side guard.** Side effects run only while the definition is still `select`: on a select→other conversion the id diff would read every option as removed and wrongly clear all values, which must instead survive as plain strings.
+  The guard sits in the facade update path, locked by `test_converting_select_to_text_keeps_values_and_clears_options`; a new write path that skips it would clear values on conversion.
+
 ## Custom property view sync
 
 - **Celery, not Temporal.** The sync runs in a Celery task, not a dedicated Temporal workflow. No
