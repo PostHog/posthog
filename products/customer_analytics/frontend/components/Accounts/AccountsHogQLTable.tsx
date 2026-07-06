@@ -99,11 +99,11 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
             {accountId ? (
                 <Link
                     // Plain click opens the account details inline (keeping the list mounted); the href
-                    // stays so cmd/ctrl-click opens the account's deep-link page in a new tab.
+                    // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
                     to={urls.customerAnalyticsAccount(accountId)}
                     className="font-semibold"
                     onClick={(event) => {
-                        if (event.metaKey || event.ctrlKey) {
+                        if (event.metaKey || event.ctrlKey || event.shiftKey) {
                             return
                         }
                         event.preventDefault()
