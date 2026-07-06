@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsumer
@@ -90,6 +91,18 @@ class TestBillingConsumerBillingActivity(BaseTest):
     def test_writes_system_activity_when_distinct_id_absent(self):
         # System-origin changes (Stripe webhooks, dunning) carry no actor.
         self._build_consumer()._process_billing_activity(self._message(distinct_id=None))
+
+        log = ActivityLog.objects.get(scope="Billing")
+        assert log.user_id is None
+        assert log.is_system is True
+
+    def test_does_not_attribute_distinct_id_from_another_organization(self):
+        # distinct_id is globally unique; a user outside this org must never be
+        # attributed to (or exposed in) this org's audit log.
+        other_org = Organization.objects.create(name="Other org")
+        other_user = User.objects.create_and_join(other_org, "outsider@example.com", None)
+
+        self._build_consumer()._process_billing_activity(self._message(distinct_id=other_user.distinct_id))
 
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None

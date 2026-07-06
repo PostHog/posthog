@@ -205,7 +205,17 @@ class BillingConsumer(SQSConsumer):
             return
 
         distinct_id = body.get("distinct_id")
-        user = User.objects.filter(distinct_id=distinct_id).first() if distinct_id else None
+        # Constrain the actor to a member of this organization: distinct_id is globally
+        # unique, so an unconstrained lookup could attribute the change to (and expose in
+        # the org's audit log) a user from a different organization.
+        user = (
+            User.objects.filter(
+                distinct_id=distinct_id,
+                organization_memberships__organization=organization,
+            ).first()
+            if distinct_id
+            else None
+        )
         if distinct_id and user is None:
             logger.warning(
                 "billing_activity.distinct_id_not_found",
