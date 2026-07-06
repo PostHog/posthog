@@ -26,8 +26,11 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -39,6 +42,7 @@ import {
     FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
+    SidePanelTab,
 } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -491,6 +495,10 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
+// Auto-submitted prompt (the `!` prefix) that opens Max primed to debug an out-of-memory insight.
+const MAX_MEMORY_LIMIT_PROMPT =
+    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
+
 export function InsightValidationError({
     detail,
     query,
@@ -502,6 +510,10 @@ export function InsightValidationError({
     onRetry?: () => void
     cta?: JSX.Element
 }): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    // Keyed off the ClickHouseQueryMemoryLimitExceeded copy so we only offer Max on out-of-memory failures.
+    const isMemoryLimitError = detail.includes('ran out of memory')
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -523,7 +535,20 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
 
-            {cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)}
+            {isMemoryLimitError ? (
+                <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, MAX_MEMORY_LIMIT_PROMPT)}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => openSidePanel(SidePanelTab.Max, MAX_MEMORY_LIMIT_PROMPT)}
+                        data-attr="insight-memory-limit-debug-with-max"
+                    >
+                        Debug with Max
+                    </LemonButton>
+                </AIConsentPopoverWrapper>
+            ) : (
+                cta ??
+                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+            )}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">

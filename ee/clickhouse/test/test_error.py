@@ -39,7 +39,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=241,
             ),
             "ClickHouseQueryMemoryLimitExceeded",
-            "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting",
+            "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries",
             None,
             "CHQueryErrorMemoryLimitExceeded",
         ),
