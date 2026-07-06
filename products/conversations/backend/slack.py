@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from django.conf import settings
 from django.db.models import F
 
 import structlog
@@ -734,10 +735,12 @@ def _should_send_nudge(
     if bot_id and bot_id in extract_slack_user_ids(text, blocks):
         return False
 
-    # External users only — internal teammates don't need nudging.
-    user_info = resolve_slack_user(client, slack_user_id)
-    if resolve_posthog_user_for_slack(user_info.get("email"), team):
-        return False
+    # External users only — internal teammates don't need nudging. Skipped in local
+    # dev, where the tester's own account is the only org member and would never nudge.
+    if not settings.DEBUG:
+        user_info = resolve_slack_user(client, slack_user_id)
+        if resolve_posthog_user_for_slack(user_info.get("email"), team):
+            return False
 
     return True
 
