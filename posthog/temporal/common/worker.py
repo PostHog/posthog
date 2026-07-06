@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from prometheus_client import REGISTRY
+from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.ai_observability.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
@@ -238,6 +239,7 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
+        enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
     """
 
     metrics_server: CombinedMetricsServer | None = None
@@ -256,11 +258,6 @@ async def create_worker(
     else:
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
-
-    if enable_open_telemetry_plugin:
-        plugins: collections.abc.Sequence[Plugin] = (OpenTelemetryPlugin(add_temporal_spans=True),)
-    else:
-        plugins = ()
 
     histogram_bucket_overrides: dict[str, list[float]] = (
         dict(
@@ -341,6 +338,12 @@ async def create_worker(
             ),
         )
     )
+    # Register the OpenTelemetryPlugin on the client, not the worker, following the SDK's guidance
+    # (temporalio/contrib/opentelemetry/README.md).
+    plugins: collections.abc.Sequence[Plugin] = (
+        (OpenTelemetryPlugin(add_temporal_spans=True),) if enable_open_telemetry_plugin else ()
+    )
+
     client = await connect(
         host,
         port,
@@ -350,10 +353,11 @@ async def create_worker(
         client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
-        # This worker traces activity/workflow execution through the OpenTelemetryPlugin below.
+        # This worker traces activity/workflow execution through the OpenTelemetryPlugin above.
         # Keeping the client-level TracingInterceptor as well would emit a second, duplicate span
         # for every activity and workflow, so drop it here.
         add_otel_tracing_interceptor=False,
+        plugins=plugins,
     )
     supported_interceptors = [
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
@@ -378,7 +382,6 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
-            plugins=plugins,
         )
     else:
         worker = Worker(
@@ -395,7 +398,6 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
-            plugins=plugins,
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)
