@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonInput,
+    LemonLabel,
     LemonSelect,
     LemonSwitch,
     LemonTag,
@@ -121,41 +122,48 @@ function ProjectDigestSelector({
                         <p className="text-muted text-sm">No projects found in your organizations.</p>
                     ) : (
                         <div className="flex flex-col gap-3">
-                            <div className="flex flex-row flex-wrap items-center gap-2">
-                                {hasMultipleOrgs && (
+                            {hasMultipleOrgs && (
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel htmlFor={`${keyPrefix}-org-select`}>
+                                        Choose projects from organization
+                                    </LemonLabel>
                                     <LemonSelect
+                                        id={`${keyPrefix}-org-select`}
                                         size="small"
                                         value={effectiveOrgId}
                                         onChange={(value) => setSelectedOrgId(value)}
                                         data-attr={`${dataAttrPrefix}_org_select`}
+                                        className="w-fit"
                                         options={projectsByOrganization.map((group) => ({
                                             value: group.organizationId,
                                             label: group.organizationName,
                                         }))}
                                     />
-                                )}
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabled={userLoading || allEnabled}
-                                    onClick={() => onToggleAllTeams(orgProjectIds, true)}
-                                >
-                                    Enable for all projects
-                                </LemonButton>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabled={userLoading || allDisabled}
-                                    onClick={() => onToggleAllTeams(orgProjectIds, false)}
-                                >
-                                    Disable for all projects
-                                </LemonButton>
-                            </div>
+                                </div>
+                            )}
 
                             {orgProjects.length === 0 ? (
                                 <p className="text-muted text-sm">No projects in this organization.</p>
                             ) : (
                                 <div className="flex flex-col gap-2">
+                                    <div className="flex flex-row items-center gap-4">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={userLoading || allEnabled}
+                                            onClick={() => onToggleAllTeams(orgProjectIds, true)}
+                                        >
+                                            Enable for all projects
+                                        </LemonButton>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            disabled={userLoading || allDisabled}
+                                            onClick={() => onToggleAllTeams(orgProjectIds, false)}
+                                        >
+                                            Disable for all projects
+                                        </LemonButton>
+                                    </div>
                                     {orgProjects.map((project) => (
                                         <LemonCheckbox
                                             key={`${keyPrefix}-${project.id}`}
