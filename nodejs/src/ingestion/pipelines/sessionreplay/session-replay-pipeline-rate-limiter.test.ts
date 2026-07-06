@@ -14,20 +14,23 @@
  * — which decides both whether to rate-limit AND whether to generate vs fetch the encryption key. Rule 2
  * is stricter, so it wins there. That gives the per-op policy this suite locks in:
  *
- *   | Redis op                     | drives                         | policy                         |
- *   |------------------------------|--------------------------------|--------------------------------|
- *   | tracker hasSeen (MGET)       | key generate-vs-fetch + count  | FAIL HARD (throw → retry)      |
- *   | tracker markSeen (pipeline)  | seen persistence (count only)  | fail open (under-count)        |
- *   | filter isBlocked (MGET)      | drop-if-blocked (count only)   | fail open (under-block)        |
- *   | filter blockSessions (pipe)  | block persistence (count only) | fail open (under-block)        |
+ *   | Redis op                     | drives                          | policy                        |
+ *   |------------------------------|---------------------------------|-------------------------------|
+ *   | tracker hasSeen (MGET)       | key generate-vs-fetch + count   | FAIL HARD (throw → retry)     |
+ *   | tracker markSeen (pipeline)  | seen persistence (count only)   | fail open (under-count)       |
+ *   | filter isBlocked (MGET)      | drop-if-blocked + skip-recharge | fail open (under-block)       |
+ *   | filter blockSessions (pipe)  | block persistence (count only)  | fail open (under-block)       |
  *
  * ## What the tests do
  *
  * Unlike session-replay-pipeline.test.ts (which mocks the tracker/filter), this builds the REAL
  * SessionTracker and SessionFilter over an in-memory fake Redis we can fault-inject per operation, so it
  * exercises the actual fail-open / fail-hard logic. "Counted as new" means the session was passed to
- * SessionFilter.handleNewSessions (which consumes a rate-limit token); the invariant is exactly once per
- * session — allowed, blocked AND deleted alike.
+ * SessionFilter.handleNewSessions (which consumes a rate-limit token). An allowed or deleted session is
+ * counted exactly once — both are marked seen, so the next batch reads them as existing. A session
+ * already on the blocklist is counted ZERO times: it's held out of the budget by its block key, not by
+ * being marked seen, so it's excluded from the charge before handleNewSessions rather than re-charged
+ * every batch. (A session freshly rate-limited in a batch is still counted the once, when it's blocked.)
  *
  * - baseline: every session type counted once.
  * - transient failure (fails once, recovers): counting is unaffected — a fail-open op is masked, a
@@ -338,12 +341,13 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         mockCreateApplyEventRestrictionsStep.mockReturnValue((input: unknown) => Promise.resolve(ok(input)))
     })
 
-    // Establishes the baseline (no Redis failures): every session type is counted as new exactly once,
-    // because allowed, blocked and deleted sessions are all marked seen at the mark-seen step.
+    // Establishes the baseline (no Redis failures): allowed and deleted are counted once (both marked
+    // seen at the mark-seen step, so batch two reads them as existing), while an already-blocklisted
+    // session is counted zero times — its block key, not a seen flag, keeps it out of the budget.
     describe('baseline (no failures)', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
-            ['blocked', 1],
+            ['blocked', 0],
             ['deleted', 1],
         ])('%s session is counted as new %i time(s) over two batches', async (type, expected) => {
             setUpSessionType(type, type)
@@ -357,10 +361,11 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
 
     // hasSeen fails hard (throws), so the step's retry wrapper re-runs it — a transient blip recovers on
     // the retry and counting is unaffected (rather than guessing "seen" and risking a keyless recording).
+    // Blocked stays 0 as in the baseline: recovery restores the block read, which excludes it from the charge.
     describe('when the hasSeen read (tracker MGET) fails once then recovers on retry', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
-            ['blocked', 1],
+            ['blocked', 0],
             ['deleted', 1],
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
@@ -373,12 +378,11 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     })
 
     // markSeen fails open: the mark isn't persisted to Redis, but the local cache still records it, so
-    // the SAME consumer doesn't re-count the session next batch (the failure is masked locally). Applies
-    // to every type, since allowed, blocked and deleted are all marked here.
+    // the SAME consumer doesn't re-count the session next batch (the failure is masked locally). Only
+    // allowed and deleted are marked seen (a blocked session never is), so only those exercise this fault.
     describe('when the markSeen write (tracker pipeline) fails on the first batch', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
-            ['blocked', 1],
             ['deleted', 1],
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
@@ -390,8 +394,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         })
     })
 
-    // isBlocked fails open (assume not blocked). Counting happens before the block check, so it's
-    // unaffected — the visible effect is that an already-blocked session isn't dropped that batch.
+    // isBlocked fails open (assume not blocked). The block read now gates the charge, but failing open
+    // means the already-blocked session is treated as unblocked: it leaks past the block for that batch,
+    // so it's counted the once (then marked seen) instead of being excluded — the same single count the
+    // other types get. Recovery on batch two reads it as existing, so it isn't re-counted.
     describe('when the isBlocked read (filter MGET) fails on the first batch', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],

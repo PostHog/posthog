@@ -14,11 +14,12 @@ type Base = { team: TeamForReplay; headers: SessionReplayHeaders } & NewSessionF
 describe('createMarkSeenStep', () => {
     let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'markSeen'>>
 
+    // Only allowed and deleted sessions reach this step — blocked ones are dropped at the gate upstream.
     const element = (
         teamId: number,
         sessionId: string,
         isNewSession: boolean,
-        status: 'allowed' | 'blocked' | 'deleted'
+        status: 'allowed' | 'deleted'
     ): Resolved<Base> => {
         const base = {
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
@@ -37,35 +38,34 @@ describe('createMarkSeenStep', () => {
         mockSessionTracker = { markSeen: jest.fn().mockResolvedValue(undefined) }
     })
 
-    it('marks every new session seen (allowed, blocked, deleted) in one deduped call, then drops the non-recorded ones', async () => {
+    it('marks new allowed and deleted sessions seen, deduped, and drops only the deleted ones', async () => {
         const values = [
             element(1, 'allowed-new', true, 'allowed'),
             element(1, 'allowed-new', true, 'allowed'),
-            element(1, 'blocked-new', true, 'blocked'),
             element(1, 'deleted-new', true, 'deleted'),
             element(1, 'existing', false, 'allowed'),
         ]
 
         const results = await createStep()(values)
 
-        // One markSeen for the whole batch — every new session (allowed, blocked AND deleted), deduped;
-        // the existing one is excluded. Marking the blocked/deleted ones stops them being re-counted.
+        // One markSeen for the whole batch (deduped). Allowed has a key and deleted has a tombstone, so
+        // both are safe to mark — a later getKey resolves to the key or to 'deleted', never cleartext. The
+        // existing one is already seen.
         expect(mockSessionTracker.markSeen).toHaveBeenCalledTimes(1)
         expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(
-            new SessionSet().add(1, 'allowed-new').add(1, 'blocked-new').add(1, 'deleted-new')
+            new SessionSet().add(1, 'allowed-new').add(1, 'deleted-new')
         )
-        // Blocked and deleted sessions are dropped; the allowed ones pass through.
+        // Deleted sessions are dropped; the allowed ones pass through.
         expect(results.map((r) => r.type)).toEqual([
             PipelineResultType.OK,
             PipelineResultType.OK,
-            PipelineResultType.DROP,
             PipelineResultType.DROP,
             PipelineResultType.OK,
         ])
     })
 
     it('marks an empty set when the batch has no new sessions', async () => {
-        await createStep()([element(1, 'a', false, 'allowed'), element(2, 'b', false, 'blocked')])
+        await createStep()([element(1, 'a', false, 'allowed'), element(2, 'b', false, 'deleted')])
 
         expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(new SessionSet())
     })

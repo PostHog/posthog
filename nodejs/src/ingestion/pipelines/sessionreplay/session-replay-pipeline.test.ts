@@ -121,7 +121,7 @@ describe('session-replay-pipeline', () => {
         markSeen: jest.fn().mockResolvedValue(undefined),
     } as unknown as SessionTracker
     const sessionFilter = {
-        handleNewSessions: jest.fn().mockResolvedValue(undefined),
+        handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
         isBlocked: jest.fn().mockImplementation((sessions: SessionSet) => {
             const map = new SessionMap<boolean>()
             for (const { teamId, sessionId } of sessions) {

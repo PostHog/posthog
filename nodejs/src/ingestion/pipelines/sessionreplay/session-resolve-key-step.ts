@@ -4,7 +4,7 @@ import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
+import { Allowed, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
 
 /** The minimal per-element shape this step needs to resolve a session's key. */
 type ResolveKeyStepInput = {
@@ -19,11 +19,11 @@ type ResolveKeyStepInput = {
  * out to the session's other messages, and under a per-session retry so a transient keystore blip
  * re-runs just that session rather than its batch-siblings.
  *
- * A blocked session rides through untouched (no key resolved). An allowed new session generates a key
- * (using the retention resolved upstream to set the key's expiry); an allowed existing one fetches it.
- * A session whose key has been deleted is re-tagged `deleted` and carried through too — like blocked, the
- * mark-seen step marks it seen and then drops it, so a deleted session isn't re-counted against the
- * rate limit every batch.
+ * Only allowed sessions reach this step — blocked ones are dropped at the gate. An allowed new session
+ * generates a key (using the retention resolved upstream to set the key's expiry); an allowed existing
+ * one fetches it. A session whose key has been deleted is re-tagged `deleted` and carried through — the
+ * mark-seen step marks it seen (safe: its tombstone outlives the seen flag) and then drops it, so a
+ * deleted session isn't re-counted against the rate limit every batch.
  *
  * This step is the encryption boundary, so it obeys the integrity rule (rule 2 — see {@link SessionTracker}
  * class doc): it FAILS HARD rather than ever producing a keyless recording. A transient keystore failure
@@ -35,12 +35,8 @@ type ResolveKeyStepInput = {
  */
 export function createResolveKeyStep<T extends ResolveKeyStepInput>(
     keyStore: KeyStore
-): ProcessingStep<Gated<T>, Resolved<T>> {
+): ProcessingStep<Allowed<T>, Resolved<T>> {
     return async function resolveKeyStep(value) {
-        if (value.status === 'blocked') {
-            return ok(value)
-        }
-
         const teamId = value.team.teamId
         const sessionId = value.headers.session_id
 

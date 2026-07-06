@@ -190,14 +190,15 @@ export class SessionFilter {
     /**
      * Handle a batch of new sessions by checking each against its team's rate limit and blocking the
      * ones that exceed it. The rate-limit check is an in-memory token bucket, so the only Redis cost is
-     * one pipelined write for whichever sessions get blocked. The caller should then check isBlocked()
-     * to determine whether to process each session's messages.
+     * one pipelined write for whichever sessions get blocked.
      *
-     * Should be called with the sessions the tracker reports as newly seen.
+     * Should be called with the genuinely-new sessions only — those neither seen nor already blocked —
+     * so a session already on the blocklist isn't charged a second token.
      *
      * @param sessions - The new sessions to rate-limit
+     * @returns the sessions this call blocked, so the caller can gate them without a second isBlocked read
      */
-    public async handleNewSessions(sessions: SessionSet): Promise<void> {
+    public async handleNewSessions(sessions: SessionSet): Promise<SessionSet> {
         const toBlock = new SessionSet()
         for (const { teamId, sessionId } of sessions) {
             const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
@@ -218,6 +219,8 @@ export class SessionFilter {
         if (toBlock.size > 0) {
             await this.blockSessions(toBlock)
         }
+
+        return toBlock
     }
 
     private generateKey(teamId: number, sessionId: string): string {

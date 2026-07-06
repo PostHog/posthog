@@ -4,7 +4,7 @@ import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
+import { Allowed, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
 import { createResolveKeyStep } from './session-resolve-key-step'
 
 type Base = {
@@ -16,20 +16,20 @@ type Base = {
 describe('createResolveKeyStep', () => {
     let mockKeyStore: jest.Mocked<Pick<KeyStore, 'generateKey' | 'getKey'>>
 
+    // Only allowed sessions reach this step — blocked ones are dropped at the gate upstream.
     const element = (
         teamId: number,
         sessionId: string,
         isNewSession: boolean,
-        status: 'allowed' | 'blocked',
         retentionPeriod: RetentionPeriod = '30d'
-    ): Gated<Base> =>
+    ): Allowed<Base> =>
         ({
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
             headers: { token: 'token', session_id: sessionId, distinct_id: 'distinct-1' },
             retentionPeriod,
             isNewSession,
-            status,
-        }) as unknown as Gated<Base>
+            status: 'allowed',
+        }) as unknown as Allowed<Base>
 
     // Reads the resolved key off an ok, allowed result (blocked/deleted results carry no key).
     const keyOf = (result: PipelineResult<Resolved<Base>>): SessionKey | null =>
@@ -49,20 +49,11 @@ describe('createResolveKeyStep', () => {
         }
     })
 
-    it('passes a blocked session through without resolving a key', async () => {
-        const result = await createStep()(element(1, 'a', true, 'blocked'))
-
-        expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
-        expect(mockKeyStore.getKey).not.toHaveBeenCalled()
-        expect(isOkResult(result)).toBe(true)
-        expect(keyOf(result)).toBeNull()
-    })
-
     it('generates a key for a new allowed session using the resolved retention', async () => {
         const generated = createMockSessionKey({ encryptedKey: Buffer.from('new-key') })
         mockKeyStore.generateKey.mockResolvedValue(generated)
 
-        const result = await createStep()(element(1, 'a', true, 'allowed', '90d'))
+        const result = await createStep()(element(1, 'a', true, '90d'))
 
         expect(mockKeyStore.generateKey).toHaveBeenCalledWith('a', 1, RetentionPeriodToDaysMap['90d'])
         expect(mockKeyStore.getKey).not.toHaveBeenCalled()
@@ -73,7 +64,7 @@ describe('createResolveKeyStep', () => {
         const existing = createMockSessionKey({ encryptedKey: Buffer.from('existing-key') })
         mockKeyStore.getKey.mockResolvedValue(existing)
 
-        const result = await createStep()(element(1, 'a', false, 'allowed'))
+        const result = await createStep()(element(1, 'a', false))
 
         expect(mockKeyStore.getKey).toHaveBeenCalledWith('a', 1)
         expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
@@ -83,7 +74,7 @@ describe('createResolveKeyStep', () => {
     it('carries a session whose key has been deleted through, tagged deleted (dropped later)', async () => {
         mockKeyStore.getKey.mockResolvedValue(createMockSessionKey({ sessionState: 'deleted', deletedAt: 1 }))
 
-        const result = await createStep()(element(1, 'gone', false, 'allowed'))
+        const result = await createStep()(element(1, 'gone', false))
 
         // Not dropped here — the mark-seen step marks it seen (so it isn't re-counted) then drops it.
         expect(statusOf(result)).toBe('deleted')
@@ -93,6 +84,6 @@ describe('createResolveKeyStep', () => {
     it('propagates a keystore failure so the retry regenerates rather than recording keyless', async () => {
         mockKeyStore.generateKey.mockRejectedValue(new Error('KMS unavailable'))
 
-        await expect(createStep()(element(1, 'a', true, 'allowed'))).rejects.toThrow('KMS unavailable')
+        await expect(createStep()(element(1, 'a', true))).rejects.toThrow('KMS unavailable')
     })
 })

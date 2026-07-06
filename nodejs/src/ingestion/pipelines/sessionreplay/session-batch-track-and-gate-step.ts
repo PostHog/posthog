@@ -1,12 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
-import { ok } from '~/ingestion/framework/results'
+import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { Gated, NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
+import { Allowed, NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 
@@ -20,18 +21,21 @@ type TrackAndGateStepInput = {
 
 /**
  * Record-phase batch step: for the whole batch, learn which sessions are new, rate-limit the new ones
- * against their team's budget, and tag each element with `isNewSession` and a gate verdict (allowed vs
- * blocked) — all off the S3 write path, in a few batched Redis round-trips.
+ * against their team's budget, and either tag each surviving element with `isNewSession` (allowed, on to
+ * key resolution) or drop it as blocked — all off the S3 write path, in a few batched Redis round-trips.
  *
- * Ordering matters: new sessions are rate-limited ({@link SessionFilter.handleNewSessions}, which
- * consumes one token per new session) BEFORE the block check, so a session that trips its own budget in
- * this batch is caught here. Because token consumption lives in this step's own retry scope, a
- * downstream key-resolution failure never re-runs it and double-charges the budget.
+ * Ordering matters: the block check runs BEFORE rate-limiting, and only sessions that are neither seen
+ * nor already blocked are charged a token ({@link SessionFilter.handleNewSessions} consumes one per
+ * genuinely-new session). An already-blocked session is kept out of the budget by its own block key, not
+ * by charging it again — so a session dropped for the rest of its life doesn't drain its team's budget
+ * every batch. A session that trips its own budget in this batch is caught by unioning the newly-blocked
+ * set that handleNewSessions returns with the earlier block read.
  *
- * Blocked sessions are NOT dropped here — they're tagged and carried through key resolution (which skips
- * them) to the mark-seen step, which marks every new session seen in one place and only then drops the
- * blocked ones. Marking a blocked session seen keeps it from being re-counted against the budget next
- * batch; dropping it only after mark-seen (rather than here) is what lets that marking be centralized.
+ * Blocked sessions are dropped right here. They carry no key, so nothing downstream acts on them — key
+ * resolution would skip them and the mark-seen step would only drop them — and, crucially, a blocked
+ * session is never marked seen: the block key alone keeps it out of the budget and out of recording, so
+ * the seen flag stays strictly "a key exists". That decoupling makes a lost block key degrade to an extra
+ * token charge next batch (tolerable) rather than a keyless, cleartext recording.
  *
  * Redis failure policy (see {@link SessionTracker} and {@link SessionFilter} class docs): the two rules
  * split this step's Redis calls. {@link SessionTracker.hasSeen} decides generate-vs-fetch of the
@@ -43,7 +47,7 @@ type TrackAndGateStepInput = {
 export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
     sessionTracker: SessionTracker,
     sessionFilter: SessionFilter
-): BatchProcessingStep<T, Gated<T & NewSessionFlag>> {
+): BatchProcessingStep<T, Allowed<T & NewSessionFlag>> {
     return async function trackAndGateStep(values) {
         // Dedupe repeated sessions so each one's Redis bootstrap runs exactly once per batch.
         const toResolve = new SessionSet()
@@ -54,26 +58,32 @@ export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
         // One batched Redis read tells us which sessions are new.
         const seen = await sessionTracker.hasSeen(toResolve)
 
-        // Rate-limit the new sessions first (this may block some), before the batched block check —
-        // so a session blocked by its own new-session budget in this batch is caught below.
+        // And one tells us which are already blocked — read before charging, so a session already on the
+        // blocklist isn't re-counted against its team's budget.
+        const alreadyBlocked = await sessionFilter.isBlocked(toResolve)
+
+        // Charge a token only for genuinely-new sessions: neither seen nor already blocked. This may
+        // block some more; handleNewSessions returns exactly the set it just blocked.
         const newSessions = new SessionSet()
         for (const { teamId, sessionId } of toResolve) {
-            if (!seen.get(teamId, sessionId)) {
+            if (!seen.get(teamId, sessionId) && !alreadyBlocked.get(teamId, sessionId)) {
                 newSessions.add(teamId, sessionId)
             }
         }
-        await sessionFilter.handleNewSessions(newSessions)
-
-        // One batched Redis read tells us which sessions are blocked.
-        const blocked = await sessionFilter.isBlocked(toResolve)
+        const newlyBlocked = await sessionFilter.handleNewSessions(newSessions)
 
         return values.map((value) => {
             const teamId = value.team.teamId
             const sessionId = value.headers.session_id
             const isNewSession = !seen.get(teamId, sessionId)
 
-            if (blocked.get(teamId, sessionId)) {
-                return ok({ ...value, isNewSession, status: 'blocked' as const })
+            if (alreadyBlocked.get(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
+                logger.debug('🔁', 'session_replay_session_dropped_before_record', {
+                    sessionId,
+                    teamId,
+                    reason: 'session_blocked',
+                })
+                return drop<Allowed<T & NewSessionFlag>>('session_blocked')
             }
             return ok({ ...value, isNewSession, status: 'allowed' as const })
         })

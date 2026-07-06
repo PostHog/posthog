@@ -28,25 +28,23 @@ export interface NewSessionFlag {
 }
 
 /**
- * The gate's verdict for a session. `allowed` proceeds to key resolution; `blocked` (rate-limited) is
- * carried through key resolution untouched. Both are marked seen at the mark-seen step, and blocked ones
- * are dropped only after — so a rate-limited session isn't re-counted against its team's new-session
- * budget on the next batch, while it never reaches recording (block and seen share a TTL, so it stays
- * blocked for as long as it's seen).
+ * The gate's verdict for a session that survives rate limiting: `allowed`, on its way to key resolution.
+ * Blocked (rate-limited) sessions are dropped at the gate itself, so they never flow downstream — a
+ * blocked session is kept out of its team's new-session budget by its block key, not by riding the
+ * pipeline to be marked seen, so the seen flag stays reserved for sessions that actually hold a key.
  */
-export type Gated<T> = (T & { status: 'allowed' }) | (T & { status: 'blocked' })
+export type Allowed<T> = T & { status: 'allowed' }
 
 /**
- * A {@link Gated} element after key resolution. `allowed` now carries its key; `blocked` and `deleted`
- * (key crypto-shredded) carry no key. Blocked and deleted are dropped after the mark-seen step — marking
- * them seen keeps them from being re-counted against the budget on later batches, and neither reaches
- * recording (a deleted session's tombstone outlives its seen flag, so while it's seen it always resolves
- * as deleted).
+ * An {@link Allowed} element after key resolution. `allowed` now carries its key; `deleted` (key
+ * crypto-shredded) carries none. A `deleted` session is dropped at the mark-seen step but IS marked seen
+ * first — safe because its keystore tombstone outlives the seen flag, so while seen it always resolves as
+ * deleted, never cleartext — which also keeps it out of the budget without re-counting.
  */
-export type Resolved<T> = Recordable<T> | (T & { status: 'blocked' }) | (T & { status: 'deleted' })
+export type Resolved<T> = Recordable<T> | (T & { status: 'deleted' })
 
 /**
  * The one branch of {@link Resolved} that reaches recording: an `allowed` session carrying its resolved
- * key. This is what the mark-seen step emits after dropping the blocked and deleted sessions.
+ * key. This is what the mark-seen step emits after dropping the deleted sessions.
  */
-export type Recordable<T> = T & { status: 'allowed'; sessionKey: SessionKey }
+export type Recordable<T> = Allowed<T> & { sessionKey: SessionKey }

@@ -132,10 +132,10 @@ export function createSessionReplayPipeline(
                     tries: 3,
                     sleepMs: 100,
                 })
-                // Track sessions and rate-limit new ones for the whole batch, tagging each with
-                // isNewSession and a gate verdict (blocked sessions are carried, not dropped, so the
-                // mark-seen step can mark them before dropping them). Its own retry scope means a later
-                // key-resolution failure never re-runs the rate limiter and double-charges the budget.
+                // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
+                // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
+                // downstream acts on them). Its own retry scope means a later key-resolution failure never
+                // re-runs the rate limiter and double-charges the budget.
                 .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     tries: 3,
                     sleepMs: 100,
