@@ -7,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -105,9 +106,11 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_sampling_is_consistent(self):
-        teams = []
+        # Consecutive team ids hash to near-contiguous buckets in simple_hash, so
+        # asserting a ~50% update rate is id-allocation roulette. Assert instead
+        # that the command's selection matches sample_on_property exactly.
         for i in range(100):
-            teams.append(Team.objects.create(organization=self.organization, name=f"Team {i}"))
+            Team.objects.create(organization=self.organization, name=f"Team {i}")
 
         call_command(
             "set_recorder_script",
@@ -115,9 +118,12 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
+        updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
+        expected_ids = {
+            team_id for team_id in Team.objects.values_list("id", flat=True) if sample_on_property(str(team_id), 0.5)
+        }
 
-        assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
+        assert updated_ids == expected_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
