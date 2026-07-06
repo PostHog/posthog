@@ -1792,10 +1792,12 @@ class ExperimentService:
         request: Any | None = None,
         open_cleanup_pr: bool = False,
     ) -> None:
+        # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
+        # analytics below so it behaves the same regardless of call context.
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
+
         if request is None:
             return
-
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
