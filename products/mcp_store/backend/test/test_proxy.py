@@ -339,6 +339,73 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == expected_status
         assert response.json()["error"] == expected_error
 
+    @parameterized.expand(
+        [
+            ("read_timeout", httpx.ReadTimeout("The read operation timed out")),
+            ("remote_protocol_error", httpx.RemoteProtocolError("peer closed connection")),
+        ]
+    )
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_returns_502_when_body_read_fails(self, _name, side_effect, mock_client_cls):
+        # Headers arrive fine, but the lazily-read body stalls or drops. This
+        # must degrade to a 502, not escape as an uncaught 500.
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.read.side_effect = side_effect
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 502
+        assert response.json()["error"] == "Upstream MCP server timed out"
+        mock_client.close.assert_called()
+
+    @parameterized.expand(
+        [
+            ("read_timeout", httpx.ReadTimeout("The read operation timed out")),
+            ("remote_protocol_error", httpx.RemoteProtocolError("peer closed connection")),
+        ]
+    )
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_sse_stream_terminates_cleanly_when_upstream_drops(self, _name, side_effect, mock_client_cls):
+        # An upstream that drops the SSE connection mid-chunk must end the stream
+        # gracefully rather than raising up the ASGI stack as an uncaught 500.
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+
+        def chunks_then_drop():
+            yield b"event: message\n"
+            raise side_effect
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "text/event-stream"}
+        mock_response.iter_bytes.return_value = chunks_then_drop()
+        mock_response.close = MagicMock()
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        # Consuming the stream must not re-raise; the partial chunk is delivered.
+        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        assert content == b"event: message\n"
+        mock_response.close.assert_called()
+        mock_client.close.assert_called()
+
     def test_proxy_returns_400_for_invalid_json(self):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},

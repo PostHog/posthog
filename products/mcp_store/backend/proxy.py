@@ -406,9 +406,20 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if "text/event-stream" in content_type:
         return _build_sse_response(upstream_response, client)
 
-    # Read body then close to avoid memory leaks from buffered responses
+    # Read body then close to avoid memory leaks from buffered responses. The
+    # body is read lazily here (send(stream=True) only fetched headers), so an
+    # upstream that stalls past UPSTREAM_TIMEOUT or drops the connection mid-body
+    # surfaces at this read, not at send(). Catch it and return the same graceful
+    # 502 the connection phase does instead of letting it escape as a 500.
     try:
         upstream_response.read()
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        logger.warning("Upstream MCP server failed while reading response body", url=upstream_url, error=str(e))
+        return HttpResponse(
+            '{"error": "Upstream MCP server timed out"}',
+            content_type="application/json",
+            status=502,
+        )
     finally:
         client.close()
 
@@ -436,6 +447,13 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
 def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) -> Iterator[bytes]:
     try:
         yield from upstream_response.iter_bytes(4096)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        # An upstream that stalls past UPSTREAM_TIMEOUT or drops the connection
+        # mid-chunk raises here, deep inside the ASGI streaming stack where it
+        # would otherwise become an uncaught 500. Terminate the generator cleanly
+        # so a misbehaving upstream just ends the stream instead.
+        logger.warning("Upstream MCP server dropped SSE stream", error=str(e))
+        return
     finally:
         upstream_response.close()
         client.close()
