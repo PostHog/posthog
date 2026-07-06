@@ -1034,7 +1034,27 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set.storage_ptr != initial_storage_ptr
         assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
 
-    def test_bulk_start_upload_rejects_release_change(self) -> None:
+    @parameterized.expand(
+        [
+            ("identical_content_skips", "hash", {}, status.HTTP_201_CREATED, None),
+            ("changed_content_rejects", "different_hash", {}, status.HTTP_400_BAD_REQUEST, "release_id_mismatch"),
+            (
+                "changed_content_skip_release_flag",
+                "different_hash",
+                {"skip_release_on_conflict": True, "skip_on_conflict": True},
+                status.HTTP_201_CREATED,
+                None,
+            ),
+        ]
+    )
+    def test_bulk_start_upload_handles_release_change(
+        self,
+        _name: str,
+        upload_content_hash: str,
+        request_flags: dict[str, bool],
+        expected_status: int,
+        expected_code: str | None,
+    ) -> None:
         chunk_id = str(uuid7())
 
         first_release = ErrorTrackingRelease.objects.create(
@@ -1065,17 +1085,82 @@ class TestErrorTracking(APIBaseTest):
                     {
                         "chunk_id": chunk_id,
                         "release_id": str(second_release.id),
-                        "content_hash": symbol_set.content_hash,
+                        "content_hash": upload_content_hash,
                     }
-                ]
+                ],
+                **request_flags,
             },
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        else:
+            # The conflicting chunk is skipped, not re-uploaded or re-associated
+            assert chunk_id not in response.json()["id_map"]
 
         symbol_set.refresh_from_db()
         assert symbol_set.release_id == first_release.id
+        assert symbol_set.content_hash == "hash"
+        assert symbol_set.storage_ptr == "stored"
+
+    def test_bulk_start_upload_release_conflict_does_not_poison_batch(self) -> None:
+        conflicting_chunk_id = str(uuid7())
+        new_chunk_id = str(uuid7())
+
+        first_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="first-release",
+            version="1.0.0",
+            project="test",
+        )
+        second_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="second-release",
+            version="1.0.1",
+            project="test",
+        )
+
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=conflicting_chunk_id,
+            storage_ptr="stored",
+            content_hash="hash",
+            release=first_release,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": conflicting_chunk_id,
+                        "release_id": str(second_release.id),
+                        "content_hash": "different_hash",
+                    },
+                    {
+                        "chunk_id": new_chunk_id,
+                        "release_id": str(second_release.id),
+                        "content_hash": "new_hash",
+                    },
+                ],
+                "skip_release_on_conflict": True,
+                "skip_on_conflict": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+        assert conflicting_chunk_id not in id_map
+        assert new_chunk_id in id_map
+
+        conflicting = ErrorTrackingSymbolSet.objects.get(ref=conflicting_chunk_id)
+        assert conflicting.release_id == first_release.id
+
+        created = ErrorTrackingSymbolSet.objects.get(ref=new_chunk_id)
+        assert created.release_id == second_release.id
 
     @patch("posthog.storage.object_storage.head_object")
     def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:

@@ -1724,6 +1724,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     force?: boolean
     /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
     skip_on_conflict?: boolean
+    /** Whether to keep an uploaded symbol set's existing release association instead of failing when a different release ID is provided. Symbol sets are never moved between releases. */
+    skip_release_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

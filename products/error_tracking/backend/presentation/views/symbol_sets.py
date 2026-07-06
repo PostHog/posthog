@@ -76,6 +76,11 @@ class ErrorTrackingSymbolSetBulkStartUploadSerializer(serializers.Serializer):
         default=False,
         help_text="Whether to skip uploaded symbol sets whose content hash changed instead of failing.",
     )
+    skip_release_on_conflict = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to keep an uploaded symbol set's existing release association instead of failing when a different release ID is provided. Symbol sets are never moved between releases.",
+    )
 
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         if attrs.get("force") and attrs.get("skip_on_conflict"):
@@ -297,6 +302,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
         force: bool = upload_data["force"]
         skip_on_conflict: bool = upload_data["skip_on_conflict"]
+        skip_release_on_conflict: bool = upload_data["skip_release_on_conflict"]
 
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
@@ -305,6 +311,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 "endpoint": "bulk_start_upload",
                 "force": force,
                 "skip_on_conflict": skip_on_conflict,
+                "skip_release_on_conflict": skip_release_on_conflict,
             },
             groups=groups(self.team.organization, self.team),
         )
@@ -317,6 +324,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             force=force,
             skip_on_conflict=skip_on_conflict,
             distinct_id=str(request.user.pk) if request.user.pk else None,
+            skip_release_on_conflict=skip_release_on_conflict,
         )
         return Response({"id_map": id_map}, status=status.HTTP_201_CREATED)
 

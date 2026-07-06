@@ -141,13 +141,48 @@ def create_symbol_set(
         return symbol_set
 
 
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
     force: bool = False,
     skip_on_conflict: bool = False,
     distinct_id: str | None = None,
+    skip_release_on_conflict: bool = False,
+) -> dict[str, dict[str, str]]:
+    try:
+        return _bulk_create_symbol_sets(
+            new_symbol_sets,
+            team,
+            force=force,
+            skip_on_conflict=skip_on_conflict,
+            distinct_id=distinct_id,
+            skip_release_on_conflict=skip_release_on_conflict,
+        )
+    except ValidationError as e:
+        # Upload-contract rejections are expected 400s the CLI knows how to handle;
+        # track them as analytics instead of capturing them as exceptions.
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_upload_rejected",
+            properties={
+                "file_count": len(new_symbol_sets),
+                "failure_code": _get_failure_code(e),
+            },
+            groups=groups(team.organization, team),
+        )
+        raise
+    except Exception as e:
+        posthoganalytics.capture_exception(e)
+        raise
+
+
+def _bulk_create_symbol_sets(
+    new_symbol_sets: list[SymbolSetUpload],
+    team: Team,
+    force: bool,
+    skip_on_conflict: bool,
+    distinct_id: str | None,
+    skip_release_on_conflict: bool,
 ) -> dict[str, dict[str, str]]:
     accelerate = bool(
         distinct_id
@@ -215,17 +250,28 @@ def bulk_create_symbol_sets(
             upload = new_symbol_set_map[existing.ref]
             dirty = False
 
-            # Allow adding an "orphan" symbol set to a release, but not
-            # moving symbols sets between releases
+            # Allow adding an "orphan" symbol set to a release, but never move a
+            # symbol set between releases - that would re-attribute existing stack
+            # traces. When the conflict is benign (identical content, e.g. an
+            # unchanged artifact rebuilt under a new release) or the caller opted
+            # in, keep the existing association instead of failing the whole batch.
             if upload.release_id:
                 if existing.release_id is None:
                     existing.release_id = upload.release_id
                     dirty = True
                 elif str(existing.release_id) != upload.release_id:
-                    raise ValidationError(
-                        code="release_id_mismatch",
-                        detail=f"Symbol set {existing.ref} already has a release ID",
-                    )
+                    content_unchanged = upload.content_hash is not None and existing.content_hash == upload.content_hash
+                    if content_unchanged or skip_release_on_conflict:
+                        logger.warning(
+                            "symbol_set_release_conflict_skipped",
+                            ref=existing.ref,
+                            team_id=team.id,
+                        )
+                    else:
+                        raise ValidationError(
+                            code="release_id_mismatch",
+                            detail=f"Symbol set {existing.ref} already has a release ID",
+                        )
 
             if upload.content_hash is None:
                 if existing.content_hash is not None:
@@ -436,6 +482,7 @@ def bulk_start_upload(
     force: bool,
     skip_on_conflict: bool,
     distinct_id: str | None,
+    skip_release_on_conflict: bool = False,
 ) -> dict[str, dict[str, str]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
     uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
@@ -452,6 +499,7 @@ def bulk_start_upload(
         force=force,
         skip_on_conflict=skip_on_conflict,
         distinct_id=distinct_id,
+        skip_release_on_conflict=skip_release_on_conflict,
     )
 
 

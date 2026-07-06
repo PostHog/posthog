@@ -1042,6 +1042,7 @@ export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */
 
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = false
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
+export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipReleaseOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
     chunk_ids: zod
@@ -1073,4 +1074,10 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    skip_release_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipReleaseOnConflictDefault)
+        .describe(
+            "Whether to keep an uploaded symbol set's existing release association instead of failing when a different release ID is provided. Symbol sets are never moved between releases."
+        ),
 })
