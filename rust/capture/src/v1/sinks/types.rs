@@ -19,12 +19,16 @@ pub enum Destination {
     ExceptionErrorTracking,
     HeatmapMain,
     ClientIngestionWarning,
+    AiEvents,
 }
 
 impl Destination {
     /// Returns true for destinations that flow through the analytics ingestion
     /// pipeline (and are therefore subject to analytics-scoped restrictions,
     /// overflow routing, etc). Mirrors legacy `DataType::is_analytics_pipeline`.
+    ///
+    /// `AiEvents` is false: `$ai_*` events are diverted out of the analytics
+    /// pipeline into a dedicated AI lane, just like heatmaps/exceptions.
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
@@ -42,6 +46,7 @@ impl Destination {
             Self::ExceptionErrorTracking => "exception_error_tracking",
             Self::HeatmapMain => "heatmap_main",
             Self::ClientIngestionWarning => "client_ingestion_warning",
+            Self::AiEvents => "ai_events",
         }
     }
 }
@@ -61,6 +66,7 @@ mod destination_tests {
         assert!(!Destination::ExceptionErrorTracking.is_analytics_pipeline());
         assert!(!Destination::HeatmapMain.is_analytics_pipeline());
         assert!(!Destination::ClientIngestionWarning.is_analytics_pipeline());
+        assert!(!Destination::AiEvents.is_analytics_pipeline());
         assert!(!Destination::Overflow.is_analytics_pipeline());
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
@@ -91,6 +97,7 @@ mod destination_tests {
                 Destination::ClientIngestionWarning,
                 "client_ingestion_warning",
             ),
+            (Destination::AiEvents, "ai_events"),
         ];
 
         let mut seen = std::collections::HashSet::new();

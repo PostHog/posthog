@@ -348,13 +348,12 @@ pub async fn build_components(
         None
     };
 
-    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
-        Some(
-            create_v1_sink_router(&config, &sink_env, v1_sink_handles)
-                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
-        )
+    let (v1_sink_router, route_ai_events) = if !config.capture_v1_sinks.is_empty() {
+        let (router, route_ai_events) = create_v1_sink_router(&config, &sink_env, v1_sink_handles)
+            .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}"));
+        (Some(router), route_ai_events)
     } else {
-        None
+        (None, false)
     };
 
     let app = router::router(
@@ -387,6 +386,7 @@ pub async fn build_components(
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        route_ai_events,
     );
 
     info!(
@@ -437,16 +437,26 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
+/// Builds the v1 sink router and reports whether the default sink diverts
+/// `$ai_*` events to a dedicated topic (its kafka `topic_ai` is set). The flag
+/// is surfaced here, alongside where the sink configs are built, so
+/// `router::State` can gate AI routing without reaching back through the sink.
 fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
-) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
+) -> anyhow::Result<(Arc<crate::v1::sinks::Router>, bool)> {
     let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
+
+    // validate() guarantees the default sink is present in configs.
+    let route_ai_events = sinks_cfg
+        .configs
+        .get(&sinks_cfg.default)
+        .is_some_and(|cfg| cfg.kafka.topic_ai.is_some());
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
@@ -478,9 +488,9 @@ fn create_v1_sink_router(
     let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
     info!(
         sinks = config.capture_v1_sinks.as_str(),
-        "V1 sink router initialized"
+        route_ai_events, "V1 sink router initialized"
     );
-    Ok(Arc::new(router))
+    Ok((Arc::new(router), route_ai_events))
 }
 
 async fn create_sink(

@@ -197,6 +197,7 @@ fn setup_ai_test_router() -> Router {
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        false,                            // route_ai_events
     )
 }
 
@@ -1660,6 +1661,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        false,                            // route_ai_events
     );
 
     (router, sink_clone)
@@ -2575,6 +2577,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        false,                            // route_ai_events
     );
 
     (router, sink_clone)
@@ -2785,6 +2788,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
         None,                             // ai_gateway_signing_secret
+        false,                            // route_ai_events
     );
 
     (router, sink_clone)
@@ -2940,6 +2944,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         None,                   // v1_sink_router
         8,                      // capture_v1_scatter_gather_min_batch
         None,                   // ai_gateway_signing_secret
+        false,                  // route_ai_events
     );
 
     (router, sink_clone)
@@ -3079,6 +3084,7 @@ fn ai_router(
         None,
         8,
         Some(GW_SECRET.to_string()),
+        false, // route_ai_events
     );
     (router, sink_clone)
 }

@@ -104,6 +104,11 @@ pub struct Config {
     pub topic_exception: String,
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
+
+    /// Optional dedicated topic for `$ai_*` events. Absent (None) by default:
+    /// only when set does the pipeline divert AI events off `topic_main` into
+    /// this lane, so leaving it unset is a strict no-op.
+    pub topic_ai: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -158,6 +163,7 @@ impl Config {
             Destination::ExceptionErrorTracking => Some(&self.topic_exception),
             Destination::HeatmapMain => Some(&self.topic_heatmap),
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
+            Destination::AiEvents => self.topic_ai.as_deref(),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -386,5 +392,21 @@ mod tests {
     fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         assert_eq!(cfg.topic_for(&dest), expected);
+    }
+
+    #[test]
+    fn topic_ai_absent_defaults_to_none() {
+        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        assert_eq!(cfg.topic_ai, None);
+        assert_eq!(cfg.topic_for(&Destination::AiEvents), None);
+    }
+
+    #[test]
+    fn topic_ai_present_resolves_destination() {
+        let mut env = required_kafka_env();
+        env.insert("TOPIC_AI".into(), "ai_events".into());
+        let cfg = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(cfg.topic_ai.as_deref(), Some("ai_events"));
+        assert_eq!(cfg.topic_for(&Destination::AiEvents), Some("ai_events"));
     }
 }

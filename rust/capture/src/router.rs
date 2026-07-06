@@ -82,6 +82,10 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    /// True when the default V1 sink has a dedicated `$ai_*` topic configured
+    /// (`CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_AI`). Gates diverting `$ai_*` events to
+    /// `Destination::AiEvents`; false keeps them on the analytics main topic.
+    pub route_ai_events: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
 }
@@ -153,6 +157,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
+    route_ai_events: bool,
 ) -> Router {
     let state = State {
         sink,
@@ -180,6 +185,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
+        route_ai_events,
     };
 
     // Very permissive CORS policy, as old SDK versions

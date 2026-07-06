@@ -1111,6 +1111,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             None,             // v1_sink_router
             8,                // capture_v1_scatter_gather_min_batch
             None,             // ai_gateway_signing_secret
+            false,            // route_ai_events
         ),
         sink,
     )

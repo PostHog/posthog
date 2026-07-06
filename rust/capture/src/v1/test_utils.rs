@@ -846,6 +846,8 @@ impl TestStateBuilder {
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
+            // V1 test sink uses no dedicated AI topic, so $ai_* stays on Main.
+            route_ai_events: false,
         };
 
         TestState {
