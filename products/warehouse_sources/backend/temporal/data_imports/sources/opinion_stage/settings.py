@@ -22,5 +22,3 @@ OPINION_STAGE_ENDPOINTS: dict[str, OpinionStageEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(OPINION_STAGE_ENDPOINTS.keys())
-
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
