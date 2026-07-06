@@ -41,9 +41,6 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
-        // Unmount rendered trees between tests. Leaked mounts accumulate scroll listeners and
-        // effects that React's async act (which waitFor wraps) flushes on every wait, which under
-        // CI contention pushed later tests past the 10s timeout.
         cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
