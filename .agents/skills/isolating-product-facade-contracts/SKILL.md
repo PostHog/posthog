@@ -301,9 +301,22 @@ in `facade/api.py` with the viewset deferred.
      fails if a marked module is missing from the inputs. Use this only for
      coupling that is both non-behavioral-over-HTTP and impossible to reroute
      (frozen-migration / schema-registry DDL) — not as an escape hatch for
-     model/logic imports you simply haven't migrated yet. `error_tracking` is
-     the worked example; `cohorts` and `event_definitions` share the same DDL
-     shape and can follow it.
+     model/logic imports you simply haven't migrated yet. That restriction is
+     structural, not stylistic: the marker is only sound when every
+     frozen-pinned module contains **only DDL**. `error_tracking` is the worked
+     example (`sql` / `embedding` / `indexed_embedding` are pure-DDL modules).
+     `cohorts` matches too — migration 0010 pins
+     `products.cohorts.backend.models.sql`, a DDL-only submodule, so the marker
+     applies to exactly that submodule (not `backend.models.*`).
+     `event_definitions` does **not**: migration 0120 pins
+     `products.event_definitions.backend.models.property_definition`, a module
+     that defines the `PropertyDefinition` model class alongside its DDL
+     constant, so marking it permanent would expose model access — precisely
+     the escape hatch this exception forbids. Products with that shape need the
+     DDL extracted into a dedicated module first, with the frozen import path
+     preserved by a re-export shim in the original module; the shim's residual
+     exposure (the frozen migration still imports the model module) must be
+     documented honestly in the block comment, not papered over by the marker.
    - Verify with `tach check --dependencies --interfaces`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
