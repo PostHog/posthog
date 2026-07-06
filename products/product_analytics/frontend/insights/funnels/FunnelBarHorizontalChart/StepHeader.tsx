@@ -34,7 +34,7 @@ export function StepHeader({ step, stepIndex, previousStep, isUnordered, isOptio
                 {!isUnordered && previousStep != null && step.action_id === previousStep.action_id && (
                     <DuplicateStepIndicator />
                 )}
-                <FunnelStepMore stepIndex={stepIndex} />
+                <FunnelStepMore stepIndex={stepIndex} className="ml-1" />
             </div>
             {showMedianTime ? (
                 <div className="text-secondary text-xs" title="Median time of conversion from previous step">

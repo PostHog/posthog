@@ -2,8 +2,9 @@ import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, LemonSelect } from '@posthog/lemon-ui'
 
+import type { DataColorToken } from 'lib/colors'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
@@ -17,9 +18,10 @@ export default function CyclotronJobInputAccountProperties({
     onChange,
     sampleGlobalsWithInputs,
 }: CustomInputRendererProps): JSX.Element {
-    const { definitions, nameById, definitionsLoading } = useValues(accountPropertiesInputLogic)
+    const { definitions, definitionsLoading } = useValues(accountPropertiesInputLogic)
 
-    // Keys are custom property definition ids (stable across renames); values are Hog expressions.
+    // Keys are custom property definition ids (stable across renames); values are Hog expressions
+    // (select properties store the chosen option label as a literal).
     const properties: Record<string, string> = value ?? {}
     const entries = Object.entries(properties)
     const selectedIds = new Set(entries.map(([id]) => id))
@@ -36,20 +38,38 @@ export default function CyclotronJobInputAccountProperties({
     return (
         <div className="flex flex-col gap-2">
             {entries.map(([id, hogValue]) => {
-                const label = nameById[id]
+                const definition = definitions.find((d) => d.id === id)
                 return (
                     <div className="flex gap-2 items-center" key={id}>
-                        <div className="flex-1 min-w-50 font-medium truncate" title={label ?? id}>
-                            {label ?? <span className="text-secondary italic">Unknown property</span>}
+                        <div className="flex-1 min-w-50 font-medium truncate" title={definition?.name ?? id}>
+                            {definition?.name ?? <span className="text-secondary italic">Unknown property</span>}
                         </div>
-                        <CodeEditorInline
-                            className="overflow-hidden flex-2"
-                            minHeight="37"
-                            value={hogValue}
-                            onChange={(val) => setProperty(id, val ?? '')}
-                            language="hogTemplate"
-                            globals={sampleGlobalsWithInputs ?? undefined}
-                        />
+                        {definition?.display_type === 'select' ? (
+                            <LemonSelect
+                                className="flex-2"
+                                value={hogValue || null}
+                                onChange={(option) => setProperty(id, option ?? '')}
+                                options={(definition.options ?? []).map((option) => ({
+                                    value: option.label,
+                                    label: (
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />
+                                            {option.label}
+                                        </span>
+                                    ),
+                                }))}
+                                placeholder="Select an option"
+                            />
+                        ) : (
+                            <CodeEditorInline
+                                className="overflow-hidden flex-2"
+                                minHeight="37"
+                                value={hogValue}
+                                onChange={(val) => setProperty(id, val ?? '')}
+                                language="hogTemplate"
+                                globals={sampleGlobalsWithInputs ?? undefined}
+                            />
+                        )}
                         <LemonButton icon={<IconX />} size="small" onClick={() => removeProperty(id)} />
                     </div>
                 )
