@@ -296,6 +296,25 @@ class TestProductionModeContinueAsNew(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_max_orgs_capped_page_finishes_without_continuing(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_activity_result(20000),
+                EnrichConversationsSlackPageResult(page_size=500, processed=500, updated=100, errors=[]),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        workflow = SalesforceConversationsSlackEnrichmentWorkflow()
+        result = await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100, max_orgs=500))
+
+        enrich_call = mock_workflow.execute_activity.call_args_list[1]
+        assert enrich_call.kwargs["args"] == [0, 500, 100]
+        mock_workflow.continue_as_new.assert_not_called()
+        assert result["total_orgs_processed"] == 500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_skips_paging_when_no_org_mappings(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(return_value=_cache_activity_result(0))
         mock_workflow.continue_as_new = MagicMock()

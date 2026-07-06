@@ -333,8 +333,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         if len(state.errors) < 10:
             state.errors.extend(page_result.errors[: 10 - len(state.errors)])
 
-        # No data or last page — return final result
-        if page_result.page_size == 0 or page_result.page_size < page_size:
+        if page_result.page_size < POSTHOG_FETCH_MAPPINGS_PAGE_SIZE:
             return self._build_result(state)
 
         # More pages to process — continue as new execution

@@ -286,7 +286,7 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
         if len(state.errors) < 10:
             state.errors.extend(page_result.errors[: 10 - len(state.errors)])
 
-        if page_result.page_size == 0 or page_result.page_size < page_size:
+        if page_result.page_size < POSTHOG_FETCH_MAPPINGS_PAGE_SIZE:
             return self._build_result(state)
 
         state.page_offset += page_result.page_size
