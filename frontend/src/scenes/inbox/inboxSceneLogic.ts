@@ -230,7 +230,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     const [scoutResult, signalResult] = await Promise.allSettled([
                         api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
                         // `internal: 'all'` so the pipeline's runs (research and implementation, both
-                        // created internal) are included — they're hidden from the default task list.
+                        // created internal) are included. They're hidden from the default task list.
                         api.tasks.list({
                             origin_product: OriginProduct.SIGNAL_REPORT,
                             internal: 'all',
