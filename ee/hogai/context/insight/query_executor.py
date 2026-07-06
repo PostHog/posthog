@@ -150,7 +150,7 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime, user: Optional["User"] = None):
+    def __init__(self, team: Team, utc_now_datetime: datetime, user: "User"):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
@@ -620,10 +620,11 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
 async def execute_and_format_query(
     team: Team,
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+    *,
+    user: "User",
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
-    user: Optional["User"] = None,
     include_prompt_framing: bool = True,
 ) -> str:
     """

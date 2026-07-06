@@ -601,7 +601,7 @@ class SearchReplayVisionObservationsTool(MaxTool):
             LIMIT {{limit}}
         """
         tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH)
-        result = execute_hogql_query(query=hogql_query, team=self._team, placeholders=placeholders)
+        result = execute_hogql_query(query=hogql_query, team=self._team, user=self._user, placeholders=placeholders)
         return [row[0] for row in (result.results or [])]
 
     def _read_output(self, obs: ReplayObservation) -> dict[str, Any] | None:
