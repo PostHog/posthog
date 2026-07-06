@@ -5,7 +5,7 @@ from typing import Generic
 from pydantic import BaseModel
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.helpers import build_dashboard_url
@@ -40,6 +40,8 @@ class DashboardContext:
         self,
         team: Team,
         insights_data: Sequence[DashboardInsightContext],
+        *,
+        user: User,
         name: str | None = None,
         description: str | None = None,
         dashboard_id: str | None = None,
@@ -52,6 +54,7 @@ class DashboardContext:
         Args:
             team: Team instance
             insights_data: List of DashboardInsightContext models containing insight query and metadata
+            user: User to execute insight queries as
             name: Dashboard name
             description: Dashboard description
             dashboard_id: Dashboard ID
@@ -59,6 +62,7 @@ class DashboardContext:
             max_concurrent_queries: Max concurrent insight queries (default: 5)
         """
         self.team = team
+        self.user = user
         self.name = name
         self.description = description
         self.dashboard_id = dashboard_id
@@ -164,6 +168,7 @@ class DashboardContext:
         return InsightContext(
             team=self.team,
             query=data.query,
+            user=self.user,
             name=data.name,
             description=data.description,
             insight_id=data.short_id,
