@@ -19,16 +19,17 @@ The loader also hard-fails if that self-governance entry is ever missing, so it 
 A folder may carry an `AGENT_POLICIES.md` with a `stamphog:` frontmatter block plus advisory prose.
 Resolution:
 
-- Every changed file is governed by the nearest `AGENT_POLICIES.md` at or above it; files without one belong to the global pool.
-- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose - and its files fall back to the global pool.
+- Every `AGENT_POLICIES.md` at or above a changed file governs it: guidance accumulates outermost first, and a child file adds to its ancestors rather than replacing them.
+- For the delegated `size_gate.max_files`, the nearest file on the chain with a valid grant wins for its files (within the contract ceiling); files whose chain grants nothing belong to the global pool.
+- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose. An invalid file contributes nothing itself, but it does not cancel its ancestors: files under it still ride an ancestor's grant, or fall to the global pool if the chain grants nothing. Rationale: an author who can write an invalid file could equally delete it, so treating invalid as absent grants no extra power, and every `AGENT_POLICIES.md` edit is human-reviewed via the `stamphog_policy` deny anyway.
 - The prose is untrusted advisory guidance. It is sanitized, length-capped, and injected inside the reviewer prompt's untrusted region; it can never override the deny rules or the refusal criteria.
 
 ### Mixed PRs get mixed leniency
 
-Each scope's files are counted against that scope's own file ceiling, so a folder's grant covers exactly its own files and nothing else.
+Each scope's files are counted against that scope's own file ceiling, so a grant covers exactly the files that resolve to it (the nearest valid grant on their chain) and nothing else.
 Example: a PR changing 30 files under `products/visual_review/` (ceiling 50) plus 19 files elsewhere (global ceiling 20) passes, because each budget fits.
 Add a 21st global file and the PR is denied for the global budget, no matter how much headroom the folder still has.
-Files under a prose-only or invalid folder file count against the global budget too, so splitting files across pseudo-scopes can never inflate the allowance.
+Files whose chain grants no valid `max_files` (no folder file, prose-only, or only invalid grants) count against the global budget, so splitting files across pseudo-scopes can never inflate the allowance.
 The line ceiling stays a single global total; it is not delegable.
 
 ## Delegation contract

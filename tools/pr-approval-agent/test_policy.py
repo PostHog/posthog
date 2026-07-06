@@ -241,12 +241,27 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
 
 
 _VISUAL_REVIEW_FILE = "products/visual_review/AGENT_POLICIES.md"
+_PRODUCTS_FILE = "products/AGENT_POLICIES.md"
+_PROSE_ONLY_FM = "{}"
+
+
+def _grant(max_files: int) -> str:
+    return f"stamphog:\n  size_gate:\n    max_files: {max_files}"
+
+
+def _multi_prose(*parts: tuple[str, str]) -> str:
+    return "\n\n".join(f"[{path}]\n{prose}" for path, prose in parts)
+
+
+def _write_agent_policy(root: Path, rel_dir: str, frontmatter: str, prose: str) -> str:
+    path = root / rel_dir / "AGENT_POLICIES.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\n{frontmatter}\n---\n\n{prose}\n")
+    return f"{rel_dir}/AGENT_POLICIES.md"
 
 
 def _write_folder_policy(root: Path, frontmatter: str, prose: str = "advisory prose") -> None:
-    path = root / "products" / "visual_review" / "AGENT_POLICIES.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\n{frontmatter}\n---\n\n{prose}\n")
+    _write_agent_policy(root, "products/visual_review", frontmatter, prose)
 
 
 @pytest.fixture
@@ -366,6 +381,58 @@ def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> N
     assert ok is expected_ok
     if not expected_ok:
         assert "global" in message
+
+
+@pytest.mark.parametrize(
+    "parent_fm, child_fm, scope_path, max_files",
+    [
+        pytest.param(_PROSE_ONLY_FM, _grant(50), _VISUAL_REVIEW_FILE, 50, id="child-grants"),
+        pytest.param(_grant(30), _PROSE_ONLY_FM, _PRODUCTS_FILE, 30, id="parent-grants-child-prose-only"),
+    ],
+)
+def test_resolve_child_rides_nearest_grant_and_accumulates_ancestor_prose(
+    fake_repo: Path, parent_fm: str, child_fm: str, scope_path: str, max_files: int
+) -> None:
+    # A child file refines its ancestors, never replaces them: the nearest valid
+    # grant on the chain budgets the file, and every valid folder file's prose
+    # survives (outermost first).
+    _write_agent_policy(fake_repo, "products", parent_fm, "parent guidance")
+    _write_agent_policy(fake_repo, "products/visual_review", child_fm, "child guidance")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    scope = _scope(eff, scope_path)
+    assert scope.max_files == max_files
+    assert scope.files == ("products/visual_review/a.py",)
+    assert _scope(eff, None).files == ()
+    assert eff.invalid_folder_files == ()
+    assert eff.folder_prose == _multi_prose(
+        (_PRODUCTS_FILE, "parent guidance"),
+        (_VISUAL_REVIEW_FILE, "child guidance"),
+    )
+
+
+def test_resolve_nearest_grant_wins_across_siblings(fake_repo: Path) -> None:
+    _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
+    _write_agent_policy(fake_repo, "products/visual_review", _grant(50), "child guidance")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
+    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
+    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _scope(eff, _PRODUCTS_FILE).max_files == 30
+    assert _scope(eff, _PRODUCTS_FILE).files == ("products/foo.py",)
+    assert _scope(eff, None).files == ()
+
+
+def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
+    # An invalid child is treated as absent: it grants nothing and adds no prose,
+    # but it does not cancel the granting parent above it.
+    _write_agent_policy(fake_repo, "products", _grant(30), "parent guidance")
+    _write_agent_policy(fake_repo, "products/visual_review", _grant(99), "child guidance")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    parent_scope = _scope(eff, _PRODUCTS_FILE)
+    assert parent_scope.max_files == 30
+    assert parent_scope.files == ("products/visual_review/a.py",)
+    assert _scope(eff, None).files == ()
+    assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
+    assert eff.folder_prose == "parent guidance"
 
 
 # ── 4. A policy-file-only PR is never T0 (deny wins over allow-listed ext) ──

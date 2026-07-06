@@ -13,8 +13,11 @@ Security posture (see .stamphog/README.md):
 - A malformed global policy hard-fails at load (fail closed - the tool crashes
   rather than approving with a half-loaded policy).
 - Folder overrides are a positive allow-list: only explicitly delegated keys
-  are read, within contract ceilings. Any invalid folder file is ignored in
-  its entirety (frontmatter and prose) and the strict global policy applies.
+  are read, within contract ceilings. Every AGENT_POLICIES.md at or above a
+  changed file governs it - guidance accumulates and a child file refines its
+  ancestors rather than replacing them. An invalid folder file contributes
+  nothing itself (frontmatter and prose ignored) but does not cancel its
+  ancestors; files with no valid grant on their chain fall to the global pool.
 - Folder prose is untrusted advisory text: sanitized and length-capped before
   it reaches the reviewer prompt, where it sits inside the untrusted region.
 """
@@ -170,10 +173,9 @@ class Policy:
 class ScopeBudget:
     """One size-gate budget: a folder override's files, or the global pool.
 
-    `path` is the governing AGENT_POLICIES.md (repo-relative); None is the
-    global pool, which also absorbs files under prose-only or invalid folder
-    files so splitting files across pseudo-scopes can never inflate the
-    allowance.
+    `path` is the granting AGENT_POLICIES.md (repo-relative); None is the global
+    pool, which absorbs every file whose chain grants no valid max_files so
+    splitting files across pseudo-scopes can never inflate the allowance.
     """
 
     path: str | None
@@ -185,11 +187,12 @@ class ScopeBudget:
 class EffectivePolicy:
     """Per-PR resolved policy: per-scope size budgets plus advisory prose.
 
-    Mixed PRs get mixed leniency: every changed file is budgeted by the nearest
-    folder override above it, and each scope's files must fit that scope's own
-    ceiling. No file ever gets more leniency than its own folder grants, and
-    the global pool keeps the global ceiling. max_lines stays a single global
-    total; it is not delegable.
+    Mixed PRs get mixed leniency: every AGENT_POLICIES.md at or above a changed
+    file governs it, and the file is budgeted by the nearest folder on that
+    chain with a valid max_files grant. Each scope's files must fit that scope's
+    own ceiling; files with no valid grant on their chain keep the global
+    ceiling. No file ever gets more leniency than its own chain grants.
+    max_lines stays a single global total; it is not delegable.
     """
 
     max_lines: int
@@ -459,28 +462,38 @@ class _FolderOverride:
     invalid: bool = False
 
 
-def _scope_dir_for(
-    file_path: str, root: Path, cache: dict[PurePosixPath, PurePosixPath | None]
-) -> PurePosixPath | None:
-    """Nearest directory at or above `file_path` carrying an AGENT_POLICIES.md.
+def _scope_chain_for(
+    file_path: str, root: Path, cache: dict[PurePosixPath, tuple[PurePosixPath, ...]]
+) -> tuple[PurePosixPath, ...]:
+    """Directories carrying an AGENT_POLICIES.md at or above `file_path`, nearest first.
 
-    None when no folder file governs the path (the file belongs to the global
-    pool). Per-directory cache keeps this one stat per distinct directory.
+    A child folder file refines its ancestors rather than replacing them, so the
+    whole ancestor chain governs the file, not just the nearest folder. Empty
+    when no folder file governs the path (the file belongs to the global pool).
+    Per-directory cache keeps this one stat per distinct directory: it maps a
+    directory to the full chain of policy-bearing directories at or above it.
     """
     start = PurePosixPath(file_path).parent
-    result: PurePosixPath | None = None
-    visited: list[PurePosixPath] = []
+    if start in cache:
+        return cache[start]
+
+    # Walk up until a directory already resolved (or the root), remembering the
+    # directories we still have to stat.
+    pending: list[PurePosixPath] = []
+    tail: tuple[PurePosixPath, ...] = ()
     for rel in [start, *start.parents]:
         if rel in cache:
-            result = cache[rel]
+            tail = cache[rel]
             break
-        visited.append(rel)
+        pending.append(rel)
+
+    # Fill the cache outermost-first so each directory builds on its parent's
+    # chain; prepending keeps the whole chain nearest-first.
+    for rel in reversed(pending):
         if (root / rel / _FOLDER_POLICY_FILENAME).is_file():
-            result = rel
-            break
-    for rel in visited:
-        cache[rel] = result
-    return result
+            tail = (rel, *tail)
+        cache[rel] = tail
+    return cache[start]
 
 
 def _sanitize_folder_prose(raw: str) -> str:
@@ -551,36 +564,59 @@ def _read_delegated_max_files(stamphog: dict[str, Any], contract: dict[str, Over
 def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     """Resolve the per-scope size budgets for a PR's changed files.
 
-    Each file is governed by the nearest AGENT_POLICIES.md above it. Scopes
-    that grant a max_files override form their own budget over their own files;
-    everything else (no folder file, prose-only, or invalid folder file) pools
-    into the global budget. Advisory prose is collected from every valid folder
-    file that governs at least one changed file.
+    Every AGENT_POLICIES.md at or above a changed file governs it. A file's size
+    budget comes from the nearest folder on its chain with a valid max_files
+    grant; files whose chain grants nothing (no folder file, prose-only, or only
+    invalid grants) pool into the global budget. Advisory prose accumulates from
+    every valid folder file on the chain of at least one changed file, outermost
+    first so general guidance precedes specific. An invalid folder file is
+    treated as absent - it grants nothing and adds no prose, but its ancestors
+    still apply - and is reported in invalid_folder_files.
     """
     root = repo_root()
-    dir_cache: dict[PurePosixPath, PurePosixPath | None] = {}
-    by_scope: dict[PurePosixPath | None, list[str]] = {}
-    for file_path in changed_files:
-        scope = _scope_dir_for(file_path, root, dir_cache)
-        by_scope.setdefault(scope, []).append(file_path)
+    dir_cache: dict[PurePosixPath, tuple[PurePosixPath, ...]] = {}
+    parse_cache: dict[PurePosixPath, tuple[str, _FolderOverride]] = {}
 
-    global_files: list[str] = by_scope.pop(None, [])
-    override_scopes: list[ScopeBudget] = []
+    def parsed_for(scope_dir: PurePosixPath) -> tuple[str, _FolderOverride]:
+        if scope_dir not in parse_cache:
+            rel_path = (scope_dir / _FOLDER_POLICY_FILENAME).as_posix()
+            parse_cache[scope_dir] = (rel_path, _parse_folder_policy(root / rel_path, policy.overrides))
+        return parse_cache[scope_dir]
+
+    # Files sharing a granting AGENT_POLICIES.md pool into one budget; the folder
+    # files touched by any chain feed the prose and invalid-file reporting.
+    grant_files: dict[str, list[str]] = {}
+    grant_max: dict[str, int] = {}
+    global_files: list[str] = []
+    on_chain: dict[str, _FolderOverride] = {}  # rel path -> parse, each file once
+    for file_path in changed_files:
+        grant: tuple[str, int] | None = None
+        for scope_dir in _scope_chain_for(file_path, root, dir_cache):
+            rel_path, parsed = parsed_for(scope_dir)
+            on_chain[rel_path] = parsed
+            if grant is None and not parsed.invalid and parsed.max_files is not None:
+                grant = (rel_path, parsed.max_files)
+        if grant is None:
+            global_files.append(file_path)
+        else:
+            grant_files.setdefault(grant[0], []).append(file_path)
+            grant_max[grant[0]] = grant[1]
+
+    override_scopes = [
+        ScopeBudget(path=rel_path, max_files=grant_max[rel_path], files=tuple(files))
+        for rel_path, files in sorted(grant_files.items())
+    ]
+
     prose_parts: list[tuple[str, str]] = []
     invalid_files: list[str] = []
-    for scope_dir, files in sorted(by_scope.items(), key=lambda item: str(item[0])):
-        rel_path = (scope_dir / _FOLDER_POLICY_FILENAME).as_posix()
-        parsed = _parse_folder_policy(root / rel_path, policy.overrides)
+    for rel_path, parsed in on_chain.items():
         if parsed.invalid:
             invalid_files.append(rel_path)
-            global_files.extend(files)
-            continue
-        if parsed.prose:
+        elif parsed.prose:
             prose_parts.append((rel_path, parsed.prose))
-        if parsed.max_files is None:
-            global_files.extend(files)
-            continue
-        override_scopes.append(ScopeBudget(path=rel_path, max_files=parsed.max_files, files=tuple(files)))
+    # Outermost first: shallower path depth wins, ties broken lexicographically.
+    prose_parts.sort(key=lambda item: (item[0].count("/"), item[0]))
+    invalid_files.sort()
 
     if len(prose_parts) == 1:
         folder_prose = prose_parts[0][1]
