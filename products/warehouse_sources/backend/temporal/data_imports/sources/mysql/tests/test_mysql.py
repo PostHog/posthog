@@ -1687,6 +1687,25 @@ class TestMySQLSourceValidateCredentials:
         assert error == expected_error
         capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "https://db.example.com/",
+            "mysql://root:secret@db.example.com:3306/mydb",
+        ],
+    )
+    def test_url_in_host_field_rejected_without_echoing_input(self, source, mocker, host):
+        # If the guard is dropped, the raw host reaches host validation / DNS and the
+        # message would echo it (leaking a pasted password), so assert it is never reached.
+        mocker.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve"))
+        mocker.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect"))
+
+        valid, error = source.validate_credentials(_make_config(host=host), team_id=1)
+
+        assert valid is False
+        assert host not in (error or "")
+        assert "hostname" in (error or "")
+
     def test_unexpected_errors_are_still_captured(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.capture_exception"
