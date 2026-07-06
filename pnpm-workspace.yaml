@@ -26,6 +26,7 @@ packages:
     - '!tools/hedgebox-dummy'
     - rust/cyclotron-node
     - rust/common/hogvm/node
+    - rust/replay-anonymizer-node
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
@@ -53,6 +54,7 @@ catalog:
     oxfmt: ^0.35.0
     # Testing
     jest: ^29.7.0
+    jest-junit: ^16.0.0
     '@types/jest': ^29.5.12
     '@types/node': ^22.13.14
     '@playwright/test': 1.60.0

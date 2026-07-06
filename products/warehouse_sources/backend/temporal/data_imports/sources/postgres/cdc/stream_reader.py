@@ -7,6 +7,7 @@ approach — batch reads on a schedule.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import structlog
+import psycopg.errors
 from psycopg import sql
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -28,6 +30,18 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
+
+# pg_replication_slot_advance rejects the advance with SQLSTATE 55006 (ObjectInUse) while the slot
+# is still acquired by another backend. The advance runs on its own short-lived connection while the
+# streaming peek releases the slot, so the two can momentarily overlap; the slot frees on its own.
+_SLOT_ACTIVE_MARKER = "is active for pid"
+_SLOT_ADVANCE_MAX_ATTEMPTS = 3
+
+# The first fetch of pg_logical_slot_peek_binary_changes acquires the replication slot, which
+# Postgres rejects with SQLSTATE 55006 (ObjectInUse, "... is active for PID ...") while a prior
+# run's connection is still releasing it. The slot frees on its own, so a short in-process retry
+# absorbs the handoff instead of failing — and replaying — the whole extraction attempt.
+_SLOT_READ_MAX_ATTEMPTS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +146,7 @@ class PgCDCStreamReader:
         """
         if self._conn is None:
             raise RuntimeError("Not connected. Call connect() first.")
+        conn = self._conn
 
         self._last_rows_consumed = 0
         upto = sql.Literal(upto_nchanges) if upto_nchanges is not None else sql.SQL("NULL")
@@ -147,20 +162,37 @@ class PgCDCStreamReader:
             pub_name=sql.Literal(self._params.publication_name),
         )
 
-        with self._conn.cursor(name="cdc_stream") as cur:
-            cur.itersize = 1000
-            cur.execute(query)
+        # The named cursor runs the peek lazily, so the slot is acquired on the first fetch — that
+        # is where "... is active for PID ..." surfaces, before any event is yielded. Retry that
+        # handoff in-process so a prior run's still-releasing connection can't fail the whole
+        # attempt. Once a row lands the slot is ours, so never retry past that point; if it stays
+        # held the error propagates to the retryable SLOT_IN_USE path.
+        for attempt in range(_SLOT_READ_MAX_ATTEMPTS):
+            slot_acquired = False
+            try:
+                with conn.cursor(name="cdc_stream") as cur:
+                    cur.itersize = 1000
+                    cur.execute(query)
 
-            for row in cur:
-                self._last_rows_consumed += 1
-                if on_row is not None:
-                    on_row()
+                    for row in cur:
+                        slot_acquired = True
+                        self._last_rows_consumed += 1
+                        if on_row is not None:
+                            on_row()
 
-                lsn_str: str = row[0]
-                data: bytes = row[2]
+                        lsn_str: str = row[0]
+                        data: bytes = row[2]
 
-                events = self._decoder.decode_message(data, lsn_str)
-                yield from events
+                        events = self._decoder.decode_message(data, lsn_str)
+                        yield from events
+                return
+            except psycopg.errors.ObjectInUse as e:
+                conn.rollback()
+                if slot_acquired or _SLOT_ACTIVE_MARKER not in str(e).lower() or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
+                    raise
+                self._last_rows_consumed = 0
+                logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
+                time.sleep(0.5 * 2**attempt)
 
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.
@@ -192,13 +224,33 @@ class PgCDCStreamReader:
             logger,
         )
         try:
-            with advance_conn.cursor() as cur:
-                cur.execute(query)
-            advance_conn.commit()
+            self._advance_slot(advance_conn, query)
         finally:
             advance_conn.close()
 
         logger.info("advanced_slot", slot_name=self._params.slot_name, position=position)
+
+    def _advance_slot(self, conn: psycopg.Connection, query: sql.Composed) -> None:
+        """Run the slot-advance query, retrying the brief window where the slot is still
+        held by another backend ("... is active for PID ...").
+
+        Advancing is idempotent (re-advancing past a confirmed LSN is a no-op), and the slot
+        frees on its own, so a short in-process retry absorbs a sub-second handoff instead of
+        failing — and replaying — the whole extraction. Exhausting the retries re-raises, so a
+        slot that stays held still surfaces as the retryable SLOT_IN_USE classification.
+        """
+        for attempt in range(_SLOT_ADVANCE_MAX_ATTEMPTS):
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(query)
+                conn.commit()
+                return
+            except psycopg.errors.ObjectInUse as e:
+                conn.rollback()
+                if _SLOT_ACTIVE_MARKER not in str(e).lower() or attempt == _SLOT_ADVANCE_MAX_ATTEMPTS - 1:
+                    raise
+                logger.warning("slot_advance_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
+                time.sleep(0.5 * 2**attempt)
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]:
         """Query information_schema for PK columns of the given tables.
