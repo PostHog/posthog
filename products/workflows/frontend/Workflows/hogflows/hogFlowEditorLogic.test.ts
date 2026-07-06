@@ -466,6 +466,106 @@ describe('hogFlowEditorLogic', () => {
         })
     })
 
+    describe('graph identity across rebuilds', () => {
+        // Auto-save round-trips rebuild the graph from the workflow; without id-based
+        // reconciliation every node and edge object is recreated each time and every ReactFlow
+        // subtree re-renders — the detached-DOM churn this exists to prevent. Fixed timestamps so
+        // two calls produce deep-equal flows.
+        const makeFlow = (branchName: string = 'Branch'): HogFlow => ({
+            id: 'test-flow',
+            team_id: 1,
+            version: 1,
+            name: 'Test Flow',
+            status: 'draft',
+            exit_condition: 'exit_only_at_end',
+            actions: [
+                {
+                    id: 'trigger',
+                    name: 'Trigger',
+                    description: '',
+                    type: 'trigger',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { type: 'event', filters: {} },
+                },
+                {
+                    id: 'branch',
+                    name: branchName,
+                    description: '',
+                    type: 'conditional_branch',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { conditions: [{ filters: {} }] },
+                },
+                {
+                    id: 'exit',
+                    name: 'Exit',
+                    description: '',
+                    type: 'exit',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { reason: '' },
+                },
+            ],
+            edges: [
+                { from: 'trigger', to: 'branch', type: 'continue' },
+                { from: 'branch', to: 'exit', type: 'branch', index: 0 },
+                { from: 'branch', to: 'exit', type: 'continue' },
+            ],
+            updated_at: '2026-01-01T00:00:00Z',
+            created_at: '2026-01-01T00:00:00Z',
+        })
+
+        // The rebuild always produces a new nodes ARRAY (only item references are reconciled), so
+        // an array identity change is the deterministic "async layout finished" signal — needed
+        // because the mounted logic's workflow subscription also schedules its own rebuild.
+        const waitForRebuild = async (previous: HogFlowActionNode[]): Promise<void> => {
+            for (let attempt = 0; attempt < 200 && logic.values.nodes === previous; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            expect(logic.values.nodes).not.toBe(previous)
+        }
+
+        const applyFlow = async (flow: HogFlow): Promise<void> => {
+            const before = logic.values.nodes
+            logic.actions.resetFlowFromHogFlow(flow)
+            await waitForRebuild(before)
+        }
+
+        beforeEach(async () => {
+            // Let the mount-time subscription rebuild (from workflowLogic's template flow) land
+            // first so it can't clobber the flows the tests apply.
+            await waitForRebuild(logic.values.nodes)
+        })
+
+        it('keeps node and edge references stable across a deep-equal rebuild', async () => {
+            await applyFlow(makeFlow())
+            const initialNodes = logic.values.nodes
+            const initialEdges = logic.values.edges
+            expect(initialNodes.length).toBeGreaterThan(0)
+
+            // Freshly constructed but deep-equal — as an auto-save round-trip would deliver.
+            await applyFlow(makeFlow())
+
+            logic.values.nodes.forEach((node, index) => expect(node).toBe(initialNodes[index]))
+            logic.values.edges.forEach((edge, index) => expect(edge).toBe(initialEdges[index]))
+        })
+
+        it('replaces only the changed node reference when one action changes', async () => {
+            await applyFlow(makeFlow())
+            const initialNodes = logic.values.nodes
+
+            await applyFlow(makeFlow('Renamed branch'))
+
+            const byId = (id: string): HogFlowActionNode | undefined =>
+                logic.values.nodes.find((node) => node.id === id)
+            expect(byId('trigger')).toBe(initialNodes.find((node) => node.id === 'trigger'))
+            expect(byId('exit')).toBe(initialNodes.find((node) => node.id === 'exit'))
+            expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
+            expect(byId('branch')?.data.name).toBe('Renamed branch')
+        })
+    })
+
     describe('showDropzones branch-join placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({

@@ -21,6 +21,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -494,7 +495,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     })
 
-                    actions.setEdges(edges)
+                    // Reuse unchanged edge references so ReactFlow only reprocesses edges that
+                    // actually changed (matching its own applyEdgeChanges contract).
+                    actions.setEdges(reconcileById(values.edges, edges, (edge) => edge.id))
                     actions.setNodes(nodes)
                 } catch (error) {
                     console.error('Error resetting flow from hog flow', error)
@@ -505,7 +508,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setNodes: async ({ nodes }) => {
                 const formattedNodes = await getFormattedNodes(nodes, values.edges)
 
-                actions.setNodesRaw(formattedNodes)
+                // Reconcile after layout so positions participate in the equality check: a node
+                // that moved gets a fresh reference, an untouched one keeps its identity and its
+                // ReactFlow subtree doesn't re-render.
+                actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
             },
 
             onNodesDelete: ({ deleted }) => {
@@ -940,8 +946,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        workflow: (hogFlow?: HogFlow) => {
-            if (hogFlow) {
+        workflow: (hogFlow?: HogFlow, oldHogFlow?: HogFlow) => {
+            // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
+            // re-deriving every node and edge (including the async layout pass) for no change.
+            if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
                 actions.resetFlowFromHogFlow(hogFlow)
             }
         },

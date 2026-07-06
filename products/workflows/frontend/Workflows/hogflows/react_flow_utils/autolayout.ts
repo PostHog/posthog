@@ -96,8 +96,17 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         node.y = (node.y || 0) - offsetY
     })
 
-    return layoutedGraph.children?.map((node) => ({
-        ...node,
-        position: { x: node.x, y: node.y },
-    })) as HogFlowActionNode[]
+    // Rebuild from the input nodes rather than spreading elk's children: elk annotates every
+    // graph element it lays out with internal bookkeeping (e.g. a `$H` hash that differs per
+    // run), which would leak into ReactFlow and make deep-equal layouts look changed.
+    const layoutedById = new Map(layoutedGraph.children?.map((child) => [child.id, child]))
+    return nodes.map((node) => {
+        const layouted = layoutedById.get(node.id)
+        return {
+            ...node,
+            width: NODE_WIDTH,
+            height: NODE_HEIGHT,
+            position: { x: layouted?.x ?? 0, y: layouted?.y ?? 0 },
+        }
+    })
 }
