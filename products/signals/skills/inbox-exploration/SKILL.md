@@ -59,6 +59,8 @@ _underlying detail_ — pair them when the user wants to dig in.
 | ------------------------------------- | ------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
 | `inbox-reports-retrieve`              | Full detail for a single report                                     |
+| `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
+| `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                       |
 | `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report      |
 | `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)       |
 | `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
@@ -66,8 +68,8 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)           |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
 
-The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*-list` / `-retrieve` tools are
-read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
+The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+`inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
 _Workflow: dismiss or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
@@ -245,15 +247,29 @@ inbox-reports-retrieve
 { "id": "<report_uuid>" }
 ```
 
-Returns the full record including `signals_at_run` and `artefact_count`. Combine this with the
-`signals` skill if the user wants to see the actual signal contents:
+Returns the full record including `signals_at_run` and `artefact_count`. Then read the report's
+work log:
+
+```json
+inbox-report-artefacts-list
+{ "report_id": "<report_uuid>" }
+```
+
+This returns the report's evidence (`signal_finding`), the judgments behind its
+status/priority/actionability (`safety_judgment`, `actionability_judgment`, `priority_judgment`,
+`repo_selection`, `suggested_reviewers`), and its work-log (`commit`, `task_run`, `note`) — the
+curated "why it exists and what's been done" view, in one read-only call.
+
+Use the `signals` skill only when you need the raw signal text beyond the curated findings:
 
 1. Use `inbox-reports-retrieve` to get the report metadata + `id`
-2. Use the `signals` skill's Example 2 (fetch all signals for a specific report) — pass the
-   report ID as `metadata.report_id` in the HogQL query
+2. Use `inbox-report-artefacts-list` for the curated evidence, judgments, and work-log
+3. Use the `signals` skill's Example 2 (fetch all signals for a specific report) — pass the
+   report ID as `metadata.report_id` in the HogQL query — only for the raw underlying signal text
 
-The two layers complement each other: the `inbox-*` tools give you the curated/judged view, and
-the `signals` skill lets you inspect the raw observations that produced it.
+The layers complement each other: `inbox-report-artefacts-list` gives you the curated/judged view
+(evidence + judgments + PR/task-run history), and the `signals` skill lets you inspect the raw
+observations that produced it.
 
 ## Workflow: act on an actionable report
 
@@ -282,12 +298,22 @@ Before doing any work, look at:
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 
-The report's `summary` will name files, functions, and sometimes line numbers. **Open them and
-confirm the claim holds** — that the cited code exists, still looks the way the report describes,
-and actually produces the described failure. Pull the underlying signals via the `signals` skill
-(`metadata.report_id`) if you need the raw evidence behind the summary. If the diagnosis doesn't
-hold up, say so and stop — a wrong report is itself a useful finding (and a candidate for
-_dismiss_ below), not a license to write a speculative fix.
+Start by reading the report's work log — its evidence and the judgments behind it:
+
+```json
+inbox-report-artefacts-list
+{ "report_id": "<report_uuid>" }
+```
+
+This surfaces the `signal_finding` evidence, the status/priority/actionability judgments, and any
+`commit` / `task_run` history — exactly the "why it exists and what's already been done" you need
+before touching code. Then the report's `summary` will name files, functions, and sometimes line
+numbers. **Open them and confirm the claim holds** — that the cited code exists, still looks the
+way the report describes, and actually produces the described failure. As a deeper fallback, pull
+the raw underlying signals via the `signals` skill (`metadata.report_id`) if you need the signal
+text behind the curated findings. If the diagnosis doesn't hold up, say so and stop — a wrong
+report is itself a useful finding (and a candidate for _dismiss_ below), not a license to write a
+speculative fix.
 
 ### Step 3 — Scope the fix to the right layer
 
