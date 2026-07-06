@@ -3193,7 +3193,7 @@ class SurvicateSourceConfig(config.Config):
 
 @config.config
 class SvixSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

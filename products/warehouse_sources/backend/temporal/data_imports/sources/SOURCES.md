@@ -301,6 +301,7 @@ the row lists both.
 | stripe                  | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase                | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey            | HTTP                        | requests                                                        | ✅                          |
+| svix                    | HTTP                        | requests                                                        | ✅                          |
 | taboola                 | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
