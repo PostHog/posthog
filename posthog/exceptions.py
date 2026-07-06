@@ -85,6 +85,10 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # 512 (like ClickHouseEstimatedQueryExecutionTimeTooLong) so the frontend surfaces the detail
     # in the actionable "problem with this query" panel rather than the generic error state.
     status_code = 512  # Custom error code
+    # Stable machine-readable code so the frontend can recognise out-of-memory failures without
+    # matching on the (translatable, changeable) detail copy. Keep in sync with the frontend
+    # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
+    default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
 
 

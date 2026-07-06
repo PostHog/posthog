@@ -34,6 +34,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
@@ -495,24 +496,32 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Auto-submitted prompt (the `!` prefix) that opens Max primed to debug an out-of-memory insight.
-const MAX_MEMORY_LIMIT_PROMPT =
+// Prompt that opens the PostHog AI side panel primed to debug an out-of-memory insight. The
+// leading `!` is a command understood by the side panel (see parseCommandString in
+// scenes/max/maxLogic): it means "auto-submit this prompt on open" instead of just pre-filling
+// the composer, so the user lands on an answer in progress rather than an unsent draft.
+const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
 
 export function InsightValidationError({
     detail,
+    validationErrorCode,
     query,
     onRetry,
     cta,
 }: {
     detail: string
+    validationErrorCode?: string | null
     query?: Record<string, any> | null
     onRetry?: () => void
     cta?: JSX.Element
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    // Keyed off the ClickHouseQueryMemoryLimitExceeded copy so we only offer Max on out-of-memory failures.
-    const isMemoryLimitError = detail.includes('ran out of memory')
+    // Prefer the stable backend error code. Some query paths (e.g. async dashboard tiles) don't
+    // propagate a code yet, so fall back to the message there until QueryStatus carries one.
+    const isMemoryLimitError = validationErrorCode
+        ? validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+        : detail.includes('ran out of memory')
 
     return (
         <div
@@ -536,13 +545,13 @@ export function InsightValidationError({
             <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
 
             {isMemoryLimitError ? (
-                <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, MAX_MEMORY_LIMIT_PROMPT)}>
+                <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)}>
                     <LemonButton
                         type="primary"
-                        onClick={() => openSidePanel(SidePanelTab.Max, MAX_MEMORY_LIMIT_PROMPT)}
-                        data-attr="insight-memory-limit-debug-with-max"
+                        onClick={() => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)}
+                        data-attr="insight-memory-limit-debug-with-ai"
                     >
-                        Debug with Max
+                        Debug with PostHog AI
                     </LemonButton>
                 </AIConsentPopoverWrapper>
             ) : (

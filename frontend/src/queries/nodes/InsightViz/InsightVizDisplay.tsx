@@ -219,6 +219,7 @@ export function InsightVizDisplay({
                 <InsightValidationError
                     query={query}
                     detail={validationError}
+                    validationErrorCode={validationErrorCode}
                     onRetry={
                         resetCta
                             ? undefined

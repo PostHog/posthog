@@ -194,6 +194,9 @@ export const extractValidationError = (error: Error | Record<string, any> | null
     return null
 }
 
+// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
+export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         if (error?.status === 400 || error?.status === 512) {

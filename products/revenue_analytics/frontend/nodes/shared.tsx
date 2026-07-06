@@ -14,7 +14,7 @@ import {
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, extractValidationErrorCode, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
 import { AnyResponseType, GoalLine, RevenueAnalyticsGoal, TrendsFilter } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
@@ -77,6 +77,7 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
     const { response, responseLoading, responseErrorObject, query, queryId } = useValues(logic)
 
     const validationError = extractValidationError(responseErrorObject)
+    const validationErrorCode = extractValidationErrorCode(responseErrorObject)
     const timeoutError = isTimeoutError(responseErrorObject)
 
     // Empty states that completely replace the graph
@@ -86,7 +87,13 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
         }
 
         if (validationError) {
-            return <InsightValidationError query={query} detail={validationError} />
+            return (
+                <InsightValidationError
+                    query={query}
+                    detail={validationError}
+                    validationErrorCode={validationErrorCode}
+                />
+            )
         }
 
         if (

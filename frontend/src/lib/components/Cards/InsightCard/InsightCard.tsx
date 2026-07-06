@@ -26,7 +26,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
@@ -248,7 +248,12 @@ function InsightCardInternal(
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
-                return <InsightValidationError detail={validationError} />
+                return (
+                    <InsightValidationError
+                        detail={validationError}
+                        validationErrorCode={extractValidationErrorCode(apiError)}
+                    />
+                )
             } else if (apiError instanceof ApiError) {
                 return <InsightErrorState title={apiError?.detail} />
             }
