@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -313,7 +313,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), [batch])
 
         # Another pod owns the group now — processing it here would double-write.
-        consumer._process_batch.assert_not_called()
+        cast(AsyncMock, consumer._process_batch).assert_not_called()
         mock_unlock.assert_called_once()
 
 
