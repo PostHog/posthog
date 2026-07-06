@@ -151,10 +151,11 @@ export interface ExecuteSqlGenerationMeta {
 }
 
 /**
- * Emits a synthetic `$ai_generation` per `execute-sql` call so the HogQL the agent
- * wrote lands in LLM analytics, where online evaluations (LLM judge / Hog) can score
- * it for anti-patterns on live traffic. `$ai_trace_id` is the MCP session uuid, so a
- * session's queries group into one trace.
+ * Manually captures an `$ai_generation` per `execute-sql` call — the client's LLM
+ * authored the query; this server is the observer that sees intent and output
+ * together. Lands in LLM analytics, where online evaluations (LLM judge / Hog) can
+ * score it for anti-patterns on live traffic. `$ai_trace_id` is the MCP session
+ * uuid, so a session's queries group into one trace.
  */
 export async function trackExecuteSqlGeneration(
     toolName: string,
