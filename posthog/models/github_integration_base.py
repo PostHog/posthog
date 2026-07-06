@@ -41,6 +41,10 @@ github_cache_access_counter = Counter(
 # Repository cache: 1-hour staleness window.
 GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 
+# Repository collaborator cache: 1-hour window. Access changes rarely and reviewer resolution
+# is not a hot read path, so an hour balances API spend against dropping departed collaborators.
+GITHUB_COLLABORATOR_CACHE_TTL_SECONDS = 60 * 60
+
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
@@ -453,6 +457,44 @@ class GitHubIntegrationBase:
         if not isinstance(name, str):
             raise ValueError(f"GitHub integration account name is not a string: {name}")
         return name
+
+    def is_repository_collaborator(self, repository: str, login: str) -> bool | None:
+        """Whether ``login`` currently has access to ``repository`` (is a collaborator).
+
+        ``GET /repos/{owner}/{repo}/collaborators/{username}`` returns 204 for a collaborator
+        and 404 for a non-collaborator. Returns ``None`` when the answer is unknown — missing
+        permission (403), a rate limit, or a transport error — so callers can fail open rather
+        than drop someone on an ambiguous signal. Cached per (installation, repo, login) since
+        access changes rarely and the same login recurs across a report's commits.
+        """
+        if not repository or not login:
+            return None
+
+        cache_key = f"github_integration:repo_collaborator:{self.integration.id}:{repository.lower()}:{login.lower()}"
+        cached = cache.get(cache_key)
+        if isinstance(cached, bool):
+            return cached
+
+        try:
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repository}/collaborators/{login}",
+                endpoint="/repos/{owner}/{repo}/collaborators/{username}",
+            )
+        except GitHubRateLimitError:
+            return None
+
+        if response is None:
+            return None
+        if response.status_code == 204:
+            is_collaborator = True
+        elif response.status_code == 404:
+            is_collaborator = False
+        else:
+            # 403 (missing permission) or anything unexpected — unknown, so fail open.
+            return None
+
+        cache.set(cache_key, is_collaborator, timeout=GITHUB_COLLABORATOR_CACHE_TTL_SECONDS)
+        return is_collaborator
 
     def list_teams(self, *, search: str = "", limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], bool]:
         """List GitHub teams for the integration account organization with bounded API calls."""

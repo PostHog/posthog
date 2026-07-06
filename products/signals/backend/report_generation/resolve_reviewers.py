@@ -45,10 +45,7 @@ def enrich_reviewer_dicts_with_org_members(
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
     Called at read time so that users who connect their GitHub account after the
-    artefact was created show up properly. Reviewers are derived from git commit
-    authorship, not the org roster, so an author who has since left the org would
-    otherwise still be suggested. Reviewers whose GitHub login doesn't resolve to a
-    current org member are dropped here rather than emitted with ``user: null``.
+    artefact was created show up properly.
     """
     if not reviewer_dicts:
         return reviewer_dicts
@@ -64,8 +61,6 @@ def enrich_reviewer_dicts_with_org_members(
     for r in reviewer_dicts:
         login = r.get("github_login", "")
         user = resolved_map.get(login.lower()) if login else None
-        if user is None:
-            continue
         enriched.append(
             {
                 **r,
@@ -75,7 +70,9 @@ def enrich_reviewer_dicts_with_org_members(
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
-                },
+                }
+                if user
+                else None,
             }
         )
 
@@ -174,16 +171,26 @@ def resolve_suggested_reviewers(
             if login not in login_names:
                 login_names[login] = author_info.name
 
-    # Return top reviewers by weighted score
-    return [
-        _ResolvedReviewer(
-            login=login,
-            name=login_names.get(login),
-            commits=login_commits.get(login, []),
-            weight=weight,
+    # Take reviewers by weighted score, but skip anyone who no longer has access to the repo:
+    # authors come from git history, so a past contributor who has since left the GitHub org (or
+    # lost repo access) shouldn't be suggested. Fail open on an unknown access signal (missing
+    # permission, rate limit, error) so we never drop a valid reviewer on ambiguity.
+    reviewers: list[_ResolvedReviewer] = []
+    for login, weight in login_weights.most_common():
+        if len(reviewers) >= MAX_SUGGESTED_REVIEWERS:
+            break
+        if github.is_repository_collaborator(repository, login) is False:
+            logger.info("Skipping suggested reviewer %s without access to %s", login, repository)
+            continue
+        reviewers.append(
+            _ResolvedReviewer(
+                login=login,
+                name=login_names.get(login),
+                commits=login_commits.get(login, []),
+                weight=weight,
+            )
         )
-        for login, weight in login_weights.most_common(MAX_SUGGESTED_REVIEWERS)
-    ]
+    return reviewers
 
 
 @dataclass

@@ -124,19 +124,16 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert reviewer["user"]["uuid"] == str(member.uuid)
         assert reviewer["user"]["email"] == "alice@example.com"
 
-    def test_list_drops_reviewers_not_a_current_org_member(self):
-        # Reviewers come from git authorship, so a login that isn't a current org
-        # member (left the org, or never connected GitHub) is dropped, not shown.
+    def test_list_unknown_login_returns_null_user(self):
         report = self._create_report()
         self._create_artefact(report, content=[{"github_login": "nobody"}])
 
         response = self.client.get(self._list_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         rows = response.json()["results"]
-        assert rows[0]["content"] == []
+        assert rows[0]["content"][0]["user"] is None
 
     def test_list_scoped_to_report_and_team(self):
-        self._create_org_member("alice@example.com", github_login="alice")
         report = self._create_report()
         other_report = self._create_report()
         self._create_artefact(report, content=[{"github_login": "alice"}])

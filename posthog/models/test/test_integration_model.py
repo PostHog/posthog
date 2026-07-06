@@ -1024,6 +1024,48 @@ class TestGitHubIntegrationModel(BaseTest):
         with patch.object(github, "_installation_authenticated_get", return_value=None):
             assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
 
+    @parameterized.expand(
+        [
+            ("collaborator", 204, True),
+            ("not_a_collaborator", 404, False),
+            ("missing_permission_fails_open", 403, None),
+            ("unexpected_status_fails_open", 500, None),
+        ]
+    )
+    def test_is_repository_collaborator_maps_status(self, _name, status_code, expected):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=status_code)
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is expected
+        assert "/repos/PostHog/posthog/collaborators/octocat" in mock_get.call_args.args[0]
+
+    def test_is_repository_collaborator_fails_open_on_rate_limit(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get", side_effect=GitHubRateLimitError("limited")):
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is None
+
+    def test_is_repository_collaborator_caches_definitive_answer(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=204)
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is True
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is True
+        mock_get.assert_called_once()
+
+    def test_is_repository_collaborator_does_not_cache_unknown(self):
+        # A 403 (missing permission) must be re-checked, so the filter starts working the moment
+        # access is granted rather than being pinned to "unknown" for the cache TTL.
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403)
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response) as mock_get:
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is None
+            assert github.is_repository_collaborator("PostHog/posthog", "octocat") is None
+        assert mock_get.call_count == 2
+
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
 

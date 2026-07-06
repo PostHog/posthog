@@ -1,13 +1,18 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
+from posthog.models.github_integration_base import GitHubCommitAuthor
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    resolve_org_github_login_to_users,
+    resolve_suggested_reviewers,
+)
 
 
 @pytest.fixture
@@ -106,3 +111,31 @@ def test_skips_users_outside_organization(organization, team):
         assert result == {}
     finally:
         other_org.delete()
+
+
+@pytest.mark.django_db
+def test_resolve_suggested_reviewers_drops_reviewers_without_repo_access(organization, team):
+    # Authors come from git history; a past contributor who lost repo access must not be suggested,
+    # while collaborators and unknown-access authors (fail open) are kept.
+    authors = {
+        "sha_keep": GitHubCommitAuthor(login="keeper", name="Keeper", commit_url="https://gh/c/1"),
+        "sha_drop": GitHubCommitAuthor(login="departed", name="Departed", commit_url="https://gh/c/2"),
+        "sha_unknown": GitHubCommitAuthor(login="mystery", name="Mystery", commit_url="https://gh/c/3"),
+    }
+    collaborator_by_login = {"keeper": True, "departed": False, "mystery": None}
+
+    github = MagicMock()
+    github.get_commit_author_info.side_effect = lambda repository, sha: authors[sha]
+    github.is_repository_collaborator.side_effect = lambda repository, login: collaborator_by_login[login]
+
+    with patch(
+        "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+        return_value=github,
+    ):
+        result = resolve_suggested_reviewers(
+            team.id,
+            "PostHog/posthog",
+            {"sha_keep": "reason a", "sha_drop": "reason b", "sha_unknown": "reason c"},
+        )
+
+    assert [r.login for r in result] == ["keeper", "mystery"]
