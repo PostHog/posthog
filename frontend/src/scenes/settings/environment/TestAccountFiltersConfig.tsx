@@ -8,8 +8,10 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -82,6 +84,30 @@ function TestAccountFiltersConfig(): JSX.Element {
     return (
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
+                <LemonBanner type="info">
+                    <p className="mb-1">Not sure which property to filter on?</p>
+                    <ul className="list-disc ml-4 mb-0">
+                        <li>
+                            To exclude your own team, filter the <strong>email</strong> person property, e.g.{' '}
+                            <i>email does not contain @your-company.com</i>. There is no <code>email_domain</code>{' '}
+                            property - use the full <code>email</code>.
+                        </li>
+                        <li>
+                            No email to filter on? Exclude the auto-created <strong>Internal / Test users</strong> cohort
+                            (with a <i>not in</i> operator), or filter the <code>$internal_or_test_user</code> property.
+                        </li>
+                        {currentTeam?.anonymize_ips && (
+                            <li>
+                                The raw <code>$ip</code> property is not listed because{' '}
+                                <Link to={urls.settings('environment-privacy', 'datacapture')}>
+                                    discarding client IP data
+                                </Link>{' '}
+                                is enabled for this project, so only derived GeoIP properties remain. Use one of the
+                                options above to filter internal traffic instead.
+                            </li>
+                        )}
+                    </ul>
+                </LemonBanner>
                 <LemonBanner type="info">
                     When filtering out internal users, inline person property filters (e.g., "email does not contain
                     your-domain.com") work everywhere, including real-time CDP destinations. Alternatively, you can
