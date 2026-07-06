@@ -6,7 +6,8 @@ import pytest
 
 from dateutil import parser as dateutil_parser
 
-from posthog.temporal.tests.data_imports.github.data import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.github.data import (
     COMMITS,
     ISSUES,
     PULL_REQUESTS,
@@ -14,8 +15,6 @@ from posthog.temporal.tests.data_imports.github.data import (
     WORKFLOW_JOBS,
     WORKFLOW_RUNS,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 
 
 class MockGithubAPI:
