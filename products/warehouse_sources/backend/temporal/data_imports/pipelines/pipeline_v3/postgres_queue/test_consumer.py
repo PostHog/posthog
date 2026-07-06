@@ -84,6 +84,18 @@ def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
     return conn
 
 
+@pytest.fixture(autouse=True)
+def _lease_renewal_succeeds():
+    # Group dispatch renews the lease before processing; the real SQL can't run
+    # against mock connections. Tests exercising renewal failure re-patch this.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        yield
+
+
 class TestProcessSingle:
     @pytest.mark.asyncio
     async def test_success_updates_status_to_executing_then_succeeded(self):
@@ -280,6 +292,29 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), batches)
 
         assert processed == [0]
+
+    @pytest.mark.asyncio
+    async def test_abandons_group_when_lease_lost_before_dispatch(self):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), [batch])
+
+        # Another pod owns the group now — processing it here would double-write.
+        consumer._process_batch.assert_not_called()
+        mock_unlock.assert_called_once()
 
 
 class TestRecoverySweep:

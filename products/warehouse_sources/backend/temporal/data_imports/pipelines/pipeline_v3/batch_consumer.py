@@ -350,8 +350,18 @@ class BatchConsumer:
                     capture_exception(e)
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
-                self._metrics.poll_duration_seconds.observe(time.monotonic() - poll_start)
+                poll_duration = time.monotonic() - poll_start
+                self._metrics.poll_duration_seconds.observe(poll_duration)
                 self._metrics.poll_batches_fetched.observe(len(batches))
+                if poll_duration > self._lease_ttl_seconds / 2:
+                    # Leases are claimed at query start, so a poll this slow hands
+                    # groups over with most of their TTL already burned — the
+                    # leading indicator of fetch-expire-refetch churn fleet-wide.
+                    logger.warning(
+                        self._event("poll_duration_approaching_lease_ttl"),
+                        poll_duration_seconds=round(poll_duration, 3),
+                        lease_ttl_seconds=self._lease_ttl_seconds,
+                    )
 
                 if not batches:
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
@@ -438,6 +448,25 @@ class BatchConsumer:
             else:
                 group_conn = self._poll_conn
                 assert group_conn is not None
+
+            # The lease was claimed when the poll query started; a slow poll can
+            # burn most of its TTL before the group task runs. Re-up it here so
+            # processing starts with a full window instead of expiring mid-batch
+            # and churning the group to another pod.
+            renewed = await self._adapter.renew_lease(
+                group_conn,
+                team_id=team_id,
+                schema_id=schema_id,
+                owner_token=self._owner_token,
+                lease_ttl_seconds=self._lease_ttl_seconds,
+            )
+            if not renewed:
+                logger.warning(
+                    self._event("lease_lost_before_dispatch"),
+                    team_id=team_id,
+                    schema_id=schema_id,
+                )
+                return
 
             for batch in batches:
                 if self._shutdown.is_set():
