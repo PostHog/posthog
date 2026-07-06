@@ -523,7 +523,7 @@ def provision_persona_scouts(
                 created = False
             else:
                 # `for_team()` filters don't propagate into row creation — pass team explicitly.
-                config = SignalScoutConfig.objects.create(
+                config = SignalScoutConfig.objects.for_team(team.id).create(
                     team=team,
                     skill_name=skill_name,
                     enabled=True,

@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.models.scoping import unscoped
+
 from products.signals.backend.facade.api import collect_scout_run_digests, provision_persona_scouts
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.test.test_scout_harness_api import _make_run
@@ -34,7 +36,10 @@ class TestProvisionPersonaScouts(BaseTest):
             "skill_names": CSM_SKILLS,
         }
         kwargs.update(overrides)
-        return provision_persona_scouts(**kwargs)
+        # The real caller is Slack's background interactivity thread, where no team scope is
+        # set — clear the suite's autouse team_scope so bare fail-closed manager calls surface.
+        with unscoped():
+            return provision_persona_scouts(**kwargs)
 
     @patch(FIRE_PATH, side_effect=_fire_all)
     def test_fresh_team_gets_seeded_enabled_fleet_with_delivery_and_first_runs(self, fire_mock) -> None:
