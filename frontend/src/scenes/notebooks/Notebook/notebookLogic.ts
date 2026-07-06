@@ -95,6 +95,7 @@ import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
@@ -139,6 +140,17 @@ function keepNewestNotebookResponse(current: NotebookType | null, incoming: Note
     }
 
     return incoming.version < current.version ? current : incoming
+}
+
+function convertNotebookContentForRender(
+    content: JSONContent | null | undefined,
+    markdownNotebooksEnabled: boolean
+): JSONContent | null | undefined {
+    if (!markdownNotebooksEnabled || !content || isMarkdownNotebookContent(content)) {
+        return content
+    }
+
+    return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -977,30 +989,28 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly, s.localContent, s.notebook],
-            (
-                featureFlags: Record<string, string | boolean>,
-                isLocalOnly: boolean,
-                localContent: JSONContent | null,
-                notebook: NotebookType | null
-            ): boolean =>
+            (s) => [s.featureFlags, s.isLocalOnly, s.content],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean, content: JSONContent): boolean =>
                 !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] &&
                 !isLocalOnly &&
-                !isMarkdownNotebookContent(localContent || notebook?.content),
+                !isMarkdownNotebookContent(content),
         ],
         markdownRealtimeEnabled: [
-            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook],
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook, s.content, s.featureFlags],
             (
                 props: NotebookLogicProps,
                 mode: NotebookLogicMode,
                 isLocalOnly: boolean,
-                notebook: NotebookType | null
+                notebook: NotebookType | null,
+                content: JSONContent,
+                featureFlags: Record<string, string | boolean>
             ): boolean =>
                 mode === 'notebook' &&
                 !props.cachedNotebook &&
                 !isLocalOnly &&
                 !!notebook &&
-                isMarkdownNotebookContent(notebook.content),
+                (isMarkdownNotebookContent(notebook.content) ||
+                    (!!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS] && isMarkdownNotebookContent(content))),
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1059,10 +1069,15 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         content: [
-            (s) => [s.notebook, s.localContent, s.previewContent],
-            (notebook, localContent, previewContent): JSONContent => {
-                // We use the local content is set otherwise the notebook content
-                return previewContent || localContent || notebook?.content || []
+            (s) => [s.notebook, s.localContent, s.previewContent, s.featureFlags],
+            (
+                notebook: NotebookType | null,
+                localContent: JSONContent | null,
+                previewContent: JSONContent | null,
+                featureFlags: Record<string, string | boolean>
+            ): JSONContent => {
+                const content = previewContent || localContent || notebook?.content
+                return convertNotebookContentForRender(content, !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]) || []
             },
         ],
         markdownEditorMarkdown: [(s) => [s.content], (content): string => getMarkdownNotebookMarkdown(content)],
@@ -1849,6 +1864,9 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.editor) {
                 return
             }
+            if (values.previewContent) {
+                return
+            }
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
@@ -1903,7 +1921,15 @@ export const notebookLogic = kea<notebookLogicType>([
         saveNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
         },
-        loadNotebookSuccess: () => {
+        loadNotebookSuccess: ({ notebook }) => {
+            if (
+                notebook &&
+                isMarkdownNotebookContent(notebook.content) &&
+                values.localContent &&
+                !isMarkdownNotebookContent(values.localContent)
+            ) {
+                actions.clearLocalContent()
+            }
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()

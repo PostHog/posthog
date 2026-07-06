@@ -272,6 +272,7 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            ["E2E CI"],
             5,
             2,
         )
@@ -288,6 +289,7 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
 
@@ -312,6 +314,7 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            list[str](),
             0,
             0,
         )
@@ -324,18 +327,20 @@ class TestEndpointMapping(BaseTest):
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
-        # completed_count, latest_failed, latest_conclusion.
+        # completed_count, latest_failed, latest_conclusion, rerun_cycles.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success"),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success", 3),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, ""),
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, "", 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
         bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows)]):
+        # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
+        prev_rows = [("PostHog", "posthog", "CI", 0.95)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
@@ -343,6 +348,9 @@ class TestEndpointMapping(BaseTest):
         assert items[0].granularity == "day"
         assert items[0].latest_run_failed is False
         assert items[0].latest_run_conclusion == "success"
+        assert items[0].rerun_cycles == 3
+        assert items[0].success_rate_prev == 0.95
+        assert items[1].success_rate_prev is None
         # The series spans the whole window, zero-filled except the bucket with runs.
         assert len(items[0].buckets) >= 30
         seeded_bucket = next(entry for entry in items[0].buckets if entry.run_count > 0)

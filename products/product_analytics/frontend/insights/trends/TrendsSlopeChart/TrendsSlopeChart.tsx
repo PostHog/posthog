@@ -67,7 +67,13 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     )
 
     if (series.length === 0) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     return (
