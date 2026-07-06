@@ -10,7 +10,7 @@
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { StreamConnectionOutcome } from '../lib/types.js'
+import type { DisconnectClassification, StreamConnectionOutcome } from '../lib/types.js'
 
 export const register = new Registry()
 
@@ -83,6 +83,14 @@ export const streamIngestEventsTotal = new Counter({
     registers: [register],
 })
 
+// 'run_over'/'idle' are expected sandbox teardown; 'mid_turn' is a genuine cut worth alerting on.
+export const ingestClientDisconnectsTotal = new Counter({
+    name: 'agent_proxy_ingest_client_disconnects_total',
+    help: 'Ingest requests whose client disconnected mid-body, by stream state at disconnect',
+    labelNames: ['classification'],
+    registers: [register],
+})
+
 // ---------------------------------------------------------------------------
 // HTTP infrastructure metrics
 // ---------------------------------------------------------------------------
@@ -112,11 +120,12 @@ export const httpRequestsTotal = new Counter({
     registers: [register],
 })
 
+// Ingest requests are long-lived chunked POSTs (30-300s); without buckets up there percentiles pin at 10s.
 export const httpRequestDurationSeconds = new Histogram({
     name: 'agent_proxy_http_request_duration_seconds',
     help: 'HTTP request duration in seconds',
     labelNames: ['method', 'route', 'status'],
-    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600],
     registers: [register],
 })
 
@@ -178,4 +187,8 @@ export function observeStreamIngestEvents(opts: { accepted: number; duplicate: n
     if (opts.duplicate > 0) {
         streamIngestEventsTotal.labels({ result: 'duplicate' }).inc(opts.duplicate)
     }
+}
+
+export function observeIngestClientDisconnect(classification: DisconnectClassification): void {
+    ingestClientDisconnectsTotal.labels({ classification }).inc()
 }

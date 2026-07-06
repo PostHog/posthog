@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
@@ -10,6 +11,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -194,6 +196,7 @@ function TracingSceneContents(): JSX.Element {
                         rows={aggregation.current}
                         loading={aggregationLoading}
                         windowMs={operationsWindowMs}
+                        onRowClick={(row) => router.actions.push(urls.tracingOperation(row.service_name, row.name))}
                     />
                 ) : (
                     <>

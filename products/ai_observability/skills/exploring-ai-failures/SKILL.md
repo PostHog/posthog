@@ -135,11 +135,12 @@ niche domains.
 ## Constructing UI links
 
 `query-llm-trace` does not return a `_posthogUrl`, so build links with `posthog:generate-app-url` —
-never hand-write the host or the `/project/<id>/` prefix. Pass the canonical path templates:
+never hand-write the host or the `/project/<id>/` prefix. The `url` must be a canonical catalog
+template; pass concrete ids via `params`, never inline them into the path.
 
 - **Traces list:** `generate-app-url {url: "/ai-observability/traces"}` (then filter to your use case)
-- **Single trace:** `generate-app-url {url: "/ai-observability/traces/<trace_id>"}`, then append
-  `?timestamp=<url_encoded_timestamp>` to the returned URL (the timestamp isn't expressible via the tool).
+- **Single trace:** `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`,
+  then append `?timestamp=<url_encoded_timestamp>` to the returned URL (the timestamp isn't expressible via the tool).
 
 These resolve to the correct region host and project prefix (e.g.
 `https://us.posthog.com/project/<id>/ai-observability/traces/<trace_id>`), so a user not already on the
