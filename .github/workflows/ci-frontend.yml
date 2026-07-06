@@ -631,7 +631,11 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        # Draft PRs run the selective mode as a single unsharded job over every
+        # test reachable from the changed files. A PR touching a scene component
+        # can pull in ~700 suites, which does not fit in 15 minutes. 20 covers it;
+        # the ready-for-review fanout shards well below either limit.
+        timeout-minutes: 20
         needs: [changes, select-jest-tests]
         if: |
             always() && needs.changes.outputs.frontend_code == 'true'
