@@ -1480,26 +1480,28 @@ export interface RecentActionsApi {
  * One row in `inventory.top_events`.
  */
 export interface TopEventEntryApi {
+    /** Rolling lookback window (in days) that every count and timestamp on this row is measured over — these are windowed figures, NOT lifetime totals. A capture gap can collapse a real, high-volume project's in-window counts to near-zero, so a thin `count` here does not by itself mean the project is low-volume: rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before closing out a surface as unused. */
+    window_days: number
     /** Event name as captured. */
     event: string
-    /** Number of occurrences in the lookback window (last 7 days). */
+    /** Number of occurrences within the last `window_days` (windowed, not lifetime). */
     count: number
     /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
     distinct_users: number
-    /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+    /** Count in just the last 24 hours. Compare to `count / window_days` to spot bursts: a ratio well above `1 / window_days` means the event is concentrated in the last day. */
     recent_24h_count: number
     /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
     recent_24h_users: number
     /**
-     * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+     * ISO-8601 timestamp of the earliest occurrence within the `window_days` window. Compare to the window start to spot new event types: close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
      * @nullable
      */
-    first_seen: string | null
+    first_seen_in_window: string | null
     /**
-     * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+     * ISO-8601 timestamp of the most recent occurrence within the `window_days` window.
      * @nullable
      */
-    last_seen: string | null
+    last_seen_in_window: string | null
 }
 
 /**
@@ -1551,7 +1553,7 @@ export interface ProjectProfileInventoryApi {
     /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
     recent_actions: RecentActionsApi
     /**
-     * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+     * Top ~50 events by count over a recent rolling window (each row carries `window_days`), with first/last seen timestamps within that window. These are WINDOWED counts, not lifetime totals: a capture gap can collapse a real, high-volume project's counts to near-zero here, so rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before reading thinness as a genuinely low-volume project. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen_in_window` and `now` to spot new event types or recent bursts.
      * @nullable
      */
     top_events: TopEventEntryApi[] | null
