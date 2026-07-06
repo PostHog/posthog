@@ -1,8 +1,9 @@
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+from products.review_hog.backend.reviewer.constants import DEDUP_ONESHOT_MAX_FINDINGS
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -97,12 +98,17 @@ def test_comment_line_resolves_position_or_none() -> None:
     assert _comment_line(_comment(line=None, start_line=None)) is None
 
 
-# --- deduplicate_issues orchestration (Pattern B: only the sandbox seam is mocked) ---
+# --- deduplicate_issues orchestration (Pattern B: only the LLM executor seams are mocked) ---
+# Within the one-shot gate (every small set below) the LLM dedupe is `run_oneshot_review`; the
+# sandbox seam only fires above DEDUP_ONESHOT_MAX_FINDINGS (covered by the routing test).
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_empty_issues_returns_empty_without_sandbox(pr_metadata: PRMetadata) -> None:
-    with patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox:
+async def test_deduplicate_empty_issues_returns_empty_without_llm(pr_metadata: PRMetadata) -> None:
+    with (
+        patch(f"{_MODULE}.run_oneshot_review") as mock_oneshot,
+        patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox,
+    ):
         result = await deduplicate_issues(
             team_id=1,
             user_id=1,
@@ -114,11 +120,12 @@ async def test_deduplicate_empty_issues_returns_empty_without_sandbox(pr_metadat
         )
 
     assert result == []
+    mock_oneshot.assert_not_called()
     mock_sandbox.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_no_positional_collision_keeps_all_without_sandbox(pr_metadata: PRMetadata) -> None:
+async def test_deduplicate_no_positional_collision_keeps_all_without_llm(pr_metadata: PRMetadata) -> None:
     # Distinct files/lines and no prior bot comments -> nothing collides -> LLM dedupe skipped.
     issues = [
         _issue("1-1", "src/a.py", 10, 20),
@@ -126,7 +133,10 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_sandbox(pr_
         _issue("1-3", "src/c.py", 50, 60),
     ]
 
-    with patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox:
+    with (
+        patch(f"{_MODULE}.run_oneshot_review") as mock_oneshot,
+        patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox,
+    ):
         result = await deduplicate_issues(
             team_id=1,
             user_id=1,
@@ -137,6 +147,7 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_sandbox(pr_
             repository="test/repo",
         )
 
+    mock_oneshot.assert_not_called()
     mock_sandbox.assert_not_called()
     assert {i.id for i in result} == {"1-1", "1-2", "1-3"}
 
@@ -151,7 +162,7 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
     ]
     dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="2-1")])
 
-    with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(dedup)):
+    with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
             team_id=1,
             user_id=1,
@@ -175,7 +186,7 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
     comments = [_prior_comment("src/auth.py", 47, user="some-reviewer[bot]")]
     dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1")])
 
-    with patch(f"{_MODULE}.run_sandbox_review", create_mock_run_sandbox_review(dedup)):
+    with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
             team_id=1,
             user_id=1,
@@ -190,20 +201,56 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_propagates_sandbox_failure(pr_metadata: PRMetadata) -> None:
-    # run_sandbox_review now raises on a sandbox failure (instead of returning None); deduplicate_issues
-    # lets it propagate so the dedup activity fails, is retried, then fails the run loudly.
+@pytest.mark.parametrize(
+    "issue_count,expects_oneshot",
+    [
+        (DEDUP_ONESHOT_MAX_FINDINGS, True),
+        (DEDUP_ONESHOT_MAX_FINDINGS + 1, False),
+    ],
+)
+async def test_dedup_llm_call_routes_by_oneshot_gate(
+    pr_metadata: PRMetadata, issue_count: int, expects_oneshot: bool
+) -> None:
+    # The gate counts issues entering dedup and is inclusive: within it the dedupe is a direct
+    # one-shot gateway call; above it the previous sandbox path is kept. Every issue shares the same
+    # file+lines so the positional pre-filter always produces candidates and the LLM call fires.
+    issues = [_issue(f"1-{i}", "src/auth.py", 45, 50) for i in range(issue_count)]
+    keep_all = IssueDeduplication(duplicates=[])
+
+    with (
+        patch(f"{_MODULE}.run_oneshot_review", new=AsyncMock(return_value=keep_all)) as mock_oneshot,
+        patch(f"{_MODULE}.run_sandbox_review", new=AsyncMock(return_value=keep_all)) as mock_sandbox,
+    ):
+        result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
+            issues=issues,
+            pr_metadata=pr_metadata,
+            pr_comments=[],
+            branch="test-branch",
+            repository="test/repo",
+        )
+
+    assert len(result) == issue_count
+    assert mock_oneshot.called is expects_oneshot
+    assert mock_sandbox.called is not expects_oneshot
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_propagates_llm_failure(pr_metadata: PRMetadata) -> None:
+    # The executor raises on failure (instead of returning None); deduplicate_issues lets it
+    # propagate so the dedup activity fails, is retried, then fails the run loudly.
     issues = [
         _issue("1-1", "src/auth.py", 45, 50),
         _issue("2-1", "src/auth.py", 45, 50),
     ]
 
     async def mock_failure(**kwargs: Any) -> None:
-        raise RuntimeError("sandbox crashed")
+        raise RuntimeError("llm call crashed")
 
     with (
-        patch(f"{_MODULE}.run_sandbox_review", mock_failure),
-        pytest.raises(RuntimeError, match="sandbox crashed"),
+        patch(f"{_MODULE}.run_oneshot_review", mock_failure),
+        pytest.raises(RuntimeError, match="llm call crashed"),
     ):
         await deduplicate_issues(
             team_id=1,

@@ -36,7 +36,8 @@ One chunk = one coherent concern a reviewer can hold in their head on its own: a
 ## Sizing — count ADDED lines only (the `additions` field per file)
 - Aim for chunks of roughly {{CHUNK_TARGET}} added lines.
 - Strongly prefer keeping every chunk under {{CHUNK_SOFT_MAX}} added lines. If one coherent concern is larger than that, look hard for natural sub-seams (sub-features, distinct file groups) and split there; keep it whole only when it is genuinely atomic.
-- There is no limit on the NUMBER of chunks for a large PR — a 10k-line PR should become several focused chunks, each reviewable on its own, rather than one giant chunk.
+- Undersized chunks are a failure mode, not a virtue: do NOT emit a chunk under ~100 added lines unless the PR truly has no coherent chunk it can join. Fold a small related file group into the most related larger chunk rather than giving it a chunk of its own.
+- Sanity-check the chunk COUNT before answering: more than (total added lines ÷ {{CHUNK_TARGET}}, rounded up, plus one) chunks means you split too finely — merge the smallest chunks into their most related neighbors until you are back in range. The count scales up for genuinely large PRs — a 10k-line PR should still become many focused chunks, each reviewable on its own, rather than one giant chunk.
 
 ## Auto-generated files are not real code — don't let them drive chunking
 Generated API types and clients, generated schemas, and other mechanical codegen output are not hand-written code. Do NOT count their size toward chunk sizing, and do NOT give them a chunk of their own just to isolate the bulk. Attach them to the chunk of the source that produces them; only if they relate to no reviewed source, group them together as one low-priority chunk. (Lock files and build artifacts are already excluded from the input.)

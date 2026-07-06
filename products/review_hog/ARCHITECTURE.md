@@ -11,10 +11,13 @@ a markdown report, and posts inline review comments back to the PR. Each review 
 Correctness, Contracts & Security, Performance & Reliability) is a DB-synced **LLMA skill** the sandbox agent
 pulls over MCP — the same canonical-skill pattern the Signals scouts use.
 
-Every LLM step runs inside a **sandbox agent** spawned through the shared `products/tasks` infrastructure
-(`Task`/`TaskRun` → Temporal `ProcessTaskWorkflow` → Modal/Docker sandbox → agent-server). ReviewHog does
-**not** call an LLM SDK directly and does **not** own any sandbox/Temporal code — it composes a prompt,
-hands it to the Tasks runner, and gets back the validated model. Run state is persisted to Postgres
+The repo-access LLM steps (perspective review, blind-spot check, validation) run inside **sandbox agents**
+spawned through the shared `products/tasks` infrastructure (`Task`/`TaskRun` → Temporal
+`ProcessTaskWorkflow` → Modal/Docker sandbox → agent-server) — ReviewHog composes a prompt, hands it to the
+Tasks runner, and gets back the validated model, owning no sandbox/Temporal code. The two pure-text steps
+(**chunking, dedup**) run within size gates as **one-shot direct LLM-gateway calls**
+(`reviewer/sandbox/direct_llm.py`, structured outputs against the same pydantic models; sandbox fallback
+above the gates — see "✅ BUILT 2026-07-03" below). Run state is persisted to Postgres
 (`ReviewReport` + `ReviewReportArtefact`) — there is **no on-disk store**; the only external side effect is
 the GitHub review it posts.
 
@@ -174,7 +177,35 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    (wave + blind-spot) are done, dedup THAT chunk and spawn its validation session immediately instead of
    waiting for every chunk: **per-chunk dedup** first, a **cross-chunk dedup pass** later (cross-chunk
    dupes are rare — chunks are distinct concerns), and dedup as **plain LLM calls** instead of a sandbox
-   agent (it compares finding texts + prior comments, no repo access needed) — faster for sure.
+   agent (it compares finding texts + prior comments, no repo access needed) — faster for sure
+   **(BUILT 2026-07-03 for the size-gated case, chunking included — see the section below)**.
+
+### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
+
+`eval/POTENTIAL_EXPERIMENTS.md` item 7, refined per the user: chunking and dedup are pure text tasks (their
+prompts carry everything inline; dedup renders `CLAUDE_CODE_CONTEXT=""`), so within size gates they now run
+as **single direct LLM-gateway calls** instead of sandbox agents — removing ~55s provisioning per stage on
+the serial critical path and two failure classes (Modal provisioning flakes; the 29% chunking
+schema-failure class, killed structurally by structured outputs).
+
+- **Gates (`reviewer/constants.py`, 0 = disabled):** `CHUNKING_ONESHOT_MAX_ADDITIONS = 5000` (reviewable
+  added lines, consistent with the other chunking gates) / `DEDUP_ONESHOT_MAX_FINDINGS = 50` (issues
+  entering dedup, inclusive). Above a gate the stage takes the previous sandbox path unchanged (same
+  prompt, agent-default model).
+- **Executor:** `reviewer/sandbox/direct_llm.py` → `run_oneshot_review(...)` —
+  `get_async_anthropic_gateway_client(product="review_hog")` (product registered in
+  `posthog/llm/gateway_client.py` + the llm-gateway config), `ONESHOT_MODEL = "claude-sonnet-5"` with
+  adaptive thinking + `output_config.effort = "xhigh"` (the API-native expression of the sandbox pins),
+  **structured outputs** from the stage's pydantic model (schema-guaranteed JSON), an `ai_stage` header
+  stamped on the captured `$ai_generation` for dump/cost attribution, Anthropic errors re-raised as compact
+  `ApplicationError`s (4xx non-retryable except 408/409/429), Bedrock fallback off (that gateway path
+  strips `output_config`).
+- **Branch points:** `split_chunks_activity` (additions gate) and `deduplicate_issues` (issue-count gate);
+  prompts byte-identical on both paths.
+- Smoke-verified end-to-end 2026-07-03 against the local gateway (sonnet-5 generation captured with
+  `ai_product=review_hog` + `ai_stage`). Eval round:
+  `eval/experiments/2026-07-oneshot-chunking-dedup/` (2 unpinned e2e runs on frozen PR #62096 + an offline
+  chunk-plan sample; kill = set the two gates to 0, which restores sandbox behavior byte-identically).
 
 ### ✅ BUILT 2026-07-02 — Inbox "Code review" tab: onboarding/settings UI + `ReviewUserSettings` backend
 
@@ -2873,7 +2904,7 @@ See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the vi
 flowchart TD
     PR["PR URL"] --> FETCH["1. Fetch PR data (GitHub API)"]
     FETCH --> SCHEMA["2. Generate JSON schemas from Pydantic models"]
-    SCHEMA --> CHUNK{{"3. Chunk PR (sandbox)"}}
+    SCHEMA --> CHUNK{{"3. Chunk PR (one-shot ≤5k adds, else sandbox)"}}
     CHUNK --> L1{{"4a. Perspective — Logic & Correctness"}}
     CHUNK --> L2{{"4b. Perspective — Contracts & Security"}}
     CHUNK --> L3{{"4c. Perspective — Performance & Reliability"}}
@@ -2881,7 +2912,7 @@ flowchart TD
     L2 --> COMBINE
     L3 --> COMBINE
     COMBINE --> CLEAN["6. Scope clean (local)"]
-    CLEAN --> DEDUP{{"7. Deduplicate (pre-filter + sandbox)"}}
+    CLEAN --> DEDUP{{"7. Deduplicate (pre-filter + one-shot ≤50 findings, else sandbox)"}}
     DEDUP --> VALIDATE{{"8. Per-chunk validation (warm session, parallel)"}}
     VALIDATE --> MD["9. Build review body + finalize (DB)"]
     MD --> PUBLISH["10. Publish PR review (GitHub API, DB-driven)"]
@@ -2904,9 +2935,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
 3. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
    LLM-facing models into `prompts/<stage>/schema.json` (static package assets, **not** per-run state); the
    prompt templates embed these. Must run before any prompt rendering.
-4. **Chunk the PR** — `split_pr_into_chunks` (1 sandbox call, validates `ChunksList`) groups changed files
-   into logically reviewable chunks ordered by review priority. Returns the `ChunksList`; persists a
-   `chunk_set` row (and resumes from it on a re-run of the same head).
+4. **Chunk the PR** — `split_pr_into_chunks` (1 LLM call, validates `ChunksList`) groups changed files
+   into logically reviewable chunks ordered by review priority. Within
+   `CHUNKING_ONESHOT_MAX_ADDITIONS` (5000 reviewable added lines) the call is a **one-shot gateway call**
+   (`run_oneshot_review`, Sonnet 5 @ xhigh, structured outputs — the prompt embeds metadata + comments +
+   patches inline, so no repo access is needed); above the gate it stays a sandbox call. Returns the
+   `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
    each with **no cross-perspective context** — overlap is left to dedup (7):
@@ -2929,8 +2963,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
 7. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
    another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
-   call (and a zero-candidate run skips the sandbox). Colliding candidates go to the single sandbox dedupe call
-   (`IssueDeduplication`), which also drops findings any prior inline comment already raised — every reviewer (bot
+   call (and a zero-candidate run skips the LLM entirely). Colliding candidates go to the single LLM dedupe call
+   (`IssueDeduplication`) — a **one-shot gateway call** within `DEDUP_ONESHOT_MAX_FINDINGS` (50 issues entering
+   dedup; the prompt is pure text), the sandbox path above it — which also drops findings any prior inline
+   comment already raised — every reviewer (bot
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context (step 14).
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
@@ -2962,9 +2998,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
 ## Sandbox execution layer
 
 Most LLM work funnels through one helper, `run_sandbox_review(...)`, in `backend/reviewer/sandbox/executor.py`.
-The single-turn steps (chunking, issues review, deduplication) call it with a prompt, the Pydantic model to
-validate against, and a `step_name`. Validation instead drives a **warm multi-turn session** per chunk via the
-sibling helpers `start_sandbox_session` / `continue_sandbox_session` / `end_sandbox_session` (one verdict per turn).
+The single-turn steps (issues review, plus chunking/deduplication above their one-shot gates) call it with a
+prompt, the Pydantic model to validate against, and a `step_name`. Validation instead drives a **warm multi-turn
+session** per chunk via the sibling helpers `start_sandbox_session` / `continue_sandbox_session` /
+`end_sandbox_session` (one verdict per turn). The sandbox-free counterpart for the gated chunking/dedup calls is
+`run_oneshot_review(...)` in `backend/reviewer/sandbox/direct_llm.py` (same call shape minus
+`repository`/`branch`; one gateway Messages call, structured outputs, no sandbox — see "✅ BUILT 2026-07-03").
 
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 

@@ -13,7 +13,7 @@ REVIEW_INITIAL_PERMISSION_MODE = None
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
 # default effort (the behavior before this knob existed); set all three to pin, like the review pins.
 VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-sonnet-5"
+VALIDATION_MODEL: str | None = "claude-opus-4-8"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -52,6 +52,20 @@ def effective_priority(base: IssuePriority, adjusted: IssuePriority | None) -> I
     """
     return adjusted if adjusted is not None else base
 
+
+# ONE-SHOT (SANDBOX-FREE) CHUNKING + DEDUP
+# Chunking and dedup are pure text tasks — their prompts carry everything inline — so within these
+# limits they run as a single direct LLM-gateway call (`reviewer/sandbox/direct_llm.py`) instead of
+# an agentic sandbox, cutting ~1 min of sandbox provisioning per stage and removing the sandbox
+# failure classes. Above a limit (or with it set to 0 = disabled) the stage takes the sandbox path,
+# unchanged.
+CHUNKING_ONESHOT_MAX_ADDITIONS = 5000  # reviewable ADDED lines, like the other chunking gates
+DEDUP_ONESHOT_MAX_FINDINGS = 50  # issues entering dedup (before the positional pre-filter)
+
+# Model pin for the one-shot calls: adaptive thinking at this effort is the Messages-API-native
+# expression of "claude-sonnet-5 @ xhigh" — the same semantics the sandbox pins above request.
+ONESHOT_MODEL = "claude-sonnet-5"
+ONESHOT_REASONING_EFFORT = "xhigh"
 
 # CHUNKING
 # Single-chunk gate: a PR within this many reviewable ADDED lines (deletions don't count) skips the

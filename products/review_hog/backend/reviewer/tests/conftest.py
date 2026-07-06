@@ -38,7 +38,8 @@ def pr_comments() -> list[PRComment]:
 
 
 def create_mock_run_sandbox_review(model_instance: BaseModel) -> Callable[..., Awaitable[BaseModel]]:
-    # Mocks the run_sandbox_review seam: returns the parsed model the executor would yield.
+    # Mocks an LLM executor seam (run_sandbox_review / run_oneshot_review): returns the parsed
+    # model the executor would yield.
     async def mock_func(**kwargs: object) -> BaseModel:
         return model_instance
 

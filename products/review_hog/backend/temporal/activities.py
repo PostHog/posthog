@@ -29,6 +29,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
+    CHUNKING_ONESHOT_MAX_ADDITIONS,
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
@@ -67,6 +68,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdict,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
     continue_sandbox_session,
@@ -97,6 +99,7 @@ from products.review_hog.backend.reviewer.tools.prepare_validation_markdown impo
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
+    count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
 )
@@ -602,17 +605,32 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         return [chunk.chunk_id for chunk in planned.chunks]
 
     prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
+    # The chunking prompt is fully self-contained (metadata + comments + patches inline), so within
+    # the one-shot gate a direct gateway call replaces the sandbox; a PR too large to chunk in one
+    # shot keeps the agentic sandbox, which can navigate the repo instead of holding it all at once.
+    additions = count_reviewable_additions(snapshot.pr_files)
+    use_oneshot = bool(CHUNKING_ONESHOT_MAX_ADDITIONS) and additions <= CHUNKING_ONESHOT_MAX_ADDITIONS
     async with Heartbeater():
-        chunks = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=CHUNKING_SYSTEM_PROMPT,
-            model_to_validate=ChunksList,
-            step_name="chunking",
-        )
+        if use_oneshot:
+            chunks = await run_oneshot_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                prompt=prompt,
+                system_prompt=CHUNKING_SYSTEM_PROMPT,
+                model_to_validate=ChunksList,
+                step_name="chunking",
+            )
+        else:
+            chunks = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=CHUNKING_SYSTEM_PROMPT,
+                model_to_validate=ChunksList,
+                step_name="chunking",
+            )
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )
@@ -777,7 +795,7 @@ async def combine_and_clean_activity(input: CombineCleanInput) -> list[str]:
 @scoped_temporal()
 @close_db_connections
 async def dedup_activity(input: DedupInput) -> DedupResult:
-    """Deduplicate the in-scope issues (conditional single sandbox call) and persist the findings."""
+    """Deduplicate the in-scope issues (conditional single LLM call — one-shot within the gate) and persist the findings."""
     issues = [Issue.model_validate_json(j) for j in input.issues_json]
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha

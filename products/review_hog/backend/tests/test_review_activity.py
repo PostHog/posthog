@@ -2,14 +2,21 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
-from products.review_hog.backend.reviewer.constants import REVIEW_MODEL, REVIEW_REASONING_EFFORT, REVIEW_RUNTIME_ADAPTER
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.constants import (
+    CHUNKING_ONESHOT_MAX_ADDITIONS,
+    REVIEW_MODEL,
+    REVIEW_REASONING_EFFORT,
+    REVIEW_RUNTIME_ADAPTER,
+)
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.temporal.activities import (
     LoadedPerspectiveDTO,
     ReviewChunkInput,
+    SandboxStageInput,
     review_chunk_activity,
+    split_chunks_activity,
 )
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -45,7 +52,7 @@ def _wave_issue(title: str) -> Issue:
     )
 
 
-def _snapshot() -> PRSnapshotArtefact:
+def _snapshot(pr_files: list[PRFile] | None = None) -> PRSnapshotArtefact:
     return PRSnapshotArtefact(
         head_sha="sha1",
         pr_metadata=PRMetadata(
@@ -64,8 +71,53 @@ def _snapshot() -> PRSnapshotArtefact:
             changed_files=1,
         ),
         pr_comments=[],
-        pr_files=[],
+        pr_files=pr_files or [],
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "additions,expects_oneshot",
+    [
+        (CHUNKING_ONESHOT_MAX_ADDITIONS, True),
+        (CHUNKING_ONESHOT_MAX_ADDITIONS + 1, False),
+    ],
+)
+async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additions: int, expects_oneshot: bool) -> None:
+    # The one-shot gate is inclusive on reviewable added lines: within it the semantic chunker runs
+    # as a direct gateway call, above it the sandbox path is kept. Both cases sit over the
+    # single-chunk gate so the LLM chunker (not the deterministic plan) is what routes.
+    plan = ChunksList(chunks=[Chunk(chunk_id=1, files=[FileInfo(filename="a.py")])])
+    mock_oneshot = AsyncMock(return_value=plan)
+    mock_sandbox = AsyncMock(return_value=plan)
+    with (
+        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.load_chunk_set", return_value=None),
+        patch(
+            f"{_MODULE}.load_pr_snapshot",
+            return_value=_snapshot(
+                pr_files=[PRFile(filename="a.py", status="modified", additions=additions, deletions=0)]
+            ),
+        ),
+        patch(f"{_MODULE}.persist_chunk_set"),
+        patch(f"{_MODULE}.run_oneshot_review", mock_oneshot),
+        patch(f"{_MODULE}.run_sandbox_review", mock_sandbox),
+    ):
+        chunk_ids = await split_chunks_activity(
+            SandboxStageInput(
+                team_id=1,
+                user_id=2,
+                report_id="rep-1",
+                head_sha="sha1",
+                repository="o/r",
+                branch="feat",
+                run_index=1,
+            )
+        )
+
+    assert chunk_ids == [1]
+    assert mock_oneshot.called is expects_oneshot
+    assert mock_sandbox.called is not expects_oneshot
 
 
 @pytest.mark.asyncio

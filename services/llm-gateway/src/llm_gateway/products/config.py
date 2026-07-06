@@ -165,6 +165,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=False,
     ),
+    "review_hog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
+        allow_api_keys=True,
+        billable=False,
+    ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),

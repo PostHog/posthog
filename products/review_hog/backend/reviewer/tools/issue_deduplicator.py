@@ -1,9 +1,11 @@
 import json
 import logging
 
+from products.review_hog.backend.reviewer.constants import DEDUP_ONESHOT_MAX_FINDINGS
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
+from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 
@@ -74,9 +76,11 @@ async def deduplicate_issues(
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
     A deterministic positional pre-filter keeps positionally-isolated findings without an LLM call;
-    only file+line colliders (vs another finding or any prior inline comment) reach the single sandbox
+    only file+line colliders (vs another finding or any prior inline comment) reach the single LLM
     dedupe call, which also drops findings a prior inline comment already raised — from any reviewer,
-    bot or human, ReviewHog's own included.
+    bot or human, ReviewHog's own included. The dedupe prompt is pure text (no code context), so
+    within the one-shot gate that call is a direct gateway call; only an over-limit finding set
+    falls back to the sandbox.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
@@ -104,16 +108,26 @@ async def deduplicate_issues(
         DEDUPLICATION_SCHEMA=schema.strip(),
     )
 
-    deduplication_result = await run_sandbox_review(
-        team_id=team_id,
-        user_id=user_id,
-        repository=repository,
-        branch=branch,
-        prompt=prompt,
-        system_prompt=_SYSTEM_PROMPT,
-        model_to_validate=IssueDeduplication,
-        step_name="dedup",
-    )
+    if DEDUP_ONESHOT_MAX_FINDINGS and len(issues) <= DEDUP_ONESHOT_MAX_FINDINGS:
+        deduplication_result = await run_oneshot_review(
+            team_id=team_id,
+            user_id=user_id,
+            prompt=prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            model_to_validate=IssueDeduplication,
+            step_name="dedup",
+        )
+    else:
+        deduplication_result = await run_sandbox_review(
+            team_id=team_id,
+            user_id=user_id,
+            repository=repository,
+            branch=branch,
+            prompt=prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            model_to_validate=IssueDeduplication,
+            step_name="dedup",
+        )
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     duplicate_ids = {dup.id for dup in deduplication_result.duplicates}
     deduplicated_issues = unique + [issue for issue in candidates if issue.id not in duplicate_ids]
