@@ -106,8 +106,14 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_sampling_is_consistent(self):
-        for i in range(100):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+        # simple_hash maps consecutive decimal ids into a narrow band mod 10000, so a sequence-assigned
+        # id block usually samples all-or-nothing; fixed ids give a deterministic 80/20 split at rate 0.5.
+        Team.objects.bulk_create(
+            [
+                Team(id=9_400_000 + i, organization=self.organization, project=self.project, name=f"Team {i}")
+                for i in range(100)
+            ]
+        )
 
         call_command(
             "set_recorder_script",
@@ -115,13 +121,13 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        # Sampling is deterministic on team id, so the command must update exactly the teams
-        # that hash into the sample. Asserting a rough proportion is flaky: consecutive ids hash
-        # into a narrow band, so the count lands near 0 or near 100 rather than around 50.
-        expected_ids = {team.id for team in Team.objects.all() if sample_on_property(str(team.id), 0.5)}
+        all_ids = set(Team.objects.values_list("id", flat=True))
+        expected_ids = {team_id for team_id in all_ids if sample_on_property(str(team_id), 0.5)}
         updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
 
         assert updated_ids == expected_ids
+        # Both sides non-empty proves the command actually filtered rather than updating none or all.
+        assert updated_ids and all_ids - updated_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
