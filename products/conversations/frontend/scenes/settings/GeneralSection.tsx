@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { AuthorizedDomains } from './AuthorizedDomains'
+import { ChannelsSection } from './ChannelsSection'
 import { SecretApiKeySection } from './SecretApiKeySection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
@@ -71,7 +72,7 @@ export function GeneralSection(): JSX.Element {
                             <p className="text-xs text-muted-alt mb-0">
                                 {isEnabled
                                     ? 'Existing tickets stay accessible.'
-                                    : 'Configure channels and notifications after enabling.'}
+                                    : 'Configure notifications after enabling.'}
                             </p>
                         </div>
                         <LemonSwitch
@@ -95,6 +96,14 @@ export function GeneralSection(): JSX.Element {
             </SceneSection>
             {isEnabled && (
                 <>
+                    <SceneSection
+                        title="Channels"
+                        titleSize="sm"
+                        className="my-8"
+                        description="Choose where customers can reach you. Each channel can be configured independently."
+                    >
+                        <ChannelsSection />
+                    </SceneSection>
                     <SceneSection
                         title="Allowed domains"
                         titleSize="sm"
