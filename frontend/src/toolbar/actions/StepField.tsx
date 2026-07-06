@@ -44,14 +44,14 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
 
     return (
         <>
-            <div className={clsx('action-field my-1', selected && 'action-field-selected')}>
+            <div className="my-1">
                 <div>
                     {item === 'href' && step?.href && <SelectorCount selector={hrefSelector(step)} />}
                     {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
                     <Field name={`${item}_selected`} noStyle>
                         {({ onChange, value }) => <LemonCheckbox label={label} onChange={onChange} checked={value} />}
                     </Field>
-                    {caption && <div className="action-field-caption">{caption}</div>}
+                    {caption && <div className="py-2 text-xs text-secondary">{caption}</div>}
                 </div>
                 {['url', 'href', 'text'].includes(item) ? (
                     <Field name={`${item}_matching`}>
@@ -98,7 +98,7 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                     }}
                 </Field>
                 {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
-                    <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>
+                    <div className="mt-1 text-xs">{URL_MATCHING_HINTS[step.url_matching]}</div>
                 ) : null}
             </div>
         </>
