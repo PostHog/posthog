@@ -78,6 +78,20 @@ export function tableControlStyle(variables: Record<string, string>): CSSPropert
     return variables as CSSProperties
 }
 
+// Keep in sync with the 1.25rem add-zone size in MarkdownNotebook.scss
+const TABLE_INSERT_ZONE_SIZE_PX = 20
+
+export function clampTableInsertControlCenter(center: number, start: number, extent: number): number {
+    // Insert zones are centered on cell boundaries. Keep the outermost ones fully inside the
+    // table, otherwise they add scrollable overflow to the scroll container (a permanently
+    // visible scrollbar) and get clipped at the leading edge.
+    if (extent < TABLE_INSERT_ZONE_SIZE_PX) {
+        return center
+    }
+    const half = TABLE_INSERT_ZONE_SIZE_PX / 2
+    return Math.min(Math.max(center, start + half), start + extent - half)
+}
+
 export function EditableTableBlock({
     node,
     mode,
@@ -360,7 +374,7 @@ export function EditableTableBlock({
             label: `Add row after row ${rowIndex + 1}`,
             tooltip: 'Add row below',
         })),
-    ]
+    ].map((control) => ({ ...control, top: clampTableInsertControlCenter(control.top, tableTop, tableHeight) }))
     const columnInsertControls = [
         {
             key: 'column-start',
@@ -376,7 +390,7 @@ export function EditableTableBlock({
             label: `Add column after column ${columnIndex + 1}`,
             tooltip: 'Add column after',
         })),
-    ]
+    ].map((control) => ({ ...control, left: clampTableInsertControlCenter(control.left, tableLeft, tableWidth) }))
 
     return (
         <div
