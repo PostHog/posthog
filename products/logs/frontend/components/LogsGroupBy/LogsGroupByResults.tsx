@@ -85,7 +85,7 @@ export function LogsGroupByResults({ groupBy }: { groupBy: string }): JSX.Elemen
                         title: 'Last seen',
                         key: 'lastSeen',
                         render: (_, row) => <TZLabel time={dayjs().subtract(row.lastSeenMinutesAgo, 'minute')} />,
-                        sorter: (a, b) => b.lastSeenMinutesAgo - a.lastSeenMinutesAgo,
+                        sorter: (a, b) => a.lastSeenMinutesAgo - b.lastSeenMinutesAgo,
                     },
                 ]}
                 dataSource={rows}
