@@ -21,6 +21,18 @@ from products.growth.backend.product_push.service import cancel_campaigns, get_e
 
 logger = structlog.get_logger(__name__)
 
+# Words that should stay upper-cased when a product key is humanized for the admin dropdown.
+_PRODUCT_KEY_ACRONYMS = {"ai", "api", "cdp", "llm", "mcp", "sdk"}
+
+
+def humanize_product_key(product_key: str) -> str:
+    """'llm_clusters' -> 'LLM clusters', 'product_analytics' -> 'Product analytics'."""
+    words = product_key.split("_")
+    parts = [w.upper() if w in _PRODUCT_KEY_ACRONYMS else w for w in words]
+    if parts and parts[0].islower():
+        parts[0] = parts[0].capitalize()
+    return " ".join(parts)
+
 
 class ProductPushCampaignForm(forms.ModelForm):
     """TAM-facing form: product_key constrained to ProductKey at runtime (the model
@@ -35,9 +47,24 @@ class ProductPushCampaignForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if "product_key" in self.fields:
             self.fields["product_key"] = forms.ChoiceField(
-                choices=[(key.value, key.value) for key in sorted(ProductKey, key=lambda k: k.value)],
-                help_text="Product to push, by ProductKey.",
+                # Display humanized names but keep the raw ProductKey as the stored value.
+                choices=[
+                    (key.value, humanize_product_key(key.value)) for key in sorted(ProductKey, key=lambda k: k.value)
+                ],
+                label="Product",
+                help_text="Which product to promote in the org's in-app push card.",
             )
+        # The model field names read like internals; give the TAM plainer labels and hints.
+        if "position" in self.fields:
+            self.fields["position"].label = "Queue position"
+            self.fields["position"].help_text = (
+                "Order among this org's scheduled campaigns - lower runs sooner (0 is next up). "
+                "Leave at 0 to let the daily job pick the order."
+            )
+        if "reason_text" in self.fields:
+            self.fields["reason_text"].label = "Promo copy"
+        if "scheduled_for" in self.fields:
+            self.fields["scheduled_for"].label = "Start no earlier than"
 
     def clean(self) -> dict[str, Any] | None:
         cleaned_data = super().clean()
