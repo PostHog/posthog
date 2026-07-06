@@ -261,13 +261,17 @@ class BusinessKnowledge(_Section):
 
 
 class TopEvent(_Section):
+    # `window_days` rides on every row (not the block, since `top_events` is a flat list)
+    # so a scout can't read a `count` without seeing that it's windowed, not lifetime — a
+    # thin count during a capture gap must not read as a genuinely low-volume project.
+    window_days: int
     event: str
     count: int
     distinct_users: int
     recent_24h_count: int
     recent_24h_users: int
-    first_seen: str | None
-    last_seen: str | None
+    first_seen_in_window: str | None
+    last_seen_in_window: str | None
 
 
 class Inventory(_Section):
