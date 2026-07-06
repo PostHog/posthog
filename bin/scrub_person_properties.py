@@ -28,6 +28,11 @@ Usage:
       --host eu --project-id 123 --dry-run
 
 --host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
+
+When a personal API key can't be created (e.g. an impersonated staff session), pass a
+browser session instead: --session-id (env POSTHOG_SESSION_ID) with the value of the
+`sessionid` cookie from devtools. The script fetches a CSRF token automatically. The
+session-authenticated user's email is printed so impersonation can be double-checked.
 """
 
 # ruff: noqa: T201 allow print statements in this CLI script
@@ -84,6 +89,29 @@ def request_with_retries(
             continue
         return response
     raise ScrubError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
+
+
+def setup_session_auth(session: requests.Session, host: str, session_id: str) -> None:
+    """Authenticate with a browser session cookie (works for impersonated staff sessions).
+
+    Django session auth requires a CSRF token on unsafe methods, so fetch the CSRF cookie
+    from the login page and mirror it into the X-CSRFToken header, with the host as Referer.
+    """
+    session.cookies.set("sessionid", session_id)
+    request_with_retries(session, "GET", f"{host}/login")
+    csrf_token = session.cookies.get("posthog_csrftoken")
+    if not csrf_token:
+        raise ScrubError(f"Could not obtain a CSRF cookie from {host}/login - is this a PostHog instance?")
+    session.headers["X-CSRFToken"] = csrf_token
+    session.headers["Referer"] = f"{host}/"
+
+    me = request_with_retries(session, "GET", f"{host}/api/users/@me/")
+    if me.status_code != 200:
+        raise ScrubError(
+            f"Session auth failed (HTTP {me.status_code}) - is the sessionid cookie value current? "
+            "Impersonated sessions expire when the impersonation ends or times out."
+        )
+    log(f"Authenticated via session as {me.json().get('email', '<unknown>')}")
 
 
 def run_hogql_query(
@@ -306,6 +334,12 @@ def parse_args() -> argparse.Namespace:
         help="Project API key (phc_...) for events-mode scrubbing (env: POSTHOG_PROJECT_API_KEY)",
     )
     parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Browser `sessionid` cookie value, as an alternative to --personal-api-key "
+        "(e.g. for impersonated staff sessions; env: POSTHOG_SESSION_ID)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["events", "api"],
         default="events",
@@ -323,10 +357,13 @@ def parse_args() -> argparse.Namespace:
     args.project_id = args.project_id or os.environ.get("POSTHOG_PROJECT_ID")
     args.personal_api_key = args.personal_api_key or os.environ.get("POSTHOG_PERSONAL_API_KEY")
     args.project_api_key = args.project_api_key or os.environ.get("POSTHOG_PROJECT_API_KEY")
+    args.session_id = args.session_id or os.environ.get("POSTHOG_SESSION_ID")
     if not args.project_id:
         parser.error("--project-id (or POSTHOG_PROJECT_ID) is required")
-    if not args.personal_api_key:
-        parser.error("--personal-api-key (or POSTHOG_PERSONAL_API_KEY) is required")
+    if not args.personal_api_key and not args.session_id:
+        parser.error(
+            "either --personal-api-key (POSTHOG_PERSONAL_API_KEY) or --session-id (POSTHOG_SESSION_ID) is required"
+        )
     if args.mode == "events" and not args.dry_run and not args.project_api_key:
         parser.error("--project-api-key (or POSTHOG_PROJECT_API_KEY) is required for events mode")
     return args
@@ -337,7 +374,10 @@ def main() -> int:
     properties = sorted(set(args.properties))
 
     session = requests.Session()
-    session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
+    if args.personal_api_key:
+        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
+    else:
+        setup_session_auth(session, args.host, args.session_id)
 
     log(f"Finding persons in project {args.project_id} with any of: {', '.join(properties)}")
     affected_by_uuid = find_affected_persons(session, args.host, args.project_id, properties, args.page_size)
