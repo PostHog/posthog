@@ -33,11 +33,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
-        # Skip when a bot's push adds only snapshot baselines — Visual Review auto-commits
-        # frontend/snapshots.yml after human review and CI approval, so re-running the suite
-        # on that commit is pure waste. The detect step keys off the push delta (this push's
-        # commits), not the whole-PR diff dorny reports, so it fires even when the PR also
-        # carries real code changes. The aggregator (frontend_tests) treats skips as success.
+        # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
+        # approval) skips only the visual regression suites (ci-storybook, ci-e2e-playwright),
+        # not these checks. Jest, TypeScript, format, and bundle-size don't depend on the
+        # baseline and still gate merge, so they run purely off the paths filter here.
         outputs:
             # AND the broad filter with `exclude` (below): a PR that touches only
             # Node-only product workspaces (their own ci-agents.yml suite, no stories,
@@ -45,15 +44,12 @@ jobs:
             # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
             frontend: >-
                 ${{ (steps.filter.outputs.frontend || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             frontend_code: >-
                 ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             replay_shared: >-
-                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -138,36 +134,6 @@ jobs:
                         - pnpm-lock.yaml
                         - .nvmrc
                         - .github/workflows/ci-frontend.yml
-
-            - name: Detect Visual Review baseline-only push
-              id: baseline_push
-              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  ACTOR: ${{ github.actor }}
-                  BEFORE: ${{ github.event.before }}
-                  AFTER: ${{ github.event.after }}
-              run: |
-                  set -euo pipefail
-                  result=false
-                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
-                  case "$ACTOR" in
-                      *'[bot]' | posthog-bot) is_bot=true ;;
-                      *) is_bot=false ;;
-                  esac
-                  zero=0000000000000000000000000000000000000000
-                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
-                      # Diff only the commits this push added. compare uses merge-base(before, after),
-                      # which for an appended commit is exactly the push delta; a force-push/rebase
-                      # widens it and won't match. dorny above already covers the whole-PR diff.
-                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
-                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
-                          result=true
-                      fi
-                  fi
-                  echo "result=$result" >>"$GITHUB_OUTPUT"
-                  echo "Visual Review baseline-only push: $result"
 
             # The broad `products/**/*.ts(x)` rules above correctly match all product
             # frontend code (which doesn't always live under frontend/ — see
