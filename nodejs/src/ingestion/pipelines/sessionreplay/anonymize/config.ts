@@ -26,6 +26,7 @@ export interface ScrubContext {
     blurCache?: BlurCache
     /** Optional diagnostic timing accumulator (see {@link ScrubTiming}). */
     timing?: ScrubTiming
+    useRustAnonymizer?: boolean
 }
 
 /** Shared non-null-object type guard used across the scrubbers. */

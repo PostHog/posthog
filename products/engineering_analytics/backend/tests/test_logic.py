@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -362,6 +363,85 @@ class TestEndpointMapping(BaseTest):
         assert items[1].latest_run_conclusion is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
+
+
+class TestCostPerMergeSeries(BaseTest):
+    """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
+    division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
+    Python fold — the runner-tier cost model, the bucket join, the empty-bucket handling — without
+    a warehouse. The tier multiplier stays server-side; only group columns cross the mock boundary."""
+
+    @staticmethod
+    def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
+        curated = mock.Mock()
+        curated.jobs_source.return_value = "px_github_workflow_jobs" if jobs_synced else None
+        curated.run_source.return_value = "px_github_workflow_runs"
+        curated.pr_source.return_value = "px_github_pull_requests"
+        # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
+        curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
+        return curated
+
+    def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
+        date_from = _dt("2026-06-01T00:00:00")
+        date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
+        # Columns: bucket_start, labels, finished, elapsed, unfinished. depot-4 (4-core) bills at 2x, so
+        # 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        cost_rows = [
+            (datetime(2026, 6, 2), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),
+            (datetime(2026, 6, 3), '["depot-ubuntu-22.04-4"]', 1, 60.0, 0),
+            (datetime(2026, 6, 6), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),  # cost but no merges below
+        ]
+        # Columns: bucket_start, merges.
+        merges_rows = [
+            (datetime(2026, 6, 2), 4),
+            (datetime(2026, 6, 3), 2),
+            (datetime(2026, 6, 5), 3),  # merges but no cost above
+        ]
+        granularity, buckets = query_cost_per_merge_series(
+            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to
+        )
+
+        assert granularity == "day"
+        assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
+        by_day = {bucket.bucket_start: bucket for bucket in buckets}
+
+        # estimated_cost_usd / merges stay bucket-local; the ratio is the trailing 7-day rolling window.
+        assert by_day[datetime(2026, 6, 2)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 2)].merges == 4
+        assert by_day[datetime(2026, 6, 2)].cost_per_merge_usd == pytest.approx(0.016 / 4)
+        assert by_day[datetime(2026, 6, 3)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 6)
+
+        # A merge-only day still gets a ratio from the trailing window's cost.
+        assert by_day[datetime(2026, 6, 5)].estimated_cost_usd is None
+        assert by_day[datetime(2026, 6, 5)].merges == 3
+        assert by_day[datetime(2026, 6, 5)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 9)
+
+        # A cost-only day likewise divides by the trailing window's merges (no divide-by-zero hole).
+        assert by_day[datetime(2026, 6, 6)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 6)].merges == 0
+        assert by_day[datetime(2026, 6, 6)].cost_per_merge_usd == pytest.approx((0.016 + 0.008 + 0.016) / 9)
+
+        # Once the trailing window slides past the merges (Jun 5 + 7d), cost alone yields no ratio.
+        assert by_day[datetime(2026, 6, 12)].cost_per_merge_usd is None
+
+        # An untouched bucket keeps its raw fields zero-filled but inherits the trailing ratio while
+        # the window still covers data (Jun 10 window = Jun 4..10: Jun 6 cost / Jun 5 merges).
+        empty = by_day[datetime(2026, 6, 10)]
+        assert (empty.estimated_cost_usd, empty.merges) == (None, 0)
+        assert empty.cost_per_merge_usd == pytest.approx(0.016 / 3)
+
+        # A bucket whose whole trailing window is empty is fully null.
+        dead = by_day[datetime(2026, 6, 20)]
+        assert (dead.estimated_cost_usd, dead.merges, dead.cost_per_merge_usd) == (None, 0, None)
+
+    def test_empty_when_jobs_source_unsynced(self) -> None:
+        curated = self._curated([], [], jobs_synced=False)
+        granularity, buckets = query_cost_per_merge_series(
+            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00")
+        )
+        assert granularity == "day"
+        assert buckets == []
+        curated.run.assert_not_called()  # no jobs source -> no scan is issued
 
 
 class TestResolveGitHubTables(BaseTest):
@@ -919,6 +999,49 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
         assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+
+    def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
+        # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
+        # verdict is failure if any workflow failed, success if all settled and at least one passed, and
+        # in-flight (null) while any is still running. Two workflows on the same head_sha must not yield
+        # two dots. Runs off the default branch and outside the window are excluded.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(95, "alice", "open", 0, _ago(1), head_sha="sha95")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                # Commit A: two workflows, both passed -> one green dot with a wall-clock duration spanning
+                # the earliest start to the latest finish (not either workflow's own duration).
+                _run_row(9601, "CI", "sha-a", "completed", "success", _ago(3), _ago(2), head_branch="main"),
+                _run_row(9602, "Deploy", "sha-a", "completed", "success", _ago(3), _ago(1), head_branch="main"),
+                # Commit B: one workflow failed -> the whole commit is red even though the other passed.
+                _run_row(9603, "CI", "sha-b", "completed", "failure", _ago(2), _ago(2), head_branch="main"),
+                _run_row(9604, "Deploy", "sha-b", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                # Commit C: one workflow still running -> in-flight, so conclusion and duration are null.
+                _run_row(9605, "CI", "sha-c", "completed", "success", _ago(1), _ago(1), head_branch="main"),
+                _run_row(9606, "Deploy", "sha-c", "in_progress", None, _ago(1), _ago(1), head_branch="main"),
+                # A PR-branch commit and an out-of-window commit: both excluded from default-branch health.
+                _run_row(9607, "CI", "sha-d", "completed", "failure", _ago(1), _ago(1), head_branch="feat"),
+                _run_row(9608, "CI", "sha-e", "completed", "success", _ago(60), _ago(60), head_branch="main"),
+            ],
+        )
+        activity = api.get_repo_run_activity(team=self.team)
+        by_started = sorted(activity.points, key=lambda p: p.run_started_at)
+        # Three default-branch commits in the window -> three points (six runs collapsed), oldest first here.
+        assert len(activity.points) == 3
+        commit_a, commit_b, commit_c = by_started
+        assert commit_a.conclusion == "success"
+        assert commit_a.duration_seconds is not None and commit_a.duration_seconds > 0
+        assert commit_b.conclusion == "failure"
+        # In-flight commit: unsettled workflow leaves the verdict and duration null (drops off the scatter).
+        assert commit_c.conclusion is None
+        assert commit_c.duration_seconds is None
+        # Default-branch commits carry no single attributed PR.
+        assert all(p.pr_number == 0 for p in activity.points)
 
     def test_workflow_detail_branch_filter(self) -> None:
         # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
