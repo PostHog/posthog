@@ -1,7 +1,7 @@
 import pytest
-from django.test import SimpleTestCase
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
 
