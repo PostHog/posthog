@@ -10,6 +10,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
+import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { getToolCategory } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
@@ -142,8 +143,6 @@ export async function trackToolCall(
         // never break the request for analytics
     }
 }
-
-const EXECUTE_SQL_TOOL_NAME = 'execute-sql'
 
 export interface ExecuteSqlGenerationMeta {
     durationMs: number

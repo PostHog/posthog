@@ -19,6 +19,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
@@ -83,7 +84,7 @@ export class ToolExecutor {
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
         return filteredTools.map((entry) => {
-            if (entry.name === 'execute-sql') {
+            if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
                     description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
@@ -225,7 +226,7 @@ export class ToolExecutor {
                 intentMeta
             )
 
-            if (tool.name === 'execute-sql') {
+            if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
                     tool.name,
                     validation.data,
@@ -250,7 +251,7 @@ export class ToolExecutor {
                 intentMeta
             )
 
-            if (tool.name === 'execute-sql') {
+            if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
                     tool.name,
                     validation.data,
@@ -374,7 +375,7 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
-            if (toolName === 'execute-sql' && properties.input) {
+            if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
                 void trackExecuteSqlGeneration(
                     toolName,
                     properties.input,
@@ -394,7 +395,7 @@ export class ToolExecutor {
         // Override it with the same flag-aware prompt tools-mode advertises, so the
         // information_schema steering (or its absence) matches across both modes.
         const execTools = state.allTools.map((tool) =>
-            tool.name === 'execute-sql'
+            tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
                       description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
