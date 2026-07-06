@@ -112,7 +112,7 @@ def get_rows(
     while True:
         data = _fetch_page(session, url, page_start, logger)
 
-        items = data.get(config.data_key) or []
+        items = data[config.data_key]
         if not isinstance(items, list):
             items = []
         if items:
