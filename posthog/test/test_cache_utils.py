@@ -1,7 +1,9 @@
+import threading
 from datetime import timedelta
 from time import sleep
 from typing import Optional
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
@@ -94,3 +96,37 @@ class TestCacheUtils(APIBaseTest):
             "Background task finished",
             "Post refresh call 1",
         ]
+
+    def test_background_refresh_failure_does_not_surface_uncaught_thread_exception(self) -> None:
+        calls = {"count": 0}
+
+        @cache_for(timedelta(seconds=30), background_refresh=True)
+        def flaky() -> str:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return "good"
+            # Simulate Redis briefly going away during a background refresh.
+            raise ConnectionRefusedError("redis unavailable")
+
+        thread_exceptions: list[type] = []
+        original_hook = threading.excepthook
+        threading.excepthook = lambda a: thread_exceptions.append(a.exc_type)  # type: ignore[assignment]
+        try:
+            with freeze_time("2026-07-06 09:46:00") as frozen:
+                assert flaky(use_cache=True) == "good"
+                assert calls["count"] == 1
+
+                # Expire the TTL so the next call kicks off a background refresh.
+                frozen.tick(timedelta(seconds=31))
+                before = set(threading.enumerate())
+                # Caller keeps getting the last good value while the refresh runs.
+                assert flaky(use_cache=True) == "good"
+                for t in set(threading.enumerate()) - before:
+                    t.join(timeout=5)
+
+            # The refresh was attempted and failed, but the failure was swallowed
+            # rather than re-raised into the detached thread.
+            assert calls["count"] == 2
+            assert thread_exceptions == []
+        finally:
+            threading.excepthook = original_hook
