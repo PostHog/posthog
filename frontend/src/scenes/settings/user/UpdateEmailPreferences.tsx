@@ -8,8 +8,9 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Lemon
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+import { NotificationSettings, OrganizationBasicType } from '~/types'
 
+import { notificationProjectsLogic } from './notificationProjectsLogic'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
@@ -62,8 +63,11 @@ function ProjectDigestSelector({
     hint?: string
 }): JSX.Element {
     const { userLoading } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { projects, projectsLoading, projectsByOrganization, allProjectIds } = useValues(notificationProjectsLogic)
     const [expanded, setExpanded] = useState(true)
+
+    // Only surface the organization each project belongs to when there's more than one to disambiguate.
+    const showOrganization = projectsByOrganization.length > 1
 
     return (
         <div>
@@ -74,57 +78,61 @@ function ProjectDigestSelector({
                 type="tertiary"
                 className="p-0"
             >
-                Select projects ({currentOrganization?.teams?.length || 0} available)
+                Select projects ({projects.length} available)
             </LemonButton>
 
             {expanded && (
                 <div className="mt-3 ml-6 space-y-2">
                     {hint && <span className="text-muted text-xs">{hint}</span>}
-                    <div className="flex flex-col gap-2">
-                        <div className="flex flex-row items-center gap-4">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={() =>
-                                    onToggleAllTeams(
-                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
-                                        true
-                                    )
-                                }
-                            >
-                                Enable for all projects
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={() =>
-                                    onToggleAllTeams(
-                                        (currentOrganization?.teams || []).map((t: TeamBasicType) => t.id),
-                                        false
-                                    )
-                                }
-                            >
-                                Disable for all projects
-                            </LemonButton>
+                    {projectsLoading ? (
+                        <div className="flex items-center gap-2 py-2">
+                            <Spinner className="text-lg" />
+                            <span className="text-muted text-sm">Loading projects...</span>
                         </div>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-row items-center gap-4">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => onToggleAllTeams(allProjectIds, true)}
+                                >
+                                    Enable for all projects
+                                </LemonButton>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => onToggleAllTeams(allProjectIds, false)}
+                                >
+                                    Disable for all projects
+                                </LemonButton>
+                            </div>
 
-                        {currentOrganization?.teams?.map((team) => (
-                            <LemonCheckbox
-                                key={`${keyPrefix}-${team.id}`}
-                                id={`${keyPrefix}-${team.id}`}
-                                data-attr={`${dataAttrPrefix}_${team.id}`}
-                                onChange={(checked) => onToggleTeam(team.id, checked)}
-                                checked={!isTeamDisabled(team.id)}
-                                disabled={userLoading}
-                                label={
-                                    <div className="flex items-center gap-2">
-                                        <span>{team.name}</span>
-                                        <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                            {projectsByOrganization.map((group) => (
+                                <div key={group.organizationId} className="flex flex-col gap-2">
+                                    {showOrganization && <span className="font-medium">{group.organizationName}</span>}
+                                    <div className={showOrganization ? 'ml-4 flex flex-col gap-2' : 'flex flex-col gap-2'}>
+                                        {group.projects.map((project) => (
+                                            <LemonCheckbox
+                                                key={`${keyPrefix}-${project.id}`}
+                                                id={`${keyPrefix}-${project.id}`}
+                                                data-attr={`${dataAttrPrefix}_${project.id}`}
+                                                onChange={(checked) => onToggleTeam(project.id, checked)}
+                                                checked={!isTeamDisabled(project.id)}
+                                                disabled={userLoading}
+                                                label={
+                                                    <div className="flex items-center gap-2">
+                                                        <span>{project.name}</span>
+                                                        <LemonTag type="muted">id: {project.id.toString()}</LemonTag>
+                                                    </div>
+                                                }
+                                            />
+                                        ))}
                                     </div>
-                                }
-                            />
-                        ))}
-                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
