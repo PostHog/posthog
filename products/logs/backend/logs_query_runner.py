@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
@@ -26,6 +27,8 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+from products.logs.backend.column_expressions import canonical_key, column_to_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -528,6 +531,11 @@ class LogsQueryRunnerMixin(QueryRunner):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
 
 
+# Number of fixed SELECT columns in to_query; custom columns are appended after these,
+# so _calculate maps result[_FIXED_COLUMN_COUNT:] onto the custom column aliases.
+_FIXED_COLUMN_COUNT = 15
+
+
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
@@ -546,6 +554,20 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
 
         raise UserAccessControlError("logs", "viewer")
 
+    @cached_property
+    def _custom_column_aliases(self) -> list[str]:
+        return [canonical_key(text) for text in self.query.customColumns or []]
+
+    def _custom_column_selects(self) -> list[ast.Expr]:
+        selects: list[ast.Expr] = []
+        for text, alias in zip(self.query.customColumns or [], self._custom_column_aliases):
+            try:
+                expr = column_to_expr(text)
+            except (ValueError, ExposedHogQLError) as e:
+                raise QueryError(f"Invalid custom column {text!r}: {e}")
+            selects.append(ast.Alias(alias=alias, expr=expr))
+        return selects
+
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -562,6 +584,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         for result in response.results:
             results.append(
                 {
+                    **dict(zip(self._custom_column_aliases, result[_FIXED_COLUMN_COUNT:])),
                     "uuid": result[0],
                     "trace_id": result[1],
                     "span_id": result[2],
@@ -583,7 +606,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 }
             )
 
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+        return LogsQueryResponse(
+            results=results,
+            columns=self._custom_column_aliases or None,
+            **self.paginator.response_params(),
+        )
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
         response = super().run(*args, **kwargs)
@@ -628,6 +655,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             )
         )
         assert isinstance(query, ast.SelectQuery)
+        query.select.extend(self._custom_column_selects())
         query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),

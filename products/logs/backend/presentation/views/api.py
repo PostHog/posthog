@@ -25,6 +25,8 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
@@ -37,6 +39,7 @@ from posthog.models import User
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.logs.backend.column_expressions import canonical_key, column_to_expr
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
@@ -250,6 +253,17 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+    )
+    customColumns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand "
+            "(`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression "
+            "(`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. "
+            "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
+        ),
     )
 
 
@@ -530,6 +544,15 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
     maxExportableLogs = serializers.IntegerField(
         help_text="Maximum number of rows the `export` endpoint will produce — informational.",
     )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Aliases for the requested `customColumns`, in request order. Each result row carries its "
+            "custom column values under these keys. Null when no custom columns were requested."
+        ),
+    )
 
 
 class _LogsCountResponseSerializer(serializers.Serializer):
@@ -797,6 +820,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
+        custom_columns = query_data.get("customColumns") or []
+        # Validate up front so a bad expression is a clean 400 instead of a mid-query failure.
+        for custom_column in custom_columns:
+            try:
+                column_to_expr(custom_column)
+            except (ValueError, ExposedHogQLError) as e:
+                return Response(
+                    {"error": f"Invalid custom column {custom_column!r}: {e}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
         if order_by not in (LogsOrderBy.EARLIEST, LogsOrderBy.LATEST):
@@ -834,6 +868,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
+            "customColumns": custom_columns,
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
@@ -899,6 +934,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "hasMore": has_more,
                 "nextCursor": next_cursor,
                 "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
+                "columns": [canonical_key(c) for c in custom_columns] or None,
             },
             status=200,
         )

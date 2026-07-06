@@ -1139,6 +1139,8 @@ export interface _LogsQueryBodyApi {
     after?: string
     /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
+    customColumns?: string[]
 }
 
 export interface _LogsQueryRequestApi {
@@ -1202,6 +1204,11 @@ export interface _LogsQueryResponseApi {
     nextCursor?: string | null
     /** Maximum number of rows the `export` endpoint will produce — informational. */
     maxExportableLogs: number
+    /**
+     * Aliases for the requested `customColumns`, in request order. Each result row carries its custom column values under these keys. Null when no custom columns were requested.
+     * @nullable
+     */
+    columns?: string[] | null
 }
 
 /**
