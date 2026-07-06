@@ -152,15 +152,14 @@ def apply_trigram_search(
     )
 
     exact_only = annotated.filter(exact_q)
-    if include_tag_search:
-        exact_only = exact_only.distinct()
 
     # Prefer exact matches; only fall back to the fuzzy tier when there are none.
     if exact_only.exists():
         result = exact_only
     else:
         result = annotated.filter(similar_q)
-        if include_tag_search:
-            result = result.distinct()
 
-    return result.order_by("-_is_exact", "-_search_score", *tiebreakers)
+    if include_tag_search:
+        result = result.distinct()
+
+    return result.order_by("-_search_score", *tiebreakers)
