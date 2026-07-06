@@ -7373,6 +7373,8 @@ export interface TracesQueryApi {
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean | null
     response?: TracesQueryResponseApi | null
+    /** Free-text search over generation input/output content, matched case-insensitively against the ai_events table. Only content within the ai_events retention window (30 days by default) is searchable. */
+    searchTerm?: string | null
     showColumnConfigurator?: boolean | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
