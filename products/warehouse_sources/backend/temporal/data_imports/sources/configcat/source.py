@@ -20,8 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
-    check_access,
     configcat_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
     CONFIGCAT_ENDPOINTS,
@@ -116,12 +116,7 @@ Create a Public API credential (a username and password pair) under **Public Man
         self, config: ConfigCatSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The credential is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.basic_auth_username, config.basic_auth_password)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid ConfigCat Public API credentials"
-        return False, message or "Could not validate ConfigCat Public API credentials"
+        return validate_credentials(config.basic_auth_username, config.basic_auth_password)
 
     def source_for_pipeline(self, config: ConfigCatSourceConfig, inputs: SourceInputs) -> SourceResponse:
         if inputs.schema_name not in CONFIGCAT_ENDPOINTS:
