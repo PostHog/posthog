@@ -249,6 +249,24 @@ def get_account(
     )
 
 
+def get_account_ref_by_slack_channel_id(team_id: int, slack_channel_id: str) -> contracts.AccountRef | None:
+    """Fetch the team's account whose ``slack_channel_id`` property matches the given channel.
+
+    The channel → account mapping is expected to be one-to-one; if several accounts
+    claim the same channel, the oldest wins so the result is deterministic.
+    """
+    if not slack_channel_id:
+        return None
+    row = (
+        Account.objects.for_team(team_id)
+        .filter(_properties__slack_channel_id=slack_channel_id)
+        .order_by("created_at")
+        .values("id", "name", "external_id")
+        .first()
+    )
+    return _to_account_ref(row) if row else None
+
+
 # --- External (CDP worker) account API ---
 #
 # The data access, transactional write, org-membership resolution, tag
