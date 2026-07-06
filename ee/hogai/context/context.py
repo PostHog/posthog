@@ -261,6 +261,7 @@ class AssistantContextManager(AssistantContextMixin):
                 dashboard_ctx = DashboardContext(
                     team=self._team,
                     insights_data=insights_data,
+                    user=self._user,
                     name=dashboard.name or f"Dashboard {dashboard.id}",
                     description=dashboard.description,
                     dashboard_id=str(dashboard.id) if dashboard.id else None,
@@ -495,6 +496,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         return InsightContext(
             team=self._team,
+            user=self._user,
             query=insight.query,
             name=insight.name,
             description=insight.description,
