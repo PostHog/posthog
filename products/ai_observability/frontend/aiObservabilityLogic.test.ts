@@ -296,6 +296,27 @@ describe('aiObservabilitySessionsViewLogic', () => {
         expect(querySpy).toHaveBeenCalledTimes(2)
     })
 
+    it('drops a superseded response without surfacing an error when filters change on a hidden tab', async () => {
+        setActiveTab('aiObservabilityTraces')
+        const staleResponse = deferredResponse()
+        querySpy.mockImplementationOnce(() => staleResponse.promise)
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        // Hidden tab: the query definition changes but the subscription fires no reload,
+        // so the in-flight request is only caught by the stale-source bail.
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
+
+        staleResponse.resolve(sessionResponse([1]))
+        await settleListeners()
+
+        expect(logic.values.sessions).toHaveLength(0)
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsError).toBeNull()
+    })
+
     it('ignores stale load-more responses after a first-page reload', async () => {
         querySpy.mockResolvedValueOnce(sessionResponse(Array.from({ length: 50 }, (_, i) => i)))
 
@@ -381,7 +402,6 @@ describe('aiObservabilitySessionsViewLogic', () => {
             await settleListeners()
             expect(logic.values.sessionsLoading).toBe(true)
 
-            // Past SESSIONS_QUERY_TIMEOUT_MS the withTimeout guard aborts and rejects.
             jest.advanceTimersByTime(60_000)
             await settleListeners()
 
@@ -407,8 +427,6 @@ describe('aiObservabilitySessionsViewLogic', () => {
         ['no-session-ids', [[1]]],
         ['no-data', []],
     ])('classifies an empty list as %s when the probe returns %j', async (expectedReason, probeResults) => {
-        // First call is the empty sessions query; the follow-up LIMIT 1 probe checks for AI
-        // events in the window regardless of session id, so it tells the two empty cases apart.
         querySpy
             .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
             .mockResolvedValueOnce({ results: probeResults })
@@ -430,8 +448,6 @@ describe('aiObservabilitySessionsViewLogic', () => {
         logic.actions.loadSessions()
         await settleListeners()
 
-        // The sessions query resolved empty, but the reason is still unknown — the UI must
-        // keep showing skeletons rather than flashing the generic empty state.
         expect(logic.values.sessionsLoading).toBe(true)
         expect(logic.values.sessions).toHaveLength(0)
 

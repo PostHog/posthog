@@ -6,22 +6,25 @@ import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { cn } from 'lib/utils/css-classes'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { DOCS_URLS_BY_TAB } from './constants'
 import {
     SessionListRow,
     SessionsEmptyReason,
+    SessionsErrorKind,
     aiObservabilitySessionsViewLogic,
 } from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost } from './utils'
 
-const SESSIONS_DOCS_URL = 'https://posthog.com/docs/ai-observability/sessions'
-// Widening target offered from the empty state when the current window turns up nothing.
 const WIDER_DATE_FROM = '-7d'
+const WIDER_RANGE_DAYS = 7
 
 const SESSION_LIST_DEFAULT_WIDTH = 300
 const SESSION_LIST_MIN_WIDTH = 260
@@ -165,7 +168,7 @@ function ListPane({ className }: { className?: string }): JSX.Element {
     )
 }
 
-function SessionsErrorState({ errorKind }: { errorKind: 'error' | 'timeout' }): JSX.Element {
+function SessionsErrorState({ errorKind }: { errorKind: NonNullable<SessionsErrorKind> }): JSX.Element {
     const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
 
     return (
@@ -187,6 +190,20 @@ function SessionsErrorState({ errorKind }: { errorKind: 'error' | 'timeout' }): 
     )
 }
 
+// The shortcut must only ever widen the window, so when the span is unknowable
+// (no lower bound, unparseable) we treat it as already wide and offer nothing.
+function spansWiderRange(dateFrom: string | null, dateTo: string | null): boolean {
+    if (!dateFrom) {
+        return true
+    }
+    const from = dateStringToDayJs(dateFrom)
+    if (!from) {
+        return true
+    }
+    const to = dateStringToDayJs(dateTo) ?? dayjs()
+    return to.diff(from, 'day') >= WIDER_RANGE_DAYS
+}
+
 function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.Element {
     const { dateFilter } = useValues(aiObservabilitySharedLogic)
     const { setDates } = useActions(aiObservabilitySharedLogic)
@@ -199,7 +216,7 @@ function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.El
                     There's AI activity in this time range, but none of it is tagged with a session id, so it can't be
                     grouped into sessions. Set <code>$ai_session_id</code> in your SDK to group related traces.
                 </p>
-                <Link to={SESSIONS_DOCS_URL} target="_blank">
+                <Link to={DOCS_URLS_BY_TAB.sessions} target="_blank">
                     Learn how to set up sessions
                 </Link>
             </div>
@@ -209,7 +226,7 @@ function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.El
     return (
         <div className="flex flex-col items-center gap-3 p-6 text-center text-sm text-secondary">
             <p className="m-0">No sessions in this time range.</p>
-            {dateFilter.dateFrom !== WIDER_DATE_FROM && (
+            {!spansWiderRange(dateFilter.dateFrom, dateFilter.dateTo) && (
                 <LemonButton
                     type="secondary"
                     size="small"

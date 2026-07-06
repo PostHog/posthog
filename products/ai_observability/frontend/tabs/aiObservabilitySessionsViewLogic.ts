@@ -19,15 +19,11 @@ import type { aiObservabilitySessionsViewLogicType } from './aiObservabilitySess
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 
 const SESSIONS_PAGE_SIZE = 50
-// The two-level session aggregation can run long on high-volume projects. Cap it so a
-// hung query surfaces a retry state instead of an endless skeleton spinner.
 const SESSIONS_QUERY_TIMEOUT_MS = 60_000
 
-// When the sessions list comes back empty, we can't tell from that query alone whether
-// there is simply no AI traffic in the window or whether traffic exists but isn't tagged
-// with `$ai_session_id` (the `sessions.sql` query drops traces with an empty session id).
-// This existence probe checks for AI trace events in the same window regardless of session
-// id — LIMIT 1 so ClickHouse stops at the first match instead of scanning the whole window.
+// `sessions.sql` drops traces with an empty session id, so an empty list alone can't tell
+// "no AI traffic in this window" apart from "traffic exists but isn't tagged with
+// `$ai_session_id`" — this probe checks for any AI trace event in the window instead.
 const EMPTY_REASON_PROBE_QUERY = `
 SELECT 1
 FROM events
@@ -37,13 +33,10 @@ WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
     AND {filters}
 LIMIT 1
 `
-// The loading state stays up while the probe classifies an empty list, so cap it tighter
-// than the main query — on probe timeout we fall back to the generic empty copy.
+// Tighter than the main query: the probe holds up the loading state while it runs.
 const EMPTY_REASON_PROBE_TIMEOUT_MS = 15_000
 
-// Why the sessions load failed, surfaced to the UI as a retryable error state.
 export type SessionsErrorKind = 'error' | 'timeout' | null
-// Why the sessions list is empty, so the empty state can point the user at the right fix.
 export type SessionsEmptyReason = 'no-data' | 'no-session-ids' | null
 
 export interface SessionListRow {
@@ -98,9 +91,13 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
         loadSessions: (payload?: { refresh?: RefreshType }) => ({ refresh: payload?.refresh }),
-        loadSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({ sessions, hasMoreSessions }),
+        loadSessionsSuccess: (
+            sessions: SessionListRow[],
+            hasMoreSessions: boolean,
+            emptyReason: SessionsEmptyReason = null
+        ) => ({ sessions, hasMoreSessions, emptyReason }),
         loadSessionsFailure: (timedOut: boolean = false) => ({ timedOut }),
-        setSessionsEmptyReason: (reason: SessionsEmptyReason) => ({ reason }),
+        loadSessionsSuperseded: true,
         loadMoreSessions: true,
         loadMoreSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({
             sessions,
@@ -123,6 +120,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadSessions: () => true,
                 loadSessionsSuccess: () => false,
                 loadSessionsFailure: () => false,
+                loadSessionsSuperseded: () => false,
             },
         ],
         moreSessionsLoading: [
@@ -140,6 +138,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
                 loadMoreSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
                 loadSessionsFailure: () => false,
+                loadSessionsSuperseded: () => false,
             },
         ],
         sessionsError: [
@@ -154,8 +153,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             null as SessionsEmptyReason,
             {
                 loadSessions: () => null,
-                loadSessionsSuccess: () => null,
-                setSessionsEmptyReason: (_, { reason }) => reason,
+                loadSessionsSuccess: (_, { emptyReason }) => emptyReason,
             },
         ],
         selectedSessionId: [
@@ -182,11 +180,9 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             }
         }
 
-        // Best-effort classification for an empty list: is there simply no AI traffic in
-        // the window, or does traffic exist that just isn't tagged with `$ai_session_id`?
-        // Returns null when the probe fails, times out, or is superseded — callers fall
-        // back to the generic empty copy. Deliberately unaffected by `refresh`: a cached
-        // answer is fine here and keeps the held loading state short.
+        // Returns null when the probe fails, times out, or is superseded — callers fall back
+        // to the generic empty copy. `refresh` is deliberately not forwarded: a cached answer
+        // is fine here and keeps the held loading state short.
         const classifyEmptyReason = async (source: HogQLQuery, requestId: number): Promise<SessionsEmptyReason> => {
             try {
                 const response = await withTimeout(
@@ -211,8 +207,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadMoreSessionsRequestId++
                 const source = values.sessionsQuery.source as HogQLQuery
                 try {
-                    // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute.
-                    // Cap the request so a hung aggregation surfaces a retry state instead of spinning forever.
+                    // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
                     const response = await withTimeout(
                         (signal) => api.query(source, { refresh, requestOptions: { signal } }),
                         SESSIONS_QUERY_TIMEOUT_MS,
@@ -222,7 +217,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         return
                     }
                     if (values.sessionsQuery.source !== source) {
-                        actions.loadSessionsFailure()
+                        actions.loadSessionsSuperseded()
                         return
                     }
                     const sessions = parseSessionsResponse(response)
@@ -230,21 +225,17 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
                         return
                     }
-                    // Keep the loading state up while we classify the empty reason, so the
-                    // empty state renders once with the right copy instead of flashing the
-                    // generic guidance and then swapping it out under the user.
+                    // Keep the loading state up until the reason is known, so the empty state
+                    // renders once with the right copy instead of swapping under the user.
                     const reason = await classifyEmptyReason(source, requestId)
                     if (requestId !== loadSessionsRequestId) {
                         return
                     }
                     if (values.sessionsQuery.source !== source) {
-                        actions.loadSessionsFailure()
+                        actions.loadSessionsSuperseded()
                         return
                     }
-                    actions.loadSessionsSuccess(sessions, false)
-                    if (reason) {
-                        actions.setSessionsEmptyReason(reason)
-                    }
+                    actions.loadSessionsSuccess(sessions, false, reason)
                 } catch (error) {
                     if (requestId === loadSessionsRequestId) {
                         actions.loadSessionsFailure(error instanceof PromiseTimeoutError)
