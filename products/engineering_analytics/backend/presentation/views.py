@@ -783,7 +783,21 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_repo_run_activity",
-        parameters=[_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            # This endpoint never aggregates across branches, so the shared _BRANCH "omit to aggregate"
+            # wording would misdescribe the omit behavior in every generated client.
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional exact git branch (head_branch) to chart, e.g. 'main'. "
+                "Omit or leave blank to use the repo's detected default branch.",
+            ),
+            _SOURCE_ID,
+        ],
         responses={
             200: WorkflowRunActivitySerializer,
             400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),

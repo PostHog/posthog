@@ -51,11 +51,11 @@ _SELECT = f"""
         any(w.head_branch) AS head_branch
     FROM (
         SELECT
-            max(r.id) AS id,
+            argMax(r.id, r.run_started_at) AS id,
             argMax(r.status, r.run_started_at) AS status,
             argMax(r.conclusion, r.run_started_at) AS conclusion,
             max(r.run_started_at) AS run_started_at,
-            max(r.updated_at) AS updated_at,
+            argMax(r.updated_at, r.run_started_at) AS updated_at,
             any(r.head_branch) AS head_branch,
             r.head_sha AS head_sha
         FROM __RUNS_SOURCE__ AS r

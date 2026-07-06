@@ -62894,7 +62894,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsRepoRunActivityParams = {
     /**
-     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to chart, e.g. 'main'. Omit or leave blank to use the repo's detected default branch.
      */
     branch?: string;
     /**
