@@ -461,6 +461,50 @@ export function mockRunLog(): string {
     return JSON.stringify(entry)
 }
 
+/**
+ * A realistic multi-file unified diff for the `commit` artefact diff endpoint, matching the mocked
+ * "fix invites" commit. Two TypeScript files so the rendered diff exercises Pierre's syntax
+ * highlighting, hunk headers, and a multi-file layout.
+ */
+export function mockBranchDiff(): { diff: string; truncated: boolean } {
+    const diff = `diff --git a/frontend/src/scenes/invites/inviteLogic.ts b/frontend/src/scenes/invites/inviteLogic.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/frontend/src/scenes/invites/inviteLogic.ts
++++ b/frontend/src/scenes/invites/inviteLogic.ts
+@@ -42,9 +42,13 @@ export const inviteLogic = kea<inviteLogicType>([
+     listeners(({ values, actions }) => ({
+         submitInvites: async () => {
+-            const recipients = values.invites
++            const recipients = values.invites.filter((invite) => invite.email.trim().length > 0)
++            if (recipients.length === 0) {
++                lemonToast.error('Add at least one recipient before sending invites.')
++                return
++            }
+             await api.invites.bulkCreate(recipients)
+             actions.loadInvites()
+         },
+     })),
+diff --git a/frontend/src/scenes/invites/InviteRow.tsx b/frontend/src/scenes/invites/InviteRow.tsx
+index 9c8b7a6..2f3e4d5 100644
+--- a/frontend/src/scenes/invites/InviteRow.tsx
++++ b/frontend/src/scenes/invites/InviteRow.tsx
+@@ -10,7 +10,7 @@ export function InviteRow({ invite, onChange }: InviteRowProps): JSX.Element {
+     return (
+         <div className="flex items-center gap-2">
+             <LemonInput
+-                value={invite.email}
++                value={invite.email}
++                status={invite.email.trim() ? undefined : 'danger'}
+                 onChange={(email) => onChange({ ...invite, email })}
+                 placeholder="email@example.com"
+             />
+         </div>
+     )
+ }
+`
+    return { diff, truncated: false }
+}
+
 export const mockSourceConfigs = {
     results: [
         {

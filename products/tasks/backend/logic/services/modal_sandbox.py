@@ -26,6 +26,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 
@@ -33,7 +34,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -98,6 +99,7 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -105,10 +107,13 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     ModalTimeoutError,
     ModalConnectionError,
+    ModalServiceError,
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
 )
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -407,7 +412,10 @@ class ModalSandbox(SandboxBase):
             config.snapshot_restored = False
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
-            snapshot_mount_path = config.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+            # No default-fill: a directory snapshot must arrive with an explicit allowed mount
+            # path, or the mount below is refused. Defaulting here would silently re-target a
+            # snapshot that upstream validation invalidated (mount path stripped).
+            snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
             used_snapshot_image = False
 
@@ -483,7 +491,19 @@ class ModalSandbox(SandboxBase):
                     config.snapshot_restored = False
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
-                if not hasattr(sb, "mount_image"):
+                # The mount REPLACES the target directory in the running sandbox — over a live
+                # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
+                # and a snapshot's content only fits the path it was captured from. Last-line
+                # guard for snapshot rows whose stored mount path bypassed normalization.
+                if snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+                    logger.warning(
+                        "Refusing to mount directory snapshot at unsupported path; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                elif not hasattr(sb, "mount_image"):
                     logger.warning(
                         "Modal sandbox does not support directory snapshot restore; falling back to base image",
                         extra={
@@ -501,6 +521,26 @@ class ModalSandbox(SandboxBase):
                         )
                         capture_exception(e)
 
+            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
+            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+                logger.warning(
+                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    extra={
+                        "sandbox_id": sb.object_id,
+                        "snapshot_external_id": snapshot_external_id,
+                        "snapshot_kind": snapshot_kind,
+                        "snapshot_mount_path": snapshot_mount_path,
+                    },
+                )
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                config.snapshot_restored = False
+
             if config.metadata:
                 sb.set_tags(config.metadata)
 
@@ -517,6 +557,34 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox executes processes after a snapshot restore (image or mount)."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_RESTORE_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-restore health probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            poll_result: int | str | None
+            try:
+                poll_result = sb.poll()
+            except Exception:
+                poll_result = "unavailable"
+            logger.warning(
+                "Post-restore health probe exited non-zero",
+                extra={"sandbox_id": sb.object_id, "returncode": returncode, "sandbox_poll": str(poll_result)},
+            )
+            return False
+        return True
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> ModalSandbox:
@@ -1071,7 +1139,7 @@ class ModalSandbox(SandboxBase):
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, ttl=None)
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")

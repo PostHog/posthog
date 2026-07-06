@@ -26,7 +26,7 @@ import {
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
-import { TaskRunRedisStream, getStreamKey } from '@/lib/redis-stream.js'
+import { TaskRunRedisStream, getCompletedKey, getStreamKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
@@ -899,6 +899,7 @@ describe('ingest-handler', () => {
         },
     ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
         const infoSpy = vi.spyOn(logger, 'info')
+        const errorSpy = vi.spyOn(logger, 'error')
         const config = makeConfig()
         const enc = new TextEncoder()
         const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
@@ -916,16 +917,83 @@ describe('ingest-handler', () => {
 
         const res = await handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
 
-        expect(res.status).toBe(408)
-        const responseBody = (await decodeJson(res)) as { last_accepted_seq: number }
+        expect(res.status).toBe(200)
+        const responseBody = (await decodeJson(res)) as { accepted: number; last_accepted_seq: number }
+        expect(responseBody.accepted).toBe(1)
         expect(responseBody.last_accepted_seq).toBe(1)
 
         const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
         expect(entries).toHaveLength(1)
 
         const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
-        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1 })
+        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1, classification: 'idle' })
+        expect(errorSpy).not.toHaveBeenCalledWith('http.unhandled_error', expect.anything())
     })
+
+    it.each([
+        {
+            state: 'agent actively streaming',
+            classification: 'mid_turn',
+            setup: async (): Promise<void> => {
+                await redisStream.setAgentActive(true)
+            },
+            sendEventBeforeDrop: true,
+            expectedStatus: 408,
+        },
+        {
+            state: 'agent idle after turn-complete',
+            classification: 'idle',
+            setup: async (): Promise<void> => {
+                await redisStream.setAgentActive(false)
+            },
+            sendEventBeforeDrop: true,
+            expectedStatus: 200,
+        },
+        {
+            state: 'stream already completed',
+            classification: 'run_over',
+            setup: async (): Promise<void> => {
+                await fakeRedis.set(getCompletedKey(getStreamKey(RUN_ID)), '1')
+            },
+            sendEventBeforeDrop: false,
+            expectedStatus: 200,
+        },
+    ])(
+        'classifies a disconnect with $state as $classification -> $expectedStatus',
+        async ({ classification, setup, sendEventBeforeDrop, expectedStatus }) => {
+            const infoSpy = vi.spyOn(logger, 'info')
+            const config = makeConfig()
+            const enc = new TextEncoder()
+            const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+            await setup()
+
+            let sentFirstChunk = false
+            const body = new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    if (sendEventBeforeDrop && !sentFirstChunk) {
+                        sentFirstChunk = true
+                        controller.enqueue(line)
+                        return
+                    }
+                    controller.error(Object.assign(new Error('read failed'), { code: 'ECONNRESET' }))
+                },
+            })
+
+            const res = await handleIngest(
+                makeContext({ body }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+
+            expect(res.status).toBe(expectedStatus)
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<
+                string,
+                unknown
+            >
+            expect(log).toMatchObject({ classification })
+        }
+    )
 
     // -----------------------------------------------------------------------
     // Empty body

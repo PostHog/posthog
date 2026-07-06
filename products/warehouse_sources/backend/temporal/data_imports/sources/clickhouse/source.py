@@ -232,7 +232,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_clickhouse_schemas(
                 host=host,
                 port=port,
@@ -347,7 +347,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return None
 
     def get_connection_metadata(self, config: ClickHouseSourceConfig, team_id: int) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_clickhouse_connection_metadata(
                 host=host,
                 port=port,
@@ -361,7 +361,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
 

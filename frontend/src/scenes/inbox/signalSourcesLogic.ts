@@ -1,12 +1,12 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
@@ -118,7 +118,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        values: [
+            sourcesDataLogic,
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [sourcesDataLogic, ['loadSources']],
     })),
 
@@ -139,6 +144,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleHealthChecks: true,
+        toggleEvalReports: true,
         toggleConversations: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
@@ -193,6 +199,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
+            toggleEvalReports: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.LLM_ANALYTICS, SignalSourceType.EVALUATION_REPORT),
             toggleConversations: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.Conversations, SignalSourceType.Ticket),
         },
@@ -318,6 +326,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.HealthChecks}_${SignalSourceType.HealthIssue}`),
+        ],
+        evalReportsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                        c.source_type === SignalSourceType.EVALUATION_REPORT
+                ) ?? null,
+        ],
+        isEvalReportsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.LLM_ANALYTICS}_${SignalSourceType.EVALUATION_REPORT}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -524,6 +546,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled: desiredEnabled,
                 })
             },
+            toggleEvalReports: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.evalReportsConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                    sourceType: SignalSourceType.EVALUATION_REPORT,
+                    enabled: desiredEnabled,
+                })
+            },
             toggleConversations: () => {
                 const config = values.conversationsConfig
                 // Send the flipped target state. A missing config row means "off", so first toggle enables.
@@ -588,9 +621,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         }
     }),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            if (posthog.isFeatureEnabled(FEATURE_FLAGS.PRODUCT_AUTONOMY)) {
+            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY]) {
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()

@@ -10,6 +10,7 @@ export type AgentRosterSource =
     | 'error_tracking'
     | 'conversations'
     | 'session_replay'
+    | 'llm_analytics'
     | 'github'
     | 'linear'
     | 'zendesk'
@@ -65,6 +66,14 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 docsUrl: 'https://posthog.com/docs/session-replay',
                 docsLabel: 'Session replay',
                 alpha: true,
+            },
+            {
+                source: 'llm_analytics',
+                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                label: 'AI observability',
+                description: 'Findings from evaluation reports on your LLM traffic.',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
+                docsLabel: 'AI observability',
             },
         ],
     },

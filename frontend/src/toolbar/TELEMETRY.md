@@ -149,6 +149,29 @@ Fired when a toolbar mode is toggled on or off.
 `actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`,
 `product-tours/productToursLogic.ts`
 
+## Heatmaps / clickmaps
+
+### `toolbar clickmap processed`
+
+Fired when a clickmap matching run ends, including runs cancelled because a newer run superseded them (see `completed`).
+A user paginating emits one event per page with cumulative `event_count` — group by `trigger` when aggregating.
+
+| Property                 | Type      | Description                                                                                                      |
+| ------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `event_count`            | `number`  | Element stats rows processed                                                                                     |
+| `matched_element_count`  | `number`  | Rows matched to a visible DOM element                                                                            |
+| `index_matched_count`    | `number`  | Rows matched via the DOM index fast path (before visibility trimming)                                            |
+| `fallback_matched_count` | `number`  | Rows matched via the selector fallback (before visibility trimming); rising values signal index drift            |
+| `match_cache_hit_count`  | `number`  | Rows resolved from the per-row match cache (keyed on the server's chain hash) instead of re-matching             |
+| `page_element_count`     | `number`  | Elements collected from the page for matching                                                                    |
+| `has_shadow_roots`       | `boolean` | Whether open shadow roots were detected; selects which fallback implementation runs, not whether a fallback runs |
+| `duration_ms`            | `number`  | Wall-clock processing time, including main-thread yields; DOM index build time is included only on a cold cache  |
+| `trigger`                | `string`  | What started the run: `initial`, `auto-load` (the background full fetch), `pagination`, `refresh`, or `toggle`   |
+| `cache_hit`              | `boolean` | Whether the page-elements cache was warm (no collect + index rebuild)                                            |
+| `completed`              | `boolean` | False when the run did not finish — superseded by a newer run, or failed mid-processing                          |
+
+**File:** `elements/heatmapToolbarMenuLogic.ts`
+
 ## Element inspection
 
 ### `toolbar selected HTML element`

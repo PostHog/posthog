@@ -155,9 +155,10 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
-    # redirect needs neither — clients re-send credentials to the rewritten path.
-    "posthog.middleware.EnvironmentsRedirectMiddleware",
+    # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
+    # resolution so the /api/environments → /api/projects rewrite is in place before the
+    # request is routed and authenticated.
+    "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -623,6 +624,7 @@ SPECTACULAR_SETTINGS = {
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "ExperimentsListWidgetTypeEnum": ["experiments_list"],
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+        "SurveyResultsWidgetTypeEnum": ["survey_results"],
         "LogsListWidgetTypeEnum": ["logs_list"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
@@ -801,9 +803,9 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 ####
 # /api/environments deprecation
 
-# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
-# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
-# posthog.middleware.EnvironmentsRedirectMiddleware.
+# Requests to /api/environments/* are served through the equivalent /api/projects/*
+# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
+# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
@@ -852,12 +854,13 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
-HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 5000))
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
-HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 50000))
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 100000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
+# Empty by default — everyone gets the 50k tier. Opt-in via env override for teams needing 100k.
 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
-    int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", "2"))
+    int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }
 
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
@@ -977,6 +980,11 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 # Server-side shared secret; never expose the token to the browser.
 AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
+
+# AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
+# secret for routing LLM calls through the gateway. Unset = direct to the provider.
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
+AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
