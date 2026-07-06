@@ -31,7 +31,7 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .url()
         .max(savedCreateBodyUrlMax)
         .describe(
-            'Exact page URL to render and overlay heatmap data on. Query strings are allowed (each is rendered as a distinct page); wildcard/pattern characters in the host or path are not.'
+            'Exact page URL to render and overlay heatmap data on. Query strings are allowed (each is rendered as a distinct page); wildcard\/pattern characters in the host or path are not.'
         ),
     data_url: zod
         .url()
@@ -88,7 +88,7 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(savedPartialUpdateBodyUrlMax)
         .optional()
         .describe(
-            'Exact page URL to render and overlay heatmap data on. Query strings are allowed (each is rendered as a distinct page); wildcard/pattern characters in the host or path are not.'
+            'Exact page URL to render and overlay heatmap data on. Query strings are allowed (each is rendered as a distinct page); wildcard\/pattern characters in the host or path are not.'
         ),
     data_url: zod
         .url()
