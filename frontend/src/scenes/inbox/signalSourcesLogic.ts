@@ -200,7 +200,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
             toggleEvalReports: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(state, SignalSourceProduct.LLM_ANALYTICS, SignalSourceType.EVALUATION_REPORT),
+                toggleSourceConfigState(state, SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport),
             toggleConversations: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.Conversations, SignalSourceType.Ticket),
         },
@@ -332,14 +332,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                        c.source_type === SignalSourceType.EVALUATION_REPORT
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.EvaluationReport
                 ) ?? null,
         ],
         isEvalReportsToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
-                keys.has(`${SignalSourceProduct.LLM_ANALYTICS}_${SignalSourceType.EVALUATION_REPORT}`),
+                keys.has(`${SignalSourceProduct.LlmAnalytics}_${SignalSourceType.EvaluationReport}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -552,8 +552,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const config = values.evalReportsConfig
                 const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
-                    sourceType: SignalSourceType.EVALUATION_REPORT,
+                    sourceProduct: SignalSourceProduct.LlmAnalytics,
+                    sourceType: SignalSourceType.EvaluationReport,
                     enabled: desiredEnabled,
                 })
             },
