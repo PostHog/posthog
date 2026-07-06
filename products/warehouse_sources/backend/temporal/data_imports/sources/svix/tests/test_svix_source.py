@@ -99,7 +99,7 @@ class TestSvixSource:
             (0, False, "Could not connect to Svix: boom"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.source.check_access")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix.check_access")
     def test_validate_credentials(
         self,
         mock_check: mock.MagicMock,

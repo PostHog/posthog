@@ -20,5 +20,3 @@ SVIX_ENDPOINTS: dict[str, SvixEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(SVIX_ENDPOINTS.keys())
-
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
