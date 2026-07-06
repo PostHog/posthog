@@ -36,7 +36,10 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
+from products.customer_analytics.backend.logic import (
+    custom_property_values as _custom_property_values_logic,
+    relationships as _relationships_logic,
+)
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
     apply_option_side_effects,
@@ -48,6 +51,8 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
@@ -331,6 +336,7 @@ def _apply_external_role_assignments(
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
 
     account.save(update_fields=["_properties", "updated_at"])
+    _relationships_logic.sync_from_account_properties(account)
     return None
 
 
@@ -1284,6 +1290,8 @@ def create_account_for_view(
                 properties=input.properties,
             )
             _set_tags(input.tags, account)
+            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1328,6 +1336,8 @@ def update_account_for_view(
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             _set_tags(input.tags, account)
+            if input.properties_provided:
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1668,3 +1678,84 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+# --- Account relationships ---
+
+
+class AccountRelationshipDefinitionConflictError(Exception):
+    """Raised when a relationship definition violates the per-team unique name constraint."""
+
+
+def _to_account_relationship_definition(
+    definition: AccountRelationshipDefinition,
+) -> contracts.AccountRelationshipDefinition:
+    return contracts.AccountRelationshipDefinition(
+        id=definition.id,
+        name=definition.name,
+        description=definition.description,
+        is_single_holder=definition.is_single_holder,
+    )
+
+
+def _to_account_relationship(relationship: AccountRelationship) -> contracts.AccountRelationship:
+    user = relationship.user
+    return contracts.AccountRelationship(
+        id=relationship.id,
+        definition=_to_account_relationship_definition(relationship.definition),
+        user=contracts.AccountAssignment(id=user.id, email=user.email) if user is not None else None,
+        started_at=relationship.started_at,
+        ended_at=relationship.ended_at,
+    )
+
+
+def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
+    return [
+        _to_account_relationship_definition(definition)
+        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    ]
+
+
+def create_account_relationship_definition(
+    *,
+    team_id: int,
+    name: str,
+    description: str | None = None,
+    is_single_holder: bool = True,
+    created_by: "User",
+) -> contracts.AccountRelationshipDefinition:
+    try:
+        definition = AccountRelationshipDefinition.objects.for_team(team_id).create(
+            team_id=team_id,
+            name=name,
+            description=description,
+            is_single_holder=is_single_holder,
+            created_by=created_by,
+        )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
+    """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
+    no definition matches the id for this team (→ 404)."""
+    deleted, _ = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).delete()
+    return deleted > 0
+
+
+def list_account_relationships(
+    *, team_id: int, account_id: str | UUID, include_history: bool = False
+) -> list[contracts.AccountRelationship]:
+    """The account's active relationships, or its full assignment timeline with ``include_history``."""
+    queryset = (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .select_related("definition", "user")
+        .order_by("definition__name", "-started_at")
+    )
+    if not include_history:
+        queryset = queryset.filter(ended_at__isnull=True)
+    return [_to_account_relationship(relationship) for relationship in queryset]
