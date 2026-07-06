@@ -239,6 +239,7 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
+        enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
     """
 
     metrics_server: CombinedMetricsServer | None = None
@@ -338,13 +339,7 @@ async def create_worker(
         )
     )
     # Register the OpenTelemetryPlugin on the client, not the worker, following the SDK's guidance
-    # (temporalio/contrib/opentelemetry/README.md). Placement determines interceptor ordering: a
-    # worker-registered plugin appends its tracing interceptor after ours (innermost), so the
-    # RunActivity/RunWorkflow span doesn't exist yet when interceptors like PostHogClientInterceptor
-    # or BatchExportsMetricsInterceptor try to tag it. A client-registered plugin surfaces the same
-    # interceptor through the client's interceptor list, which the Worker prepends (outermost),
-    # making the span current for every inner interceptor. The Worker inherits the plugin itself
-    # from the client, so it must not be passed to the Worker as well.
+    # (temporalio/contrib/opentelemetry/README.md).
     plugins: collections.abc.Sequence[Plugin] = (
         (OpenTelemetryPlugin(add_temporal_spans=True),) if enable_open_telemetry_plugin else ()
     )
