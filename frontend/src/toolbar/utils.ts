@@ -174,10 +174,10 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             seedMinLength: 5,
-            attr: (name) => {
+            attr: (name, value) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
-                return name.startsWith('data-')
+                return name.startsWith('data-') && !containsUnstableGeneratedId(value)
             },
             // the combination guard tripped and cut the candidate search short -
             // the selector may degrade to a brittle positional path - record host
@@ -188,7 +188,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                     levels,
                 }),
         })
-        return slashDotDataAttrUnescape(foundSelector)
+        return unescapeCssSelector(foundSelector)
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
@@ -655,14 +655,24 @@ export function getHeatMapHue(count: number, maxCount: number): number {
 }
 
 /*
- * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
- * but our action matching doesn't support it
- * in order to avoid trying to write a general purpose CSS unescaper
- * we just remove the backslash in this specific pattern
- * if it matches data-attr="bla\.blah\.blah"
+ * KLUDGE: finder() builds selectors with CSS.escape, e.g. [data-attr="session\.recording\.preview"]
+ * or [data-id="base-ui-\:rg\:-viewport"]. That's valid CSS, but our action/element matching compares
+ * raw attribute values, so the escapes must be removed. This handles single-character escapes
+ * (\. -> ., \: -> :) and hex code-point escapes (\31 -> 1) without being a fully general CSS unescaper.
  */
-export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
-    return foundSelector.replace(/\\./g, '.')
+export function unescapeCssSelector(foundSelector: string): string {
+    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) =>
+        escaped.length > 1 || /[0-9a-fA-F]/.test(escaped) ? String.fromCodePoint(parseInt(escaped, 16)) : escaped
+    )
+}
+
+// React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),
+// which component libraries embed in DOM attributes (e.g. data-id="base-ui-:rg:-viewport").
+// They change between renders and deploys, so a selector built on one never matches recorded events.
+const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
+
+export function containsUnstableGeneratedId(value: string): boolean {
+    return UNSTABLE_GENERATED_ID_REGEX.test(value)
 }
 
 export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {
