@@ -32,6 +32,7 @@ export const AccountsEvents = {
     Searched: 'customer analytics accounts searched',
     Refreshed: 'customer analytics accounts refreshed',
     Sorted: 'customer analytics accounts sorted',
+    AccountOpened: 'customer analytics accounts account opened',
     ColumnsSaved: 'customer analytics accounts columns saved',
     OverviewTilesEdited: 'customer analytics accounts overview tiles edited',
     OverviewTilesLocalStorageRead: 'customer analytics accounts overview tiles localstorage read',

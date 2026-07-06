@@ -32,6 +32,7 @@ SLACK_APP_OAUTH_FLAG = "slack-app-oauth"
 SLACK_APP_HOME_FLAG = "slack-app-home"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
+SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -132,6 +133,26 @@ def is_slack_app_untagged_thread_followups_enabled(integration: Integration, sla
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )
+        return False
+
+
+def is_slack_app_bot_prs_enabled(team: Team) -> bool:
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_BOT_PRS_FLAG,
+                str(team.uuid),
+                groups={"organization": organization_id, "project": project_id},
+                group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("slack_app_bot_prs_flag_check_failed", team_id=team.id)
         return False
 
 
