@@ -737,3 +737,21 @@ class TestClaimWindowSkipsForeignLeasedGroups:
         await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         got_a_after_expiry = await _claim(conn, owner=OWNER_A, limit=2)
         assert "schema-A" in {b.schema_id for b in got_a_after_expiry}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountBatchesForRun:
+    @pytest.mark.asyncio
+    async def test_counts_unclaimed_batches_and_zero_when_none(self, conn, _db_url):
+        # Freshly inserted batches have no status row until the loader claims them. The count
+        # must still see them: it exists so the CDC orphan reconciler can tell a run that
+        # enqueued nothing (safe to fail) from one whose batches are merely unclaimed (a
+        # status-view JOIN would report the latter as zero and strand a late load).
+        await _insert_batch(conn, job_id="job-A", batch_index=0)
+        await _insert_batch(conn, job_id="job-A", batch_index=1)
+        await _insert_batch(conn, job_id="job-B", batch_index=0)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0
