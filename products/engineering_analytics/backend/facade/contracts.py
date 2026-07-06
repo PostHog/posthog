@@ -661,6 +661,31 @@ class WorkflowHealthItem:
 
 
 @dataclass(frozen=True)
+class CostPerMergeBucket:
+    """One time bucket of the repo's CI cost normalized by merged PRs — the "is CI spend per shipped
+    change trending up" series. ``cost_per_merge_usd`` is the headline: estimated Depot cost over a
+    trailing window ending at this bucket (24 h / 7 d / 4 w to match the grain) divided by PRs merged
+    in the same trailing window. The rolling ratio exists because a strict per-bucket division has a
+    hole in every bucket that shipped nothing and pairs spend with merges that usually happened a
+    bucket later. Cost counts by run start and merges by merge time — the same coarse alignment the
+    daily depot tooling uses. ``estimated_cost_usd`` and ``merges`` stay bucket-local (the raw inputs);
+    empty buckets are zero-filled: ``merges`` 0, cost None.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Estimated Depot CI cost (USD) of all runs started in this bucket. None when nothing was costable
+    # (no billable self-hosted Linux jobs, or the job source isn't synced).
+    estimated_cost_usd: float | None
+    # PRs merged in this bucket (all authors, bots included — matches the cost numerator's population).
+    merges: int
+    # Trailing-window cost / trailing-window merges (window sized to the grain). None when the trailing
+    # window had no merges or no costable cost, so a dead stretch is never shown as an infinite or zero
+    # cost-per-merge.
+    cost_per_merge_usd: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -684,6 +709,11 @@ class RepoOverview:
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
+    # Cost-per-merged-PR trend across the window, oldest first, zero-filled, bucketed by
+    # `cost_series_granularity`. Empty when the job-level source isn't synced.
+    cost_series: list[CostPerMergeBucket]
+    # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    cost_series_granularity: str
 
 
 @dataclass(frozen=True)

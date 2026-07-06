@@ -155,9 +155,10 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
-    # redirect needs neither — clients re-send credentials to the rewritten path.
-    "posthog.middleware.EnvironmentsRedirectMiddleware",
+    # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
+    # resolution so the /api/environments → /api/projects rewrite is in place before the
+    # request is routed and authenticated.
+    "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -513,7 +514,19 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
-        "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
+        "CustomPropertyDisplayTypeEnum": [
+            "text",
+            "number",
+            "currency",
+            "percent",
+            "date",
+            "datetime",
+            "boolean",
+            "select",
+        ],
+        # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
+        # palette color later would change the hash and silently rename the generated type.
+        "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
@@ -796,9 +809,9 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 ####
 # /api/environments deprecation
 
-# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
-# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
-# posthog.middleware.EnvironmentsRedirectMiddleware.
+# Requests to /api/environments/* are served through the equivalent /api/projects/*
+# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
+# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")

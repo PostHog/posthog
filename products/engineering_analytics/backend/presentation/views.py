@@ -146,6 +146,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "workflow_jobs",
         "flaky_tests",
         "repo_overview",
+        "repo_run_activity",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
@@ -850,6 +851,52 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
         return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_repo_run_activity",
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            # This endpoint never aggregates across branches, so the shared _BRANCH "omit to aggregate"
+            # wording would misdescribe the omit behavior in every generated client.
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional exact git branch (head_branch) to chart, e.g. 'main'. "
+                "Omit or leave blank to use the repo's detected default branch.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunActivitySerializer,
+            400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
+        },
+        description=(
+            "Default-branch health as compact chart points over a window (default -30d), newest first, for the "
+            "repo-hub run-activity chart. All of a commit's workflow runs are collapsed into ONE point per commit "
+            "(head SHA): its earliest workflow start, wall-clock duration until the last workflow settled (null "
+            "while any is still running), and an overall conclusion that is 'failure' if any workflow decisively "
+            "failed, else 'success' when at least one passed, else 'neutral'. `branch` overrides the detected "
+            "default branch. `truncated` is true when more commits matched than the cap, so the chart covers only "
+            "the most recent commits."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def repo_run_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_repo_run_activity(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
+        return Response(WorkflowRunActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_master_failures",

@@ -600,7 +600,26 @@ export interface QuarantineRequestResultApi {
     branch: string
 }
 
+export interface CostPerMergeBucketApi {
+    /** Bucket start, aligned to cost_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Estimated Depot CI cost (USD) of all runs started in this bucket. Null when nothing was costable (no billable self-hosted Linux jobs) or the job source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+    /** PRs merged in this bucket (all authors, bots included). */
+    merges: number
+    /**
+     * Rolling ratio: trailing-window CI cost divided by trailing-window merges (24 h / 7 d / 4 w to match the granularity). Null when the trailing window had no merges or no costable cost.
+     * @nullable
+     */
+    cost_per_merge_usd: number | null
+}
+
 export interface RepoOverviewApi {
+    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+    cost_series: CostPerMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -653,6 +672,38 @@ export interface RepoOverviewApi {
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
     default_branch: string
+    /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
+    cost_series_granularity: string
+}
+
+export interface WorkflowRunActivityPointApi {
+    /** GitHub Actions run id. */
+    run_id: number
+    /**
+     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+     * @nullable
+     */
+    conclusion: string | null
+    /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+    run_started_at: string
+    /**
+     * Wall-clock duration in seconds; null until the run completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Git branch the run was triggered on, or '' when unknown. */
+    head_branch: string
+    /** Attributed pull request number, or 0 when unattributed. */
+    pr_number: number
+}
+
+export interface WorkflowRunActivityApi {
+    /** Per-run chart points, newest first, capped at `limit`. */
+    points: WorkflowRunActivityPointApi[]
+    /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+    truncated: boolean
+    /** Maximum number of run points returned in `points`. */
+    limit: number
 }
 
 export interface RunFailureLogsApi {
@@ -786,36 +837,6 @@ export interface WorkflowJobApi {
      * @nullable
      */
     estimated_cost_usd: number | null
-}
-
-export interface WorkflowRunActivityPointApi {
-    /** GitHub Actions run id. */
-    run_id: number
-    /**
-     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
-     * @nullable
-     */
-    conclusion: string | null
-    /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
-    run_started_at: string
-    /**
-     * Wall-clock duration in seconds; null until the run completes.
-     * @nullable
-     */
-    duration_seconds: number | null
-    /** Git branch the run was triggered on, or '' when unknown. */
-    head_branch: string
-    /** Attributed pull request number, or 0 when unattributed. */
-    pr_number: number
-}
-
-export interface WorkflowRunActivityApi {
-    /** Per-run chart points, newest first, capped at `limit`. */
-    points: WorkflowRunActivityPointApi[]
-    /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
-    truncated: boolean
-    /** Maximum number of run points returned in `points`. */
-    limit: number
 }
 
 export interface WorkflowRunnerCostApi {
@@ -1016,6 +1037,25 @@ export type EngineeringAnalyticsQuarantineParams = {
 }
 
 export type EngineeringAnalyticsRepoOverviewParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsRepoRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to chart, e.g. 'main'. Omit or leave blank to use the repo's detected default branch.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

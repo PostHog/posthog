@@ -91,6 +91,9 @@ tools:
     engineering-analytics-repo-overview:
         operation: engineering_analytics_repo_overview
         enabled: false
+    engineering-analytics-repo-run-activity:
+        operation: engineering_analytics_repo_run_activity
+        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
         enabled: false

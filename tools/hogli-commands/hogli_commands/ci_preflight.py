@@ -187,7 +187,8 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     elif chk.verify is None:
         # Guidance-only (no runnable local check, or its fix needs an absent capability):
         # advise regardless, so the hint still shows on a bare checkout — even with --fix.
-        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit drift"
+        # Ownership framing lives once in the advisory footer, not per check.
+        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit before pushing"
     elif unmet:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
@@ -474,6 +475,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.echo(
             f"  summary {json.dumps({k: summary[k] for k in ('changed_files', 'triggered', 'failures', 'mode')})}"
         )
+        if advisories:
+            # Non-blocking, so agents skip these as pre-existing. Restate ownership.
+            click.secho(
+                f"\n  {advisories} advisory(ies) are unpushed CI failures — resolve before pushing, "
+                "including drift you didn't introduce. You own the branch state you push.",
+                fg="yellow",
+            )
         click.echo()
 
     _emit_telemetry(summary)
