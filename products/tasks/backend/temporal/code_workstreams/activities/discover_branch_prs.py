@@ -10,7 +10,6 @@ import requests
 from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
-from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.temporal.common.utils import close_db_connections
 
