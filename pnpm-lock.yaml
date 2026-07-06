@@ -4323,6 +4323,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/workflows:
     dependencies:
@@ -22075,8 +22079,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.441.0:
-    resolution: {integrity: sha512-kv517UseH1plEpm11xANkIS4jx7rwpvT/7KPHepEnVn3JQitZ0te+XkznG37+1bfXcFJcyKlpI0wznlU4aPJTw==}
+  unlayer-types@1.445.0:
+    resolution: {integrity: sha512-xZS2zXv2v9YXJH+WZf+rNWAh/aXUfnXotXCoflznI5pZ/Ndwdx2lFk7Sv2PfW2f9e7JZcrhRX6lzFe220r5KBw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -43046,7 +43050,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.441.0
+      unlayer-types: 1.445.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45386,7 +45390,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.441.0: {}
+  unlayer-types@1.445.0: {}
 
   unpipe@1.0.0: {}
 
