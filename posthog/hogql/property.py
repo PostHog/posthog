@@ -624,10 +624,10 @@ def _expr_to_compare_op(
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
-        if not isinstance(value, list):
-            raise Exception("IN and NOT IN operators require a list of values")
+        # A scalar is treated as a single-element list so IN/NOT_IN don't 500 on non-list values.
+        values = value if isinstance(value, list) else [value]
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in values]))
     elif operator == PropertyOperator.SEMVER_EQ:
         return _gate_on_valid_semver(
             expr,

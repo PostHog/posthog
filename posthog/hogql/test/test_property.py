@@ -1836,6 +1836,19 @@ class TestProperty(BaseTest):
         )
         self.assertIsInstance(result, ast.Expr)
 
+    # A scalar value on an IN/NOT_IN operator used to raise, 500ing the error tracking issues list.
+    @parameterized.expand([("in", ast.CompareOperationOp.In), ("not_in", ast.CompareOperationOp.NotIn)])
+    def test_in_operators_coerce_scalar_value_to_list(self, operator_value: str, op: ast.CompareOperationOp):
+        result = self._property_to_expr({"type": "event", "key": "test_prop", "value": "a", "operator": operator_value})
+        self.assertEqual(
+            result,
+            ast.CompareOperation(
+                op=op,
+                left=self._parse_expr("properties.test_prop"),
+                right=ast.Array(exprs=[ast.Constant(value="a")]),
+            ),
+        )
+
     def test_flag_evaluates_to_produces_neutral_expr(self):
         prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
         result = property_to_expr([prop], self.team)
