@@ -12,7 +12,9 @@ from .get_task_processing_context import TaskProcessingContext, get_task_process
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
+    CheckoutBranchInSandboxOutput,
     CloneRepositoryInSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
@@ -57,7 +59,9 @@ __all__ = [
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
+    "CheckoutBranchInSandboxOutput",
     "CloneRepositoryInSandboxInput",
+    "CloneRepositoryInSandboxOutput",
     "CreateSandboxForRepositoryInput",
     "CreateSandboxForRepositoryOutput",
     "InjectFreshTokensOnResumeInput",
