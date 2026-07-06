@@ -146,13 +146,14 @@ def _tier_budgets(observed_limit: int | None) -> tuple[int, int]:
     The settings are operator ceilings honored for every installation; the observed tier can only
     lower the hourly budget below them (budgeting *over* the provider's real limit would defeat the
     limiter). 90% of the observed limit leaves room for drift; the minute cap scales as hourly/18
-    so the hour can't drain faster than ~18 minutes, with a 150 floor so small tiers stay usable
-    in bursts.
+    so the hour can't drain faster than ~18 minutes. The 150 floor cushions only the scaled term
+    (small tiers stay usable in bursts) — an explicit per-minute setting below it still wins,
+    because operator ceilings are absolute.
     """
     hourly = _hourly_budget()
     if observed_limit is not None and observed_limit > 0:
         hourly = min(hourly, int(observed_limit * 0.9))
-    per_minute = max(150, min(_per_minute_budget(), hourly // 18))
+    per_minute = min(_per_minute_budget(), max(150, hourly // 18))
     return hourly, per_minute
 
 

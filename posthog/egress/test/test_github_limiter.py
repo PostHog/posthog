@@ -59,7 +59,7 @@ class TestGitHubTierBudgets(GitHubLimiterTestCase):
 
     def test_per_minute_setting_is_a_ceiling_for_observed_tiers_too(self) -> None:
         with self.settings(GITHUB_EGRESS_PER_MINUTE_BUDGET=100):
-            assert _tier_budgets(15_000) == (13_500, 150)  # floor still applies, but capped by the knob's intent
+            assert _tier_budgets(15_000) == (13_500, 100)  # a setting below the burst floor still wins
         with self.settings(GITHUB_EGRESS_PER_MINUTE_BUDGET=200):
             assert _tier_budgets(15_000) == (13_500, 200)
 
