@@ -86,7 +86,7 @@ NUDGE_TRIVIAL_MAX_WORDS = 3
 _SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
 _SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9_]+$")
 
-# Action IDs for the opt-in "open a ticket?" confirmation prompt (slack_confirm_before_ticket).
+# Action IDs for the "open a ticket?" nudge prompt (slack_nudge_enabled, on by default).
 # The buttons are posted by post_ticket_confirmation_prompt and routed by the interactivity endpoint.
 TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
 TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
@@ -665,13 +665,14 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         return
 
     if channel not in configured_channels:
-        return
-
-    # Opt-in: ask the author first instead of auto-creating. The ticket is created
-    # only when they click "Open ticket" on the prompt (handled by the interactivity
-    # endpoint), so we stop here. Heuristics keep us from pestering the whole channel.
-    if settings_dict.get("slack_confirm_before_ticket"):
-        if _should_send_nudge(team, channel, slack_user_id, text, blocks, files):
+        # Outside the support channels (where tickets auto-create), nudge the author
+        # with an "open a ticket?" prompt so they don't have to remember the emoji
+        # reaction or @mention. On by default; the ticket is created only when they
+        # click "Open ticket" (handled by the interactivity endpoint). Heuristics
+        # keep us from pestering the whole channel.
+        if settings_dict.get("slack_nudge_enabled", True) and _should_send_nudge(
+            team, channel, slack_user_id, text, blocks, files
+        ):
             post_ticket_confirmation_prompt(
                 team=team,
                 slack_channel_id=channel,
@@ -681,7 +682,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
             suppress_nudge(_get_team_id(team), channel, slack_user_id, NUDGE_COOLDOWN_TTL)
         return
 
-    # Top-level message -> create new ticket, use message ts as thread_ts
+    # Top-level message in a support channel -> create new ticket, use message ts as thread_ts
     create_or_update_slack_ticket(
         team=team,
         slack_channel_id=channel,
@@ -754,10 +755,10 @@ def post_ticket_confirmation_prompt(
 ) -> None:
     """Ask the message author whether to open a ticket, via a threaded reply.
 
-    Posted instead of auto-creating when ``slack_confirm_before_ticket`` is enabled.
-    The prompt @mentions the author so they get a notification, and is deleted when they
-    click either button (routed through the interactivity endpoint to
-    ``create_ticket_from_confirmation``).
+    Posted for top-level messages outside the configured support channels (where tickets
+    auto-create) when ``slack_nudge_enabled`` is on. The prompt @mentions the author so
+    they get a notification, and is deleted when they click either button (routed through
+    the interactivity endpoint to ``create_ticket_from_confirmation``).
     """
     if not message_ts or not slack_user_id:
         return

@@ -62,7 +62,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         saveSlackBotSettings: true,
         setSlackNotifyOnJoin: (enabled: boolean) => ({ enabled }),
         setSlackNotifyOnLeave: (enabled: boolean) => ({ enabled }),
-        setSlackConfirmBeforeTicket: (enabled: boolean) => ({ enabled }),
+        setSlackNudgeEnabled: (enabled: boolean) => ({ enabled }),
         setSlackAlertChannel: (channelId: string | null) => ({ channelId }),
         disconnectSlack: true,
         // Teams channel settings
@@ -444,9 +444,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_notify_on_leave,
         ],
-        slackConfirmBeforeTicket: [
+        slackNudgeEnabled: [
             (s) => [s.currentTeam],
-            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_confirm_before_ticket,
+            (currentTeam): boolean => currentTeam?.conversations_settings?.slack_nudge_enabled ?? true,
         ],
         slackAlertChannelId: [
             (s) => [s.currentTeam],
@@ -687,11 +687,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        setSlackConfirmBeforeTicket: ({ enabled }) => {
+        setSlackNudgeEnabled: ({ enabled }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    slack_confirm_before_ticket: enabled,
+                    slack_nudge_enabled: enabled,
                 },
             })
         },

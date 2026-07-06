@@ -48,7 +48,7 @@ function SlackChannelSection(): JSX.Element {
         slackNotifyOnJoin,
         slackNotifyOnLeave,
         slackAlertChannelId,
-        slackConfirmBeforeTicket,
+        slackNudgeEnabled,
         currentTeamLoading,
     } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -65,7 +65,7 @@ function SlackChannelSection(): JSX.Element {
         setSlackNotifyOnJoin,
         setSlackNotifyOnLeave,
         setSlackAlertChannel,
-        setSlackConfirmBeforeTicket,
+        setSlackNudgeEnabled,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -128,16 +128,17 @@ function SlackChannelSection(): JSX.Element {
                         </div>
                         <LemonCheckbox
                             className="mt-2"
-                            checked={slackConfirmBeforeTicket}
-                            onChange={setSlackConfirmBeforeTicket}
+                            checked={slackNudgeEnabled}
+                            onChange={setSlackNudgeEnabled}
                             disabled={currentTeamLoading}
-                            label="Ask before creating a ticket"
+                            label="Nudge users to open tickets in other channels"
                             bordered
                         />
                         <p className="text-xs text-muted-alt mt-1">
-                            When enabled, the SupportHog bot replies in-thread mentioning the author to ask whether to
-                            open a ticket, instead of creating one automatically. Only affects channel messages —
-                            @mentions and emoji reactions still create tickets immediately.
+                            When someone posts in a channel the bot is in that isn't a support channel, SupportHog
+                            replies in-thread asking whether to open a ticket — so they don't need to remember the emoji
+                            reaction or @mention. Support channels are unaffected: messages there always create tickets
+                            automatically.
                         </p>
                     </div>
                     {memberAlertsEnabled && (

@@ -448,24 +448,23 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_not_called()
 
 
-class TestSlackConfirmBeforeTicket(BaseTest):
+class TestSlackNudge(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()  # nudge suppression + bot user id are cached per team
         self.team.conversations_settings = {
             "slack_enabled": True,
             "slack_channel_id": "C_CONFIG",
-            "slack_confirm_before_ticket": True,
         }
         self.team.save()
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_top_level_message_posts_prompt_instead_of_creating(self, mock_create_or_update, mock_get_client):
+    def test_message_in_other_channel_posts_prompt_by_default(self, mock_create_or_update, mock_get_client):
         handle_support_message(
             {
                 "type": "message",
-                "channel": "C_CONFIG",
+                "channel": "C_OTHER",
                 "ts": "1700000000.000100",
                 "user": "U123",
                 "text": "my data export keeps failing",
@@ -477,7 +476,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         mock_create_or_update.assert_not_called()
         mock_get_client.return_value.chat_postMessage.assert_called_once()
         kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
-        assert kwargs["channel"] == "C_CONFIG"
+        assert kwargs["channel"] == "C_OTHER"
         assert kwargs["thread_ts"] == "1700000000.000100"
         # Mentions the author so they actually get notified (a plain ephemeral is silent).
         assert "<@U123>" in kwargs["text"]
@@ -496,20 +495,41 @@ class TestSlackConfirmBeforeTicket(BaseTest):
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_thread_reply_still_syncs_when_confirm_enabled(self, mock_create_or_update, mock_get_client):
+    def test_no_prompt_when_nudge_disabled(self, mock_create_or_update, mock_get_client):
+        self.team.conversations_settings = {**self.team.conversations_settings, "slack_nudge_enabled": False}
+        self.team.save()
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_thread_reply_in_other_channel_still_syncs_without_prompt(self, mock_create_or_update, mock_get_client):
         Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.SLACK,
             widget_session_id="",
             distinct_id="",
-            slack_channel_id="C_CONFIG",
+            slack_channel_id="C_OTHER",
             slack_thread_ts="1700000000.000100",
         )
 
         handle_support_message(
             {
                 "type": "message",
-                "channel": "C_CONFIG",
+                "channel": "C_OTHER",
                 "thread_ts": "1700000000.000100",
                 "ts": "1700000000.000200",
                 "user": "U123",
@@ -531,7 +551,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         handle_support_message(
             {
                 "type": "message",
-                "channel": "C_CONFIG",
+                "channel": "C_OTHER",
                 "ts": "1700000000.000100",
                 "user": "U123",
                 "text": "<@UBOT123> can you please take a look",
@@ -550,7 +570,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         handle_support_message(
             {
                 "type": "message",
-                "channel": "C_CONFIG",
+                "channel": "C_OTHER",
                 "ts": "1700000000.000100",
                 "user": "U123",
                 "text": "thanks :+1:",
@@ -571,7 +591,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         handle_support_message(
             {
                 "type": "message",
-                "channel": "C_CONFIG",
+                "channel": "C_OTHER",
                 "ts": "1700000000.000100",
                 "user": "U123",
                 "text": "my data export keeps failing",
@@ -588,7 +608,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
     def test_does_not_renudge_same_user_within_cooldown(self, mock_create_or_update, mock_get_client):
         event = {
             "type": "message",
-            "channel": "C_CONFIG",
+            "channel": "C_OTHER",
             "user": "U123",
             "text": "my data export keeps failing",
         }
@@ -612,7 +632,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         create_ticket_from_confirmation(
             team=self.team,
             slack_team_id="T123",
-            slack_channel_id="C_CONFIG",
+            slack_channel_id="C_OTHER",
             message_ts="1700000000.000100",
         )
 
@@ -637,7 +657,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         result = create_ticket_from_confirmation(
             team=self.team,
             slack_team_id="T123",
-            slack_channel_id="C_CONFIG",
+            slack_channel_id="C_OTHER",
             message_ts="1700000000.000100",
         )
 
@@ -652,14 +672,14 @@ class TestSlackConfirmBeforeTicket(BaseTest):
             channel_source=Channel.SLACK,
             widget_session_id="",
             distinct_id="",
-            slack_channel_id="C_CONFIG",
+            slack_channel_id="C_OTHER",
             slack_thread_ts="1700000000.000100",
         )
 
         result = create_ticket_from_confirmation(
             team=self.team,
             slack_team_id="T123",
-            slack_channel_id="C_CONFIG",
+            slack_channel_id="C_OTHER",
             message_ts="1700000000.000100",
         )
 
