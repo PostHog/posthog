@@ -452,7 +452,24 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
-Sandbox: SandboxClass = get_sandbox_class()
+_resolved_sandbox_class: SandboxClass | None = None
+
+
+def __getattr__(name: str) -> object:
+    # Resolve the concrete `Sandbox` class lazily on first access. Resolving it at
+    # import time creates a circular import when `docker_sandbox` is loaded before this
+    # module: `get_sandbox_class()` would import `docker_sandbox` back while it is still
+    # half-initialized. Deferring lets this module finish importing first.
+    if name == "Sandbox":
+        global _resolved_sandbox_class
+        if _resolved_sandbox_class is None:
+            _resolved_sandbox_class = get_sandbox_class()
+        return _resolved_sandbox_class
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if TYPE_CHECKING:
+    Sandbox: SandboxClass
 
 __all__ = [
     "AgentServerResult",
