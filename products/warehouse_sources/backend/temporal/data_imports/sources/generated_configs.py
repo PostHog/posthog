@@ -2691,7 +2691,8 @@ class RecreationSourceConfig(config.Config):
 
 @config.config
 class RecruiteeSourceConfig(config.Config):
-    pass
+    company_id: str
+    api_token: str
 
 
 @config.config

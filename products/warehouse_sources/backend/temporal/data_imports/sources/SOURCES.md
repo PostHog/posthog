@@ -274,6 +274,7 @@ the row lists both.
 | recurly                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                    | HTTP                        | requests                                                        | ✅                          |
 | recharge                | HTTP                        | requests                                                        | ✅                          |
+| recruitee               | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend                  | HTTP                        | requests                                                        | ✅                          |
@@ -608,7 +609,6 @@ doesn't conflict with concurrent PRs.
 - rb2b
 - rd_station_marketing
 - recreation
-- recruitee
 - reddit
 - redis
 - referralhero
