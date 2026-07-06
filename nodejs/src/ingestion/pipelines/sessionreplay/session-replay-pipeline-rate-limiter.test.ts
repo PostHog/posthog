@@ -446,8 +446,11 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             redis.failAlways('mget', SEEN_PREFIX)
             setUpSessionType('allowed', 'a')
 
-            // Fail-hard: retries exhaust and the batch throws, so the consumer reprocesses when Redis
-            // recovers instead of recording keyless. hasSeen runs before counting, so nothing is counted.
+            // Fail-hard: retries exhaust and the batch throws. The error propagates out, so the offset is
+            // never committed and the consumer crashes; Kafka reassigns the partition to another consumer
+            // that hits the same failure — a crash/rebalance loop that keeps the batch uncommitted until
+            // Redis recovers and it finally succeeds, rather than ever committing a keyless recording.
+            // hasSeen runs before counting, so nothing is counted.
             await expect(runBatch('a', 1)).rejects.toThrow()
             expect(timesCountedAsNew('a')).toBe(0)
         })
