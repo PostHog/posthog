@@ -471,6 +471,15 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        required=False,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text=(
+            "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. "
+            "Defaults to comprehensive (no filter)."
+        ),
+    )
     scanner_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -530,7 +539,10 @@ class EstimateResponseSerializer(serializers.Serializer):
     """Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic."""
 
     matched_sessions_in_window = serializers.IntegerField(
-        help_text="Distinct sessions matching the query within the 30-day lookback, before sampling.",
+        help_text=(
+            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
+            "filter but before random sampling."
+        ),
     )
     window_days = serializers.IntegerField(
         help_text=(
@@ -538,7 +550,9 @@ class EstimateResponseSerializer(serializers.Serializer):
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
-        help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
+        help_text=(
+            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+        ),
     )
     other_enabled_scanners_monthly = serializers.IntegerField(
         help_text=(
@@ -764,7 +778,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
+        estimate = estimate_scanner_session_volume(
+            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+        )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
         # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this

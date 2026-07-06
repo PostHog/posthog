@@ -7,7 +7,6 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { QUOTA_STATUS_STYLES, type QuotaStatus, projectQuota, splitProjectedPct } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SAMPLING_MODE_FILTER_RATIO } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
@@ -26,9 +25,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     }
 
     const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
-    const modeFilterRatio = SAMPLING_MODE_FILTER_RATIO[scanner.sampling_mode] ?? 1
-    const rawProjected = scannerEstimate?.estimated_observations_per_month ?? null
-    const projected = rawProjected !== null ? Math.round(rawProjected * modeFilterRatio) : null
+    // The estimate already applies the quality filter and sampling rate backend-side.
+    const projected = scannerEstimate?.estimated_observations_per_month ?? null
     const hasCap = !!quota && quota.monthly_quota > 0
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0

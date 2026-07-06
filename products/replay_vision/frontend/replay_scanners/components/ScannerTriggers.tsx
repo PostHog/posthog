@@ -102,7 +102,11 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
-            <LemonField name="sampling_mode" label="Quality filter">
+            <LemonField
+                name="sampling_mode"
+                label="Session coverage"
+                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
+            >
                 {({ value, onChange }) => {
                     const mode = (value ?? 'comprehensive') as SamplingMode
                     const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
@@ -110,7 +114,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                         <div className="space-y-1">
                             <LemonSegmentedButton
                                 value={mode}
-                                onChange={(v) => onChange(v)}
+                                onChange={onChange}
                                 options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                             />
                             <div className="text-xs text-muted">{option?.description}</div>

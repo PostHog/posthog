@@ -189,7 +189,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconBolt />} title="Triggers" />
                     <div className="flex flex-col gap-3">
-                        <LabeledRow label="Quality filter">
+                        <LabeledRow label="Session coverage">
                             {SAMPLING_MODE_OPTIONS.find((o) => o.value === scanner.sampling_mode)?.label ??
                                 scanner.sampling_mode}
                         </LabeledRow>

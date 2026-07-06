@@ -139,7 +139,7 @@ class ReplayScanner(UUIDModel):
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")

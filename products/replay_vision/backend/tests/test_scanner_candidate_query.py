@@ -17,8 +17,10 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
+    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
+    surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_WINDOW_DAYS,
@@ -148,8 +150,16 @@ def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_
 
 
 def test_surfacing_score_predicate_passthrough_in_comprehensive():
-    q = _make_query(sampling_mode="comprehensive")
-    assert q._surfacing_score_predicate() is None
+    assert surfacing_score_predicate("comprehensive") is None
+
+
+def test_surfacing_score_predicate_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        surfacing_score_predicate("focussed")
+
+
+def test_null_fallback_stays_below_balanced_threshold():
+    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
 
 
 @pytest.mark.parametrize(
@@ -160,8 +170,7 @@ def test_surfacing_score_predicate_passthrough_in_comprehensive():
     ],
 )
 def test_surfacing_score_predicate_emits_threshold(mode, expected_threshold):
-    q = _make_query(sampling_mode=mode)
-    expr = q._surfacing_score_predicate()
+    expr = surfacing_score_predicate(mode)
     assert isinstance(expr, ast.CompareOperation)
     assert expr.op == ast.CompareOperationOp.GtEq
     assert isinstance(expr.right, ast.Constant) and expr.right.value == expected_threshold
