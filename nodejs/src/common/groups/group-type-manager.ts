@@ -5,6 +5,7 @@ import { timeoutGuard } from '~/common/utils/db/utils'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
+import { Component } from '~/ingestion/common/scopes'
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '~/types'
 
 /** How many unique group types to allow per team */
@@ -113,5 +114,26 @@ export class GroupTypeManager {
         }
 
         captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
+    }
+}
+
+/**
+ * Scope owner for the `GroupTypeManager`. Like the schema-enforcement manager it
+ * holds only an in-memory `LazyLoader` cache over the shared group repository and
+ * team manager (neither of which it owns), so `start()` constructs it and `stop()`
+ * is a no-op. Owning it in the shared scope shares one warm cache across the
+ * combined-mode analytics lanes rather than building one per lane.
+ */
+export class GroupTypeManagerComponent implements Component<GroupTypeManager> {
+    constructor(
+        private readonly groupRepository: GroupRepository,
+        private readonly teamManager: TeamManager
+    ) {}
+
+    start(): Promise<{ value: GroupTypeManager; stop: () => Promise<void> }> {
+        return Promise.resolve({
+            value: new GroupTypeManager(this.groupRepository, this.teamManager),
+            stop: () => Promise.resolve(),
+        })
     }
 }

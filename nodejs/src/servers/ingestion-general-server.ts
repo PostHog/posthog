@@ -11,7 +11,7 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '~/common/config/redis-pools'
-import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager-component'
+import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig } from '~/common/personhog'
@@ -19,7 +19,7 @@ import { PersonHogRoutedRepositoriesComponent } from '~/common/personhog/personh
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager-component'
+import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
