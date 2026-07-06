@@ -49,7 +49,11 @@ EVENT_NAME_MAX_LENGTH = 120
 # project's vocabulary (capped); their property schema is then injected — the planner otherwise can't
 # reference events, or their properties, it can't see.
 CANDIDATE_EVENTS_LIMIT = 500
-RELEVANT_EVENTS_LIMIT = 12
+# Ceiling on events whose schema is injected into the planner. Scaled up alongside the 25-step query-plan
+# cap: a metric-heavy prompt can legitimately span many distinct events, and starving the planner of an
+# event the prompt names forces it to guess. Bounded by EVENT_PROPERTIES_PER_EVENT_LIMIT so the injected
+# schema stays a few thousand property names at most.
+RELEVANT_EVENTS_LIMIT = 100
 EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"

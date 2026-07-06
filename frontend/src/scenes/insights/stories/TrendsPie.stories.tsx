@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsWorldMap from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsPie',
@@ -39,14 +41,9 @@ export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
 
 // Trends World Map (no hog-charts equivalent yet — keep these)
-export const TrendsWorldMap: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')
-)
+export const TrendsWorldMap: Story = createInsightStory(__trendsWorldMap as any)
 TrendsWorldMap.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
-export const TrendsWorldMapEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
-    'edit'
-)
+export const TrendsWorldMapEdit: Story = createInsightStory(__trendsWorldMap as any, 'edit')
 TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
 
 /* eslint-enable @typescript-eslint/no-var-requires */

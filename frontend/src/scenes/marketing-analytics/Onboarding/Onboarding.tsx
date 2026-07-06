@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { HedgehogMoney } from '@posthog/brand/hoggies'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -105,7 +105,7 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }): JSX.Element {
             }
             isEmpty={true}
             docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-            customHog={FilmCameraHog}
+            customHog={HedgehogMoney}
         />
     )
 }

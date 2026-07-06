@@ -1051,7 +1051,7 @@ async fn realistic_window_id_injected_into_properties() {
 async fn realistic_cookieless_partition_key() {
     let h = TestHarness::new();
     let mut wrapped = test_utils::wrapped_event("$pageview", "user-1");
-    wrapped.event.options.cookieless_mode = Some(true);
+    wrapped.options.cookieless_mode = Some(true);
     let events = prepared(&[&wrapped], &h.ctx);
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;

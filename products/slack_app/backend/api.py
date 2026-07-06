@@ -33,7 +33,6 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.slack_app import (
@@ -52,7 +51,11 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_assistant_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_untagged_thread_followups_enabled,
+)
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
@@ -63,12 +66,25 @@ from products.slack_app.backend.services.integration_resolver import (
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
+    ACTION_EDIT_PERSONAL,
+    ACTION_EDIT_WORKSPACE,
+    ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_PERSONAL,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_TASKS_FILTER_REPO,
+    ACTION_TASKS_FILTER_STATUS,
+    ACTION_TASKS_PAGE_NEXT,
+    ACTION_TASKS_PAGE_PREV,
+    ACTION_TASKS_REFRESH,
     ACTION_UNLINK_ACCOUNT,
+    EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    EDIT_MODAL_WORKSPACE_CALLBACK_ID,
+    MODAL_ACTION_MODEL,
+    MODAL_ACTION_RUNTIME_ADAPTER,
+    handle_ai_preferences_block_action as _handle_ai_preferences_block_action,
     handle_app_home_opened as _handle_app_home_opened,
-    handle_home_block_action as _handle_home_block_action,
+    handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
@@ -301,7 +317,7 @@ def resolve_slack_user(
             candidate_org_ids={integration.team.organization_id},
         )
 
-        if linked_user is not None and slack_oauth_link_enabled(integration, slack_team_id):
+        if linked_user is not None and is_slack_app_oauth_enabled(integration, slack_team_id):
             user_permissions = UserPermissions(user=linked_user, team=integration.team)
             if user_permissions.current_team.effective_membership_level is None:
                 logger.warning(
@@ -384,7 +400,7 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
-                if slack_oauth_link_enabled(integration, slack_team_id):
+                if is_slack_app_oauth_enabled(integration, slack_team_id):
                     invite_url = build_invite_url(
                         slack_user_id=slack_user_id,
                         slack_team_id=slack_team_id,
@@ -466,7 +482,7 @@ WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
-def _cross_region_routing_enabled() -> bool:
+def cross_region_routing_enabled() -> bool:
     # Cross-region routing only makes sense between PostHog Cloud US and EU — they share the
     # Slack app's signing secret and split workspace ownership between them. The hosted dev
     # environment (CLOUD_DEPLOYMENT="DEV"), local dev, E2E, and self-hosted deployments all run
@@ -492,15 +508,15 @@ def _eu_region_domain() -> str:
     return "eu.posthog.com"
 
 
-def _is_us_host(host: str) -> bool:
+def is_us_host(host: str) -> bool:
     return host == _us_region_domain()
 
 
-def _other_region_domain(incoming_host: str) -> str:
-    return _eu_region_domain() if _is_us_host(incoming_host) else _us_region_domain()
+def other_region_domain(incoming_host: str) -> str:
+    return _eu_region_domain() if is_us_host(incoming_host) else _us_region_domain()
 
 
-def _was_proxied(request: HttpRequest) -> bool:
+def was_proxied(request: HttpRequest) -> bool:
     # Match the literal value the sender sets (`"1"`) rather than coercing the header value to
     # bool — semgrep flags the latter as nan-injection and we control the sender anyway.
     return request.headers.get(REGION_PROXY_HEADER) == "1"
@@ -572,7 +588,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         )
         return cached
 
-    target_domain = _other_region_domain(incoming_host)
+    target_domain = other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
@@ -673,7 +689,7 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
-def _parse_rules_command(text: str) -> RulesCommand | None:
+def parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
         return None
@@ -1096,14 +1112,6 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
-# Feature flag that gates the untagged-thread followup path per org. Off by
-# default until rollout; turning it on for an org makes every message in a
-# tagged thread eligible for classification + forward, instead of requiring a
-# fresh ``@PostHog`` mention. Naming follows the ``posthog-slack-app-*`` prefix
-# the team uses for the Slack App's product flags.
-UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
-
-
 def _resolve_untagged_followup_mapping(
     *,
     candidates: list[Integration],
@@ -1134,7 +1142,7 @@ def _resolve_untagged_followup_mapping(
     )
     if mapping is None:
         return None
-    if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
+    if not is_slack_app_untagged_thread_followups_enabled(mapping.integration, slack_team_id):
         logger.info(
             "slack_app_thread_message_feature_flag_off",
             slack_team_id=slack_team_id,
@@ -1144,30 +1152,6 @@ def _resolve_untagged_followup_mapping(
         )
         return None
     return mapping
-
-
-def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
-    """Return True if the integration's org has the untagged-thread followup
-    flag enabled. Fail-closed on any error — a transient PostHog API outage
-    must not silently enable the feature for everyone.
-    """
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            UNTAGGED_THREAD_FOLLOWUPS_FLAG,
-            f"slack_workspace:{slack_team_id}",
-            groups={"organization": str(integration.team.organization_id)},
-            person_properties={"region": get_instance_region() or "unknown"},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        return bool(enabled)
-    except Exception:
-        logger.exception(
-            "slack_app_thread_message_feature_flag_check_failed",
-            slack_team_id=slack_team_id,
-            integration_id=integration.id,
-        )
-        return False
 
 
 def _notify_missing_slack_scopes(
@@ -1195,7 +1179,7 @@ def _notify_missing_slack_scopes(
     if not channel or not thread_ts or not slack_user_id:
         return
 
-    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    settings_url = f"{settings.SITE_URL}/integrations/slack"
     text = (
         ":warning: PostHog can't reply because the Slack integration is missing required "
         f"permissions: `{', '.join(sorted(missing))}`.\n"
@@ -1308,7 +1292,7 @@ def resolve_posthog_user_from_event(
         slack_team_id=slack_team_id,
         candidate_org_ids=org_ids,
     )
-    if linked_user is not None and slack_oauth_link_enabled(probe_integration, slack_team_id):
+    if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
         return linked_user
 
     if slack_email is None:
@@ -1390,7 +1374,7 @@ def _post_user_resolution_failure_reply(
     # neither is redundant. Only `user_not_found` is link-recoverable;
     # `no_team_access` means the user *is* known but lacks project access.
     _post_slack_user_feedback(slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
-    if failure_reason == "user_not_found" and slack_oauth_link_enabled(probe, probe.integration_id):
+    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe, probe.integration_id):
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,
@@ -1434,7 +1418,6 @@ def _start_posthog_code_workflow(
     )
 
 
-_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
 _ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
 _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
@@ -1453,25 +1436,6 @@ _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
 )
-
-
-def _assistant_enabled(team: Team) -> bool:
-    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
-    # check before resolving the DMing user — i.e. the feature stays dark when off.
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                _ASSISTANT_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-                person_properties={"region": get_instance_region() or "unknown"},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
-        return False
 
 
 def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
@@ -1542,7 +1506,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def send_assistant_install_welcome(integration: Integration) -> None:
     """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not _assistant_enabled(integration.team):
+    if not is_slack_app_assistant_enabled(integration.team):
         return
     slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not slack_user_id:
@@ -1620,7 +1584,7 @@ def _route_assistant_event(
         channel=channel_id,
         thread_ts=thread_ts,
     )
-    region_route = _resolve_region_or_terminal_route(
+    region_route = resolve_region_or_terminal_route(
         request,
         slack_team_id,
         candidates_present=bool(result.candidates),
@@ -1636,7 +1600,7 @@ def _route_assistant_event(
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
-    if not _assistant_enabled(probe.team):
+    if not is_slack_app_assistant_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
@@ -1681,17 +1645,17 @@ def route_posthog_code_event_to_relevant_region(
 ) -> str:
     event_type = event.get("type")
     incoming_host = request.get_host()
-    proxied = _was_proxied(request)
-    other_domain = _other_region_domain(incoming_host)
+    proxied = was_proxied(request)
+    other_domain = other_region_domain(incoming_host)
     # In local dev we run a single instance, so cross-region routing is meaningless: the only
     # consumer is this process. Disable both the probe and the proxy hop and always handle
     # locally.
-    can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
+    can_defer_to_other_region = cross_region_routing_enabled() and not is_us_host(incoming_host) and not proxied
 
     logger.info(
         "slack_app_route_enter",
         incoming_host=incoming_host,
-        is_us=_is_us_host(incoming_host),
+        is_us=is_us_host(incoming_host),
         proxied=proxied,
         other_domain=other_domain,
         can_defer=can_defer_to_other_region,
@@ -1774,7 +1738,7 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
-        region_route = _resolve_region_or_terminal_route(
+        region_route = resolve_region_or_terminal_route(
             request,
             slack_team_id,
             candidates_present=bool(workspace_result.candidates),
@@ -1847,7 +1811,7 @@ def route_posthog_code_event_to_relevant_region(
 
         # Rules command is meaningful only when the user actually typed
         # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and _parse_rules_command(event.get("text", "")) is not None:
+        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
@@ -1966,7 +1930,7 @@ def _route_to_other_region_or_drop(
     Single-region deployments (local dev, hosted dev, E2E, self-hosted) have no other region
     to forward to, so we just record the miss and stop.
     """
-    if proxied or not _cross_region_routing_enabled():
+    if proxied or not cross_region_routing_enabled():
         logger.warning(
             "slack_app_no_integration_found",
             slack_team_id=slack_team_id,
@@ -1976,7 +1940,7 @@ def _route_to_other_region_or_drop(
     return _proxy_event_and_return_route(request, other_domain)
 
 
-def _resolve_region_or_terminal_route(
+def resolve_region_or_terminal_route(
     request: HttpRequest,
     slack_team_id: str,
     *,
@@ -2006,8 +1970,11 @@ def _start_command_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    user_id: int,
+    user_id: int | None,
+    command_prefix: str = "@PostHog",
 ) -> str:
+    # ``user_id=None`` defers user resolution into the workflow — the slash entry
+    # point uses it to keep its ack under Slack's 3s budget.
     _start_posthog_code_workflow(
         PostHogCodeSlackMentionCommandWorkflow,
         PostHogCodeSlackMentionCommandWorkflowInputs(
@@ -2015,6 +1982,7 @@ def _start_command_workflow(
             integration_ids=[i.id for i in integrations],
             slack_team_id=slack_team_id,
             user_id=user_id,
+            command_prefix=command_prefix,
         ),
         id_prefix="posthog-code-mention-command",
         slack_team_id=slack_team_id,
@@ -2564,27 +2532,41 @@ def _extract_context_token(payload: dict) -> str:
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
 
-_HOME_TAB_ACTION_IDS = frozenset(
+_AI_PREFERENCES_ACTION_IDS = frozenset(
     {
+        ACTION_EDIT_PERSONAL,
+        ACTION_EDIT_WORKSPACE,
+        ACTION_RESET_PERSONAL,
         ACTION_RESET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_PERSONAL,
         ACTION_SET_PROJECT_WORKSPACE,
+        ACTION_TASKS_FILTER_REPO,
+        ACTION_TASKS_FILTER_STATUS,
+        ACTION_TASKS_PAGE_NEXT,
+        ACTION_TASKS_PAGE_PREV,
+        ACTION_TASKS_REFRESH,
         ACTION_UNLINK_ACCOUNT,
+        MODAL_ACTION_RUNTIME_ADAPTER,
+        MODAL_ACTION_MODEL,
     }
 )
+_AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
 
 
-def _is_home_tab_interactivity(payload: dict, payload_type: str) -> bool:
-    """Return True if this payload is a Home tab block_actions interaction.
+def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
+    """Return True if this payload is a Slack App Home AI-settings interaction.
 
-    Home-tab buttons carry no per-row hint — they're workspace-scoped, not
-    tied to a specific task or repo. The cross-region router uses this to
-    claim locality based on the workspace integration alone rather than
-    dropping the click.
+    AI-settings buttons (Edit/Reset on the Home tab, runtime/model dispatch
+    re-renders inside the modal) and modal submissions carry no per-row hint —
+    the picker is workspace-scoped, not tied to a specific task or repo. The
+    cross-region router uses this to claim locality based on the workspace
+    integration alone rather than dropping the click.
     """
+    if payload_type == "view_submission":
+        return payload.get("view", {}).get("callback_id", "") in _AI_PREFERENCES_CALLBACK_IDS
     if payload_type == "block_actions":
         for action in payload.get("actions", []) or ():
-            if action.get("action_id", "") in _HOME_TAB_ACTION_IDS:
+            if action.get("action_id", "") in _AI_PREFERENCES_ACTION_IDS:
                 return True
     return False
 
@@ -3283,17 +3265,18 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and _is_home_tab_interactivity(payload, payload_type):
-        # App Home routing/account actions carry no per-row hint — the button
-        # is tied to the workspace, not a specific picker context. Claim
-        # locality based on the workspace integration alone; if we own *any*
-        # Integration for this Slack team, the click is ours to handle.
+    elif slack_team_id and _is_ai_preferences_interactivity(payload, payload_type):
+        # App Home AI-settings actions (Edit/Reset/Save) and the modal
+        # re-render dispatched_actions carry no per-row hint — the button is
+        # tied to the workspace, not a specific picker context. Claim locality
+        # based on the workspace integration alone; if we own *any* Integration
+        # for this Slack team, the click is ours to handle.
         local = Integration.objects.filter(
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
 
-    proxied = _was_proxied(request)
+    proxied = was_proxied(request)
     incoming_host = request.get_host()
     logger.info(
         "slack_app_interactivity_resolution",
@@ -3309,12 +3292,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied and _cross_region_routing_enabled():
+    if not local and not proxied and cross_region_routing_enabled():
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
         # Skipped in single-region deployments (local dev, hosted dev, E2E, self-hosted) where
         # there is no other region to talk to.
-        target = _other_region_domain(incoming_host)
+        target = other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
             logger.info(
@@ -3364,6 +3347,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_suggestion":
         return _handle_repo_picker_options(payload)
 
+    if payload_type == "view_submission":
+        return _handle_app_home_view_submission(payload)
+
     if payload_type == "block_actions":
         actions = payload.get("actions", [])
         for action in actions:
@@ -3388,7 +3374,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return inbox_interactivity.handle_inbox_sources(payload)
             if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
-            if action_id in _HOME_TAB_ACTION_IDS:
-                return _handle_home_block_action(payload, action)
+            if action_id in _AI_PREFERENCES_ACTION_IDS:
+                return _handle_ai_preferences_block_action(payload, action)
 
     return HttpResponse(status=200)

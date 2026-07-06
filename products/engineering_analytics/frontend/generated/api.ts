@@ -10,27 +10,76 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CICardSummaryApi,
+    CIFailureLogsApi,
+    EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
+    EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsJobAggregatesParams,
+    EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
+    EngineeringAnalyticsRepoOverviewParams,
+    EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
+    EngineeringAnalyticsWorkflowRunActivityParams,
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
     GitHubSourceApi,
+    MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
     PullRequestListApi,
     QuarantineFileApi,
+    QuarantineRequestApi,
+    QuarantineRequestResultApi,
+    RepoOverviewApi,
+    RunFailureLogsApi,
+    WorkflowCostApi,
     WorkflowHealthItemApi,
+    WorkflowJobAggregateApi,
     WorkflowJobApi,
+    WorkflowRunActivityApi,
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/`
+}
+
+/**
+ * One author's estimated CI cost split by workflow over a window (date_from default -30d), highest spend first. Runs are attributed to the author through their pull requests (attribution is by PR number). Returns an empty list when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsAuthorWorkflowCosts = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams,
+    options?: RequestInit
+): Promise<WorkflowCostApi[]> => {
+    return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
     const normalizedParams = new URLSearchParams()
@@ -57,6 +106,105 @@ export const engineeringAnalyticsCiCards = async (
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
     return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiFailureLogsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsCiFailureLogsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_failure_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_failure_logs/`
+}
+
+/**
+ * The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to its workflow runs via the pull_requests association (all of the PR's pushes, not just the latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association. Each line carries its original 1-based line number in the full pre-thinning log; lines are the failure region (errors plus surrounding context, with omission markers), capped per job and overall.
+ */
+export const engineeringAnalyticsCiFailureLogs = async (
+    projectId: string,
+    params: EngineeringAnalyticsCiFailureLogsParams,
+    options?: RequestInit
+): Promise<CIFailureLogsApi> => {
+    return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsJobAggregatesUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsJobAggregatesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/job_aggregates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/job_aggregates/`
+}
+
+/**
+ * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsJobAggregates = async (
+    projectId: string,
+    params: EngineeringAnalyticsJobAggregatesParams,
+    options?: RequestInit
+): Promise<WorkflowJobAggregateApi[]> => {
+    return apiMutator<WorkflowJobAggregateApi[]>(getEngineeringAnalyticsJobAggregatesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsMasterFailuresUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsMasterFailuresParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/master_failures/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/master_failures/`
+}
+
+/**
+ * Default-branch failures over a window (default -24h), grouped error-tracking style by (workflow, de-sharded failing job) with a run count and first/last seen, newest group first. `branch` overrides the detected default branch. PR-branch failures are deliberately excluded — at monorepo volume a flat feed is a firehose; those surface per PR. Groups degrade to workflow level (failed_job '') when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsMasterFailures = async (
+    projectId: string,
+    params?: EngineeringAnalyticsMasterFailuresParams,
+    options?: RequestInit
+): Promise<MasterFailureGroupApi[]> => {
+    return apiMutator<MasterFailureGroupApi[]>(getEngineeringAnalyticsMasterFailuresUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -222,6 +370,93 @@ export const engineeringAnalyticsQuarantine = async (
     })
 }
 
+export const getEngineeringAnalyticsQuarantineRequestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/quarantine/request/`
+}
+
+/**
+ * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
+ * @summary Quarantine, extend, or unquarantine a flaky test
+ */
+export const engineeringAnalyticsQuarantineRequest = async (
+    projectId: string,
+    quarantineRequestApi: QuarantineRequestApi,
+    options?: RequestInit
+): Promise<QuarantineRequestResultApi> => {
+    return apiMutator<QuarantineRequestResultApi>(getEngineeringAnalyticsQuarantineRequestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quarantineRequestApi),
+    })
+}
+
+export const getEngineeringAnalyticsRepoOverviewUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoOverviewParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/repo_overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/repo_overview/`
+}
+
+/**
+ * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series. Cost figures are null until the job-level source is synced.
+ */
+export const engineeringAnalyticsRepoOverview = async (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoOverviewParams,
+    options?: RequestInit
+): Promise<RepoOverviewApi> => {
+    return apiMutator<RepoOverviewApi>(getEngineeringAnalyticsRepoOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsRunFailureLogsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsRunFailureLogsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/run_failure_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/run_failure_logs/`
+}
+
+/**
+ * The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.
+ */
+export const engineeringAnalyticsRunFailureLogs = async (
+    projectId: string,
+    params: EngineeringAnalyticsRunFailureLogsParams,
+    options?: RequestInit
+): Promise<RunFailureLogsApi> => {
+    return apiMutator<RunFailureLogsApi>(getEngineeringAnalyticsRunFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
     return `/api/projects/${projectId}/engineering_analytics/sources/`
 }
@@ -338,6 +573,39 @@ export const engineeringAnalyticsWorkflowRun = async (
     })
 }
 
+export const getEngineeringAnalyticsWorkflowRunActivityUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_run_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_run_activity/`
+}
+
+/**
+ * Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when the cap is hit, so the chart covers only the most recent runs.
+ */
+export const engineeringAnalyticsWorkflowRunActivity = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunActivityParams,
+    options?: RequestInit
+): Promise<WorkflowRunActivityApi> => {
+    return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsWorkflowRunActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
     projectId: string,
     params: EngineeringAnalyticsWorkflowRunnerCostsParams
@@ -358,7 +626,7 @@ export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
 }
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
  */
 export const engineeringAnalyticsWorkflowRunnerCosts = async (
     projectId: string,
@@ -391,7 +659,7 @@ export const getEngineeringAnalyticsWorkflowRunsUrl = (
 }
 
 /**
- * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
+ * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
  */
 export const engineeringAnalyticsWorkflowRuns = async (
     projectId: string,

@@ -53,6 +53,7 @@ class SignalSourceConfig(UUIDModel):
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
+        EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
         ISSUE_CREATED = "issue_created", "Issue created"
@@ -78,13 +79,11 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True.
+        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
+        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
+        workflows — the row check here is the team-level gate.
         """
-        if source_product == cls.SourceProduct.LLM_ANALYTICS:
-            return True
-
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
@@ -731,6 +730,8 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        TITLE_CHANGE = "title_change"
+        SUMMARY_CHANGE = "summary_change"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -739,7 +740,7 @@ class SignalReportArtefact(UUIDModel):
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
     #   - log artefacts record discrete work done on a report (code references, commits,
-    #     task runs, notes). Appended via `add_log`.
+    #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
     # a new signal yields a new entry, re-researching an existing signal appends a new version
     # (latest per signal_id wins). It is intentionally in neither set.
@@ -758,6 +759,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.TITLE_CHANGE,
+            ArtefactType.SUMMARY_CHANGE,
         }
     )
 

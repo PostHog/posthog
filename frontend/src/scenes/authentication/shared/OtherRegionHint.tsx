@@ -33,7 +33,7 @@ export function OtherRegionHint(): JSX.Element | null {
 
     return (
         <LemonBanner type="info">
-            Already have a PostHog Cloud account? It may live in our {otherRegion} region — you're currently on{' '}
+            Already have a PostHog Cloud account? It may live in our {otherRegion} region. You're currently on{' '}
             {preflight.region}.{' '}
             <Link
                 to={otherRegionLoginUrl(preflight.region, location.search)}

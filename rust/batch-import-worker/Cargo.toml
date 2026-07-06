@@ -55,3 +55,4 @@ httpmock = { workspace = true }
 flate2 = { workspace = true }
 mockito = { workspace = true }
 tokio-util = { workspace = true }
+metrics-util = { workspace = true }

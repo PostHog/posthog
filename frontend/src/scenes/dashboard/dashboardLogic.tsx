@@ -21,6 +21,10 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -40,10 +44,16 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import {
+    calculateDuplicateLayout,
+    calculateInsertionLayout,
+    calculateLayouts,
+    DEFAULT_INSERTED_TILE_SIZE,
+} from 'scenes/dashboard/tileLayouts'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -167,6 +177,13 @@ export enum RefreshDashboardItemsAction {
 
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
+
+export interface PendingInsertion {
+    x: number
+    y: number
+    // Width override for the full-width fallback when the hovered column can't anchor the tile; else null.
+    w: number | null
+}
 
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -306,7 +323,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
+        /** Number of insights enrolled in the current refresh cycle, captured up front. */
+        setRefreshTilesTotal: (total: number) => ({ total }),
+        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -370,6 +389,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        setPendingInsertion: (pendingInsertion: PendingInsertion | null) => ({ pendingInsertion }),
+        applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -1060,8 +1081,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
-                abortQuery: () => ({}),
+                // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
+                // whole map here would make them count as completed and overstate "X out of Y".
+                abortQuery: (state, { shortId }) => {
+                    const { [shortId]: _aborted, ...rest } = state
+                    return rest
+                },
                 cancelDashboardRefresh: () => ({}),
+            },
+        ],
+        // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
+        // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
+        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
+        refreshTilesTotal: [
+            null as number | null,
+            {
+                setRefreshTilesTotal: (_, { total }) => total,
+                refreshDashboardItems: () => null,
+                cancelDashboardRefresh: () => null,
             },
         ],
         columns: [
@@ -1094,6 +1131,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return false
                 },
+            },
+        ],
+        pendingInsertion: [
+            null as PendingInsertion | null,
+            {
+                setPendingInsertion: (_, { pendingInsertion }) => pendingInsertion,
+                // Clear on a real mode switch, but not on mode === null — the text/button add flow routes through it.
+                setDashboardMode: (state, { mode }) => (mode != null ? null : state),
+                // No hideAddInsightToDashboardModal handler on purpose: it fires as the insight is added, so
+                // clearing there would drop the target before the tile lands.
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -1650,6 +1697,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
             },
         ],
+        inlineTileInsertionEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+        ],
         insightTiles: [
             (s) => [s.tiles],
             (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
@@ -1808,7 +1859,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return size
             },
         ],
-        layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
+        layouts: [
+            (s) => [s.tiles],
+            (tiles) => calculateLayouts(tiles),
+            // Tile refreshes replace `tiles` once per insight response without touching geometry;
+            // keeping the result reference stable stops react-grid-layout re-laying-out every tile
+            // N times per dashboard refresh cycle.
+            { resultEqualityCheck: objectsEqual },
+        ],
         layout: [
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
@@ -1829,11 +1887,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus],
-            (refreshStatus) => {
-                const total = Object.keys(refreshStatus).length ?? 0
+            (s) => [s.refreshStatus, s.refreshTilesTotal],
+            (refreshStatus, refreshTilesTotal) => {
+                const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
+                // Pinned batch size keeps Y fixed for the cycle; fall back to the live map for single-insight refreshes.
+                const total = refreshTilesTotal ?? Object.keys(refreshStatus).length
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
+                    completed: total - inFlight,
                     total,
                 }
             },
@@ -1956,6 +2016,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         beforeUnmount: () => {
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
+            // Bound the inline-insertion target's lifetime to this mount, so a never-consumed target
+            // (e.g. an add flow abandoned by navigating away) can't reposition a tile on a later visit.
+            cache.tileIdsBeforeInsertion = undefined
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -2092,6 +2155,94 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }
+        },
+        setPendingInsertion: ({ pendingInsertion }) => {
+            // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
+            cache.tileIdsBeforeInsertion = pendingInsertion ? new Set((values.tiles || []).map((t) => t.id)) : undefined
+        },
+        applyPendingInsertion: async () => {
+            // Capture before setPendingInsertion(null) below clears it.
+            const slot = values.pendingInsertion
+            const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
+            if (!slot || !previousTileIds) {
+                return
+            }
+
+            // Load-bearing assumption: exactly one unknown tile appeared since the snapshot and it is the
+            // one the add flow just created. A concurrent arrival (background refresh, a collaborator's add)
+            // in this window could be mis-targeted — blast radius is one tile's layout, which we accept.
+            const newTile = (values.tiles || []).find((tile) => !tile.deleted && !previousTileIds.has(tile.id))
+            if (!newTile) {
+                // The appended tile hasn't reached state yet; a later arrival signal will retry.
+                return
+            }
+
+            // Clear before persisting so the resulting updateDashboardSuccess doesn't re-enter this listener.
+            actions.setPendingInsertion(null)
+
+            const smLayout = values.layouts?.sm
+            const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
+            const w = slot.w ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
+
+            const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
+                smLayout,
+                newTile.id,
+                slot.y,
+                slot.x,
+                w,
+                h
+            )
+
+            // Apply optimistically so the grid reflows immediately.
+            const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
+            const newSmLayout = (smLayout || []).map((l) => {
+                if (String(l.i) === String(newTile.id)) {
+                    return { ...l, ...newTileLayout.sm }
+                }
+                const shifted = shiftById.get(parseInt(l.i))
+                return shifted ? { ...l, ...shifted } : l
+            })
+            actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
+
+            // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
+            const insertedTileType = newTile.text
+                ? 'text_card'
+                : newTile.button_tile
+                  ? 'button'
+                  : newTile.widget
+                    ? 'widget'
+                    : 'insight'
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+
+            // In edit mode the change is saved with the rest of the edit session.
+            if (values.layoutEditMode) {
+                return
+            }
+
+            // Persist the repositioning (same raw-PATCH shape as duplicateTile / saveEditModeChanges).
+            // TODO: drop this follow-up request once the tile-create endpoints can insert at a position
+            // (and reflow the displaced tiles) server-side, so an inline insert is a single round trip.
+            try {
+                const response: DashboardType<InsightModel> = await api.update(
+                    `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                    {
+                        tiles: [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }],
+                    }
+                )
+                const updated = getQueryBasedDashboard(response)
+                if (updated) {
+                    dashboardsModel.actions.updateDashboardSuccess(updated)
+                }
+            } catch (e) {
+                lemonToast.error('Could not position the new tile: ' + String(e))
+            }
+        },
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
+            // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
+            if (dashboard?.id === props.id) {
+                actions.applyPendingInsertion()
             }
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
@@ -2396,6 +2547,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
                 actions.resetIntermittentFilters()
 
+                // Pin the progress denominator to the batch size before enrolling the insights
+                actions.setRefreshTilesTotal(tilesStaleCount)
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),
@@ -2466,7 +2619,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (e: any) {
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime })
+                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
@@ -2600,14 +2753,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const previousWidgetTileIds = new Set(values.widgetTiles.map((tile) => tile.id))
 
+                // Inline insertion: create the widget at the chosen slot instead of the backend's
+                // default bottom placement, and let applyPendingInsertion shift existing tiles down.
+                // Only single-widget adds insert positionally — applyPendingInsertion repositions one
+                // tile, so a multi-select add can't be cleanly inserted at a single slot; it appends.
+                if (values.pendingInsertion && widgets.length !== 1) {
+                    actions.setPendingInsertion(null)
+                }
+                const insertSlot = widgets.length === 1 ? values.pendingInsertion : null
+                const widgetsPayload = widgets.map(({ widgetType, config }) => {
+                    if (!insertSlot) {
+                        return { widget_type: widgetType, config }
+                    }
+                    const defaultLayout =
+                        widgetType in DASHBOARD_WIDGET_CATALOG
+                            ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+                            : undefined
+                    const w = insertSlot.w ?? defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+                    const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
+                    return {
+                        widget_type: widgetType,
+                        config,
+                        layouts: { sm: { x: insertSlot.x, y: insertSlot.y, w, h } },
+                    }
+                })
+
                 const response = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${dashboardId}/widgets/batch/`,
-                    {
-                        widgets: widgets.map(({ widgetType, config }) => ({
-                            widget_type: widgetType,
-                            config,
-                        })),
-                    }
+                    { widgets: widgetsPayload }
                 )
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
@@ -2618,9 +2791,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
 
-                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
-                        // down once they've rendered to reveal what was just added.
-                        actions.requestScrollToBottom()
+                        // Only auto-scroll when the new tiles actually went to the bottom.
+                        if (!insertSlot) {
+                            actions.requestScrollToBottom()
+                        }
                     }
                 }
 
@@ -2632,10 +2806,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const count = createdTiles.length
-                // Fire once per add action (not per tile) to stay consistent with the other tile types.
-                if (count > 0) {
-                    eventUsageLogic.actions.reportDashboardTileAdded('widget')
-                }
                 if (count > 1) {
                     lemonToast.success(`Added ${count} widgets`)
                 }
@@ -2830,6 +3000,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }
+                // Insight tiles arrive via a dashboard reload; reposition to the pending insertion row.
+                actions.applyPendingInsertion()
             },
             sharedListeners.handleDashboardLoadComplete,
         ],

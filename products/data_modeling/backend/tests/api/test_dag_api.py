@@ -78,6 +78,59 @@ class TestDAGViewSet(APIBaseTest):
         dag.refresh_from_db()
         self.assertEqual(dag.name, "Default")
 
+    def test_cannot_delete_managed_dag(self):
+        dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
+
+    def test_cannot_rename_managed_dag(self):
+        dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "renamed"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "PostHog Revenue Analytics")
+
+    def test_cannot_edit_managed_dag(self):
+        dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"description": "updated description"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.description, "")
+
+    def test_cannot_create_dag_with_reserved_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": "PostHog Revenue Analytics"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DAG.objects.filter(team=self.team, name="PostHog Revenue Analytics").exists())
+
+    def test_cannot_rename_dag_to_reserved_name(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "PostHog Revenue Analytics"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "my_dag")
+
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
         Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)

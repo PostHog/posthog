@@ -13,6 +13,13 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
+    # Reconcile ~a minute after master CI finishes; GitHub throttles the cron below to ~hourly under
+    # load. A reconcile reads all gating workflows anyway, so one hook on Backend CI (the long-pole on
+    # ~every push) suffices. branches:[master] skips PR completions; cron stays a backstop.
+    workflow_run:
+        workflows: ['Backend CI']
+        types: [completed]
+        branches: [master]
     schedule:
         - cron: '*/5 * * * *'
     workflow_dispatch: # manual trigger for testing
@@ -44,6 +51,9 @@ env:
 
 jobs:
     check-master:
+        # only reconcile on push completions (branches:[master] already scopes the trigger to master)
+        if: >-
+            github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:

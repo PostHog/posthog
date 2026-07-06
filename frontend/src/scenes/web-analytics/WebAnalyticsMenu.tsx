@@ -15,6 +15,7 @@ import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabe
 
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
 import { ProductTab, TILE_LABELS, TileId } from './common'
 
 const ANALYTICS_TILES = [
@@ -36,13 +37,14 @@ export const WebAnalyticsMenu = (): JSX.Element => {
     const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, showFocusMode, useWebAnalyticsPrecompute } =
         useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
 
     const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
         useActions(webAnalyticsLogic)
     const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
-    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags)
+    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
 
     return (

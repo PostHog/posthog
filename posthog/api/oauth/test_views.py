@@ -3840,6 +3840,86 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [self.team.pk])
 
+    @freeze_time("2025-01-01 00:00:00")
+    def test_first_party_app_gets_extended_token_expiry(self):
+        app = self._create_first_party_app(slug="first-party-ttl")
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_ttl_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-ttl_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        self.assertLess(abs((access_token.expires - expected_expiry).total_seconds()), 60)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_first_party_app_refreshed_token_keeps_extended_expiry_and_rotates(self):
+        app = self._create_first_party_app(slug="first-party-refresh-ttl")
+        client_secret = "first_party_first-party-refresh-ttl_client_secret"
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_refresh_ttl_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": client_secret,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        original = token_response.json()
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": original["refresh_token"],
+                "client_id": app.client_id,
+                "client_secret": client_secret,
+            },
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        refreshed = refresh_response.json()
+        self.assertNotEqual(refreshed["refresh_token"], original["refresh_token"])
+        self.assertEqual(refreshed["expires_in"], 60 * 60 * 24 * 7)
+
+        refreshed_access_token = OAuthAccessToken.objects.get(token=refreshed["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        self.assertLess(abs((refreshed_access_token.expires - expected_expiry).total_seconds()), 60)
+
 
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """

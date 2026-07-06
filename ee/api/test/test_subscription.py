@@ -1,8 +1,10 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -28,6 +30,9 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -205,6 +210,169 @@ class TestSubscriptionTemporal(APILicensedTest):
         activity_inputs = wf_args[1]
         assert activity_inputs.previous_value == "test@posthog.com"
         assert activity_inputs.invite_message == "hi new user"
+
+    # Each setup builds a subscription and returns (sub_id, patch_payload) for the parameterized
+    # delivery test below. Cases vary only in fixtures and payload; the fire/no-fire assertion is shared.
+    # Reusable builders for the inline case factories below. Anything a lambda can't express (multi-row
+    # ORM setup, the verbose dashboard POST, tile side effects) lives here; the per-case payload stays inline.
+    def _basic_sub(self) -> int:
+        return self._create_subscription(invite_message=None).json()["id"]
+
+    def _disabled_email_sub(self) -> int:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        ).id
+
+    def _dashboard_sub(self, tile_insights: list[Insight], export_insights: list[Insight]) -> int:
+        # Dashboard subscriptions can only export insights that are dashboard tiles, so add a tile per
+        # insight before posting. export_insights is the initial selection a case then patches.
+        for insight in tile_insights:
+            self.dashboard.tiles.create(insight=insight)
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "dashboard": self.dashboard.id,
+                "dashboard_export_insights": [insight.id for insight in export_insights],
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Dash",
+            },
+        ).json()["id"]
+
+    # Each case is (name, build, should_fire, expected_reason); build(test) -> (sub_id, patch_payload).
+    # The inline factory keeps each case's setup next to its expected outcome.
+    @parameterized.expand(
+        [
+            # Schedule/meta-only edits must NOT re-fire a delivery.
+            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False, "no_delivery_relevant_change"),
+            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False, "no_delivery_relevant_change"),
+            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False, "no_delivery_relevant_change"),
+            # Delivery-relevant edits MUST fire a confirmation — what (or where) gets delivered changed,
+            # or the subscription was re-enabled.
+            (
+                "target_value",
+                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
+                True,
+                "delivery_field_changed",
+            ),
+            (
+                "target_type",  # switching channel routes delivery elsewhere — needs a Slack integration
+                lambda t: (
+                    t._basic_sub(),
+                    {
+                        "target_type": "slack",
+                        "target_value": "#general",
+                        "integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id,
+                    },
+                ),
+                True,
+                "delivery_field_changed",
+            ),
+            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
+            (
+                "integration_swap",  # Slack routing depends on the workspace, not just target_value
+                lambda t: (
+                    Subscription.objects.create(
+                        team=t.team,
+                        target_type="slack",
+                        target_value="#general",
+                        integration=Integration.objects.create(team=t.team, kind="slack", config={}),
+                        frequency="daily",
+                        start_date=timezone.now(),
+                        insight=t.insight,
+                        title="t",
+                    ).id,
+                    {"integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id},
+                ),
+                True,
+                "delivery_field_changed",
+            ),
+            (
+                "dashboard_export_change",  # changing the exported insight set hits the M2M branch
+                lambda t: (
+                    t._dashboard_sub(
+                        [t.insight, (other := Insight.objects.create(team=t.team, name="other"))],
+                        [t.insight],
+                    ),
+                    {"dashboard_export_insights": [t.insight.id, other.id]},
+                ),
+                True,
+                "delivery_field_changed",
+            ),
+            # ...except re-submitting the identical export set, which changes nothing.
+            (
+                "dashboard_export_resubmit_same",
+                lambda t: (
+                    t._dashboard_sub([t.insight], [t.insight]),
+                    {"dashboard_export_insights": [t.insight.id], "title": "Renamed"},
+                ),
+                False,
+                "no_delivery_relevant_change",
+            ),
+        ]
+    )
+    def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
+        self,
+        _name: str,
+        build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
+        should_fire: bool,
+        expected_reason: str,
+    ):
+        sub_id, patch_payload = build(self)
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
+            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        # The workflow fires only when the edit warrants a confirmation delivery...
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
+        # ...and the decision is always emitted so a silent suppression is observable — the post_save
+        # "<kind> subscription updated" event fires pre-decision and can't carry this signal.
+        decision_calls = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "subscription_update_delivery_decision"
+        ]
+        assert len(decision_calls) == 1
+        properties = decision_calls[0].kwargs["properties"]
+        assert properties["delivery_triggered"] is should_fire
+        assert properties["reason"] == expected_reason
+
+    @freeze_time("2026-06-15T10:00:00Z")  # Monday — weekly (Sat) is 5 days away, daily is 1 day
+    def test_schedule_only_update_still_recomputes_next_delivery_date(self):
+        # A schedule edit must not fire a delivery but MUST still reschedule — the model
+        # save() recomputes next_delivery_date; this guards that the no-fire short-circuit
+        # doesn't accidentally skip the reschedule.
+        sub_id = self._create_subscription(invite_message=None, frequency="weekly").json()["id"]
+        before = Subscription.objects.get(id=sub_id).next_delivery_date
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"frequency": "daily"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_not_called()
+        after = Subscription.objects.get(id=sub_id).next_delivery_date
+        # Daily cadence brings the next delivery strictly earlier than the weekly one.
+        assert before is not None
+        assert after is not None
+        assert after < before
 
     def test_can_create_dashboard_subscription_with_dashboard_export_insights(self):
         self.dashboard.tiles.create(insight=self.insight)
@@ -1515,9 +1683,11 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
-            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
-            ("redundant_enable", True, {"enabled": True}, True),
+            # The confirmation-delivery workflow fires only on a re-enable or a delivery-relevant change —
+            # not on a meta-only edit (title) or a redundant enable that changes nothing. (This narrows the
+            # previous "every edit to an enabled sub fires" matrix; see FIELDS_THAT_TRIGGER_REDELIVERY.)
+            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, False),
+            ("redundant_enable", True, {"enabled": True}, False),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
             ("enable_disabled", False, {"enabled": True}, True),
@@ -1816,15 +1986,24 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
         subscription = self._create_ai_subscription() if is_ai else self.subscription
         generated_hogql = "SELECT count() FROM events"
+        # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
+        scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
             # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
-            content_snapshot["ai_report"] = "# Weekly report"
-            content_snapshot["ai_report_diagnostics"] = [
-                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
+            content_snapshot[AI_REPORT_SNAPSHOT_KEY] = "# Weekly report"
+            content_snapshot[AI_REPORT_DIAGNOSTICS_KEY] = [
+                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None},
+                {
+                    "description": "adoption",
+                    "hogql": "SELECT bad",
+                    "ok": False,
+                    "error_type": "ResolutionError",
+                    "human_readable_error": scrubbed_error_message,
+                },
             ]
-            content_snapshot["ai_report_prompt"] = "Weekly growth recap"
+            content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -1851,12 +2030,13 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data["change_summary"] is None
             # The query-derived report and diagnostics are scrubbed per-field; the generated HogQL
             # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
-            assert data["ai_report"] is None
-            assert data["ai_report_diagnostics"] is None
+            assert data[AI_REPORT_SNAPSHOT_KEY] is None
+            assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert generated_hogql not in str(data)
+            assert scrubbed_error_message not in str(data)
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
-            assert data["ai_report_prompt"] == "Weekly growth recap"
+            assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -1865,24 +2045,27 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
-            assert row["ai_report"] is None
-            assert row["ai_report_diagnostics"] is None
-            assert row["ai_report_prompt"] == "Weekly growth recap"
+            assert row[AI_REPORT_SNAPSHOT_KEY] is None
+            assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
+            assert scrubbed_error_message not in str(row)
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
             if is_ai:
                 # A query-access caller on an AI delivery legitimately receives the report and the
                 # diagnostics (including the generated HogQL) — the intended debugging surface.
-                assert data["ai_report"] == "# Weekly report"
-                assert data["ai_report_diagnostics"][0]["hogql"] == generated_hogql
-                assert data["ai_report_prompt"] == "Weekly growth recap"
+                assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
+                # The safe error message on the failed step is part of the query-access debugging surface.
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
+                assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
-                assert "ai_report" not in data["content_snapshot"]
-                assert "ai_report_diagnostics" not in data["content_snapshot"]
-                assert "ai_report_prompt" not in data["content_snapshot"]
+                assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
+                assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
@@ -1892,9 +2075,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             (
                 "report_prompt_and_diagnostics",
                 {
-                    "ai_report": "# Report",
-                    "ai_report_prompt": "Weekly growth recap",
-                    "ai_report_diagnostics": [
+                    AI_REPORT_SNAPSHOT_KEY: "# Report",
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY: "Weekly growth recap",
+                    AI_REPORT_DIAGNOSTICS_KEY: [
                         {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
                     ],
                 },
@@ -1903,9 +2086,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
             ),
             # Deliveries created before prompt/diagnostics snapshotting only carry the report.
-            ("report_without_prompt", {"ai_report": "# Report"}, "# Report", None, None),
+            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None),
             ("absent_keys", {}, None, None, None),
-            ("non_string_values", {"ai_report": 123, "ai_report_prompt": ""}, None, None, None),
+            ("non_string_values", {AI_REPORT_SNAPSHOT_KEY: 123, AI_REPORT_PROMPT_SNAPSHOT_KEY: ""}, None, None, None),
         ]
     )
     def test_delivery_exposes_ai_report_fields(
@@ -1918,12 +2101,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
-        assert data["ai_report"] == expected_report
-        assert data["ai_report_prompt"] == expected_prompt
-        assert data["ai_report_diagnostics"] == expected_diagnostics
+        assert data[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert data[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
         # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
         # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
-        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
             assert ai_key not in data["content_snapshot"]
         # The list endpoint serves the delivery history table, so it must expose the same fields.
         list_response = self.client.get(
@@ -1931,10 +2114,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert list_response.status_code == status.HTTP_200_OK, list_response.json()
         row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
-        assert row["ai_report"] == expected_report
-        assert row["ai_report_prompt"] == expected_prompt
-        assert row["ai_report_diagnostics"] == expected_diagnostics
-        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+        assert row[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert row[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
             assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):
@@ -2543,12 +2726,13 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     def test_can_update_ai_subscription_prompt(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
-        self._mock_temporal(mock_sync)
+        mock_client = self._mock_temporal(mock_sync)
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(),
         )
         sub_id = create_resp.json()["id"]
+        mock_client.start_workflow.reset_mock()
 
         update_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
@@ -2556,6 +2740,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
         assert update_resp.json()["prompt"] == "Show me new error events"
+        # prompt is delivery-relevant for AI subscriptions; editing it must re-fire the
+        # confirmation delivery so recipients see the updated report.
+        mock_client.start_workflow.assert_called_once()
 
     def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_flag, mock_sync):
         # resource_type is derived from the populated target and read-only — a client can

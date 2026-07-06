@@ -1,17 +1,20 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     AiReportStageError,
     QueryStepDiagnostic,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
     _run_steps,
+    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -282,3 +285,65 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()
+    # An ExposedHogQLError is safe to surface, so the diagnostic carries the human-readable reason
+    # (not just the type) for the delivery viewer to show.
+    assert diagnostics[0].error_type == "ExposedHogQLError"
+    assert diagnostics[0].human_readable_error == "bad query"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: MagicMock) -> None:
+    # The planner can emit many steps; they must not all hit ClickHouse at once. With more steps than
+    # the cap, no more than _MAX_CONCURRENT_STEPS run their query simultaneously (a regression that drops
+    # the semaphore would let every step fan out at once).
+    concurrent = 0
+    max_concurrent = 0
+    saturated = asyncio.Event()
+
+    async def _track(_query: object) -> tuple[str, None]:
+        nonlocal concurrent, max_concurrent
+        concurrent += 1
+        max_concurrent = max(max_concurrent, concurrent)
+        if concurrent >= _MAX_CONCURRENT_STEPS:
+            saturated.set()  # cap reached — release the held steps so the rest can run
+        await saturated.wait()
+        concurrent -= 1
+        return ("formatted", None)
+
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_track)
+
+    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), None)
+
+    assert max_concurrent == _MAX_CONCURRENT_STEPS
+
+
+def _wrap(
+    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
+) -> BaseException:
+    if cause is not None:
+        outer.__cause__ = cause
+    if context is not None:
+        outer.__context__ = context
+    return outer
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
+        (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
+        # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
+        (InternalHogQLError("internal detail with a team-scoped id"), None),
+        (ValueError("boom"), None),
+        # A generic error wrapping a safe error surfaces the wrapped message (executors wrap like this).
+        (
+            _wrap(Exception("wrapper"), cause=ResolutionError("Unable to resolve field 'x'")),
+            "Unable to resolve field 'x'",
+        ),
+        (_wrap(RuntimeError("boom"), context=ExposedHogQLError("bad thing")), "bad thing"),
+        # A generic error wrapping only generic errors stays type-only.
+        (_wrap(Exception("outer"), cause=ValueError("inner")), None),
+    ],
+)
+def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
+    assert _safe_error_message(exc) == expected

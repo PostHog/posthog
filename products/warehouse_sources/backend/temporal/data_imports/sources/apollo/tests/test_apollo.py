@@ -4,11 +4,17 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from tenacity import Future, RetryCallState
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
     MAX_PAGES,
+    MAX_RETRY_AFTER_SECONDS,
     PAGE_SIZE,
     ApolloResumeConfig,
+    ApolloRetryableError,
+    _parse_retry_after,
     _parse_timestamp,
+    _wait_apollo,
     apollo_source,
     get_rows,
     validate_credentials,
@@ -33,6 +39,14 @@ def _response(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) 
     }
     resp.status_code = 200
     resp.ok = True
+    return resp
+
+
+def _rate_limited(retry_after: str | None = None) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = 429
+    resp.ok = False
+    resp.headers = {"Retry-After": retry_after} if retry_after is not None else {}
     return resp
 
 
@@ -228,3 +242,50 @@ class TestApolloSourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
             assert config.partition_key == "created_at"
+
+
+class TestRetryAfter:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("30", 30.0),
+            (" 30 ", 30.0),
+            ("0", 0.0),
+            (None, None),
+            ("", None),
+            ("soon", None),
+            # An HTTP-date already in the past clamps to no wait.
+            ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),
+        ],
+    )
+    def test_parse_retry_after(self, value, expected):
+        assert _parse_retry_after(value) == expected
+
+    def _state(self, exc: Exception) -> RetryCallState:
+        state = RetryCallState(retry_object=mock.MagicMock(), fn=None, args=(), kwargs={})
+        state.outcome = Future.construct(1, exc, has_exception=True)
+        return state
+
+    def test_wait_honors_retry_after_below_cap(self):
+        assert _wait_apollo(self._state(ApolloRetryableError("rate limited", retry_after=45.0))) == 45.0
+
+    def test_wait_caps_long_retry_after(self):
+        # An hourly/daily window can dwarf the cap; a single retry must stay bounded.
+        assert (
+            _wait_apollo(self._state(ApolloRetryableError("rate limited", retry_after=99999.0)))
+            == MAX_RETRY_AFTER_SECONDS
+        )
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_429_is_retried_and_recovers(self, mock_session):
+        # Retry-After "0" keeps the retry instant while still proving the header is
+        # read and honored end-to-end from the raise site through get_rows.
+        mock_session.return_value.post.side_effect = [
+            _rate_limited(retry_after="0"),
+            _response("contacts", [{"id": "c1", "updated_at": "2024-01-01T00:00:00Z"}]),
+        ]
+
+        batches = list(get_rows("key", "contacts", mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["c1"]
+        assert mock_session.return_value.post.call_count == 2

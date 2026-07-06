@@ -62,6 +62,7 @@ import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -342,7 +343,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
-            ['eventMetadataPropertyDefinitions'],
+            ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
             primaryEventPropertiesModel,
@@ -558,6 +559,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
         ],
+        // Combined selector so taxonomicGroups stays under kea's 16-dep tuple type limit.
+        metadataPropertyDefinitionsByType: [
+            (s) => [s.eventMetadataPropertyDefinitions, s.personMetadataPropertyDefinitions],
+            (
+                event: PropertyDefinition[],
+                person: PropertyDefinition[]
+            ): { event: PropertyDefinition[]; person: PropertyDefinition[] } => ({ event, person }),
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -570,7 +579,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
-                s.eventMetadataPropertyDefinitions,
+                s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
@@ -591,7 +600,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
-                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                {
+                    event: eventMetadataPropertyDefinitions,
+                    person: personMetadataPropertyDefinitions,
+                }: {
+                    event: PropertyDefinition[]
+                    person: PropertyDefinition[]
+                },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
@@ -690,6 +705,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
+                        valueLoading: 'databaseLoading',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
+                        getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data warehouse tables',
+                        searchPlaceholder: 'data warehouse tables',
+                        type: TaxonomicFilterGroupType.DataWarehouseSourceTables,
+                        logic: dataWarehouseSettingsSceneLogic,
+                        value: 'externalDataSourceTables',
                         valueLoading: 'databaseLoading',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -1102,6 +1129,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+                        getIcon: getPersonPropertyDefinitionIcon,
+                    },
+                    {
+                        name: 'Person metadata',
+                        searchPlaceholder: 'person metadata',
+                        type: TaxonomicFilterGroupType.PersonMetadata,
+                        options: personMetadataPropertyDefinitions,
+                        getIcon: getPropertyDefinitionIcon,
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.PersonMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Person metadata',
                     },
                     {
                         name: 'Cohorts',
@@ -1272,15 +1316,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => {
                             const name = featureFlag.key || featureFlag.name
-                            const isInactive = !featureFlag.active
+                            const isInactive = featureFlag.active === false
                             return isInactive ? `${name} (disabled)` : name
                         },
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
                         getIcon: (featureFlag: FeatureFlagType) => (
-                            <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                            <IconFlag
+                                className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')}
+                            />
                         ),
-                        getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+                        // Recently-used entries are stored stripped of `active`, so treat only an explicit
+                        // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+                        // Keep in sync with the Feature Flags group in utils/buildTaxonomicGroups.tsx.
+                        getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
                         localItemsSearch: (items, query) => {
                             if (!query) {
                                 return items
@@ -1525,7 +1574,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // because it has no per-variant arm to protect.
                 const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
-                if (
+                const singleSubstantiveGroup = substantiveGroupCount === 1
+
+                const metaGroupOrder = [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+
+                if (singleSubstantiveGroup) {
+                    // With one real group there's nothing for "All" to aggregate, so drop it
+                    // (a call site may have prepended SuggestedFilters — see TaxonomicPropertyFilter).
+                    // Recent/Pinned then follow the group instead of leading, and the group's own
+                    // list floats recent/pinned items to the top (see infiniteListLogic `items`).
+                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    if (suggestedIdx !== -1) {
+                        filtered.splice(suggestedIdx, 1)
+                    }
+                } else if (
                     pillVariant &&
                     availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
                     !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
@@ -1534,42 +1600,45 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
                 }
 
-                // RecentFilters and PinnedFilters are auto-injected after existing
-                // meta groups (including SuggestedFilters when present).
-                const metaGroupOrder = [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.RecentFilters,
-                    TaxonomicFilterGroupType.PinnedFilters,
-                ]
+                // RecentFilters and PinnedFilters are auto-injected after existing meta groups
+                // (including SuggestedFilters when present) for multi-group filters, but after the
+                // sole group when there's only one — so the group itself leads.
                 const autoInjectGroups = [
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ]
                 for (const metaType of autoInjectGroups) {
                     if (availableGroupTypes.has(metaType) && !filtered.includes(metaType)) {
-                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, metaType)
+                        const insertAt = singleSubstantiveGroup
+                            ? filtered.length
+                            : indexAfterLastMetaGroup(filtered, metaGroupOrder)
+                        filtered.splice(insertAt, 0, metaType)
                     }
                 }
 
-                // Promote shortcut groups to top positions (after meta groups)
-                const shortcutGroups: TaxonomicFilterGroupType[] = [
-                    TaxonomicFilterGroupType.PageviewUrls,
-                    TaxonomicFilterGroupType.Screens,
-                    TaxonomicFilterGroupType.EmailAddresses,
-                    ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
-                ]
+                // Promote shortcut groups to top positions (after meta groups). With a single
+                // substantive group there's nothing to reorder above it, and doing so would push
+                // the group below its own Recent/Pinned tabs, so skip it.
+                if (!singleSubstantiveGroup) {
+                    const shortcutGroups: TaxonomicFilterGroupType[] = [
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
+                        ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
+                    ]
 
-                const toInsert: TaxonomicFilterGroupType[] = []
-                for (const groupType of shortcutGroups) {
-                    const idx = filtered.indexOf(groupType)
-                    if (idx !== -1) {
-                        filtered.splice(idx, 1)
-                        toInsert.push(groupType)
+                    const toInsert: TaxonomicFilterGroupType[] = []
+                    for (const groupType of shortcutGroups) {
+                        const idx = filtered.indexOf(groupType)
+                        if (idx !== -1) {
+                            filtered.splice(idx, 1)
+                            toInsert.push(groupType)
+                        }
                     }
-                }
 
-                if (toInsert.length > 0) {
-                    filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
+                    if (toInsert.length > 0) {
+                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
+                    }
                 }
 
                 return filtered

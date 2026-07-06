@@ -109,7 +109,10 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
     // $ref
     if (schema.$ref) {
         const refName = schema.$ref.replace('#/definitions/', '')
-        return sanitizeVarName(refName)
+        // Field-level numeric constraints (e.g. `@maximum 200` on a property
+        // typed as `positive_integer`) sit on the referencing schema, not the
+        // ref target. Apply them on top of the named ref.
+        return applyNumericConstraints(sanitizeVarName(refName), schema)
     }
 
     // const
@@ -183,16 +186,32 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
 
     // integer special ref — use coerce for MCP client compatibility (some clients send numbers as strings)
     if (schema.type === 'integer') {
-        return 'z.coerce.number().int()'
+        return applyNumericConstraints('z.coerce.number().int()', schema)
     }
 
     // primitives
     if (schema.type) {
-        return primitiveToZod(schema.type as string)
+        const base = primitiveToZod(schema.type as string)
+        if (schema.type === 'integer' || schema.type === 'number') {
+            return applyNumericConstraints(base, schema)
+        }
+        return base
     }
 
     // Fallback
     return 'z.unknown()'
+}
+
+/** Append `.min(...).max(...)` for numeric schemas. */
+function applyNumericConstraints(expr: string, schema: JsonSchema): string {
+    let out = expr
+    if (typeof schema.minimum === 'number') {
+        out += `.min(${schema.minimum})`
+    }
+    if (typeof schema.maximum === 'number') {
+        out += `.max(${schema.maximum})`
+    }
+    return out
 }
 
 /** Use z.coerce for numbers/booleans — some MCP clients send primitives as strings */
