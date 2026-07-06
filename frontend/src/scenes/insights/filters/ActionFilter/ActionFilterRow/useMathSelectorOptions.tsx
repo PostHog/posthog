@@ -82,7 +82,7 @@ export function useMathSelectorOptions({
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        getDefaultPropertyMathType(math, allowedMathTypes)
+        getDefaultPropertyMathType(math, allowedMathTypes, !!isHistogramBreakdown)
     )
 
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
