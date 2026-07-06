@@ -81,7 +81,7 @@ class TestGetRows:
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(HuntrResumeConfig(next="a"))
         # The first (cursorless) page must never be fetched on resume.
-        pages = {"a": ([{"id": "b"}], None)}
+        pages: dict[str | None, tuple[list[dict], str | None]] = {"a": ([{"id": "b"}], None)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"id": "b"}]
 
