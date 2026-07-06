@@ -22,10 +22,11 @@
 //   - A fully clean all-branch CI-speed percentile: workflow_health's p50/p95 is over
 //     status='completed' with no conclusion filter, so off-master durations are
 //     polluted by supersede-cancels. Needs a conclusion='success' percentile upstream.
-//   - Master-failure triage: master_failures groups at (workflow, de-sharded job)
+//   - Test-level failure triage: master_failures groups at (workflow, de-sharded job)
 //     level, which is dominated by rollup gate jobs ("X Tests Pass") and matrix shard
-//     names — not actionable in a digest. Needs a test/suite-level failure aggregate
-//     (over the ci_failure_logs substrate) before it earns a section here.
+//     names — not actionable in a digest. The product's `flaky_tests` endpoint (per-test
+//     leaderboard over CI test spans) is the right source; add that section once it
+//     ships.
 //
 // Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill a
 // missed window, so a webhook outage undercounts that week's COUNT-based lines (runs,
