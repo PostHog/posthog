@@ -322,13 +322,16 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
 
 
 def _is_connection_limit_error(error: BaseException) -> bool:
-    """True if the source refused a new connection because it's at a connection limit.
+    """True if the source refused a connection because it's at a connection limit.
 
-    Distinct from `_is_connection_dropped_error`: the connection was never established, so this is
-    only meaningful on the connect path (`_connect_with_dropped_retry`), not for mid-stream fetch
-    failures on an already-open connection.
+    Usually a connect-time refusal (`psycopg.OperationalError`), but a pooler that caches an
+    upstream login failure instead reveals the limit on the first query as a `ProtocolViolation`
+    ("server login has been failing, cached error: remaining connection slots are reserved ..."),
+    so match that type too. Distinct from `_is_connection_dropped_error` — the backend connection
+    was never usable — but the same transient capacity class: a slot frees the moment another
+    connection closes, so it stays retryable and is never a `NonRetryableError`.
     """
-    if not isinstance(error, psycopg.OperationalError):
+    if not isinstance(error, psycopg.OperationalError | psycopg.errors.ProtocolViolation):
         return False
     message = " ".join(str(arg) for arg in error.args).lower()
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
@@ -353,6 +356,20 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
         or _is_connection_limit_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
+
+
+def _is_dropped_or_connection_limit(error: BaseException) -> bool:
+    """Transient conditions the background schema-discovery retry recovers from in process.
+
+    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
+    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
+    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
+    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
+    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
+    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
+    should fail fast rather than burn the retry budget.
+    """
+    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
 
 
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
@@ -1194,7 +1211,15 @@ def _schemas_from_conn(
             cursor.execute(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
             )
-        except psycopg.Error:
+        except psycopg.Error as e:
+            # A dropped or connection-limit-refused upstream fails on this first query too — a pooler
+            # surfacing "remaining connection slots are reserved ..." on the first statement. Rolling
+            # that back raises a misleading "the connection is lost" that buries the real cause, so
+            # re-raise the true error and let the discovery retry recover on a fresh connection. A
+            # live engine that merely rejects the SET (e.g. DuckDB) is not a drop/limit: clear the
+            # aborted transaction and fall back to the default timeout.
+            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                raise
             connection.rollback()
 
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
@@ -1284,9 +1309,11 @@ def get_schemas(
     # either on connect or on the first discovery query (e.g. `SELECT version()` in
     # `_is_duckdb_connection`). Retry the whole connect-and-discover cycle on a fresh connection so
     # the retry spans both — otherwise the blip fails the discovery activity and surfaces as
-    # captured error-tracking noise even though the next attempt would succeed. Permanent errors
-    # (auth failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
-    # matches transient drops.
+    # captured error-tracking noise even though the next attempt would succeed. Connection-limit
+    # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
+    # retried the same way — the customer's database is momentarily out of slots and frees one as
+    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -1297,7 +1324,10 @@ def get_schemas(
             connection.close()
 
     return _retry_on_connection_dropped(
-        _connect_and_discover, structlog.get_logger(), max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES
+        _connect_and_discover,
+        structlog.get_logger(),
+        max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES,
+        is_retryable=_is_dropped_or_connection_limit,
     )
 
 

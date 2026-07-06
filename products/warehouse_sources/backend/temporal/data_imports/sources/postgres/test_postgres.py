@@ -1233,6 +1233,13 @@ class TestIsConnectionLimitError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
             ),
+            # A pooler (PgBouncer-style) that caches an upstream login failure reveals the limit on
+            # the first query as a ProtocolViolation, not an OperationalError — it must still be
+            # recognised so the discovery retry recovers instead of surfacing it as captured noise.
+            psycopg.errors.ProtocolViolation(
+                "server login has been failing, cached error: remaining connection slots are "
+                "reserved for roles with the SUPERUSER attribute (server_login_retry)"
+            ),
         ],
     )
     def test_connection_limit_errors_are_detected(self, error):
@@ -2857,6 +2864,82 @@ class TestPostgresSchemaDiscovery:
         assert connect_mock.call_count == 2
         assert set(schemas.keys()) == {"public.users"}
         dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_retries_pooler_connection_limit_on_discovery_query(self):
+        # A pooler can accept the connect and then reveal, on the first discovery query, that the
+        # customer database is out of connection slots — caching the upstream login failure as a
+        # ProtocolViolation ("server login has been failing, cached error: remaining connection slots
+        # are reserved ..."). It's a transient capacity condition (a slot frees as connections close),
+        # so discovery must retry on a fresh connection. Before the fix the SET-timeout `except` rolled
+        # the refused connection back — raising a misleading "the connection is lost" — and the
+        # discovery retry didn't cover connection-limit refusals, so it surfaced as captured noise.
+        refusal = psycopg.errors.ProtocolViolation(
+            "server login has been failing, cached error: remaining connection slots are reserved "
+            "for roles with the SUPERUSER attribute (server_login_retry)"
+        )
+        refused_connection = self._drop_on_execute_connection(refusal)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[refused_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        refused_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+        # The refused connection was never rolled back — that's what masked the real cause before.
+        refused_connection.rollback.assert_not_called()
+
+    def test_get_schemas_retries_connection_limit_refused_on_connect(self):
+        # The customer database can refuse the discovery connect outright once it's out of slots
+        # ("remaining connection slots are reserved for roles with the SUPERUSER attribute"). It's the
+        # same transient capacity class as a dropped connection, so discovery must retry on a fresh
+        # connect rather than fail the activity on the first blip — before the fix the discovery retry
+        # only covered drops, so a connection-limit refusal escaped on the first attempt.
+        refusal = psycopg.OperationalError(
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+        )
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[refusal, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
         good_connection.close.assert_called_once()
 
     def test_get_schemas_does_not_retry_non_drop_error_during_discovery_query(self):
