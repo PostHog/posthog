@@ -22,7 +22,7 @@ import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { RepoScopeChip, ScopeBar, WorkflowScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
@@ -287,7 +287,19 @@ export function WorkflowRunsScene(): JSX.Element {
                         to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
                     />
                 }
-                crumbs={[{ label: workflowName }]}
+                crumbs={[
+                    {
+                        label: workflowName,
+                        node: (
+                            <WorkflowScopeChip
+                                repoOwner={repoOwner}
+                                repoName={repoName}
+                                workflowName={workflowName}
+                                sourceId={sourceId}
+                            />
+                        ),
+                    },
+                ]}
                 showBranch
             />
             <EntityHeader
