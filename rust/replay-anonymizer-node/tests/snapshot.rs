@@ -267,6 +267,29 @@ fn pass_through_events_are_emitted_byte_exact() {
 }
 
 #[test]
+fn node_objects_with_too_many_keys_decline_to_the_parse() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    // A node with >MAX_OBJECT_KEYS unique keys must hand the event to the parse instead of running
+    // the per-key duplicate scan quadratically. The parse re-serializes numbers (`1.50` -> `1.5`),
+    // so the original bytes surviving means the walk handled it.
+    let junk: String = (0..33).map(|i| format!(r#""k{i}":1.50,"#)).collect();
+    let inner = format!(
+        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s","$window_id":"w","$snapshot_items":[{{"type":2,"timestamp":1700000000000,"data":{{"node":{{{junk}"type":3,"textContent":"reach me at alice@example.com"}},"initialOffset":{{"left":0,"top":0}}}}}}]}}}}"#
+    );
+    let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner})).unwrap();
+    let out = run(&allow, &payload).expect("anonymizes");
+    let text = String::from_utf8(out.lines.clone()).unwrap();
+    assert!(
+        !text.contains("1.50"),
+        "many-key node must decline to the parse (which normalizes 1.50 -> 1.5): {text}"
+    );
+    assert!(
+        !text.contains("alice@example.com"),
+        "text still scrubbed: {text}"
+    );
+}
+
+#[test]
 fn decompress_payload_matches_the_capture_producer_format() {
     use replay_anonymizer_node::snapshot::decompress_payload;
     let body = br#"{"distinct_id":"d","data":"{}"}"#.to_vec();

@@ -638,7 +638,8 @@ impl<'c, 'a> Walker<'c, 'a> {
             let key_end = scan::skip_string(bytes, pos).ok()?;
             let key = (pos + 1, key_end - 1);
             let raw_key = &bytes[key.0..key.1];
-            if raw_key.contains(&b'\\') {
+            // The key cap bounds the per-key duplicate scan below (quadratic in keys otherwise).
+            if raw_key.contains(&b'\\') || self.seen.len() - base >= MAX_OBJECT_KEYS {
                 return None;
             }
             let prefix = key_prefix(raw_key);
