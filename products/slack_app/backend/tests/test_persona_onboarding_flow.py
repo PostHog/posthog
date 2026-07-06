@@ -297,6 +297,27 @@ class TestPersonaSelection(_FlowTestBase):
             for element in block.get("elements", [])
         )
 
+    @parameterized.expand(
+        [
+            ("top_level_click", {"ts": "555.1", "blocks": []}, "555.1"),
+            ("threaded_click", {"ts": "555.2", "thread_ts": "555.1", "blocks": []}, "555.1"),
+        ]
+    )
+    @patch(WEBCLIENT)
+    def test_reply_threads_under_clicked_message(self, _name, message, expected_anchor, mock_webclient):
+        # A reply outside the clicked message's thread opens a brand-new conversation in the
+        # assistant surface — the click location must win over the stored (here: None) pointer.
+        client = self._client(mock_webclient)
+        self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
+        action = {"action_id": persona_onboarding.PERSONA_SELECT_ACTION_ID, "value": "engineer"}
+        payload = self._payload(action)
+        payload["message"] = message
+
+        persona_onboarding.handle_block_action(payload, action)
+
+        assert client.chat_postMessage.call_count >= 1
+        assert all(call.kwargs["thread_ts"] == expected_anchor for call in client.chat_postMessage.call_args_list)
+
     @patch(WEBCLIENT)
     def test_skip_marks_onboarded_without_persona(self, mock_webclient):
         client = self._client(mock_webclient)
@@ -561,4 +582,7 @@ class TestHomeStartFlow(_FlowTestBase):
         client.chat_postMessage.assert_called_once()
         row = self._row()
         assert row.onboarding_state["step"] == persona_onboarding.STEP_AWAITING_PERSONA
+        # Follow-ups must thread under the kickoff — an unthreaded reply roots a brand-new
+        # conversation in the assistant surface instead of continuing this one.
+        assert row.onboarding_state["thread_ts"] == "111.222"
         republish.assert_called_once()

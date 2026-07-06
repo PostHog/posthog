@@ -619,7 +619,24 @@ def _load_context(payload: dict) -> _FlowContext | None:
     # Defensive: the stored integration must still belong to the clicking workspace.
     if integration is None or integration.integration_id != workspace_id:
         return None
-    return _FlowContext(integration, SlackIntegration(integration), row, workspace_id, slack_user_id, state)
+    ctx = _FlowContext(integration, SlackIntegration(integration), row, workspace_id, slack_user_id, state)
+    _retarget_to_click(ctx, payload)
+    return ctx
+
+
+def _retarget_to_click(ctx: _FlowContext, payload: dict) -> None:
+    """Point follow-up posts at the thread hosting the clicked button. In the assistant surface
+    every top-level DM message roots its own conversation, so replying anywhere else opens a
+    brand-new History entry instead of continuing inline."""
+    channel_id = (payload.get("channel") or {}).get("id")
+    message = payload.get("message") or {}
+    anchor = message.get("thread_ts") or message.get("ts")
+    if not channel_id or not anchor:
+        return
+    if channel_id != ctx.state.get("dm_channel_id") or anchor != ctx.state.get("thread_ts"):
+        ctx.state["dm_channel_id"] = channel_id
+        ctx.state["thread_ts"] = anchor
+        _save_state(ctx.row, ctx.state)
 
 
 def _display_name(slack: SlackIntegration, slack_user_id: str) -> str:
@@ -711,7 +728,9 @@ def start_onboarding_dm(
         "integration_id": integration.id,
         "posthog_user_id": posthog_user_id,
         "dm_channel_id": channel_id,
-        "thread_ts": thread_ts,
+        # A top-level kickoff roots its own conversation in the assistant surface — anchor
+        # follow-ups under it so the whole flow stays in that one thread.
+        "thread_ts": thread_ts or posted.get("ts"),
         "kickoff_ts": posted.get("ts"),
         "started_at": timezone.now().isoformat(),
     }
