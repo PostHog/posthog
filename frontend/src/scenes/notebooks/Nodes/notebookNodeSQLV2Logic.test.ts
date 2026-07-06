@@ -91,6 +91,24 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(resultSpy).not.toHaveBeenCalled()
     })
 
+    it('a second sequential run replaces the first run result', async () => {
+        resultSpy.mockImplementation((_s: string, runId: string) =>
+            Promise.resolve(
+                runId === 'r1'
+                    ? { status: 'done', result: { columns: ['a'], first_page: [[1]], row_count: 1 }, error: null }
+                    : { status: 'done', result: { columns: ['b'], first_page: [[2]], row_count: 1 }, error: null }
+            )
+        )
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        runSpy.mockResolvedValueOnce({ run_id: 'r2' })
+        logic.actions.runQuery('select 2')
+        await expectLogic(logic).toFinishAllListeners()
+        const resultWrites = updateAttributes.mock.calls.map((c) => c[0]).filter((a) => a.result)
+        expect(resultWrites.at(-1).result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
+    })
+
     it('ignores a stale poll from a previous run', async () => {
         // r1's poll stays in flight until we resolve it — after r2 has become the active run.
         let resolveR1: (value: unknown) => void = () => {}
