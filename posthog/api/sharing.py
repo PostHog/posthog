@@ -445,13 +445,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
-                    # The legacy token isn't owned by any config, so adopt it onto this one. But
-                    # ``dashboard.is_shared``/``share_token`` are DEPRECATED fields (see the model):
-                    # a True here is stale data from the pre-SharingConfiguration era, not intent.
-                    # This helper also runs on the read path (``list``), so assigning
-                    # ``instance.enabled = dashboard.is_shared`` would let a plain GET silently make
-                    # a dashboard public off that stale flag. Only ever migrate the token; enabling
-                    # must go through an explicit PATCH.
+                    # The legacy token isn't owned by any config, so adopt it onto this one. Only
+                    # migrate the token, never ``enabled``: this helper runs on the read path
+                    # (``list``), and ``dashboard.is_shared`` is a deprecated field holding stale
+                    # legacy data, so enabling off it would let a plain GET silently make a
+                    # dashboard public. Sharing is only ever turned on through an explicit PATCH.
                     instance.access_token = dashboard.share_token
                     instance.save()
 
