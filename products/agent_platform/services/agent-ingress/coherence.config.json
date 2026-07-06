@@ -6,5 +6,29 @@
     "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
     "test": ["npx", "vitest", "run", "-t"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "typescript"
+    "language": "typescript",
+    "atlas": {
+        "charts": {
+            "caller-untrusted": "unauthenticated inbound requests (triggers, webhooks) before verification",
+            "team-scoped": "data scoped to a single team principal",
+            "trigger-verified": "an authenticated, well-formed trigger admitted to the enqueue path"
+        },
+        "transitions": {
+            "sharedSecretVerifier": {
+                "from": "caller-untrusted",
+                "to": "team-scoped",
+                "security": true,
+                "translates": "an inbound shared-secret request into a single team-scoped principal; no per-caller identity can be smuggled behind the secret"
+            },
+            "TRIGGER_MODULES": {
+                "from": "caller-untrusted",
+                "to": "trigger-verified",
+                "security": true,
+                "translates": "a raw inbound trigger into a verified one — content-type, drop, dedup, and signing enforced per module (double-entry over the edge classes)"
+            }
+        },
+        "nonTransition": {
+            "enqueueOrResume": "enqueue idempotency — a redelivered event collapses to the original session; liveness within the enqueue chart"
+        }
+    }
 }

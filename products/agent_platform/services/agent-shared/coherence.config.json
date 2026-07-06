@@ -6,5 +6,54 @@
     "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
     "test": ["npx", "vitest", "run", "-t"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "typescript"
+    "language": "typescript",
+    "atlas": {
+        "charts": {
+            "agent-untrusted": "agent-influenced execution — model output and tool calls; the least-trusted interior",
+            "owner-scoped": "data scoped to the spec author who owns a shared credential",
+            "team-scoped": "data scoped to a single team principal",
+            "persistence": "Django/Postgres state at rest",
+            "gateway": "the ai-gateway boundary — settled usage and the wire contract",
+            "analytics": "generation and usage events emitted to analytics",
+            "internal-cluster": "cluster-internal service-to-service calls the platform makes to itself"
+        },
+        "transitions": {
+            "PgMcpConnectionStore": {
+                "from": "persistence",
+                "to": "owner-scoped",
+                "security": true,
+                "translates": "a stored shared-MCP credential into a bearer scoped to its owner; the lookup scopes to (installation, team, owner) so no non-owner path can obtain it"
+            },
+            "PgTeamApiKeyResolver": {
+                "from": "persistence",
+                "to": "team-scoped",
+                "security": true,
+                "translates": "stored team API keys into exactly the requesting team's token (WHERE id = $1)"
+            },
+            "assertGatewayProvenance": {
+                "from": "gateway",
+                "to": "analytics",
+                "security": true,
+                "translates": "gateway-settled usage into an analytics cost; a forged or unsourced cost is dropped-and-logged, never emitted"
+            },
+            "DirectHttpClient": {
+                "from": "agent-untrusted",
+                "to": "internal-cluster",
+                "security": true,
+                "enshrined": true,
+                "translates": "denies agent-reachable code the internal-only HTTP capability; DirectHttpClient's options type carries no proxyUrl, so a proxied internal client cannot be constructed"
+            }
+        },
+        "nonTransition": {
+            "EncryptedFields": "fernet key-derivation interop — a correctness property within persistence, not a trust crossing",
+            "extractGatewayRequestId": "single-sources the gateway wire request-id across dispatch and cost-lookup — consistency within the gateway chart",
+            "effectiveApprovalType": "totality over the approval-type enum — a within-chart totality",
+            "serializeApprovalRequest": "approvals serialized through one home — a single-source wire invariant",
+            "APPROVAL_REQUEST_STATES": "single-source approval-state vocabulary shared with the Django backend",
+            "GENERATED_ARTIFACTS": "single-source generated-vocabulary manifest",
+            "TRIGGER_ROUTES": "single-source trigger route map",
+            "AgentSpecSchema": "tenant-array maxItems bounds — input totality within spec validation",
+            "S3BundleStore": "frozen-bundle immutability — a state-machine invariant within storage"
+        }
+    }
 }

@@ -6,5 +6,23 @@
     "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
     "test": ["npx", "vitest", "run", "-t"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "typescript"
+    "language": "typescript",
+    "atlas": {
+        "charts": {
+            "control-plane": "the janitor's freeze and sweep authority",
+            "storage": "the S3 revision-bundle store the runner loads from"
+        },
+        "transitions": {
+            "validateRevisionBundle": {
+                "from": "control-plane",
+                "to": "storage",
+                "security": false,
+                "translates": "a candidate revision into a frozen bundle only if the runner would accept it — entrypoint, tools, model, and cron validated in lockstep with the runner's load contract"
+            }
+        },
+        "nonTransition": {
+            "buildJanitorApp": "approval routes never bypass the shared serializer — single-source consumption within the janitor app",
+            "sweepOnce": "bounded-retry sweep — a stuck session is reaped after maxRetries; liveness within the control plane"
+        }
+    }
 }

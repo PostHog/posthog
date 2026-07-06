@@ -6,5 +6,19 @@
     "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
     "test": ["npx", "vitest", "run", "-t"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "typescript"
+    "language": "typescript",
+    "atlas": {
+        "charts": {
+            "agent-untrusted": "agent-influenced execution — model output and tool calls; the least-trusted interior",
+            "gated-dispatch": "the tool-dispatch loop that only ever runs approval-gated tools"
+        },
+        "transitions": {
+            "gateTool": {
+                "from": "agent-untrusted",
+                "to": "gated-dispatch",
+                "security": true,
+                "translates": "an unbranded tool into a gated one; assertToolsGated throws at boot if any tool reaches the loop without crossing the gate"
+            }
+        }
+    }
 }

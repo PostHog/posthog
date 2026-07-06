@@ -6,5 +6,23 @@
     "typecheck": ["python", "-m", "ruff", "check", "."],
     "test": ["env", "DJANGO_SETTINGS_MODULE=posthog.settings", "python", "-m", "pytest", "-q", "-k"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "python"
+    "language": "python",
+    "atlas": {
+        "charts": {
+            "caller-untrusted": "unauthenticated inbound requests (triggers, webhooks) before verification",
+            "trigger-verified": "an authenticated, well-formed trigger admitted to the enqueue path"
+        },
+        "transitions": {
+            "missing_required_secrets": {
+                "from": "caller-untrusted",
+                "to": "trigger-verified",
+                "security": true,
+                "translates": "an unregistered trigger fails closed — an unknown trigger type does not promote with its signing secret unenforced (no `.get(type, [])`)"
+            }
+        },
+        "nonTransition": {
+            "_load": "fail-closed load of generated vocabularies — a corrupt or missing artifact fails rather than loading silently; loader correctness within persistence",
+            "TRIGGER_REQUIRED_SECRETS": "CI path-filter covers every generated artifact — a guard-must-be-run meta-check"
+        }
+    }
 }

@@ -106,14 +106,17 @@ oracle can be a proxy; a passing meta-oracle can't tell).
 
 ## Where we are on the ladder — honestly
 
-- **All 25 render tier-2 today** (totality-checked): declared, oracle-guarded, floored
-  against vacuous passes.
-- **2 are tier-1-eligible** (the illegal value is structurally _unrepresentable_): the
-  required `approval` field, and the no-`proxyUrl` capability divide — which now carries its
-  backing `via guard`.
-- **Not built yet: the trust-manifold grading layer** — the crossing-by-crossing view that
-  would emit a "zero tier-3 security crossings" report and reconcile enshrinement claims.
-  That's the next frontier.
+- **One crossing is now tier-1 (enshrined):** the `direct-http-capability-divide`. The
+  internal client's options type carries no `proxyUrl`, so the illegal value is
+  _unrepresentable_. It is attested `enshrined: true` in the atlas, backed by its `via guard`,
+  and reconciled against a structural double-entry gate.
+- **The other 24 render tier-2** (totality-checked): declared, oracle-guarded, floored
+  against vacuous passes. One more is tier-1-_eligible_ — the required `approval` field (a
+  compile error if omitted) — but stays tier-2 until a `via guard` backs the attestation.
+- **The trust-manifold grading layer is built.** Every service ships an `atlas` block (charts
+  stitched by chokepoint crossings); `coherence atlas --check` derives each crossing's tier
+  from the live boundary claims, fails closed on an enshrinement over-claim, and reports the
+  headline it exists to produce: **zero tier-3 security crossings**.
 
 ## Is this worth it?
 

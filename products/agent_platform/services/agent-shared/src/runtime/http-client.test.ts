@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { AddressInfo } from 'node:net'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { DirectHttpClient, HttpClient } from './http-client'
@@ -167,6 +170,35 @@ describe('DirectHttpClient', () => {
         // @ts-expect-error proxyUrl is intentionally not part of DirectHttpClient's options
         opts.proxyUrl = 'http://smokescreen:4750'
         expect(opts).toBeTruthy()
+    })
+
+    describe('atlas enshrinement double-entry', () => {
+        // The coherence atlas may mark a crossing `enshrined: true` (tier-1) only when the
+        // illegal value is unrepresentable at compile time. `atlas --check` verifies the
+        // marker is backed by a `via guard` claim but CANNOT verify the crossing is genuinely
+        // compile-unrepresentable, so a guard-backed-but-runtime crossing would sail through.
+        // This is the reconciliation the coherence README mandates: the atlas `enshrined` set
+        // must equal the set this suite proves structurally. A name here without a real
+        // compile-proof (the @ts-expect-error above) is the over-claim the pairing forbids.
+        const STRUCTURALLY_ENSHRINED = ['DirectHttpClient'] // proven by 'does NOT accept a proxyUrl' above
+
+        const configPath = join(dirname(fileURLToPath(import.meta.url)), '../../coherence.config.json')
+        const transitions: Record<string, { enshrined?: boolean }> =
+            JSON.parse(readFileSync(configPath, 'utf8')).atlas?.transitions ?? {}
+        const atlasEnshrined = Object.entries(transitions)
+            .filter(([, t]) => t.enshrined === true)
+            .map(([sym]) => sym)
+
+        it('every atlas-enshrined crossing has a structural compile-proof in this suite', () => {
+            for (const sym of atlasEnshrined) {
+                expect(STRUCTURALLY_ENSHRINED).toContain(sym)
+            }
+        })
+        it('every structurally-proven crossing is marked enshrined in the atlas', () => {
+            for (const sym of STRUCTURALLY_ENSHRINED) {
+                expect(atlasEnshrined).toContain(sym)
+            }
+        })
     })
 
     it('default timeout still applies — long-running internal calls do not hang the worker', async () => {

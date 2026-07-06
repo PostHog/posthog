@@ -6,5 +6,19 @@
     "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
     "test": ["npx", "vitest", "run", "-t"],
     "testMatch": "[1-9][0-9]* passed",
-    "language": "typescript"
+    "language": "typescript",
+    "atlas": {
+        "charts": {
+            "agent-untrusted": "agent-influenced execution — model output and tool calls; the least-trusted interior",
+            "approval-classified": "a native tool carrying a resolved, declared approval authority"
+        },
+        "transitions": {
+            "nativeToolApprovalClass": {
+                "from": "agent-untrusted",
+                "to": "approval-classified",
+                "security": true,
+                "translates": "a native tool into one with a declared approval class — the field is required, so a tool without one is a compile error (fail-closed)"
+            }
+        }
+    }
 }
