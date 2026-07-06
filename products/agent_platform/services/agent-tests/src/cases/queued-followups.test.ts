@@ -150,10 +150,19 @@ describe('queued follow-ups: real e2e', () => {
         await c.drain()
         await sendDone!
         await c.drain()
-        unsubscribe()
 
-        const userMessageEvts = events.filter((e) => e.kind === 'user_message')
-        expect(userMessageEvts.map((e) => e.data.text)).toEqual(['follow'])
+        // `emit('user_message')` only awaits the Redis PUBLISH; delivery to the
+        // bus's separate subscriber connection and this listener is async and
+        // not awaited by drain(). Asserting synchronously here races that
+        // delivery and flakes on contended runners. Wait for the event to land.
+        await vi.waitFor(
+            () => {
+                const texts = events.filter((e) => e.kind === 'user_message').map((e) => e.data.text)
+                expect(texts).toEqual(['follow'])
+            },
+            { timeout: 5_000, interval: 25 }
+        )
+        unsubscribe()
     })
 
     it('a /send BEFORE the worker dequeues is durable (lands in conversation, not lost)', async () => {
