@@ -378,7 +378,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                         />
                                     ),
                                     primaryButton: {
-                                        children: 'Delete folder',
+                                        children: 'Remove folder',
                                         status: 'danger',
                                         onClick: () => {
                                             actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
