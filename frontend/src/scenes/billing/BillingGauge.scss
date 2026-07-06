@@ -60,14 +60,16 @@
 
         // Actual usage above the billing limit — real, but not charged. Desaturated grey, and
         // angled the opposite way (135deg) to the projected/forecast stripes (-45deg) so the two
-        // striped bars never read as the same thing where they overlap.
+        // striped bars never read as the same thing where they overlap. Both stops must use defined
+        // tokens: a single undefined custom property makes the whole gradient invalid, which would
+        // silently drop the stripes to a transparent background.
         &--over-limit {
             background: repeating-linear-gradient(
                 135deg,
                 var(--muted),
                 var(--muted) 3px,
-                var(--color-border-primary-opaque) 3px,
-                var(--color-border-primary-opaque) 7px
+                var(--color-border-primary) 3px,
+                var(--color-border-primary) 7px
             );
             opacity: 0.7;
         }
