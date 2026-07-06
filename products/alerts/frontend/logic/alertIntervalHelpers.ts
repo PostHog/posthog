@@ -25,8 +25,6 @@ export function getDefaultSimulationRange(interval: AlertCalculationInterval): s
 export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
     '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
 
-const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
-
 const SUB_DAILY_INTERVALS = [
     AlertCalculationInterval.HOURLY,
     AlertCalculationInterval.EVERY_15_MINUTES,
@@ -46,8 +44,8 @@ const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.MONTHLY]: 'Monthly',
 }
 
-export function alertIntervalDisplayLabel(interval: AlertCalculationInterval | null | undefined): string {
-    return interval ? (INTERVAL_DISPLAY_LABELS[interval] ?? interval) : ''
+export function alertIntervalDisplayLabel(interval: AlertCalculationInterval): string {
+    return INTERVAL_DISPLAY_LABELS[interval]
 }
 
 // Twin of _CADENCE_DURATION_MINUTES / _INTERVAL_DURATION_MINUTES in
@@ -102,7 +100,11 @@ export function blockSubmitWithoutEntitlement(
         }
     }
     if (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement) {
-        return { blocked: true, message: REAL_TIME_ALERTS_REQUIRED_MESSAGE, feature: AvailableFeature.REAL_TIME_ALERTS }
+        return {
+            blocked: true,
+            message: 'Real-time alert intervals require a Scale or Enterprise plan.',
+            feature: AvailableFeature.REAL_TIME_ALERTS,
+        }
     }
     return { blocked: false, message: null, feature: null }
 }
