@@ -1,8 +1,19 @@
 import {
+    DEFAULT_POLLING_INTERVAL_SECS,
+    jitteredIntervalMs,
+    MAX_POLLING_INTERVAL_SECS,
+    POLL_JITTER_RATIO,
+    resolvePollingIntervalMs,
+} from 'lib/wizard-sync/pollLoop'
+
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import {
     cloudRunCompletionReport,
     mergeProgressStep,
     parseTaskRunStreamMessage,
     TaskRunProgressStep,
+    taskRunDetailToStreamState,
     taskRunPrUrl,
     TaskRunStreamState,
 } from './taskRunStreamLogic'
@@ -149,6 +160,91 @@ describe('taskRunStreamLogic helpers', () => {
 
         it('throws on invalid JSON', () => {
             expect(() => parseTaskRunStreamMessage('not json')).toThrow(SyntaxError)
+        })
+    })
+
+    describe('resolvePollingIntervalMs', () => {
+        it.each([
+            ['a valid payload interval', { polling_interval_secs: 10 }, 10_000],
+            ['a sub-minimum interval (floored so it cannot hammer the endpoint)', { polling_interval_secs: 0 }, 1000],
+            ['a negative interval', { polling_interval_secs: -5 }, 1000],
+            ['a non-numeric interval', { polling_interval_secs: 'fast' }, DEFAULT_POLLING_INTERVAL_SECS * 1000],
+            ['a missing payload', null, DEFAULT_POLLING_INTERVAL_SECS * 1000],
+            ['a payload without the key', {}, DEFAULT_POLLING_INTERVAL_SECS * 1000],
+            [
+                'an over-maximum interval (clamped so sync cannot silently stall)',
+                { polling_interval_secs: 3600 },
+                MAX_POLLING_INTERVAL_SECS * 1000,
+            ],
+            [
+                'a huge interval that would overflow the int32 setTimeout delay and fire immediately',
+                { polling_interval_secs: 1_700_000_000 },
+                MAX_POLLING_INTERVAL_SECS * 1000,
+            ],
+        ])('resolves %s', (_name, payload, expectedMs) => {
+            expect(resolvePollingIntervalMs(payload)).toBe(expectedMs)
+        })
+    })
+
+    describe('jitteredIntervalMs', () => {
+        it.each([
+            ['the lower jitter bound', 0, 3000 * (1 - POLL_JITTER_RATIO)],
+            ['the base cadence at mid-roll', 0.5, 3000],
+            ['the upper jitter bound', 1, 3000 * (1 + POLL_JITTER_RATIO)],
+        ])('spreads ticks within ±20%% — %s', (_name, roll, expectedMs) => {
+            expect(jitteredIntervalMs(3000, () => roll)).toBe(expectedMs)
+        })
+    })
+
+    describe('taskRunDetailToStreamState', () => {
+        it('projects a REST snapshot onto the SSE state shape, coercing missing fields to null', () => {
+            const dto = {
+                id: 'run-1',
+                task: 'task-1',
+                stage: undefined,
+                branch: undefined,
+                status: 'in_progress',
+                environment: 'sandbox',
+                error_message: null,
+                output: undefined,
+                state: {},
+                artifacts: [],
+            } as unknown as TaskRunDetailDTOApi
+            expect(taskRunDetailToStreamState(dto)).toEqual({
+                status: 'in_progress',
+                stage: null,
+                output: null,
+                branch: null,
+                error_message: null,
+                updated_at: '',
+                completed_at: null,
+            })
+        })
+
+        it('carries the terminal fields the completion report depends on', () => {
+            const dto = {
+                id: 'run-1',
+                task: 'task-1',
+                stage: 'pr',
+                branch: 'posthog-setup',
+                status: 'completed',
+                environment: 'sandbox',
+                error_message: null,
+                output: { pr_url: 'https://x/pull/1' },
+                state: {},
+                artifacts: [],
+                updated_at: '2026-01-01T00:05:00Z',
+                completed_at: '2026-01-01T00:04:30Z',
+            } as unknown as TaskRunDetailDTOApi
+            expect(taskRunDetailToStreamState(dto)).toEqual({
+                status: 'completed',
+                stage: 'pr',
+                output: { pr_url: 'https://x/pull/1' },
+                branch: 'posthog-setup',
+                error_message: null,
+                updated_at: '2026-01-01T00:05:00Z',
+                completed_at: '2026-01-01T00:04:30Z',
+            })
         })
     })
 
