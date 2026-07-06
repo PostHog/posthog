@@ -323,6 +323,33 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             // Reached the cap (proves it's concurrent) but never exceeded it.
             expect(peak).toBe(maxConcurrency)
         })
+
+        it('emits in FIFO order under a cap even when a slow head finishes last', async () => {
+            // More items than permits (cap 2, 4 items) so later items must park for a
+            // permit, and the head is the slowest so completion order (1,2,3,0) diverges
+            // from input order. p-limit's FIFO wait queue must still hand the head its
+            // permit first; emission then stays in input order regardless of durations.
+            const delaysByIndex = [30, 5, 5, 5]
+            const processor = createNewPipeline<string>().pipe(async (input: string) => {
+                const index = Number(input.split('-')[1])
+                await new Promise((resolve) => setTimeout(resolve, delaysByIndex[index]))
+                return ok(input.toUpperCase())
+            })
+            const previousPipeline = createNewBatchPipeline<string>().build()
+            const testBatch = delaysByIndex.map((_, i) => createOkContext(`item-${i}`, context1))
+            previousPipeline.feed(testBatch)
+
+            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline, 2)
+
+            const emitted = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                emitted.push(...result.map((r) => r.result))
+                result = await pipeline.next()
+            }
+
+            expect(emitted).toEqual([ok('ITEM-0'), ok('ITEM-1'), ok('ITEM-2'), ok('ITEM-3')])
+        })
     })
 
     describe('error poisoning', () => {
