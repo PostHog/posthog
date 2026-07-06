@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -6,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import Team
 
+from products.data_modeling.backend.logic.node_frequency import set_frequency_target
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -110,6 +113,32 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 3)
+
+    @parameterized.expand(
+        [
+            # node target wins even when the saved-query interval disagrees (tiered v2 teams
+            # carry NULL intervals, so a saved-query-only read shows a blank frequency)
+            ("target_first", timedelta(hours=6), timedelta(hours=12), "6hour"),
+            ("saved_query_fallback", None, timedelta(hours=12), "12hour"),
+            ("neither", None, None, None),
+        ]
+    )
+    def test_node_sync_interval_reads_target_first(
+        self,
+        _name: str,
+        target: timedelta | None,
+        saved_query_interval: timedelta | None,
+        expected: str | None,
+    ):
+        self.saved_query.sync_frequency_interval = saved_query_interval
+        self.saved_query.save(update_fields=["sync_frequency_interval"])
+        if target is not None:
+            set_frequency_target(self.view_node, target)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["sync_interval"], expected)
 
     def test_node_response_includes_dag_name(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
