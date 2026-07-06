@@ -61,6 +61,18 @@ def _validate_every_15_minutes_interval(
         raise ValidationError({"calculation_interval": [error]})
 
 
+def _validate_real_time_interval(
+    *,
+    calculation_interval: str | AlertCalculationInterval | None,
+    organization,
+) -> None:
+    if error := AlertConfiguration.real_time_interval_validation_error(
+        calculation_interval=calculation_interval,
+        organization=organization,
+    ):
+        raise ValidationError({"calculation_interval": [error]})
+
+
 def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
     # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
     # explicitly — alert write/simulate access must not expose a restricted insight's results.
@@ -258,7 +270,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -642,6 +654,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             calculation_interval=calculation_interval,
             organization=organization,
         )
+        _validate_real_time_interval(
+            calculation_interval=calculation_interval,
+            organization=organization,
+        )
 
         # Investigation agent is only supported for detector-based alerts.
         investigation_enabled = attrs.get(
@@ -678,12 +694,29 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        # only validate alert count when creating a new alert
-        if self.context["request"].method != "POST":
-            return attrs
+        # Total alert count only checked on create.
+        if self.context["request"].method == "POST":
+            if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
+                raise ValidationError({"alert": [msg]})
 
-        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
-            raise ValidationError({"alert": [msg]})
+        existing_enabled = self.instance.enabled if self.instance else True
+        if msg := AlertConfiguration.real_time_alert_validation_error(
+            team_id=self.context["team_id"],
+            organization=organization,
+            calculation_interval=calculation_interval,
+            enabled=attrs.get("enabled", existing_enabled) is True,
+            existing=self.instance,
+        ):
+            posthoganalytics.capture(
+                distinct_id=str(self.context["request"].user.distinct_id),
+                event="real time alert limit reached",
+                properties={
+                    "team_id": self.context["team_id"],
+                    "organization_id": str(organization.id),
+                },
+                groups={"organization": str(organization.id)},
+            )
+            raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
 

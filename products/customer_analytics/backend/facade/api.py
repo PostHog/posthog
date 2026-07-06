@@ -37,7 +37,12 @@ from posthog.models.tagged_item import TaggedItem
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
-from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
+from products.customer_analytics.backend.logic.custom_property_definitions import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+    apply_option_side_effects,
+    coerce_is_big_number,
+    normalize_options,
+)
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -47,6 +52,7 @@ from products.customer_analytics.backend.models import (
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -684,7 +690,16 @@ def _to_custom_property_definition_view(
         updated_at=definition.updated_at,
         references=references or [],
         source=_definition_source_view(definition),
+        options=_to_custom_property_options(definition.options),
     )
+
+
+def _to_custom_property_options(
+    options: list[dict[str, Any]] | None,
+) -> list[contracts.CustomPropertyOption] | None:
+    if options is None:
+        return None
+    return [contracts.CustomPropertyOption(**option) for option in options]
 
 
 def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
@@ -719,7 +734,7 @@ def _definition_source_view(definition: CustomPropertyDefinition) -> contracts.C
     """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
     ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query."""
     try:
-        source = definition.source  # type: ignore[attr-defined]
+        source = definition.source
     except CustomPropertySource.DoesNotExist:
         return None
     return _to_custom_property_source_view(source)
@@ -764,6 +779,7 @@ def create_custom_property_definition(
     description: str | None,
     display_type: str,
     is_big_number: bool,
+    options: list[dict[str, Any]] | None = None,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -776,6 +792,7 @@ def create_custom_property_definition(
             description=description,
             display_type=display_type,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
+            options=normalize_options(DisplayType(display_type), options),
         )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
@@ -812,8 +829,21 @@ def update_custom_property_definition(
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
     # non-numeric one must clear a previously-set is_big_number (the partial-update case).
     definition.is_big_number = coerce_is_big_number(definition.display_type, definition.is_big_number)
+    definition.options = normalize_options(
+        DisplayType(definition.display_type),
+        definition.options,
+        existing_ids=frozenset(option["id"] for option in previous.options or []),
+    )
     try:
-        definition.save()
+        with transaction.atomic():
+            definition.save()
+            if DisplayType(definition.display_type) == DisplayType.SELECT:
+                apply_option_side_effects(
+                    team_id=team_id,
+                    definition_id=definition.id,
+                    previous_options=previous.options,
+                    new_options=definition.options,
+                )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
     _log_activity_swallowing(
@@ -1438,6 +1468,44 @@ def list_account_notebooks(
     return [
         _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
     ]
+
+
+def list_account_notes_for_view(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+    search: str | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: list[int] | None = None,
+) -> tuple[list[contracts.AccountNoteView], int]:
+    """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
+    restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
+    and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
+    notes authored by the given users. Returns ``(page, total_count)``."""
+    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    notes, count = notebooks.list_team_account_notes(
+        team_id,
+        account_ids=accessible_account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
+    )
+    return [
+        contracts.AccountNoteView(
+            short_id=note.short_id,
+            title=note.title,
+            created_at=note.created_at,
+            last_modified_at=note.last_modified_at,
+            account_id=note.account_id,
+            account_name=note.account_name,
+            created_by=_notebook_user_to_basic_info(note.created_by),
+        )
+        for note in notes
+    ], count
 
 
 def get_account_notebook(

@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AccountApi,
     AccountNotebookApi,
+    AccountNotesListParams,
     AccountsListParams,
     AccountsNotebooksListParams,
     CustomPropertyDefinitionApi,
@@ -27,6 +28,7 @@ import type {
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
+    PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
@@ -57,6 +59,33 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAccountNotesListUrl = (projectId: string, params?: AccountNotesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_notes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_notes/`
+}
+
+export const accountNotesList = async (
+    projectId: string,
+    params?: AccountNotesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountNoteListApi> => {
+    return apiMutator<PaginatedAccountNoteListApi>(getAccountNotesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getAccountsListUrl = (projectId: string, params?: AccountsListParams) => {
     const normalizedParams = new URLSearchParams()

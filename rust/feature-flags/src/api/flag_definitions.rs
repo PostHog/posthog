@@ -9,6 +9,7 @@ use crate::{
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -27,9 +28,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
+
+/// Redis sorted set holding team IDs whose flag-definitions cache is missing and
+/// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
+/// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
+/// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
+/// `test_request_zset_key_matches_rust_contract`).
+const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -449,9 +458,48 @@ async fn get_from_cache(
                 error = %e,
                 "Flag definitions cache miss"
             );
+            // Self-heal: a genuinely empty cache (not a transient redis/s3/parse
+            // error) has no DB fallback here, so it would 503 until something
+            // rewrites it. Enqueue a debounced rebuild request for a Celery worker.
+            if reason == "cache_miss" && *state.config.flag_definitions_self_heal_enabled {
+                enqueue_flag_definitions_rebuild(state, team_id);
+            }
             Err(FlagError::from(e))
         }
     }
+}
+
+/// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
+///
+/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
+/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
+/// queue can never point at a different Redis than the one the cache lives in.
+/// Re-enqueuing a team only updates its score, so a client polling a missing team
+/// every ~30s occupies a single slot. Spawned so it never adds latency to (or
+/// changes) the failing response.
+fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
+    let redis = state.redis_client.clone();
+    tokio::spawn(async move {
+        let score = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let result = redis
+            .zadd(
+                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+                team_id.to_string(),
+                score,
+            )
+            .await;
+        inc(
+            FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+            &[(
+                "result".to_string(),
+                if result.is_ok() { "ok" } else { "error" }.to_string(),
+            )],
+            1,
+        );
+    });
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys

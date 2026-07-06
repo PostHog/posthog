@@ -17,6 +17,8 @@ CRITICAL: Be minimalist. Only include filters and settings that are essential to
 
 MANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.
 
+MANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ "date_from": "-1h" }`). Omitting it fails with a 400 `parse_error` ("Input should be a valid dictionary or instance of DateRange") — the server does not fall back to a default window.
+
 All parameters must be nested inside a `query` object.
 
 # Data narrowing
@@ -72,7 +74,7 @@ Do not invent a different attribute key based on what looks plausible — use th
 
 ## Time period
 
-Use the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
+Use the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ "date_from": "-1h" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 
 # Parameters
 
@@ -102,7 +104,7 @@ A list of property filters to narrow results. Each filter specifies `key`, `oper
 
 ## query.dateRange
 
-Date range to filter results. Defaults to the last hour (`-1h`).
+Date range to filter results. Required in practice: omitting it fails with a 400 `parse_error`, so always pass it (use `{ "date_from": "-1h" }` when the question doesn't mention time).
 
 - `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 - `date_to`: End of the range. Same format. Omit or null for "now".
@@ -127,7 +129,8 @@ Set `true` to drop the per-log `attributes` and `resource_attributes` maps from 
 {
   "query": {
     "severityLevels": ["error", "fatal"],
-    "serviceNames": ["<service>"]
+    "serviceNames": ["<service>"],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```
@@ -187,7 +190,8 @@ Set `true` to drop the per-log `attributes` and `resource_attributes` maps from 
 {
   "query": {
     "serviceNames": ["<service>"],
-    "filterGroup": [{ "key": "message", "operator": "icontains", "type": "log", "value": "timeout" }]
+    "filterGroup": [{ "key": "message", "operator": "icontains", "type": "log", "value": "timeout" }],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```
@@ -198,7 +202,8 @@ Set `true` to drop the per-log `attributes` and `resource_attributes` maps from 
 {
   "query": {
     "serviceNames": ["<service>"],
-    "filterGroup": [{ "key": "trace_id", "operator": "is_set", "type": "log_attribute" }]
+    "filterGroup": [{ "key": "trace_id", "operator": "is_set", "type": "log_attribute" }],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```

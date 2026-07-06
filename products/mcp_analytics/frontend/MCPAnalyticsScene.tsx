@@ -6,16 +6,19 @@ import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
+import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
@@ -24,9 +27,17 @@ export const scene: SceneExport = {
     logic: mcpAnalyticsSceneLogic,
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
+const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
+            <MCPAnalyticsSceneContent />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
@@ -64,6 +75,7 @@ export function MCPAnalyticsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
@@ -81,7 +93,7 @@ export function MCPAnalyticsScene(): JSX.Element {
                                 Ask PostHog AI
                             </LemonButton>
                         )}
-                        <LemonButton to={DEFAULT_DOCS_URL} type="secondary" targetBlank size="small">
+                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                             Documentation
                         </LemonButton>
                     </>

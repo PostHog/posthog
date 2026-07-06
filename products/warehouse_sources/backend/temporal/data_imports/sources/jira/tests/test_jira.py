@@ -72,8 +72,9 @@ class TestFormatJqlDatetime:
 
 
 class TestBuildIssuesJql:
-    def test_no_last_value_orders_ascending(self) -> None:
-        assert _build_issues_jql("updated", None) == "ORDER BY updated ASC"
+    def test_no_last_value_bounds_with_epoch_floor(self) -> None:
+        # ``/search/jql`` 400s on unbounded queries, so a full sync must still carry a lower bound.
+        assert _build_issues_jql("updated", None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
     def test_with_last_value_filters_and_orders(self) -> None:
         jql = _build_issues_jql("updated", datetime(2026, 3, 4, 2, 58))
@@ -84,7 +85,7 @@ class TestBuildIssuesJql:
         assert jql == 'created >= "2026-03-03 02:58" ORDER BY created ASC'
 
     def test_none_field_defaults_to_updated(self) -> None:
-        assert _build_issues_jql(None, None) == "ORDER BY updated ASC"
+        assert _build_issues_jql(None, None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
 
 class TestExtractItems:
@@ -192,13 +193,42 @@ class TestGetRows:
         )
         assert [row["id"] for batch in batches for row in batch] == ["1", "2"]
         # State is saved with the token for the *next* page after the first batch is yielded.
-        manager.save_state.assert_called_once_with(JiraResumeConfig(next_page_token="tok2"))
+        full_sync_jql = 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
+        manager.save_state.assert_called_once_with(JiraResumeConfig(next_page_token="tok2", jql=full_sync_jql))
 
-    def test_token_pagination_resumes_from_saved_token(self) -> None:
-        manager = _manager(JiraResumeConfig(next_page_token="tok2"))
-        pages = [{"issues": [{"id": "2", "fields": {"created": "c2", "updated": "u2"}}], "isLast": True}]
-        batches = self._run("issues", pages, manager, should_use_incremental_field=False)
+    @parameterized.expand(
+        [
+            ("matching_jql_reuses_token", 'updated >= "1970-01-01 00:00" ORDER BY updated ASC', True),
+            ("stale_jql_discards_token", 'updated >= "2026-02-11 09:07" ORDER BY updated ASC', False),
+            ("legacy_state_without_jql_discards_token", None, False),
+        ]
+    )
+    def test_token_pagination_resume_honors_saved_jql(
+        self, _name: str, saved_jql: str | None, expect_token_sent: bool
+    ) -> None:
+        manager = _manager(JiraResumeConfig(next_page_token="tok2", jql=saved_jql))
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            _fake_response({"issues": [{"id": "2", "fields": {"created": "c2", "updated": "u2"}}], "isLast": True})
+        ]
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.jira.jira.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    config=JIRA_ENDPOINTS["issues"],
+                    subdomain="acme",
+                    email="e@x.com",
+                    api_token="token",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
         assert [row["id"] for batch in batches for row in batch] == ["2"]
+        params = session.get.call_args.kwargs["params"]
+        assert params.get("nextPageToken") == ("tok2" if expect_token_sent else None)
 
     def test_token_pagination_applies_incremental_jql(self) -> None:
         manager = _manager()
