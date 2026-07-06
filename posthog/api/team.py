@@ -2485,7 +2485,7 @@ class PremiumMultiEnvironmentPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # Allow one demo team per organization
-            if project.organization.teams.filter(is_demo=True).count() > 0:
+            if project.organization.teams.filter(is_demo=True).exists():
                 return False
             return True
 

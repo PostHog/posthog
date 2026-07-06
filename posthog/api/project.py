@@ -1868,7 +1868,7 @@ class PremiumMultiProjectPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
-            if organization.teams.filter(is_demo=True).count() > 0:
+            if organization.teams.filter(is_demo=True).exists():
                 return False
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
