@@ -38,7 +38,7 @@ const RUN_STARTED_AT = 'parseDateTimeBestEffort(run_started_at)'
 // Refuse to interpolate anything but a plain identifier into SQL.
 const TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-// Backend granularity ladder (workflow_health._pick_granularity): hour ≤48h, day ≤90d, else week.
+// Backend granularity ladder (queries/_buckets.pick_granularity): hour ≤48h, day ≤90d, else week.
 function bucketExpr(from: Dayjs, to: Dayjs): string {
     const spanHours = to.diff(from, 'hour')
     if (spanHours <= 48) {
@@ -270,6 +270,24 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     0,
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
                 ),
+        ],
+        // Cost-per-merged-PR trend for the Cost section — the "is CI spend per shipped change creeping
+        // up" chart. Buckets with no merges carry a null cost_per_merge_usd; plotted as 0 so the axis
+        // stays anchored (a quiet weekend reads as a dip, not a gap). Null when the series is empty
+        // (job source unsynced), so the section falls back to its existing empty state.
+        costPerMergeSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.cost_series ?? []
+                if (!series.length) {
+                    return null
+                }
+                const fmt = overview?.cost_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                return {
+                    values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
+                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
+                }
+            },
         ],
     }),
 

@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIFailureLogs,
     CIJobFailureLog,
     CIStatusRollup,
+    CostPerMergeBucket,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -644,7 +645,33 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         }
 
 
+class CostPerMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CostPerMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to cost_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated Depot CI cost (USD) of all runs started in this bucket. Null when nothing "
+                "was costable (no billable self-hosted Linux jobs) or the job source isn't synced.",
+                "allow_null": True,
+            },
+            "merges": {"help_text": "PRs merged in this bucket (all authors, bots included)."},
+            "cost_per_merge_usd": {
+                "help_text": "estimated_cost_usd / merges. Null when the bucket had no merges or no costable cost.",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
+    cost_series = CostPerMergeBucketSerializer(
+        many=True,
+        help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
+        "cost_series_granularity. Empty when the job-level source isn't synced.",
+    )
+
     class Meta:
         dataclass = RepoOverview
         extra_kwargs = {
@@ -691,6 +718,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
+            "cost_series_granularity": {
+                "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
         }
 
 

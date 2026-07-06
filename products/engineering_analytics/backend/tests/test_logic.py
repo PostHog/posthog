@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -362,6 +363,76 @@ class TestEndpointMapping(BaseTest):
         assert items[1].latest_run_conclusion is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
+
+
+class TestCostPerMergeSeries(BaseTest):
+    """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
+    division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
+    Python fold — the runner-tier cost model, the bucket join, the empty-bucket handling — without
+    a warehouse. The tier multiplier stays server-side; only group columns cross the mock boundary."""
+
+    @staticmethod
+    def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
+        curated = mock.Mock()
+        curated.jobs_source.return_value = "px_github_workflow_jobs" if jobs_synced else None
+        curated.run_source.return_value = "px_github_workflow_runs"
+        curated.pr_source.return_value = "px_github_pull_requests"
+        # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
+        curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
+        return curated
+
+    def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
+        date_from = _dt("2026-06-01T00:00:00")
+        date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
+        # Columns: bucket_start, labels, finished, elapsed, unfinished. depot-4 (4-core) bills at 2x, so
+        # 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        cost_rows = [
+            (datetime(2026, 6, 2), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),
+            (datetime(2026, 6, 3), '["depot-ubuntu-22.04-4"]', 1, 60.0, 0),
+            (datetime(2026, 6, 6), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),  # cost but no merges below
+        ]
+        # Columns: bucket_start, merges.
+        merges_rows = [
+            (datetime(2026, 6, 2), 4),
+            (datetime(2026, 6, 3), 2),
+            (datetime(2026, 6, 5), 3),  # merges but no cost above
+        ]
+        granularity, buckets = query_cost_per_merge_series(
+            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to
+        )
+
+        assert granularity == "day"
+        assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
+        by_day = {bucket.bucket_start: bucket for bucket in buckets}
+
+        # A bucket with both cost and merges divides out to cost-per-merge.
+        assert by_day[datetime(2026, 6, 2)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 2)].merges == 4
+        assert by_day[datetime(2026, 6, 2)].cost_per_merge_usd == pytest.approx(0.004)
+        assert by_day[datetime(2026, 6, 3)].cost_per_merge_usd == pytest.approx(0.004)
+
+        # Merges but no costable cost -> cost None, so cost-per-merge is None (not 0).
+        assert by_day[datetime(2026, 6, 5)].estimated_cost_usd is None
+        assert by_day[datetime(2026, 6, 5)].merges == 3
+        assert by_day[datetime(2026, 6, 5)].cost_per_merge_usd is None
+
+        # Cost but no merges -> guarded against divide-by-zero: cost-per-merge is None.
+        assert by_day[datetime(2026, 6, 6)].estimated_cost_usd == pytest.approx(0.016)
+        assert by_day[datetime(2026, 6, 6)].merges == 0
+        assert by_day[datetime(2026, 6, 6)].cost_per_merge_usd is None
+
+        # An untouched bucket is fully zero-filled.
+        empty = by_day[datetime(2026, 6, 10)]
+        assert (empty.estimated_cost_usd, empty.merges, empty.cost_per_merge_usd) == (None, 0, None)
+
+    def test_empty_when_jobs_source_unsynced(self) -> None:
+        curated = self._curated([], [], jobs_synced=False)
+        granularity, buckets = query_cost_per_merge_series(
+            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00")
+        )
+        assert granularity == "day"
+        assert buckets == []
+        curated.run.assert_not_called()  # no jobs source -> no scan is issued
 
 
 class TestResolveGitHubTables(BaseTest):

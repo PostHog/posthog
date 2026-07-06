@@ -574,7 +574,26 @@ export interface QuarantineRequestResultApi {
     branch: string
 }
 
+export interface CostPerMergeBucketApi {
+    /** Bucket start, aligned to cost_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Estimated Depot CI cost (USD) of all runs started in this bucket. Null when nothing was costable (no billable self-hosted Linux jobs) or the job source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+    /** PRs merged in this bucket (all authors, bots included). */
+    merges: number
+    /**
+     * estimated_cost_usd / merges. Null when the bucket had no merges or no costable cost.
+     * @nullable
+     */
+    cost_per_merge_usd: number | null
+}
+
 export interface RepoOverviewApi {
+    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+    cost_series: CostPerMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -627,6 +646,8 @@ export interface RepoOverviewApi {
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
     default_branch: string
+    /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
+    cost_series_granularity: string
 }
 
 export interface RunFailureLogsApi {

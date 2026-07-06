@@ -8,6 +8,7 @@ import { IconBox } from '@posthog/icons'
 import { LemonCard, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -238,6 +239,7 @@ export function RepoOverviewScene(): JSX.Element {
         draftCount,
         costByWorkflow,
         otherCostWorkflowCount,
+        costPerMergeSeries,
         jobsAvailable,
         defaultBranch,
         notConnected,
@@ -458,6 +460,22 @@ export function RepoOverviewScene(): JSX.Element {
             </Section>
 
             <Section id="cost" title="Cost">
+                {jobsAvailable && costPerMergeSeries ? (
+                    <LemonCard hoverEffect={false} className="mb-2 p-4">
+                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
+                        <Sparkline
+                            data={costPerMergeSeries.values}
+                            labels={costPerMergeSeries.labels}
+                            type="line"
+                            className="h-24 w-full"
+                            renderLabel={(label) => label}
+                        />
+                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                            Estimated Depot CI cost per PR merged, over time. Cost is bucketed by run start, merges by
+                            merge time — the same coarse split the daily depot tooling uses.
+                        </div>
+                    </LemonCard>
+                ) : null}
                 {jobsAvailable && costByWorkflow.length > 0 ? (
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
