@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from unittest.mock import patch
 
@@ -53,6 +54,19 @@ class TestObservationLabels(_VisionAPITestCase):
 
         label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
+
+    def test_quality_flag_off_hides_label_endpoints_but_not_reads(self) -> None:
+        # `replay-vision-quality` gates ratings even when product-level `replay-vision` is on.
+        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key != "replay-vision-quality"
+
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+            post_resp = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
+            delete_resp = self.client.delete(self._label_url(self.observation))
+            read_resp = self.client.get(self._retrieve_url(self.observation))
+        self.assertEqual(post_resp.status_code, 404, post_resp.content)
+        self.assertEqual(delete_resp.status_code, 404, delete_resp.content)
+        self.assertEqual(read_resp.status_code, 200, read_resp.content)
 
     def test_relabeling_updates_the_single_shared_label(self) -> None:
         self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
