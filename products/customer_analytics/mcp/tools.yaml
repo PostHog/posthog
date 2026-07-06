@@ -9,6 +9,9 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
+    account-notes-list:
+        operation: account_notes_list
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true

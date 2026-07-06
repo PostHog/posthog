@@ -5,7 +5,7 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 
-type AvatarSize = 'default' | 'sm' | 'xs'
+type AvatarSize = 'lg' | 'default' | 'sm' | 'xs'
 
 const Avatar = React.forwardRef<
     HTMLSpanElement,

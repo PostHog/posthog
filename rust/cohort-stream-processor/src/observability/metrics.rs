@@ -121,6 +121,22 @@ pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
+/// Time an offloaded store op waited to acquire its read-lane permit on the async side, before it
+/// was ever spawned, labelled by `op` (histogram, seconds). Recorded only when the lane is bounded.
+pub const STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS: &str =
+    "store_offload_permit_wait_duration_seconds";
+/// Time from `spawn_blocking` to the offloaded closure actually starting, labelled by `op`
+/// (histogram, seconds) — the blocking-pool queue wait plus spawn overhead.
+pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
+    "store_offload_queue_wait_duration_seconds";
+/// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
+/// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
+pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
+/// Store ops currently executing inside a blocking closure, labelled by `lane`
+/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
+/// correct even if the caller future is dropped mid-flight.
+pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
+
 /// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
 /// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
 /// records once per batch.
@@ -202,6 +218,20 @@ pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
+/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
+/// Backpressure, not loss: the partition is paused and its events redispatch once the channel drains.
+/// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
+/// count.
+pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
+/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
+/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
+/// stuck worker.
+pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
+/// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
+pub const PARTITIONS_PAUSED: &str = "partitions_paused";
+/// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
+/// paused partition stops fetching — so a climbing value flags a stuck worker.
+pub const PENDING_HELD_EVENTS: &str = "pending_held_events";
 
 /// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
@@ -247,6 +277,9 @@ pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
+/// (histogram).
+pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
 
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
@@ -487,6 +520,19 @@ mod tests {
         // new store/tokio constant is pinned so a rename cannot silently break a panel.
         assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
         assert_eq!(STORE_READS_TOTAL, "store_reads_total");
+        assert_eq!(
+            STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS,
+            "store_offload_permit_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS,
+            "store_offload_queue_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_EXEC_DURATION_SECONDS,
+            "store_offload_exec_duration_seconds",
+        );
+        assert_eq!(STORE_OFFLOAD_INFLIGHT, "store_offload_inflight");
         assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
         assert_eq!(
             STORE_BLOCK_CACHE_MISSES_TOTAL,
@@ -553,6 +599,14 @@ mod tests {
         assert_eq!(TOKIO_BLOCKING_THREADS, "tokio_blocking_threads");
         assert_eq!(TOKIO_IDLE_BLOCKING_THREADS, "tokio_idle_blocking_threads");
         assert_eq!(TOKIO_BLOCKING_QUEUE_DEPTH, "tokio_blocking_queue_depth");
+    }
+
+    #[test]
+    fn partition_backpressure_metric_names_are_stable() {
+        assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
+        assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
+        assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
+        assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
     }
 
     #[test]

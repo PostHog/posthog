@@ -53,6 +53,35 @@ export function createXAxisTickCallback({
 
 export const parseDateForAxis = parseDateInTimezone
 
+/** Full date label for a tooltip header. Unlike the sparse, abbreviated axis ticks, every point
+ *  gets a complete, unambiguous label ("Jun 6, 2026", "Jun 6, 14:00"). Non-date labels pass
+ *  through unchanged. */
+export function createTooltipDateFormatter({
+    interval,
+    timezone,
+}: {
+    interval: TimeInterval
+    timezone: string
+}): (label: string) => string {
+    return (label: string): string => {
+        const date = parseDateInTimezone(label, timezone)
+        if (!date.isValid()) {
+            return label
+        }
+        switch (interval) {
+            case 'second':
+                return date.format('MMM D, HH:mm:ss')
+            case 'minute':
+            case 'hour':
+                return date.format('MMM D, HH:mm')
+            case 'month':
+                return date.format('MMM YYYY')
+            default:
+                return date.format('MMM D, YYYY')
+        }
+    }
+}
+
 function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, last: Dayjs): TickMode {
     const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
     const spanDays = last.diff(first, 'day')

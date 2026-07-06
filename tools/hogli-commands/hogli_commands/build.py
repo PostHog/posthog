@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import fnmatch
 import subprocess
+from collections.abc import Iterable
 
 import click
 from hogli.manifest import REPO_ROOT
+
+from hogli_commands.change_detection import changed_files, matches_globs
 
 # command -> file globs that should trigger it
 TRIGGERS: dict[str, tuple[str, ...]] = {
@@ -32,54 +34,9 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _get_changed_files() -> set[str]:
-    """Get all files changed on the current branch vs master, plus uncommitted changes."""
-    changed: set[str] = set()
-
-    # Branch changes vs merge-base with master
-    try:
-        merge_base = subprocess.check_output(
-            ["git", "merge-base", "HEAD", "master"],
-            cwd=REPO_ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        branch_diff = subprocess.check_output(
-            ["git", "diff", "--name-only", f"{merge_base}...HEAD"],
-            cwd=REPO_ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        if branch_diff:
-            changed.update(branch_diff.splitlines())
-    except subprocess.CalledProcessError:
-        pass
-
-    # Working tree: staged + unstaged + untracked in one call
-    try:
-        status = subprocess.check_output(
-            ["git", "status", "--porcelain", "--no-renames"],
-            cwd=REPO_ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        for line in status.splitlines():
-            if len(line) > 3:
-                # Porcelain format: "XY filename" — 2-char status + space + path
-                changed.add(line[3:])
-    except subprocess.CalledProcessError:
-        pass
-
-    return changed
-
-
-def _match_commands(changed_files: set[str]) -> list[str]:
-    """Return commands whose trigger globs match any changed file."""
-    return [
-        cmd
-        for cmd, globs in TRIGGERS.items()
-        if any(fnmatch.fnmatch(path, glob) for path in changed_files for glob in globs)
-    ]
+def _match_commands(changed: Iterable[str]) -> list[str]:
+    """Return build commands whose trigger globs match any changed file."""
+    return [cmd for cmd, globs in TRIGGERS.items() if any(matches_globs(p, globs) for p in changed)]
 
 
 @click.command(name="build", help="Run code generation pipelines (smart change detection by default)")
@@ -99,7 +56,7 @@ def build(force: bool, dry_run: bool, list_all: bool) -> None:
     if force:
         commands = list(TRIGGERS)
     else:
-        changed = _get_changed_files()
+        changed = changed_files()
         if not changed:
             click.echo("Nothing to rebuild -- no changes detected.")
             return

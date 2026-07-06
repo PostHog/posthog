@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import ProgrammingError, connection, transaction
+from django.db import OperationalError, ProgrammingError, connection
 from django.utils import timezone
 
 import requests
@@ -245,7 +245,9 @@ def redispatch_orphaned_queued_task_runs() -> None:
     RECONCILE_AFTER = datetime.timedelta(minutes=5)
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE)
+    # cloud_only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
+    # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE, cloud_only=True)
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:
@@ -264,6 +266,7 @@ def redispatch_orphaned_queued_task_runs() -> None:
         recovered=outcomes.get("recovered", 0),
         already_running=outcomes.get("already_running", 0),
         left_queue=outcomes.get("left_queue", 0),
+        skipped_local=outcomes.get("skipped_local", 0),
         errors=outcomes.get("error", 0),
         batch_size=BATCH_SIZE,
         saturated=saturated,
@@ -749,6 +752,11 @@ def capture_task_run_state_metrics() -> None:
         # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
         # not an error worth reporting every minute.
         logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
+    except OperationalError as err:
+        # Transient Postgres connection blips (connection-acquisition timeouts, dropped connections)
+        # on this every-60s gauge task are infra noise, not a real failure — demote to a warning so a
+        # momentary DB hiccup doesn't masquerade as a genuine error in error tracking.
+        logger.warning("capture_task_run_state_metrics_transient_db_error", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)
@@ -1150,185 +1158,6 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
         )
 
     asyncio.run(start_all())
-
-
-def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
-    """
-    Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
-    """
-    from posthog.models.async_deletion import AsyncDeletion, DeletionType
-    from posthog.models.project import Project
-    from posthog.models.team import Team
-    from posthog.models.team.util import (
-        delete_batch_exports,
-        delete_bulky_postgres_data,
-        delete_data_modeling_schedules,
-    )
-    from posthog.models.user import User
-
-    # User may have already deleted their account after requesting org deletion,
-    # so we must not block the cleanup on user existence.
-    user = User.objects.filter(id=user_id).first()
-
-    try:
-        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
-        _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
-    except Exception:
-        logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
-        capture_exception()
-
-    logger.info("Deleting bulky postgres data", team_ids=team_ids)
-    delete_bulky_postgres_data(team_ids=team_ids)
-
-    logger.info("Deleting batch exports", team_ids=team_ids)
-    delete_batch_exports(team_ids=team_ids)
-
-    logger.info("Deleting data modeling schedules", team_ids=team_ids)
-    delete_data_modeling_schedules(team_ids=team_ids)
-
-    logger.info("Deleting team records", team_ids=team_ids)
-    # FOR UPDATE on teams blocks concurrent FK-inserts to any child table during cascade.
-    with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
-        if project_id:
-            Project.objects.filter(id=project_id).delete()
-        else:
-            Team.objects.filter(id__in=team_ids).delete()
-
-    logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
-    AsyncDeletion.objects.bulk_create(
-        [
-            AsyncDeletion(
-                deletion_type=DeletionType.Team,
-                team_id=team_id,
-                key=str(team_id),
-                created_by=user,
-            )
-            for team_id in team_ids
-        ],
-        ignore_conflicts=True,
-    )
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=60,
-    retry_backoff_max=300,
-)
-def delete_project_data_and_notify_task(
-    team_ids: list[int],
-    project_id: int | None,
-    user_id: int,
-    project_name: str,
-) -> None:
-    """
-    Task to delete project/team and all associated data, then notify user.
-
-    Args:
-        team_ids: List of team IDs whose data should be deleted
-        project_id: Project ID to delete (None if deleting just a team/environment)
-        user_id: User who initiated the deletion (for email notification)
-        project_name: Name of the deleted project/team (for email notification)
-    """
-    from posthog.email import is_email_available
-    from posthog.tasks.email import send_project_deleted_email
-
-    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name, project_id=project_id)
-
-    try:
-        _delete_teams_and_data(team_ids, user_id, project_id)
-        logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
-        if is_email_available():
-            send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
-    except Exception as e:
-        logger.error(
-            "Project data deletion failed", team_ids=team_ids, project_name=project_name, error=str(e), exc_info=True
-        )
-        capture_exception(
-            e,
-            additional_properties={
-                "task": "delete_project_data_and_notify",
-                "team_ids": team_ids,
-                "project_name": project_name,
-            },
-        )
-        raise
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=60,
-    retry_backoff_max=300,
-)
-@skip_team_scope_audit
-def delete_organization_data_and_notify_task(
-    team_ids: list[int],
-    organization_id: str,
-    user_id: int,
-    organization_name: str,
-    project_names: list[str],
-) -> None:
-    """
-    Task to delete organization and all associated data, then notify user.
-
-    Args:
-        team_ids: List of team IDs whose data should be deleted
-        organization_id: UUID of the organization to delete
-        user_id: User who initiated the deletion (for email notification)
-        organization_name: Name of the deleted organization (for email notification)
-        project_names: Names of all projects in the organization (for email notification)
-    """
-    from posthog.email import is_email_available
-    from posthog.event_usage import report_organization_deletion_completed
-    from posthog.models.organization import Organization
-    from posthog.tasks.email import send_organization_deleted_email
-
-    logger.info(
-        "Starting organization data deletion",
-        team_ids=team_ids,
-        organization_name=organization_name,
-        organization_id=organization_id,
-    )
-
-    try:
-        # Delete teams and their data first
-        if team_ids:
-            _delete_teams_and_data(team_ids, user_id)
-
-        # Delete the organization record
-        if organization_id:
-            logger.info("Deleting organization record", organization_id=organization_id)
-            Organization.objects.filter(id=organization_id).delete()
-
-        logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
-        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
-        if is_email_available():
-            send_organization_deleted_email.delay(
-                user_id=user_id, organization_name=organization_name, project_names=project_names
-            )
-    except Exception as e:
-        logger.error(
-            "Organization data deletion failed",
-            team_ids=team_ids,
-            organization_name=organization_name,
-            error=str(e),
-            exc_info=True,
-        )
-        capture_exception(
-            e,
-            additional_properties={
-                "task": "delete_organization_data_and_notify",
-                "team_ids": team_ids,
-                "organization_name": organization_name,
-            },
-        )
-        raise
 
 
 @shared_task(

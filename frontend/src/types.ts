@@ -209,6 +209,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     HIGH_FREQUENCY_ALERTS = 'high_frequency_alerts',
+    REAL_TIME_ALERTS = 'real_time_alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
@@ -1821,6 +1822,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    EMAILS = 'emails',
 }
 
 export enum GroupsTabType {
@@ -3489,6 +3491,10 @@ export interface FlattenedFunnelStepByBreakdown {
     // :KLUDGE: Data transforms done in `getBreakdownStepValues`
     breakdown_value?: Array<string | number>
     breakdownIndex?: number
+    /** Compare period this row represents; both rows of a pair share breakdown_value and color. */
+    compare_label?: 'current' | 'previous'
+    /** Color position shared by both rows of a compare pair; falls back to breakdownIndex. */
+    colorIndex?: number
     conversionRates?: {
         total: number
     }
@@ -4966,6 +4972,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
+    has_person_email: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
@@ -5423,6 +5430,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5618,6 +5626,7 @@ export type APIScopeObject =
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
+    | 'conversation'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
@@ -6294,6 +6303,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
+    supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
 }
 

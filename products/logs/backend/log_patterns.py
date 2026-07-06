@@ -1,6 +1,7 @@
 import os
 import re
 import datetime as dt
+from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TypeVar
@@ -55,6 +56,10 @@ class MinedPattern:
     last_seen: dt.datetime
     examples: list[str]
     services: list[str]
+    # Raw sample counts per caller-supplied time bucket (empty when no buckets given).
+    bucket_counts: list[int]
+    # Raw sample counts keyed by lowercased severity_text.
+    severity_counts: dict[str, int]
 
 
 @dataclass
@@ -63,9 +68,10 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
-    error_count: int = 0
     examples: list[str] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
+    bucket_counts: list[int] = field(default_factory=list)
+    severity_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _prepare_body(body: str, truncate: int) -> str:
@@ -86,12 +92,24 @@ def _build_miner(sim_th: float, depth: int, max_clusters: int) -> tuple[LogMaske
     return masker, drain
 
 
+def _bucket_index(buckets: list[tuple[dt.datetime, dt.datetime]], ts: dt.datetime) -> int | None:
+    # Buckets are ordered, non-overlapping, half-open [start, end). bisect on starts finds
+    # the only candidate; a timestamp can still fall in a gap between buckets (rows outside
+    # the sampled time slices), which is a skip, not an error.
+    idx = bisect_right(buckets, ts, key=lambda b: b[0]) - 1
+    if idx < 0:
+        return None
+    start, end = buckets[idx]
+    return idx if start <= ts < end else None
+
+
 def mine_patterns(
     samples: list[LogSample],
     *,
     max_patterns: int | None = None,
     max_examples: int | None = None,
     max_services: int | None = None,
+    buckets: list[tuple[dt.datetime, dt.datetime]] | None = None,
 ) -> list[MinedPattern]:
     """Cluster log bodies into templates via Drain3, aggregated per cluster.
 
@@ -129,6 +147,7 @@ def mine_patterns(
                 template=cluster.get_template(),
                 first_seen=sample.timestamp,
                 last_seen=sample.timestamp,
+                bucket_counts=[0] * len(buckets) if buckets else [],
             )
             accumulators[cluster_id] = acc
         else:
@@ -140,12 +159,16 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
-        if sample.severity_text.lower() in _ERROR_SEVERITIES:
-            acc.error_count += 1
+        severity = sample.severity_text.lower()
+        acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
         if len(acc.examples) < max_examples and prepared not in acc.examples:
             acc.examples.append(prepared)
         if sample.service_name not in acc.services and len(acc.services) < max_services:
             acc.services.append(sample.service_name)
+        if buckets:
+            bucket_idx = _bucket_index(buckets, sample.timestamp)
+            if bucket_idx is not None:
+                acc.bucket_counts[bucket_idx] += 1
 
     total = len(samples)
     patterns = [
@@ -153,11 +176,13 @@ def mine_patterns(
             pattern=acc.template,
             count=acc.count,
             volume_share_pct=round(acc.count / total * 100, 2),
-            error_count=acc.error_count,
+            error_count=sum(acc.severity_counts.get(s, 0) for s in _ERROR_SEVERITIES),
             first_seen=acc.first_seen,
             last_seen=acc.last_seen,
             examples=acc.examples,
             services=acc.services,
+            bucket_counts=acc.bucket_counts,
+            severity_counts=acc.severity_counts,
         )
         for acc in accumulators.values()
     ]

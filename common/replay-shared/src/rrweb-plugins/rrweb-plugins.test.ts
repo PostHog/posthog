@@ -60,6 +60,10 @@ jest.mock('hls.js', () => ({ __esModule: true, default: mockHlsClass }))
 describe('HLSPlayerPlugin', () => {
     let plugin: ReturnType<typeof createHLSPlayerPlugin>
 
+    // `onBuild` fires `import('hls.js').then(...)` without awaiting it; drain the microtask
+    // queue so the handler has run before asserting.
+    const delay = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
     beforeEach(() => {
         jest.clearAllMocks()
         mockHlsClass.isSupported.mockReturnValue(true)
@@ -83,6 +87,7 @@ describe('HLSPlayerPlugin', () => {
         video.setAttribute('hls-src', 'https://example.com/stream.m3u8')
 
         await plugin.onBuild?.(video, { id: 1, replayer: null as any })
+        await delay()
 
         expect(mockHlsClass).toHaveBeenCalled()
         expect(mockHlsInstance.loadSource).toHaveBeenCalledWith('https://example.com/stream.m3u8')
@@ -97,6 +102,7 @@ describe('HLSPlayerPlugin', () => {
         video.canPlayType = jest.fn(() => 'maybe') as any
 
         await plugin.onBuild?.(video, { id: 1, replayer: null as any })
+        await delay()
 
         expect(mockHlsInstance.loadSource).not.toHaveBeenCalled()
         expect(video.src).toContain('https://example.com/stream.m3u8')

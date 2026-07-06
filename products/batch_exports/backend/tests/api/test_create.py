@@ -702,6 +702,15 @@ _S3_FILTER_TEST_CONFIG = {
             status.HTTP_400_BAD_REQUEST,
             "not 'filters'. Trigger a backfill",
         ),
+        # A list of bare strings (not objects) would pass decoding into the DB but crash the
+        # workflow at input-decode time — reject it at write time instead.
+        (["$pageview"], status.HTTP_400_BAD_REQUEST, "must be an object"),
+        ([{"key": "$browser", "operator": "exact"}], status.HTTP_400_BAD_REQUEST, "must have a 'type'"),
+        (
+            [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}],
+            status.HTTP_201_CREATED,
+            None,
+        ),
     ],
 )
 def test_creating_batch_export_with_filters(

@@ -208,6 +208,12 @@ def provision(
         "/provision",
         json_body={
             "database_name": database_name,
+            # The provisioning team is the warehouse's default team: duckgres pins it so
+            # queries without an explicit team resolve to this environment's tables. It's
+            # required — duckgres denies a provision without it. In-product this is the
+            # calling (currently active) team; in the Django admin it's the mandatory team
+            # field on the provision form.
+            "default_team_id": team_id,
             "ducklake": {"enabled": True},
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},

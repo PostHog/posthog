@@ -63,6 +63,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 log = logging.getLogger(__name__)
 
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
+    "connection string. Remove any scheme (like http:// or postgres://) and any username, "
+    "password, port, or path."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -545,6 +551,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation is a postgres_fdw foreign table and the connecting role has no user
+            # mapping for the foreign server it points at, so every SELECT fails with
+            # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
+            # 42704). The mapping is fixed server-side config only the customer can create, so
+            # retrying re-reads into the same wall. Match the stable fragment and exclude the volatile
+            # user/server names.
+            "user mapping not found for": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw), and "
+                "PostHog's database role has no user mapping for the foreign server it points at "
+                '(PostgreSQL reported "user mapping not found"). Create a user mapping for the '
+                "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
+                "foreign table from the sync, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(
@@ -599,7 +618,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -815,6 +834,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
+        # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+        # misleading "check the spelling" message that echoes the raw value back (which can embed
+        # credentials). Catch it early with an actionable message that never reflects the input.
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
+
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
@@ -857,7 +882,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -917,7 +942,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             PostHogDatabaseConnectionError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
         # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
