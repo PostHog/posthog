@@ -97,6 +97,9 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     if not acquired:
         acquired = _take_over_lock_if_holder_finished(inputs, token, logger)
 
+    if acquired:
+        _sweep_stale_running_jobs(inputs, token, logger)
+
     logger.info(
         "v3_pipeline_lock_acquire_result",
         schema_id=str(inputs.schema_id),
@@ -179,16 +182,9 @@ def _describe_holder_workflow(
                 workflow_run_id=holder_run_id,
             )
             .order_by("-created_at")
-            .only("id", "status", "workflow_id")
+            .only("id", "status", "workflow_id", "workflow_run_id")
             .first()
         )
-        if holder_job is None or not holder_job.workflow_id:
-            return WorkflowExecutionStatus.TERMINATED, holder_job
-
-        temporal: Client = sync_connect()
-        handle = temporal.get_workflow_handle(holder_job.workflow_id, run_id=holder_run_id)
-        desc = async_to_sync(handle.describe)()
-        return desc.status, holder_job
     except Exception as e:
         logger.warning(
             "v3_pipeline_lock_describe_failed",
@@ -199,6 +195,40 @@ def _describe_holder_workflow(
         capture_exception(e)
         return None, None
 
+    if holder_job is None:
+        return WorkflowExecutionStatus.TERMINATED, None
+
+    return _describe_job_workflow_status(holder_job, str(inputs.schema_id), logger), holder_job
+
+
+def _describe_job_workflow_status(
+    job: ExternalDataJob,
+    schema_id: str,
+    logger: Any,
+) -> WorkflowExecutionStatus | None:
+    """Describe the Temporal workflow behind a job row; None means ambiguous (fail closed).
+
+    A job row with no workflow_id recorded is treated as terminated: the worker died
+    before recording it, so there is no live workflow to protect.
+    """
+    if not job.workflow_id:
+        return WorkflowExecutionStatus.TERMINATED
+
+    try:
+        temporal: Client = sync_connect()
+        handle = temporal.get_workflow_handle(job.workflow_id, run_id=job.workflow_run_id)
+        desc = async_to_sync(handle.describe)()
+        return desc.status
+    except Exception as e:
+        logger.warning(
+            "v3_pipeline_lock_describe_failed",
+            schema_id=schema_id,
+            holder_run_id=job.workflow_run_id,
+            error=str(e),
+        )
+        capture_exception(e)
+        return None
+
 
 def _take_over_stale_running_job(
     inputs: AcquireV3LockActivityInputs,
@@ -208,13 +238,35 @@ def _take_over_stale_running_job(
     logger: Any,
 ) -> bool:
     """Consult queue DB for a RUNNING job whose workflow is terminal."""
+    if not _finalize_stale_running_job(inputs, holder_job, holder, logger):
+        return False
+
+    logger.warning(
+        "v3_pipeline_lock_taking_over",
+        schema_id=str(inputs.schema_id),
+        holder_token=holder,
+        reason="stale_running_job",
+        holder_job_id=str(holder_job.id),
+    )
+    return _release_and_acquire(inputs, holder, token)
+
+
+def _finalize_stale_running_job(
+    inputs: AcquireV3LockActivityInputs,
+    job: ExternalDataJob,
+    run_id: str,
+    logger: Any,
+) -> bool:
+    """Mark a RUNNING job whose workflow is terminal as FAILED, unless the queue DB shows
+    an actively-consuming run. Returns True if the row was finalized; fails closed on any
+    ambiguity (queue DB unreachable, query error, active non-stale batches)."""
     try:
         conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
     except Exception as e:
         logger.warning(
             "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
-            holder_token=holder,
+            holder_token=run_id,
             reason="queue_db_connect_failed",
             error=str(e),
         )
@@ -224,14 +276,14 @@ def _take_over_stale_running_job(
     try:
         summary = BatchQueue.get_run_activity_summary(
             conn,
-            job_id=str(holder_job.id),
-            workflow_run_id=holder,
+            job_id=str(job.id),
+            workflow_run_id=run_id,
         )
     except Exception as e:
         logger.warning(
             "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
-            holder_token=holder,
+            holder_token=run_id,
             reason="queue_db_query_failed",
             error=str(e),
         )
@@ -245,16 +297,16 @@ def _take_over_stale_running_job(
         logger.info(
             "v3_pipeline_lock_takeover_skipped",
             schema_id=str(inputs.schema_id),
-            holder_token=holder,
+            holder_token=run_id,
             reason="active_consumer",
         )
         return False
 
-    # No batches, all terminal, or stale - mark job FAILED and take over
+    # No batches, all terminal, or stale - mark job FAILED
     takeover_logger = structlog.get_logger(__name__).bind(team_id=inputs.team_id)
     try:
         update_external_job_status(
-            job_id=str(holder_job.id),
+            job_id=str(job.id),
             team_id=inputs.team_id,
             status=ExternalDataJob.Status.FAILED,
             logger=takeover_logger,
@@ -264,22 +316,57 @@ def _take_over_stale_running_job(
         logger.warning(
             "v3_pipeline_lock_takeover_job_fail_error",
             schema_id=str(inputs.schema_id),
-            holder_token=holder,
+            holder_token=run_id,
             error=str(e),
         )
         capture_exception(e)
         return False
 
     logger.warning(
-        "v3_pipeline_lock_taking_over",
+        "v3_pipeline_stale_running_job_finalized",
         schema_id=str(inputs.schema_id),
-        holder_token=holder,
-        reason="stale_running_job",
-        holder_job_id=str(holder_job.id),
+        job_id=str(job.id),
+        run_id=run_id,
         has_batches=summary.has_batches,
         is_stale=summary.is_stale,
     )
-    return _release_and_acquire(inputs, holder, token)
+    return True
+
+
+def _sweep_stale_running_jobs(inputs: AcquireV3LockActivityInputs, token: str, logger: Any) -> None:
+    """Finalize prior RUNNING job rows for this schema whose workflows are dead.
+
+    The lock takeover path only fires when the previous holder still holds the lock. If a
+    run died after its lock was released or expired, the next run acquires the lock cleanly
+    and the dead run's RUNNING job row would otherwise linger forever, which reads as a
+    perpetually-running sync in the UI. Best-effort: runs under the freshly-acquired lock,
+    fails closed per job on any ambiguity, and never blocks the new run.
+    """
+    try:
+        close_old_connections()
+        # NULL workflow_run_id rows are intentionally not swept (exclude() drops them via
+        # SQL three-valued logic) - without a run id there is no workflow to safely verify.
+        stale_jobs = (
+            ExternalDataJob.objects.filter(
+                team_id=inputs.team_id,
+                schema_id=inputs.schema_id,
+                status=ExternalDataJob.Status.RUNNING,
+            )
+            .exclude(workflow_run_id=token)
+            .order_by("created_at")
+        )
+        for job in stale_jobs:
+            status = _describe_job_workflow_status(job, str(inputs.schema_id), logger)
+            if status is None or status == WorkflowExecutionStatus.RUNNING:
+                continue
+            _finalize_stale_running_job(inputs, job, job.workflow_run_id or "", logger)
+    except Exception as e:
+        logger.warning(
+            "v3_pipeline_stale_job_sweep_error",
+            schema_id=str(inputs.schema_id),
+            error=str(e),
+        )
+        capture_exception(e)
 
 
 def _release_and_acquire(inputs: AcquireV3LockActivityInputs, holder: str, token: str) -> bool:

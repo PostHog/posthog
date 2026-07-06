@@ -84,6 +84,7 @@ class TestAcquireV3PipelineLockActivity:
         [True, False],
         ids=["lock_free", "lock_held"],
     )
+    @patch(f"{MODULE}._sweep_stale_running_jobs")
     @patch(f"{MODULE}._take_over_lock_if_holder_finished", return_value=False)
     @patch(f"{MODULE}.acquire_v3_pipeline_lock")
     @patch(f"{MODULE}.activity")
@@ -94,6 +95,7 @@ class TestAcquireV3PipelineLockActivity:
         mock_activity: MagicMock,
         mock_acquire: MagicMock,
         mock_take_over: MagicMock,
+        mock_sweep: MagicMock,
         lock_acquired: bool,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
@@ -106,9 +108,12 @@ class TestAcquireV3PipelineLockActivity:
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
         if lock_acquired:
             mock_take_over.assert_not_called()
+            mock_sweep.assert_called_once()
         else:
             mock_take_over.assert_called_once()
+            mock_sweep.assert_not_called()
 
+    @patch(f"{MODULE}._sweep_stale_running_jobs")
     @patch(f"{MODULE}._take_over_lock_if_holder_finished", return_value=True)
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=False)
     @patch(f"{MODULE}.activity")
@@ -119,12 +124,14 @@ class TestAcquireV3PipelineLockActivity:
         mock_activity: MagicMock,
         _mock_acquire: MagicMock,
         _mock_take_over: MagicMock,
+        mock_sweep: MagicMock,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
 
         result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
 
         assert result.acquired is True
+        mock_sweep.assert_called_once()
 
     @patch(f"{MODULE}.activity")
     @patch(f"{MODULE}.bind_contextvars")
@@ -304,6 +311,122 @@ class TestTakeOverStaleRunningJob:
     ) -> None:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
+
+
+class TestSweepStaleRunningJobs:
+    STALE_RUN_ID = "stale-run-777"
+
+    def _run_sweep(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+            _sweep_stale_running_jobs,
+        )
+
+        inputs = AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID)
+        _sweep_stale_running_jobs(inputs, WORKFLOW_RUN_ID, MagicMock())
+
+    def _stale_job(self) -> MagicMock:
+        job = MagicMock()
+        job.id = "job-stale-1"
+        job.status = "Running"
+        job.workflow_id = "workflow-stale-1"
+        job.workflow_run_id = self.STALE_RUN_ID
+        return job
+
+    @staticmethod
+    def _set_stale_jobs(mock_job_model: MagicMock, jobs: list[MagicMock]) -> None:
+        mock_job_model.objects.filter.return_value.exclude.return_value.order_by.return_value = jobs
+
+    @pytest.mark.parametrize(
+        "workflow_status, summary, expect_finalized",
+        [
+            (
+                WorkflowExecutionStatus.COMPLETED,
+                RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True),
+                True,
+            ),
+            (
+                WorkflowExecutionStatus.TERMINATED,
+                RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=True),
+                True,
+            ),
+            (
+                WorkflowExecutionStatus.COMPLETED,
+                RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=False),
+                False,
+            ),
+            (WorkflowExecutionStatus.RUNNING, None, False),
+            (None, None, False),
+        ],
+        ids=[
+            "dead_workflow_no_batches",
+            "dead_workflow_stale_batches",
+            "active_consumer_left_alone",
+            "workflow_still_running_left_alone",
+            "describe_ambiguous_left_alone",
+        ],
+    )
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    @patch(f"{MODULE}._describe_job_workflow_status")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.close_old_connections")
+    def test_sweep_decision(
+        self,
+        _close: MagicMock,
+        mock_job_model: MagicMock,
+        mock_describe: MagicMock,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        workflow_status: WorkflowExecutionStatus | None,
+        summary: RunActivitySummary | None,
+        expect_finalized: bool,
+    ) -> None:
+        self._set_stale_jobs(mock_job_model, [self._stale_job()])
+        mock_describe.return_value = workflow_status
+        mock_queue.get_run_activity_summary.return_value = summary
+
+        self._run_sweep()
+
+        if expect_finalized:
+            mock_update.assert_called_once()
+            assert mock_update.call_args.kwargs["job_id"] == "job-stale-1"
+        else:
+            mock_update.assert_not_called()
+
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}._describe_job_workflow_status")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.close_old_connections")
+    def test_no_stale_rows_is_a_noop(
+        self,
+        _close: MagicMock,
+        mock_job_model: MagicMock,
+        mock_describe: MagicMock,
+        mock_update: MagicMock,
+    ) -> None:
+        self._set_stale_jobs(mock_job_model, [])
+
+        self._run_sweep()
+
+        mock_describe.assert_not_called()
+        mock_update.assert_not_called()
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.close_old_connections")
+    def test_sweep_errors_never_propagate(
+        self,
+        _close: MagicMock,
+        mock_job_model: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_job_model.objects.filter.side_effect = RuntimeError("db unavailable")
+
+        self._run_sweep()
+
+        mock_capture.assert_called_once()
 
 
 class TestReleaseV3PipelineLockActivity:
