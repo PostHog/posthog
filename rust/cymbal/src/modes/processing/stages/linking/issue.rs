@@ -497,3 +497,165 @@ pub async fn process_assignment(
 
     Ok(assignment)
 }
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    use sqlx::PgPool;
+
+    use super::*;
+    use crate::{test_utils::create_test_context, types::ExceptionList};
+
+    fn props_with_legacy_fingerprint(
+        team_id: i32,
+        legacy_fingerprint: &str,
+    ) -> ExceptionProperties {
+        ExceptionProperties {
+            exception_list: ExceptionList(vec![]),
+            exception_sources: None,
+            exception_types: None,
+            exception_messages: None,
+            exception_functions: None,
+            exception_handled: None,
+            exception_releases: HashMap::new(),
+            fingerprint: None,
+            proposed_fingerprint: None,
+            fingerprint_record: None,
+            issue_id: None,
+            proposed_issue_name: None,
+            proposed_issue_description: None,
+            debug_images: vec![],
+            props: HashMap::new(),
+            uuid: Uuid::now_v7(),
+            timestamp: String::new(),
+            team_id,
+            issue: None,
+            legacy_order_exception_list: None,
+            legacy_order_resolved: None,
+            legacy_fingerprint: Some(legacy_fingerprint.to_string()),
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn aliases_canonical_fingerprint_onto_legacy_issue(db: PgPool) {
+        let ctx = create_test_context(db.clone()).await;
+        let mut conn = db.acquire().await.unwrap();
+        let team_id = 1;
+
+        let legacy_issue = Issue::insert_new(team_id, "name".into(), "desc".into(), &mut *conn)
+            .await
+            .unwrap();
+        IssueFingerprintOverride::create_or_load(
+            &mut *conn,
+            team_id,
+            "legacy-fp",
+            &legacy_issue,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        let props = props_with_legacy_fingerprint(team_id, "legacy-fp");
+        let aliased = maybe_alias_legacy_fingerprint(
+            &ctx,
+            &mut conn,
+            team_id,
+            "canonical-fp",
+            &props,
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+        .expect("should alias onto the legacy issue");
+        assert_eq!(aliased.id, legacy_issue.id);
+
+        // The canonical fingerprint now maps to the pre-flip issue, so
+        // subsequent canonical events take the fast path to the same group.
+        let (loaded, _) = Issue::load_by_fingerprint(&mut *conn, team_id, "canonical-fp")
+            .await
+            .unwrap()
+            .expect("canonical override row should exist")
+            .into_issue();
+        assert_eq!(loaded.id, legacy_issue.id);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn falls_through_when_legacy_fingerprint_is_unknown(db: PgPool) {
+        let ctx = create_test_context(db.clone()).await;
+        let mut conn = db.acquire().await.unwrap();
+        let team_id = 1;
+
+        let props = props_with_legacy_fingerprint(team_id, "never-seen-fp");
+        let aliased = maybe_alias_legacy_fingerprint(
+            &ctx,
+            &mut conn,
+            team_id,
+            "canonical-fp",
+            &props,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert!(aliased.is_none(), "nothing to alias onto -> fall through");
+
+        // Fall-through must not leave an override behind; issue creation is
+        // the caller's job.
+        assert!(
+            Issue::load_by_fingerprint(&mut *conn, team_id, "canonical-fp")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn respects_existing_canonical_mapping_over_legacy_issue(db: PgPool) {
+        let ctx = create_test_context(db.clone()).await;
+        let mut conn = db.acquire().await.unwrap();
+        let team_id = 1;
+
+        let legacy_issue = Issue::insert_new(team_id, "legacy".into(), "desc".into(), &mut *conn)
+            .await
+            .unwrap();
+        IssueFingerprintOverride::create_or_load(
+            &mut *conn,
+            team_id,
+            "legacy-fp",
+            &legacy_issue,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        // A concurrent writer already linked the canonical fingerprint to a
+        // different issue; the alias must hand back that mapping, not the
+        // legacy issue.
+        let winner = Issue::insert_new(team_id, "winner".into(), "desc".into(), &mut *conn)
+            .await
+            .unwrap();
+        IssueFingerprintOverride::create_or_load(
+            &mut *conn,
+            team_id,
+            "canonical-fp",
+            &winner,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        let props = props_with_legacy_fingerprint(team_id, "legacy-fp");
+        let aliased = maybe_alias_legacy_fingerprint(
+            &ctx,
+            &mut conn,
+            team_id,
+            "canonical-fp",
+            &props,
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+        .expect("existing mapping should be returned");
+        assert_eq!(aliased.id, winner.id);
+    }
+}
