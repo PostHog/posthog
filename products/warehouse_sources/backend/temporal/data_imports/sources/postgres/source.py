@@ -63,6 +63,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 log = logging.getLogger(__name__)
 
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
+    "connection string. Remove any scheme (like http:// or postgres://) and any username, "
+    "password, port, or path."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -612,7 +618,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -828,6 +834,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
+        # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+        # misleading "check the spelling" message that echoes the raw value back (which can embed
+        # credentials). Catch it early with an actionable message that never reflects the input.
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
+
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
@@ -870,7 +882,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -930,7 +942,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             PostHogDatabaseConnectionError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
         # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises

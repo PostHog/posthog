@@ -1,5 +1,6 @@
-// Shared by the repo hub and the PR list. Author renders as plain metadata and links nowhere
-// in-product (attribution, never a unit of analysis — see SPEC §2).
+// Shared by the repo hub, the PR list, and the author page. Author is attribution, not an aggregation
+// level (SPEC §2): the handle links to the author's PR list (a filter for finding work), never to a
+// per-author metric or ranking. Hidden on the author page itself, where every row is the same author.
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -44,6 +45,8 @@ export interface PullRequestTableProps {
     sourceId: string | null
     /** Show the pushes / re-runs / CI cost columns. */
     costLensEnabled: boolean
+    /** Author column is redundant on the author page (every row is the same author) — hide it there. */
+    showAuthor?: boolean
     /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
@@ -55,6 +58,7 @@ export function PullRequestTable({
     loading,
     sourceId,
     costLensEnabled,
+    showAuthor = true,
     pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
@@ -92,20 +96,34 @@ export function PullRequestTable({
             width: 104,
             render: (_, row) => <PullRequestStateTag state={row.state} isDraft={row.isDraft} />,
         },
-        {
-            title: 'Author',
-            key: 'author',
-            width: 170,
-            render: (_, row) => (
-                <div className="flex items-center gap-1.5">
-                    {row.authorAvatarUrl && (
-                        <img src={row.authorAvatarUrl} alt="" className="size-5 shrink-0 rounded-full" />
-                    )}
-                    <span className="text-xs font-medium">{row.authorHandle}</span>
-                    {row.isBot && <LemonTag type="muted">bot</LemonTag>}
-                </div>
-            ),
-        },
+        ...(showAuthor
+            ? ([
+                  {
+                      title: 'Author',
+                      key: 'author',
+                      width: 170,
+                      render: (_, row) => (
+                          <div className="flex items-center gap-1.5">
+                              {row.authorAvatarUrl && (
+                                  <img src={row.authorAvatarUrl} alt="" className="size-5 shrink-0 rounded-full" />
+                              )}
+                              <Link
+                                  to={
+                                      combineUrl(
+                                          urls.engineeringAnalyticsAuthor(row.authorHandle),
+                                          sourceId ? { source: sourceId } : {}
+                                      ).url
+                                  }
+                                  className="text-xs font-medium"
+                              >
+                                  {row.authorHandle}
+                              </Link>
+                              {row.isBot && <LemonTag type="muted">bot</LemonTag>}
+                          </div>
+                      ),
+                  },
+              ] as LemonTableColumns<PullRequestRow>)
+            : []),
         {
             title: 'CI',
             key: 'ci',
@@ -183,7 +201,7 @@ export function PullRequestTable({
             onRow={(row) => {
                 const detailUrl = detailUrlOf(row, sourceId)
                 return {
-                    // Inner links (#id → GitHub) keep their own behavior.
+                    // Inner links (#id → GitHub, author → author page) keep their own behavior.
                     onClick: (e: React.MouseEvent) => {
                         if ((e.target as HTMLElement).closest('a, button')) {
                             return
