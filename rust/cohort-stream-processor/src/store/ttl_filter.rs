@@ -175,9 +175,11 @@ mod tests {
         let mut filter = factory_at(40 * MS_PER_DAY, 30).create(context()); // cutoff = day 10
         for value in [
             [].as_slice(),
-            &[FORMAT_VERSION],                      // version only
-            &[FORMAT_VERSION, 0, 0, 0, 0, 0, 0, 0], // one byte short of the 8-byte field
-            &[0xFF; 32],                            // wrong version byte, plenty long
+            &[FORMAT_VERSION], // version only
+            // One byte short of the 10-byte minimum (`last_seen_ms` spans bytes 2..10) — the
+            // tightest truncation the length guard must reject.
+            &[FORMAT_VERSION, 0, 0, 0, 0, 0, 0, 0, 0],
+            &[0xFF; 32], // wrong version byte, plenty long
         ] {
             assert!(
                 matches!(filter.filter(0, b"k", value), Decision::Keep),

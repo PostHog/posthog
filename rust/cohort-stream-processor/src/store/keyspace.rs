@@ -231,15 +231,18 @@ impl Keyspace for Meta {
 
     fn decode(bytes: &[u8]) -> Result<MetaKey, StoreError> {
         // `cf_meta` keys are a closed set of literals; match them rather than fabricate a `&'static`
-        // from runtime bytes.
+        // from runtime bytes. A wrong length is a length error; a right-length key that matches no
+        // literal is an unknown key — conflating the two would report "expected N bytes, got N".
         if bytes == META_SCHEMA_VERSION.0 {
             Ok(META_SCHEMA_VERSION)
-        } else {
+        } else if bytes.len() != META_SCHEMA_VERSION.0.len() {
             Err(StoreError::KeyDecode {
                 kind: "meta",
                 expected: META_SCHEMA_VERSION.0.len(),
                 actual: bytes.len(),
             })
+        } else {
+            Err(StoreError::UnknownKey { kind: "meta" })
         }
     }
 }
@@ -482,6 +485,19 @@ mod tests {
             Meta::decode(b"schema_version").unwrap(),
             META_SCHEMA_VERSION,
         );
-        assert!(Meta::decode(b"unknown").is_err());
+        // Wrong length reports the length; a right-length unknown key reports the content — a
+        // conflation would claim "expected 14 bytes, got 14" for the latter.
+        assert!(matches!(
+            Meta::decode(b"unknown").unwrap_err(),
+            StoreError::KeyDecode {
+                kind: "meta",
+                expected: 14,
+                actual: 7,
+            },
+        ));
+        assert!(matches!(
+            Meta::decode(b"schema_versioX").unwrap_err(),
+            StoreError::UnknownKey { kind: "meta" },
+        ));
     }
 }

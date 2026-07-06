@@ -17,6 +17,11 @@ use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
+/// The smallest person-record TTL that stays safely beyond the replay horizon of the merge and
+/// `clickhouse_events_json` topics (~7 days): a record reclaimed while its events can still replay
+/// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
+const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     /// Host for the observability HTTP server (`/_health`, `/_ready`, `/metrics`).
@@ -331,6 +336,7 @@ pub struct Config {
     ///
     /// In production this MUST be well beyond the replay horizon of the merge / `clickhouse_events_json`
     /// topics, so a live-again person's replayed events cannot arrive after their record was reclaimed.
+    /// A non-zero value below [`MIN_SAFE_PERSON_RECORD_TTL_DAYS`] days warns at startup.
     /// A TTL-dropped dormant person re-derives on their next event and re-emits `Entered` for
     /// single-leaf person cohorts (at-least-once across dormancy); composable cohorts are suppressed by
     /// the surviving `cf_stage2` bit.
@@ -643,6 +649,15 @@ impl Config {
     }
 
     pub fn store_config(&self) -> StoreConfig {
+        if self.person_record_ttl_below_safe_floor() {
+            warn!(
+                cohort_person_record_ttl_days = self.cohort_person_record_ttl_days,
+                safe_floor_days = MIN_SAFE_PERSON_RECORD_TTL_DAYS,
+                "COHORT_PERSON_RECORD_TTL_DAYS is inside the replay horizon: a reclaimed record \
+                 loses its replay dedup, so replayed events for a live-again person re-fold and \
+                 single-leaf person cohorts re-emit Entered; raise it to the safe floor or above",
+            );
+        }
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
@@ -657,6 +672,13 @@ impl Config {
             person_record_ttl_days: self.cohort_person_record_ttl_days,
             ..StoreConfig::default()
         }
+    }
+
+    /// Whether a configured (non-zero) person-record TTL sits inside
+    /// [`MIN_SAFE_PERSON_RECORD_TTL_DAYS`] — a misconfiguration worth a startup warning, not a
+    /// refusal: the knob is operator-owned and `0` (off) is always safe.
+    fn person_record_ttl_below_safe_floor(&self) -> bool {
+        (1..MIN_SAFE_PERSON_RECORD_TTL_DAYS).contains(&self.cohort_person_record_ttl_days)
     }
 
     /// Resolve the store-offload strategy and per-lane concurrency bounds handed to the
@@ -1085,6 +1107,27 @@ mod tests {
             30,
             "the TTL reaches StoreConfig",
         );
+    }
+
+    #[test]
+    fn person_record_ttl_safe_floor_flags_only_non_zero_values_below_it() {
+        let cases = [
+            (0u32, false, "off is always safe"),
+            (1, true, "inside the replay horizon"),
+            (7, true, "the replay horizon itself is unsafe"),
+            (29, true, "one below the floor"),
+            (30, false, "the floor is safe"),
+            (365, false, "well above the floor"),
+        ];
+        for (days, risky, why) in cases {
+            let mut config = test_config();
+            config.cohort_person_record_ttl_days = days;
+            assert_eq!(
+                config.person_record_ttl_below_safe_floor(),
+                risky,
+                "{days} days: {why}",
+            );
+        }
     }
 
     #[test]

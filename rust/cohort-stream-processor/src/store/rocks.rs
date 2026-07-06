@@ -151,6 +151,11 @@ pub enum StoreError {
         actual: usize,
     },
 
+    /// A key of the right length that matches none of the keyspace's known literals (closed-set
+    /// keyspaces like `cf_meta`). Distinct from [`Self::KeyDecode`], which reports a length mismatch.
+    #[error("unknown {kind} key: matches no known literal")]
+    UnknownKey { kind: &'static str },
+
     #[error(
         "store schema mismatch: on-disk version {found:?} != expected {expected}; refusing to open \
          (set COHORT_WIPE_ON_SCHEMA_MISMATCH=true to wipe and recreate)"
