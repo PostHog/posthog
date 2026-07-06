@@ -52,6 +52,60 @@ class TestEmailMFAAPI(APIBaseTest):
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    def test_email_mfa_link_carries_safe_next(
+        self,
+        mock_is_http_email_available,
+        mock_is_email_available,
+        mock_send_email,
+        mock_esp_suppression,
+    ):
+        # A relative `next` (e.g. an /oauth/authorize continuation) is forwarded into the link
+        # so the emailed login-verification link resumes the flow even in a different browser.
+        self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "/oauth/authorize/?client_id=x"},
+        )
+        self.assertEqual(mock_send_email.call_args[0][2], "/oauth/authorize/?client_id=x")
+
+        # An off-origin `next` must be dropped, never embedded into the emailed link.
+        mock_send_email.reset_mock()
+        self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "//evil.example.com/steal"},
+        )
+        self.assertIsNone(mock_send_email.call_args[0][2])
+
+    @pytest.mark.disable_mock_email_mfa_verifier
+    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
+    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    def test_email_mfa_resend_reuses_next(
+        self,
+        mock_is_http_email_available,
+        mock_is_email_available,
+        mock_send_email,
+        mock_esp_suppression,
+    ):
+        with freeze_time("2023-01-01T10:00:00"):
+            self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "/oauth/authorize/?client_id=x"},
+            )
+            self.assertEqual(mock_send_email.call_args[0][2], "/oauth/authorize/?client_id=x")
+
+        # A resent link must resume the same destination, recovered from the session.
+        with freeze_time("2023-01-01T10:01:01"):
+            mock_send_email.reset_mock()
+            response = self.client.post("/api/login/email-mfa/resend/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(mock_send_email.call_args[0][2], "/oauth/authorize/?client_id=x")
+
+    @pytest.mark.disable_mock_email_mfa_verifier
+    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
+    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     def test_email_mfa_verification_success_and_always_remembers_device(
         self,
         mock_is_http_email_available,
