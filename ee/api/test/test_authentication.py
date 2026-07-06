@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import datetime
 from typing import cast
@@ -379,6 +380,19 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
 
+    def test_saml_flow_carries_next_url_in_relay_state(self):
+        # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
+        # back to /complete/saml/. The `next` redirect must therefore travel in RelayState
+        # (echoed back by the IdP) rather than the session, or re-auth lands the user on `/`.
+        response = self.client.get(
+            "/login/saml/?email=hellohello@posthog.com&next=/settings/organization/authentication"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
+        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        self.assertEqual(relay_state["next"], "/settings/organization/authentication")
+
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
         We need the email address to know how to route the SAML request.
@@ -443,6 +457,35 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # Test logged in request
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    def test_saml_login_redirects_to_next_url_from_relay_state(self):
+        # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: a JSON
+        # RelayState carrying `next` (as the IdP echoes it back) must land the user on that page
+        # rather than `/`, since the SameSite=Lax session cookie is dropped on this cross-site POST.
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        self.client.get("/login/saml/?email=engineering@posthog.com&next=/settings/organization/authentication")
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            saml_response = f.read()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": json.dumps(
+                    {"idp": str(self.organization_domain.id), "next": "/settings/organization/authentication"}
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):

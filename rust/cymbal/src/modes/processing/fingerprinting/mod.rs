@@ -79,6 +79,30 @@ impl Fingerprint {
     }
 }
 
+// Versions of the automatic fingerprint algorithm. The grouping stage computes every
+// registered version for each event, keeps the newest version already used by an existing issue,
+// and falls back to the newest version for new issues. Adding a version = one variant + one arm
+// in `compute()` + appending to `all()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FingerprintVersion {
+    V1,
+}
+
+impl FingerprintVersion {
+    // All registered versions, ascending. Order is meaningful: selection keeps the newest
+    // already-used fingerprint, and new issues are created under the last (newest) entry.
+    pub fn all() -> &'static [FingerprintVersion] {
+        &[FingerprintVersion::V1]
+    }
+
+    pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
+        match self {
+            FingerprintVersion::V1 => Fingerprint::from_exception_list(exception_list),
+        }
+    }
+}
+
 impl FingerprintComponent for crate::frames::Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
         let get_part = |s: &common_types::error_tracking::FrameId, p: Vec<&str>| {
