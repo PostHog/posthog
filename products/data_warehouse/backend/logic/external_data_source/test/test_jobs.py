@@ -7,7 +7,7 @@ from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 
 pytestmark = [
     pytest.mark.django_db,
