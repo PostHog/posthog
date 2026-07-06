@@ -28,11 +28,14 @@ from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+    postgres_column_to_dwh_column,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):
@@ -886,7 +889,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is None
 
     def test_remove_named_tuples_backtick_quoted(self):
-        from products.warehouse_sources.backend.models.util import remove_named_tuples
+        from products.warehouse_sources.backend.facade.models import remove_named_tuples
 
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"

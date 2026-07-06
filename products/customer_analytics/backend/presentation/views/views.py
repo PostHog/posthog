@@ -13,7 +13,9 @@ pydantic-error formatting, and activity logging live behind the facade.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import cast
+from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -227,12 +229,15 @@ class CustomPropertyDefinitionViewSet(
                 description=data.description,
                 display_type=data.display_type,
                 is_big_number=data.is_big_number,
+                options=_custom_property_option_dicts(data.options),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -250,6 +255,8 @@ class CustomPropertyDefinitionViewSet(
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
@@ -283,7 +290,17 @@ def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
         fields["display_type"] = validated.display_type
     if "is_big_number" in raw_data:
         fields["is_big_number"] = validated.is_big_number
+    if "options" in raw_data:
+        fields["options"] = _custom_property_option_dicts(validated.options)
     return fields
+
+
+def _custom_property_option_dicts(options) -> list[dict] | None:
+    """Nested DataclassSerializer fields validate into dataclass instances; the facade and the
+    JSONField speak plain dicts."""
+    if options is None:
+        return None
+    return [asdict(option) for option in options]
 
 
 class CustomPropertySourceViewSet(
@@ -827,9 +844,41 @@ class AccountNotesViewSet(
                 required=False,
                 description="Full-text search across note title and content, plus substring match on account name.",
             ),
+            OpenApiParameter(
+                name="account_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notes linked to this account.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.INT,
+                many=True,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notes created by these user IDs (repeat the param per user).",
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # The generated client serializes the array as a single comma-joined value; accept that
+        # and the repeated-param form alike.
+        created_by_ids = []
+        for value in request.query_params.getlist("created_by"):
+            for part in value.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if not part.isdigit():
+                    raise ValidationError({"created_by": "Must be a comma-separated list of numeric user IDs."})
+                created_by_ids.append(int(part))
+        account_id: UUID | None = None
+        if raw_account_id := request.query_params.get("account_id"):
+            try:
+                account_id = UUID(raw_account_id)
+            except ValueError:
+                raise ValidationError({"account_id": "Must be a valid UUID."})
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_account_notes_for_view(
@@ -838,6 +887,8 @@ class AccountNotesViewSet(
                 offset=offset,
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
+                account_id=account_id,
+                created_by_ids=created_by_ids or None,
             ),
             AccountNoteSerializer,
         )

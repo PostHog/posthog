@@ -30,6 +30,7 @@ from posthog.temporal.usage_report.types import Manifest, ReportCompleteness, Ru
 def _ctx(run_id: str = "abc", report_completeness: ReportCompleteness = "partial") -> WorkflowContext:
     return WorkflowContext(
         run_id=run_id,
+        workflow_started_at=datetime(2026, 5, 5, 1, 45, 0, tzinfo=UTC),
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str="2026-05-04",

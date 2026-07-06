@@ -44,17 +44,21 @@ from posthog.utils import relative_date_parse
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
+from products.alerts.backend.evaluation.validation import (
+    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
+    should_default_check_ongoing_interval,
+    validate_alert_config,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 
-def _validate_every_15_minutes_interval(
+def _validate_interval_entitlement(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
     organization,
 ) -> None:
-    if error := AlertConfiguration.every_15_minutes_interval_validation_error(
+    if error := AlertConfiguration.interval_entitlement_error(
         calculation_interval=calculation_interval,
         organization=organization,
     ):
@@ -258,7 +262,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -622,6 +626,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.instance is None or "threshold" in attrs or "detector_config" in attrs
         )
 
+        # Mirror the UI's default for cadences finer than the insight interval. Applied before
+        # validate_alert_config so the validated config is the persisted config.
+        if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
+            if should_default_check_ongoing_interval(
+                query=query,
+                config=config,
+                condition=condition,
+                threshold_config=threshold_config,
+                calculation_interval=calculation_interval,
+            ):
+                config = {**config, "check_ongoing_interval": True}
+                attrs["config"] = config
+
         try:
             validate_alert_config(
                 query,
@@ -638,7 +655,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError(str(e))
 
         organization = self.context["get_organization"]()
-        _validate_every_15_minutes_interval(
+        _validate_interval_entitlement(
             calculation_interval=calculation_interval,
             organization=organization,
         )
@@ -678,12 +695,28 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        # only validate alert count when creating a new alert
-        if self.context["request"].method != "POST":
-            return attrs
+        if self.context["request"].method == "POST":
+            if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
+                raise ValidationError({"alert": [msg]})
 
-        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
-            raise ValidationError({"alert": [msg]})
+        existing_enabled = self.instance.enabled if self.instance else True
+        if msg := AlertConfiguration.real_time_alert_validation_error(
+            team_id=self.context["team_id"],
+            organization=organization,
+            calculation_interval=calculation_interval,
+            enabled=attrs.get("enabled", existing_enabled) is True,
+            existing=self.instance,
+        ):
+            posthoganalytics.capture(
+                distinct_id=str(self.context["request"].user.distinct_id),
+                event="real time alert limit reached",
+                properties={
+                    "team_id": self.context["team_id"],
+                    "organization_id": str(organization.id),
+                },
+                groups={"organization": str(organization.id)},
+            )
+            raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
 

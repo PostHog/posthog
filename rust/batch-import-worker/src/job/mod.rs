@@ -17,6 +17,7 @@ use crate::{
         extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
         is_transient_network_error, is_transient_server_error, UserError,
     },
+    extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
@@ -113,6 +114,17 @@ async fn reset_backoff_after_success(
     model.reset_backoff_in_db(&context.db).await
 }
 
+/// Mirror a part's discovered total size into the model state, which is what
+/// gets persisted to the DB on the next part commit.
+async fn mirror_part_total(model: &Mutex<JobModel>, key: &str, total: u64) {
+    let mut model = model.lock().await;
+    if let Some(model_state) = &mut model.state {
+        if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
+            model_part.total_size = Some(total);
+        }
+    }
+}
+
 /// DB-free core of [`Job::get_next_chunk`]: pick the next unfinished part, lazily
 /// discover its (decompressed) size, fetch+parse one chunk, and advance the
 /// in-memory part offset. A newly discovered `total_size` is mirrored into the
@@ -147,25 +159,22 @@ pub(crate) async fn select_and_fetch_next_chunk(
         if let Some(actual_size) = source.size(&key).await? {
             next_part.total_size = Some(actual_size);
             info!(job_id = %job_id, "Updated total size for key {}: {}", key, actual_size);
+            mirror_part_total(model, &key, actual_size).await;
 
-            {
-                let mut model = model.lock().await;
-                if let Some(model_state) = &mut model.state {
-                    if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
-                        model_part.total_size = Some(actual_size);
-                    }
-                }
-            }
-
-            if actual_size == 0 {
+            // Streaming sources only learn their size on the read that observes
+            // end-of-stream, which is usually also the read that consumed the last
+            // bytes - so by the time the size is known here, the offset may already
+            // be at (or past) the end. Re-check completion now: fetching again would
+            // return an empty chunk, and advancing on one would push the offset past
+            // the total, making the part permanently un-finishable.
+            if next_part.is_done() {
                 info!(
                     job_id = %job_id,
-                    "No data available for this key: {} try to get the next chunk",
-                    key
+                    "Part {} (size {}) was fully consumed when its size was discovered, moving on",
+                    key, actual_size
                 );
-                next_part.current_offset = actual_size;
                 return Ok(Some((
-                    key.clone(),
+                    key,
                     Parsed {
                         consumed: 0,
                         data: vec![],
@@ -183,12 +192,90 @@ pub(crate) async fn select_and_fetch_next_chunk(
         .await
         .context(format!("Fetching part chunk {next_part:?}"))?;
 
+    // `>=` because sources clamp reads to the end of the part, so the final chunk
+    // ends exactly at total_size - a strict `>` can never be true and would leave
+    // the unconsumed-bytes check below unreachable.
     let is_last_chunk = match next_part.total_size {
-        Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
+        Some(total_size) => next_part.current_offset + next_chunk.len() as u64 >= total_size,
         None => false,
     };
 
     let chunk_bytes = next_chunk.len();
+
+    // An empty chunk before the part looks finished means the source hit
+    // end-of-stream at or before this offset. For streaming sources the size is
+    // only discoverable on the read that observes EOF - which for an empty part
+    // (a day with no events: an empty 200 body, a gzip of nothing, a zip with no
+    // data members) or a resume at a not-yet-persisted EOF is this very read. So
+    // re-consult the size now: if the source's own view confirms everything was
+    // consumed, the part is complete. Anything else (a ranged source serving
+    // empty bodies mid-part, a stream that shrank below the recorded total) can
+    // never make progress, so fail rather than loop.
+    if chunk_bytes == 0 && !is_last_chunk {
+        let refreshed_size = source.size(&key).await?;
+        let confirmed_complete = refreshed_size.is_some_and(|actual| {
+            let total_consistent = next_part.total_size.is_none_or(|t| t == actual);
+            total_consistent && next_part.current_offset >= actual
+        });
+
+        if !confirmed_complete {
+            return Err(Error::msg(format!(
+                "Source returned no data for part {} at offset {} before the end of the part",
+                next_part.key, next_part.current_offset
+            )));
+        }
+
+        let actual_size = refreshed_size.expect("confirmed_complete implies the size is known");
+        if next_part.current_offset > actual_size {
+            // A resumed offset past the stream's end: the export shrank between
+            // downloads. Everything the source can serve was already consumed,
+            // so completing is the only non-stranding option - but it deserves
+            // a loud trace, since the tail of the previous download's data may
+            // not exist in this download at all.
+            warn!(
+                job_id = %job_id,
+                "Part {} resumed at offset {} past the stream end {}; marking complete",
+                key, next_part.current_offset, actual_size
+            );
+        }
+        next_part.total_size = Some(actual_size);
+        mirror_part_total(model, &key, actual_size).await;
+        info!(
+            job_id = %job_id,
+            "Part {} (size {}) has no data left to read at offset {}, marking complete",
+            key, actual_size, next_part.current_offset
+        );
+        return Ok(Some((
+            key,
+            Parsed {
+                consumed: 0,
+                data: vec![],
+            },
+            false,
+        )));
+    }
+
+    // A part that still *begins* with a known compression magic can never be
+    // parsed as newline-delimited JSON: the file is compressed a second time, or
+    // the source/extractor's compression setting does not match the file. Only the
+    // start of a part is decisive - mid-file chunks can coincidentally begin with
+    // these bytes - so this is gated on offset 0. Fail fast with an actionable,
+    // non-transient error (a UserError pauses the job) instead of letting the
+    // parser emit a confusing "invalid utf-8" failure or crawl one byte at a time.
+    if next_part.current_offset == 0 {
+        if let Some(fmt) = detect_compression_magic(&next_chunk) {
+            let internal = Error::msg(format!(
+                "part {} begins with {fmt} magic bytes at offset 0 ({chunk_bytes} bytes read)",
+                next_part.key
+            ));
+            return Err(internal.context(UserError::new(format!(
+                "Part {} begins with {fmt}-compressed data where newline-delimited JSON was \
+                 expected - the file may be compressed twice, or the import's compression \
+                 setting doesn't match the file.",
+                next_part.key
+            ))));
+        }
+    }
 
     info!(job_id = %job_id, "Fetched part chunk {:?}", next_part);
     let m_tf = transform.clone();
@@ -209,6 +296,16 @@ pub(crate) async fn select_and_fetch_next_chunk(
         "Parsed part chunk {:?}, consumed {} bytes",
         next_part, parsed.consumed
     );
+
+    // Consuming more bytes than were read is always a parser bug: advancing the
+    // offset past real data would silently skip it, or overshoot the end of the
+    // part and make it permanently un-finishable.
+    if parsed.consumed > chunk_bytes {
+        return Err(Error::msg(format!(
+            "Parser consumed {} bytes but only {} were read from part {} at offset {}",
+            parsed.consumed, chunk_bytes, next_part.key, next_part.current_offset
+        )));
+    }
 
     // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
     if parsed.consumed < chunk_bytes && is_last_chunk {
@@ -1213,15 +1310,20 @@ mod tests {
         use std::path::{Path, PathBuf};
         use tempfile::TempDir;
 
-        fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+        pub(super) fn gzip_bytes(data: &[u8]) -> Vec<u8> {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(data).unwrap();
             encoder.finish().unwrap()
         }
 
         /// Build a source spanning `hours` one-hour intervals (one key per hour),
-        /// all served the same gzipped body by the mock.
-        fn build_source(base_url: String, staging: &Path, hours: u32) -> DateRangeExportSource {
+        /// all served the same body by the mock, decoded with `extractor`.
+        pub(super) fn build_source_with_extractor(
+            base_url: String,
+            staging: &Path,
+            hours: u32,
+            extractor: ExtractorType,
+        ) -> DateRangeExportSource {
             let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
             let end = Utc.with_ymd_and_hms(2023, 1, 1, hours, 0, 0).unwrap();
             DateRangeExportSource::builder(
@@ -1229,7 +1331,7 @@ mod tests {
                 start,
                 end,
                 3600,
-                ExtractorType::PlainGzip.create_extractor(),
+                extractor.create_extractor(),
                 staging.to_path_buf(),
             )
             .with_auth(AuthConfig::None)
@@ -1237,6 +1339,10 @@ mod tests {
             .with_headers(HashMap::new())
             .build()
             .unwrap()
+        }
+
+        fn build_source(base_url: String, staging: &Path, hours: u32) -> DateRangeExportSource {
+            build_source_with_extractor(base_url, staging, hours, ExtractorType::PlainGzip)
         }
 
         /// A transform that consumes the whole chunk and emits no events. The
@@ -1257,7 +1363,7 @@ mod tests {
         /// reproduces the parser's real boundary behavior — a chunk with no line
         /// terminator yields `consumed == 1` — which is what the oversized-record
         /// guard keys on, without standing up the full captured-event pipeline.
-        fn newline_consumed_transform() -> Arc<ParserFn> {
+        pub(super) fn newline_consumed_transform() -> Arc<ParserFn> {
             Arc::new(Box::new(|bytes: Vec<u8>| {
                 let parser = crate::parse::format::newline_delim(true, |line: &str| {
                     serde_json::from_str::<serde_json::Value>(line)
@@ -1291,7 +1397,34 @@ mod tests {
             count
         }
 
-        fn dummy_model(state: JobState) -> JobModel {
+        /// Drive `select_and_fetch_next_chunk` until it reports all parts done,
+        /// up to `max_iterations`. Returns whether it completed within budget.
+        pub(super) async fn drive_loop_to_completion(
+            state: &Mutex<JobState>,
+            model: &Mutex<JobModel>,
+            source: &dyn DataSource,
+            transform: &Arc<ParserFn>,
+            chunk_size: usize,
+            max_iterations: usize,
+        ) -> Result<bool, Error> {
+            for _ in 0..max_iterations {
+                let next = select_and_fetch_next_chunk(
+                    state,
+                    model,
+                    source,
+                    transform,
+                    chunk_size,
+                    Uuid::now_v7(),
+                )
+                .await?;
+                if next.is_none() {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        pub(super) fn dummy_model(state: JobState) -> JobModel {
             JobModel {
                 id: Uuid::now_v7(),
                 team_id: 1,
@@ -1325,7 +1458,7 @@ mod tests {
             }
         }
 
-        fn job_state(keys: &[String]) -> JobState {
+        pub(super) fn job_state(keys: &[String]) -> JobState {
             JobState {
                 parts: keys
                     .iter()
@@ -1389,6 +1522,197 @@ mod tests {
             assert_eq!(
                 peak_raw, 1,
                 "exactly one .raw should exist while the part is in flight"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_part_fully_consumed_at_eof_read_completes_without_offset_overshoot() {
+            // Streaming sources only learn a part's total size on the read that
+            // observes EOF. When that same read fully consumes the remaining bytes,
+            // the offset lands exactly at the total while the job still has
+            // total_size = None. The next loop iteration must then recognize the
+            // part as done — not fetch an empty chunk, "consume" a phantom byte,
+            // and push the offset past the total (which makes is_done() unreachable
+            // and the job crawl one byte per iteration forever).
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let total_size = body.len() as u64;
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 1);
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            // Real newline parser so `consumed` behaves exactly as in production.
+            let transform = newline_consumed_transform();
+
+            // Generous iteration budget: a healthy run needs ~(total/chunk + 2)
+            // iterations. Far more than that means the loop is stuck.
+            let chunk_size = 1024usize;
+            let max_iterations = (total_size as usize / chunk_size) + 10;
+            let mut completed = false;
+            for _ in 0..max_iterations {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    chunk_size,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+
+                let offset = state.lock().await.parts[0].current_offset;
+                assert!(
+                    offset <= total_size,
+                    "part offset {offset} overshot total size {total_size}: the job would crawl forever"
+                );
+
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(
+                completed,
+                "job did not finish the part within {max_iterations} iterations (offset {} / total {total_size})",
+                state.lock().await.parts[0].current_offset
+            );
+        }
+
+        #[tokio::test]
+        async fn test_part_with_trailing_blank_lines_completes() {
+            // Data whose final bytes are blank lines must still complete: the blanks
+            // are only seen on the EOF read, after which the streaming source has
+            // freed the part and can never serve those bytes again.
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            body.push('\n');
+            let total_size = body.len() as u64;
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let chunk_size = 1024usize;
+            let max_iterations = (total_size as usize / chunk_size) + 10;
+            let mut completed = false;
+            for _ in 0..max_iterations {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    chunk_size,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(completed, "trailing blank lines must not stall the part");
+            assert_eq!(state.lock().await.parts[0].current_offset, total_size);
+        }
+
+        #[tokio::test]
+        async fn test_poisoned_part_with_overshot_offset_self_heals() {
+            // A job written by a worker version with the overshoot bug has a part
+            // whose stored offset exceeds its total size. On resume that part must
+            // be treated as done (its real bytes were all consumed before the
+            // phantom crawl began) so the job can move on to the remaining parts.
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 2);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 2);
+
+            // Part 1 poisoned as in production: offset way past its recorded total.
+            let poisoned = JobState {
+                parts: vec![
+                    PartState {
+                        key: keys[0].clone(),
+                        current_offset: 25_328_072,
+                        total_size: Some(24_441_157),
+                    },
+                    PartState {
+                        key: keys[1].clone(),
+                        current_offset: 0,
+                        total_size: None,
+                    },
+                ],
+            };
+            let state = Mutex::new(poisoned.clone());
+            let model = Mutex::new(dummy_model(poisoned));
+            let transform = newline_consumed_transform();
+
+            let mut completed = false;
+            for _ in 0..20 {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(
+                completed,
+                "job with an overshot part must skip it and finish the rest"
+            );
+            let state = state.lock().await;
+            assert_eq!(
+                state.parts[0].current_offset, 25_328_072,
+                "poisoned part must be skipped untouched, not re-read"
+            );
+            assert_eq!(
+                state.parts[1].total_size,
+                Some(state.parts[1].current_offset)
             );
         }
 
@@ -1492,6 +1816,394 @@ mod tests {
                 0,
                 "all parts' .raw files must be cleaned up by the read loop alone"
             );
+        }
+    }
+
+    /// A part whose first bytes are a known compression magic is still compressed
+    /// (double-compression, or a source/extractor whose compression setting does
+    /// not match the file). The loop must fail fast at part offset 0 with an
+    /// actionable, non-transient error - never crawl or emit a confusing utf-8
+    /// parse failure. The guard sits in the shared loop, so one streaming source
+    /// (post-decompression double-gzip) and one plain verbatim source (a gzip file
+    /// on a non-decompressing source) together prove it covers every source shape.
+    mod compression_magic_guard_tests {
+        use super::staging_cleanup_invariant_tests::{
+            build_source_with_extractor, dummy_model, gzip_bytes, job_state,
+            newline_consumed_transform,
+        };
+        use super::*;
+        use crate::extractor::ExtractorType;
+        use crate::source::folder::FolderSource;
+        use tempfile::TempDir;
+
+        fn assert_non_transient(err: &Error) {
+            assert!(!crate::error::is_rate_limited_error(err));
+            assert!(!crate::error::is_timeout_error(err));
+            assert!(!crate::error::is_transient_network_error(err));
+            assert!(!crate::error::is_transient_server_error(err));
+        }
+
+        #[tokio::test]
+        async fn test_double_gzipped_part_detected_at_offset_zero() {
+            // gzip(gzip(jsonl)): the extractor strips the outer gzip, so the
+            // plaintext stream *starts* with the inner gzip magic. The guard must
+            // catch it at offset 0 and pause with the double-compression message.
+            let server = MockServer::start();
+            let mut inner = String::new();
+            for i in 0..50 {
+                inner.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let double = gzip_bytes(&gzip_bytes(inner.as_bytes()));
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(double);
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source_with_extractor(
+                server.url("/export"),
+                staging.path(),
+                1,
+                ExtractorType::PlainGzip,
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("double-gzipped data must be rejected at offset 0");
+
+            let user_msg = crate::error::get_user_message(&err);
+            assert!(
+                user_msg.contains("compressed twice") && user_msg.contains("gzip"),
+                "unexpected user message: {user_msg}"
+            );
+            assert!(
+                format!("{err:#}").contains("offset 0"),
+                "internal chain should record the offset, got: {err:#}"
+            );
+            assert_non_transient(&err);
+            // The guard fires before advancing, so nothing is consumed.
+            assert_eq!(state.lock().await.parts[0].current_offset, 0);
+        }
+
+        #[tokio::test]
+        async fn test_plain_source_serving_gzip_file_detected_at_offset_zero() {
+            // The reverse misconfiguration: a gzipped file handed to a plain
+            // (verbatim, non-decompressing) source. The raw gzip magic is the first
+            // thing the loop reads, so the same offset-0 guard must catch it.
+            let staging = TempDir::new().unwrap();
+            let gz = gzip_bytes(b"{\"event\":\"x\"}\n");
+            std::fs::write(staging.path().join("data.jsonl"), &gz).unwrap();
+
+            let source = FolderSource::new(staging.path().to_str().unwrap().to_string())
+                .await
+                .unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("a gzip file on a plain source must be rejected at offset 0");
+
+            let user_msg = crate::error::get_user_message(&err);
+            assert!(
+                user_msg.contains("compressed") && user_msg.contains("gzip"),
+                "unexpected user message: {user_msg}"
+            );
+            assert_non_transient(&err);
+        }
+
+        #[tokio::test]
+        async fn test_non_magic_binary_still_yields_parse_error() {
+            // Bucket 3: non-magic invalid-utf8 content is corrupt data, not
+            // compression. The guard must NOT fire; the pre-existing utf-8 parse
+            // error must surface unchanged, proving the guard does not over-claim.
+            let staging = TempDir::new().unwrap();
+            // 0xff is not a compression-magic first byte; the trailing newline forms
+            // a complete line that fails utf-8 validation - the pre-existing path.
+            std::fs::write(staging.path().join("data.jsonl"), [0xff, 0x28, 0xff, b'\n']).unwrap();
+
+            let source = FolderSource::new(staging.path().to_str().unwrap().to_string())
+                .await
+                .unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("invalid-utf8 binary must still fail");
+
+            let full = format!("{err:#}");
+            assert!(
+                full.contains("utf8") || full.contains("Failed to parse"),
+                "expected the pre-existing parse error, got: {full}"
+            );
+            assert!(
+                !crate::error::get_user_message(&err).contains("compressed twice"),
+                "non-magic data must not be mislabeled as double-compression: {full}"
+            );
+            assert_non_transient(&err);
+        }
+    }
+
+    /// Streaming sources discover a part's decompressed size only on the read
+    /// that observes end-of-stream. When that stream turns out to be empty (or
+    /// already fully consumed at the resume offset), the first read returns an
+    /// empty chunk before the job has ever seen a size - which must complete the
+    /// part, not pause the job as "source returned no data". These tests pin
+    /// every empty-stream shape plus the error path for genuinely broken sources.
+    mod empty_part_completion_tests {
+        use super::staging_cleanup_invariant_tests::{
+            build_source_with_extractor, drive_loop_to_completion, dummy_model, gzip_bytes,
+            job_state, newline_consumed_transform,
+        };
+        use super::*;
+        use crate::extractor::ExtractorType;
+        use std::io::Write;
+        use tempfile::TempDir;
+        use zip::{write::SimpleFileOptions, ZipWriter};
+
+        /// A zip archive with no `.json.gz` members - the Amplitude-shaped
+        /// equivalent of an empty export (decompresses to zero bytes).
+        fn zip_without_json_members() -> Vec<u8> {
+            let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            zip.start_file("readme.txt", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"no data for this day").unwrap();
+            zip.finish().unwrap().into_inner()
+        }
+
+        /// Empty exports come in several shapes, all decompressing to zero
+        /// bytes: a raw empty 200 body (Mixpanel day with no events), a valid
+        /// gzip of empty content, and a zip with no data members. Each must
+        /// complete the part exactly like the pre-streaming code did.
+        #[tokio::test]
+        async fn test_empty_export_completes_part() {
+            let cases: [(&str, Vec<u8>, ExtractorType); 3] = [
+                ("empty 200 body", Vec::new(), ExtractorType::PlainGzip),
+                (
+                    "gzip of empty content",
+                    gzip_bytes(b""),
+                    ExtractorType::PlainGzip,
+                ),
+                (
+                    "zip with no json members",
+                    zip_without_json_members(),
+                    ExtractorType::ZipGzipJson,
+                ),
+            ];
+
+            for (name, body, extractor) in cases {
+                let server = MockServer::start();
+                let _mock = server.mock(|when, then| {
+                    when.method(Method::GET).path("/export");
+                    then.status(200).body(body);
+                });
+
+                let staging = TempDir::new().unwrap();
+                let source = build_source_with_extractor(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    extractor,
+                );
+                source.prepare_for_job().await.unwrap();
+                let keys = source.keys().await.unwrap();
+
+                let state = Mutex::new(job_state(&keys));
+                let model = Mutex::new(dummy_model(job_state(&keys)));
+                let transform = newline_consumed_transform();
+
+                let completed =
+                    drive_loop_to_completion(&state, &model, &source, &transform, 1024, 10)
+                        .await
+                        .unwrap_or_else(|e| panic!("case '{name}' errored: {e:#}"));
+
+                assert!(completed, "case '{name}' did not complete the empty part");
+                let state = state.lock().await;
+                assert_eq!(state.parts[0].current_offset, 0, "case '{name}'");
+                assert_eq!(
+                    state.parts[0].total_size,
+                    Some(0),
+                    "case '{name}' must record the discovered size so the DB state is terminal"
+                );
+                // The mirrored model state is what gets persisted on commit.
+                let model = model.lock().await;
+                assert_eq!(
+                    model.state.as_ref().unwrap().parts[0].total_size,
+                    Some(0),
+                    "case '{name}' must mirror the size into the model"
+                );
+            }
+        }
+
+        /// A job can crash after committing the offset of a part's final chunk
+        /// but before the next iteration discovered (and persisted) the size.
+        /// On resume the re-downloaded stream EOFs exactly at the stored offset:
+        /// the first read is empty with total_size still None, and the part must
+        /// complete. If the re-downloaded data is instead *smaller* than the
+        /// stored offset (non-byte-stable export), everything available was
+        /// already consumed, so the part must also complete rather than strand
+        /// the job on an unresolvable error.
+        #[tokio::test]
+        async fn test_resume_at_or_past_eof_with_unknown_total_completes() {
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let total_size = body.len() as u64;
+
+            for (name, resume_offset) in [
+                ("resume exactly at EOF", total_size),
+                ("resume past a shrunk export", total_size + 1000),
+            ] {
+                let server = MockServer::start();
+                let _mock = server.mock(|when, then| {
+                    when.method(Method::GET).path("/export");
+                    then.status(200).body(gzip_bytes(body.as_bytes()));
+                });
+
+                let staging = TempDir::new().unwrap();
+                let source = build_source_with_extractor(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    ExtractorType::PlainGzip,
+                );
+                source.prepare_for_job().await.unwrap();
+                let keys = source.keys().await.unwrap();
+
+                let resumed = JobState {
+                    parts: vec![PartState {
+                        key: keys[0].clone(),
+                        current_offset: resume_offset,
+                        total_size: None,
+                    }],
+                };
+                let state = Mutex::new(resumed.clone());
+                let model = Mutex::new(dummy_model(resumed));
+                let transform = newline_consumed_transform();
+
+                let completed =
+                    drive_loop_to_completion(&state, &model, &source, &transform, 1024, 10)
+                        .await
+                        .unwrap_or_else(|e| panic!("case '{name}' errored: {e:#}"));
+
+                assert!(completed, "case '{name}' did not complete");
+                let state = state.lock().await;
+                assert_eq!(
+                    state.parts[0].total_size,
+                    Some(total_size),
+                    "case '{name}' must record the size discovered on resume"
+                );
+                assert_eq!(
+                    state.parts[0].current_offset, resume_offset,
+                    "case '{name}' must not rewind or advance the stored offset"
+                );
+            }
+        }
+
+        /// A source that reports a fixed size but serves empty chunks - the
+        /// "genuinely broken source" shape (e.g. a ranged HTTP server returning
+        /// empty 200s mid-part, or a stream that shrank to a size that no longer
+        /// matches the part's recorded total). These must still pause the job
+        /// loudly, proving the empty-part completion path did not neuter the
+        /// no-progress guard.
+        struct EmptyChunkSource {
+            reported_size: Option<u64>,
+        }
+
+        #[async_trait]
+        impl DataSource for EmptyChunkSource {
+            async fn keys(&self) -> Result<Vec<String>, Error> {
+                Ok(vec!["part".to_string()])
+            }
+
+            async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+                Ok(self.reported_size)
+            }
+
+            async fn get_chunk(
+                &self,
+                _key: &str,
+                _offset: u64,
+                _size: u64,
+            ) -> Result<Vec<u8>, Error> {
+                Ok(Vec::new())
+            }
+        }
+
+        #[tokio::test]
+        async fn test_empty_chunk_before_end_of_part_still_errors() {
+            // (case, part state total, part offset, source-reported size)
+            let cases: [(&str, Option<u64>, u64, Option<u64>); 3] = [
+                // Ranged source serving empty bodies mid-part.
+                ("empty chunk below known size", Some(1000), 400, Some(1000)),
+                // Stream ended early relative to what the source itself reports.
+                ("source size past offset", None, 400, Some(1000)),
+                // Stored total disagrees with what the source now reports.
+                (
+                    "shrunk source with recorded total",
+                    Some(1000),
+                    400,
+                    Some(400),
+                ),
+            ];
+
+            for (name, part_total, offset, reported_size) in cases {
+                let source = EmptyChunkSource { reported_size };
+                let part_state = JobState {
+                    parts: vec![PartState {
+                        key: "part".to_string(),
+                        current_offset: offset,
+                        total_size: part_total,
+                    }],
+                };
+                let state = Mutex::new(part_state.clone());
+                let model = Mutex::new(dummy_model(part_state));
+                let transform = newline_consumed_transform();
+
+                let result =
+                    drive_loop_to_completion(&state, &model, &source, &transform, 1024, 5).await;
+
+                let err = result.unwrap_err();
+                assert!(
+                    format!("{err:#}").contains("returned no data"),
+                    "case '{name}' expected the no-data error, got: {err:#}"
+                );
+            }
         }
     }
 }

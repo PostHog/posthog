@@ -489,6 +489,7 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
         exception_handled: None,
         exception_releases: Default::default(),
         fingerprint: None,
+        fingerprint_version: None,
         proposed_fingerprint: None,
         fingerprint_record: None,
         issue_id: None,

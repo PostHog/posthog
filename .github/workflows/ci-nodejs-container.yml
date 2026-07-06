@@ -46,6 +46,8 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'

@@ -98,6 +98,17 @@ export class SessionConsoleLogRecorder {
             return
         }
 
+        // Pre-serialized messages (native ml-mirror anonymizer) carry level counts in their metadata;
+        // no log entries are collected for storage — the ml-mirror console-log store is disabled, the
+        // counts only feed the block metadata.
+        if (message.message.preSerialized) {
+            const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.message.preSerialized
+            this.consoleLogCount += consoleLogCount
+            this.consoleWarnCount += consoleWarnCount
+            this.consoleErrorCount += consoleErrorCount
+            return
+        }
+
         const logsToStore: ConsoleLogEntry[] = []
 
         for (const events of Object.values(message.message.eventsByWindowId)) {

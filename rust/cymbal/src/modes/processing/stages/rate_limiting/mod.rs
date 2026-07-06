@@ -658,6 +658,7 @@ mod tests {
             exception_handled: None,
             exception_releases: HashMap::new(),
             fingerprint: None,
+            fingerprint_version: None,
             proposed_fingerprint: None,
             fingerprint_record: None,
             issue_id,

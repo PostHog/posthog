@@ -81,6 +81,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # config problem — retrying can't grant the permission. Matched on the stable permission name,
             # not the volatile dataset id.
             "bigquery.tables.create": "BigQuery denied permission to create a temporary table PostHog needs in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account permission to create tables (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # BigQuery rejects query-job creation (POST .../jobs) with "Access Denied: Project <id>:
+            # User does not have bigquery.jobs.create permission in project <id>." when the service
+            # account can read the data but can't run query jobs in the project the jobs bill to. We
+            # create query jobs throughout the sync (primary-key discovery, row counts, temp-table
+            # copies), so this fails before any rows are read. Like the tables.update key above, the
+            # generic "Access Denied:" key would match first and misdirect the customer to grant
+            # *read* access (Data Viewer), which can't grant job creation — so keep this key above it.
+            # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
+            # stable permission name, not the volatile project id.
+            "bigquery.jobs.create": "BigQuery denied your service account permission to run query jobs — it's missing the bigquery.jobs.create permission on the project it queries. Read access alone isn't enough, because PostHog runs query jobs to sync your data. Please grant your service account permission to run jobs (for example the BigQuery Job User role) on that project, then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
