@@ -40,6 +40,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -2576,12 +2577,16 @@ class GitHubIntegration(GitHubIntegrationBase):
                 return github
         return None
 
-    def __init__(self, integration: Integration, *, source: str | None = None) -> None:
+    def __init__(
+        self, integration: Integration, *, source: str | None = None, priority: Priority | None = None
+    ) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
         if source is not None:
             self.source = source
+        if priority is not None:
+            self.priority = priority
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)
