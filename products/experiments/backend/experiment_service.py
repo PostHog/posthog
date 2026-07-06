@@ -1706,9 +1706,9 @@ class ExperimentService:
     # Freeze exposure
     # ------------------------------------------------------------------
 
-    # Not wrapped in @transaction.atomic: building the snapshot cohort writes to ClickHouse and Postgres
-    # (non-transactional side effects), so rather than rely on rollback we clean up the cohort by hand if
-    # the flag save fails.
+    # Not wrapped in @transaction.atomic at the method level: building the snapshot cohort writes to
+    # ClickHouse and Postgres (non-transactional side effects), so rather than rely on rollback we
+    # clean up the cohort by hand if the locked phase below fails.
     def freeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
         """Freeze exposure on a running experiment while metrics keep flowing.
 
@@ -1730,9 +1730,105 @@ class ExperimentService:
         Group-aggregated experiments are rejected: their flags target groups, not
         persons, so a person cohort cannot freeze the exposed set.
 
+        Runs in two phases because the snapshot build can take tens of seconds — plenty of
+        time for a concurrent freeze, pause, end, or flag edit to land. Phase 1 (unlocked)
+        runs the guards to fail fast, then the expensive ClickHouse scan and cohort build.
+        Phase 2 re-fetches the flag under ``select_for_update``, re-runs every guard against
+        the fresh rows, and computes the narrowed filters from the fresh state — so a losing
+        concurrent freeze gets "already frozen" (and deletes its own cohort) instead of
+        double-freezing, and a flag edit that landed mid-scan is narrowed rather than
+        clobbered with pre-scan filters.
+
         ``request`` is required because FeatureFlagSerializer needs a real request
         with authentication and session context to persist the flag change.
         """
+        # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
+        self._validate_freeze_exposure_state(experiment)
+
+        # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
+        exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        if not exposed_person_uuids:
+            # An empty snapshot cohort ANDed into every release group would un-enroll every user.
+            raise ValidationError(
+                "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
+                "Wait until the experiment has recorded exposures."
+            )
+
+        # 2. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
+        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
+
+        # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
+        # the flag change attempted below — a failed freeze should leave nothing behind.
+        try:
+            with transaction.atomic():
+                # Lock the flag row so the guard re-check, the transform, and the save happen against
+                # a state no concurrent freeze/pause/archive/edit can move underneath us — those
+                # writers either committed (we see them) or block until we commit.
+                locked_flag = (
+                    FeatureFlag.objects.select_for_update()
+                    .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+                    .first()
+                )
+                if locked_flag is None:
+                    raise ValidationError("Experiment's feature flag has been deleted.")
+                experiment.refresh_from_db()
+                # refresh_from_db keeps the cached relation when the FK id is unchanged — swap in the
+                # locked row explicitly so the guards read the fresh flag state.
+                experiment.feature_flag = locked_flag
+                self._validate_freeze_exposure_state(experiment)
+
+                # 3. Narrow every release group to that cohort and stamp the marker.
+                #
+                # Design note (local evaluation): the narrowed flag now references a static cohort, whose
+                # per-person membership can't be shipped to SDKs that evaluate flags locally — static cohorts
+                # are excluded from the local-eval flag definitions (products/feature_flags/backend/local_evaluation.py).
+                # Such SDKs can't resolve the cohort, so they treat the flag as inconclusive and fall back to
+                # /decide, where the freeze is applied correctly; under only_evaluate_locally=True they instead
+                # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
+                # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
+                # rather than locally.
+                new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
+
+                # 4. Persist the narrowed filters via FeatureFlagSerializer.
+                #
+                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
+                # but flag approval policies are intentionally field-level and scoped to `active`
+                # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
+                # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
+                # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
+                # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
+                # matches and no change request is raised. We therefore don't special-case ApprovalRequired
+                # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
+                # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                flag_serializer = FeatureFlagSerializer(
+                    locked_flag,
+                    data={"filters": new_filters},
+                    partial=True,
+                    context={
+                        "request": request,
+                        "team_id": self.team.id,
+                        "project_id": self.team.project_id,
+                    },
+                )
+                flag_serializer.is_valid(raise_exception=True)
+                flag_serializer.save()
+        except Exception:
+            exposure_snapshot.delete()
+            raise
+
+        # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
+        locked_flag.refresh_from_db()
+        experiment.feature_flag = locked_flag
+
+        # end_date intentionally left null — metrics keep flowing.
+
+        self._report_experiment_exposure_frozen(experiment, request=request)
+
+        return experiment
+
+    def _validate_freeze_exposure_state(self, experiment: Experiment) -> None:
+        """Guards for freeze_exposure, run twice: unlocked before the expensive snapshot build to
+        fail fast, and again under the flag lock to fail closed against whatever landed mid-build."""
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
@@ -1772,70 +1868,6 @@ class ExperimentService:
         # the frozen state (derived from the per-group key) could never be detected.
         if not flag_filters.get("groups"):
             raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
-
-        # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
-        exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
-        if not exposed_person_uuids:
-            # An empty snapshot cohort ANDed into every release group would un-enroll every user.
-            raise ValidationError(
-                "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
-                "Wait until the experiment has recorded exposures."
-            )
-
-        # 2. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
-        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
-
-        # 3. Narrow every release group to that cohort and stamp the marker.
-        #
-        # Design note (local evaluation): the narrowed flag now references a static cohort, whose
-        # per-person membership can't be shipped to SDKs that evaluate flags locally — static cohorts
-        # are excluded from the local-eval flag definitions (products/feature_flags/backend/local_evaluation.py).
-        # Such SDKs can't resolve the cohort, so they treat the flag as inconclusive and fall back to
-        # /decide, where the freeze is applied correctly; under only_evaluate_locally=True they instead
-        # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
-        # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
-        # rather than locally.
-        new_filters = self._transform_filters_for_frozen_exposure(flag.filters, exposure_snapshot.id)
-
-        # 4. Persist the narrowed filters via FeatureFlagSerializer.
-        #
-        # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
-        # but flag approval policies are intentionally field-level and scoped to `active`
-        # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
-        # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
-        # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
-        # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
-        # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-        # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
-        # cohort would then need to outlive a pending change request rather than be cleaned up below.
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": new_filters},
-            partial=True,
-            context={
-                "request": request,
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        try:
-            flag_serializer.is_valid(raise_exception=True)
-            flag_serializer.save()
-        except Exception:
-            # The snapshot cohort is referenced only by the flag change we just attempted, so if
-            # that fails, drop it — a failed freeze should leave nothing behind.
-            exposure_snapshot.delete()
-            raise
-
-        # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
-        flag.refresh_from_db()
-        experiment.feature_flag = flag
-
-        # end_date intentionally left null — metrics keep flowing.
-
-        self._report_experiment_exposure_frozen(experiment, request=request)
-
-        return experiment
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.

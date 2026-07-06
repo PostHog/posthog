@@ -3458,6 +3458,78 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters == filters_after_first
 
+    @parameterized.expand(
+        [
+            ("concurrently_frozen", "already frozen"),
+            ("flag_deleted", "has been deleted"),
+            ("experiment_ended", "already ended"),
+        ]
+    )
+    def test_freeze_exposure_rechecks_state_under_lock_and_cleans_up(self, race: str, expected_error: str):
+        experiment = self._create_running_experiment(name=f"Freeze Race {race}", feature_flag_key=f"fr-{race}-flag")
+        flag_id = experiment.feature_flag_id
+
+        # The exposure scan + cohort build take long enough for another request to land in between.
+        # Simulate that writer committing mid-scan: the guards must be re-run against the fresh rows
+        # under the flag lock, and a failed freeze must clean up its own snapshot cohort.
+        def concurrent_change_then_return(_experiment: Experiment) -> list[str]:
+            if race == "concurrently_frozen":
+                self._stamp_exposure_frozen_marker(FeatureFlag.objects.get(pk=flag_id))
+            elif race == "flag_deleted":
+                FeatureFlag.objects.filter(pk=flag_id).update(deleted=True)
+            else:
+                Experiment.objects.filter(pk=experiment.pk).update(end_date=timezone.now())
+            return ["00000000-0000-0000-0000-000000000001"]
+
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert expected_error in str(ctx.exception)
+
+        # The orphaned snapshot cohort was cleaned up and the flag was never narrowed to it.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id)
+        for group in flag.filters.get("groups", []):
+            assert EXPOSURE_FROZEN_COHORT_KEY not in group
+
+    def test_freeze_exposure_applies_to_filters_edited_during_snapshot_build(self):
+        experiment = self._create_running_experiment(name="Freeze Race Edit", feature_flag_key="freeze-race-edit-flag")
+        flag = experiment.feature_flag
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"] = [
+            {
+                "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+                "rollout_percentage": 50,
+            }
+        ]
+
+        # A flag edit committing while the (slow) exposure scan runs must not be clobbered by a
+        # transform computed from the pre-scan filters — the freeze must narrow the fresh groups.
+        def concurrent_edit_then_return(_experiment: Experiment) -> list[str]:
+            FeatureFlag.objects.filter(pk=flag.pk).update(filters=edited_filters)
+            return ["00000000-0000-0000-0000-000000000001"]
+
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Race Edit"')
+        frozen.feature_flag.refresh_from_db()
+        groups = frozen.feature_flag.filters["groups"]
+        assert len(groups) == 1
+        # The concurrent edit's condition and rollout survive, with the freeze ANDed on top.
+        assert groups[0]["rollout_percentage"] == 50
+        assert {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"} in groups[0][
+            "properties"
+        ]
+        assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in groups[0]["properties"]
+        assert groups[0][EXPOSURE_FROZEN_GROUP_KEY] is True
+
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
