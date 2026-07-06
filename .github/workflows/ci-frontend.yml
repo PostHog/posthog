@@ -34,9 +34,9 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
-        # approval) skips only the visual regression suites (ci-storybook, ci-e2e-playwright),
-        # not these checks. Jest, TypeScript, format, and bundle-size don't depend on the
-        # baseline and still gate merge, so they run purely off the paths filter here.
+        # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
+        # suites), not these checks. Jest, TypeScript, format, and bundle-size don't depend on
+        # the baseline and still gate merge, so they run purely off the paths filter here.
         outputs:
             # AND the broad filter with `exclude` (below): a PR that touches only
             # Node-only product workspaces (their own ci-agents.yml suite, no stories,
