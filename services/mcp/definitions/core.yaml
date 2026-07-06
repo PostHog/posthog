@@ -442,6 +442,12 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    organizations-projects-tracing-config-partial-update:
+        operation: organizations_projects_tracing_config_partial_update
+        enabled: false
+    organizations-projects-tracing-config-retrieve:
+        operation: organizations_projects_tracing_config_retrieve
+        enabled: false
     product-enablement-create:
         operation: product_enablement_create
         enabled: false
