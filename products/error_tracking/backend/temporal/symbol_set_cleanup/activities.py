@@ -1,13 +1,17 @@
 import datetime
 
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 from temporalio import activity
 
-from products.error_tracking.backend.models import ErrorTrackingSymbolSet
+from products.error_tracking.backend.models import (
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
+    delete_symbol_set_contents_many,
+)
 from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
     SymbolSetCleanupInputs,
     SymbolSetCleanupResult,
@@ -22,6 +26,27 @@ def _cleanup_filter(inputs: SymbolSetCleanupInputs) -> Q:
     if inputs.delete_unused:
         query_filter = query_filter | (Q(last_used__isnull=True) & Q(created_at__lt=cutoff_date))
     return query_filter
+
+
+def _delete_symbol_set_batch(symbol_set_ids: list[str]) -> tuple[int, set[str]]:
+    try:
+        with transaction.atomic():
+            ErrorTrackingStackFrame.objects.filter(symbol_set_id__in=symbol_set_ids, resolved=False).delete()
+            ErrorTrackingSymbolSet.objects.filter(id__in=symbol_set_ids).delete()
+        return len(symbol_set_ids), set()
+    except Exception as exc:
+        if len(symbol_set_ids) == 1:
+            logger.exception(
+                "error_tracking.symbol_set_cleanup.delete_failed",
+                symbol_set_id=symbol_set_ids[0],
+                error=str(exc),
+            )
+            return 0, {symbol_set_ids[0]}
+
+        midpoint = len(symbol_set_ids) // 2
+        left_deleted, left_failed = _delete_symbol_set_batch(symbol_set_ids[:midpoint])
+        right_deleted, right_failed = _delete_symbol_set_batch(symbol_set_ids[midpoint:])
+        return left_deleted + right_deleted, left_failed | right_failed
 
 
 @activity.defn
@@ -57,31 +82,51 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
 
     total_processed = 0
     total_deleted = 0
-    total_failed = 0
+    total_db_failed = 0
+    total_storage_failed = 0
     failed_ids: set[str] = set()
 
     while total_processed < inputs.total_per_run:
         remaining = inputs.total_per_run - total_processed
         chunk_size = min(inputs.batch_size, remaining)
-        symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(query_filter).exclude(id__in=failed_ids)[:chunk_size])
+        symbol_sets = list(
+            ErrorTrackingSymbolSet.objects.filter(query_filter)
+            .exclude(id__in=failed_ids)
+            .order_by("id")
+            .values_list("id", "storage_ptr")[:chunk_size]
+        )
 
         if not symbol_sets:
             break
 
-        for symbol_set in symbol_sets:
+        symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _ in symbol_sets]
+        storage_ptrs_by_id = {str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr in symbol_sets}
+
+        deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
+        total_deleted += deleted_count
+        total_db_failed += len(batch_failed_ids)
+        failed_ids.update(batch_failed_ids)
+
+        deleted_storage_ptrs = [
+            storage_ptr
+            for symbol_set_id, storage_ptr in storage_ptrs_by_id.items()
+            if storage_ptr and symbol_set_id not in batch_failed_ids
+        ]
+        if deleted_storage_ptrs:
             try:
-                # Calls ErrorTrackingSymbolSet.delete(), which also removes unresolved frames and S3 contents.
-                symbol_set.delete()
-                total_deleted += 1
+                failed_storage_ptrs = delete_symbol_set_contents_many(deleted_storage_ptrs)
             except Exception as exc:
-                total_failed += 1
-                failed_ids.add(str(symbol_set.id))
+                failed_storage_ptrs = deleted_storage_ptrs
                 logger.exception(
-                    "error_tracking.symbol_set_cleanup.delete_failed",
-                    symbol_set_id=str(symbol_set.id),
-                    ref=symbol_set.ref,
-                    team_id=symbol_set.team_id,
+                    "error_tracking.symbol_set_cleanup.s3_batch_delete_failed",
+                    storage_objects_failed=len(failed_storage_ptrs),
                     error=str(exc),
+                )
+            if failed_storage_ptrs:
+                total_storage_failed += len(failed_storage_ptrs)
+                logger.warning(
+                    "error_tracking.symbol_set_cleanup.s3_delete_failures",
+                    storage_objects_failed=len(failed_storage_ptrs),
                 )
 
         total_processed += len(symbol_sets)
@@ -89,18 +134,21 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
             "error_tracking.symbol_set_cleanup.progress",
             objects_processed=total_processed,
             objects_deleted=total_deleted,
-            objects_failed=total_failed,
+            objects_failed=total_db_failed,
+            storage_objects_failed=total_storage_failed,
         )
 
-    if total_failed > 0:
+    if total_db_failed > 0 or total_storage_failed > 0:
         logger.warning(
             "error_tracking.symbol_set_cleanup.failures",
             objects_processed=total_processed,
-            objects_failed=total_failed,
+            objects_failed=total_db_failed,
+            storage_objects_failed=total_storage_failed,
         )
 
     return SymbolSetCleanupResult(
         objects_processed=total_processed,
         objects_deleted=total_deleted,
-        objects_failed=total_failed,
+        objects_failed=total_db_failed,
+        storage_objects_failed=total_storage_failed,
     )

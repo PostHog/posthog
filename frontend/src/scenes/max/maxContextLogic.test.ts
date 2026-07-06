@@ -1,11 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,7 +21,9 @@ import {
 } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
+import { createMaxContextHelpers } from './maxTypes'
 import { maxMocks } from './testUtils'
+import { dashboardToMaxContext } from './utils'
 
 describe('maxContextLogic', () => {
     let logic: ReturnType<typeof maxContextLogic.build>
@@ -671,6 +675,78 @@ describe('maxContextLogic', () => {
             expect(mockInsightLogicInstance.mount).toHaveBeenCalled()
             expect(mockInsightLogicInstance.actions.loadInsight).toHaveBeenCalledWith('insight-1')
             expect(mockInsightLogicInstance.unmount).toHaveBeenCalled()
+        })
+    })
+
+    describe('open dashboard scene context (before tiles have streamed in)', () => {
+        // A dashboard's tiles stream in after its metadata, so dashboard.tiles is
+        // undefined during that window (and after some metadata-only updates).
+        const dashboardWithoutTiles = {
+            ...mockDashboard,
+            tiles: undefined,
+        } as unknown as DashboardType<QueryBasedInsightModel>
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('createMaxContextHelpers.dashboard tolerates missing tiles', () => {
+            expect(createMaxContextHelpers.dashboard(dashboardWithoutTiles).data.tiles).toEqual([])
+        })
+
+        it('dashboardToMaxContext tolerates missing tiles', () => {
+            expect(dashboardToMaxContext(dashboardWithoutTiles).insights).toEqual([])
+        })
+
+        it('passes the open dashboard to Max even before its tiles have loaded', async () => {
+            // Simulate the dashboard scene being active, mirroring how dashboardLogic.maxContext
+            // builds its context from the (not yet fully loaded) dashboard value.
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                selectors: {
+                    maxContext: () => [createMaxContextHelpers.dashboard(dashboardWithoutTiles)],
+                },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({ id: dashboardWithoutTiles.id }),
+                sceneParams: {},
+            } as any)
+
+            await expectLogic(logic).toMatchValues({
+                compiledContext: partial({
+                    dashboards: [partial({ id: mockDashboard.id, type: 'dashboard', insights: [] })],
+                }),
+            })
+        })
+    })
+
+    describe('scene context errors are surfaced, not silently swallowed', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('reports an exception (instead of blanking context silently) when a scene maxContext selector throws', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                selectors: {
+                    maxContext: () => {
+                        throw new Error('boom from scene maxContext')
+                    },
+                },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({}),
+                sceneParams: {},
+            } as any)
+
+            // Reading scene context triggers the throwing selector.
+            await expectLogic(logic).toMatchValues({ sceneContext: [] })
+
+            expect(captureException).toHaveBeenCalledWith(
+                expect.objectContaining({ message: 'boom from scene maxContext' }),
+                expect.objectContaining({ feature: 'max_scene_context' })
+            )
         })
     })
 })

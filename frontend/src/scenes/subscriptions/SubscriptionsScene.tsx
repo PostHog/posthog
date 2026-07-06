@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { EditSubscription } from 'lib/components/Subscriptions/views/EditSubscription'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -157,7 +157,7 @@ export function SubscriptionsScene(): JSX.Element {
                         titleOverride="No subscriptions yet"
                         description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
                         isEmpty
-                        customHog={DetectiveHog}
+                        customHog={HedgehogMagnifyingGlass}
                         hogLayout="responsive"
                         useMainContentContainerQueries
                         docsURL="https://posthog.com/docs/user-guides/subscriptions"

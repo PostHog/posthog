@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { IconGlobe } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { buildCityKey, CityBreakdownItem, CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'

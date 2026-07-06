@@ -4,6 +4,15 @@ on:
     push:
         branches: [master]
     pull_request:
+        # Draft PRs run build + unit tests only; the integration tests (which boot
+        # the full PostHog backend and trigger on any Python change) run when the
+        # PR is marked ready for review — that full run is the merge gate.
+        types: [opened, synchronize, reopened, ready_for_review]
+    # Required so `MCP Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -13,15 +22,12 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
+        if: github.event_name != 'merge_group'
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
@@ -80,10 +86,17 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
-                        # hogli db commands used to restore test database
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli db setup (db:restore-test-db). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - 'hogli.yaml'
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
@@ -115,28 +128,16 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
 
-            - name: Type check
+            - name: Type check (tsgo)
               run: cd services/mcp && pnpm typecheck
-
-            - name: Type check (tsgo, shadow, non-blocking)
-              run: cd services/mcp && pnpm typecheck:tsgo
-              continue-on-error: true
 
             - name: Check MCP schema is up to date
               run: |
@@ -172,18 +173,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -243,12 +236,20 @@ jobs:
         runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
-        if: needs.changes.outputs.mcp == 'true'
+        # Skipped on drafts: these boot the full PostHog backend and trigger on any
+        # Python change, so they're the expensive half of this workflow. Build and
+        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
+        # skipped as success, and the ready-for-review run is the merge gate.
+        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+            PERSONHOG_ADDR: 'localhost:50052'
+            POSTHOG_PERSONS_DB_NAME: 'posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -262,11 +263,14 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge'
             # Required for the feature_flags test_evaluation endpoint, which authenticates
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
             INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
+            # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off, and
+            # this job boots the app prod-like. The dev value is fine for CI.
+            INTERNAL_API_SECRET: 'posthog123'
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -281,40 +285,13 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               env:
                   COMPOSE_PROFILES: temporal
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  (
-                      max_attempts=3
-                      attempt=1
-                      delay=5
-
-                      while [ $attempt -le $max_attempts ]; do
-                          echo "Attempt $attempt of $max_attempts to start stack..."
-
-                          if docker compose -f docker-compose.dev.yml down && \
-                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                              echo "Stack started successfully"
-                              exit 0
-                          fi
-
-                          echo "Failed to start stack on attempt $attempt"
-
-                          if [ $attempt -lt $max_attempts ]; then
-                              sleep_time=$((delay * 2 ** (attempt - 1)))
-                              echo "Waiting ${sleep_time} seconds before retry..."
-                              sleep $sleep_time
-                          fi
-
-                          attempt=$((attempt + 1))
-                      done
-
-                      echo "Failed to start stack after $max_attempts attempts"
-                      exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -339,23 +316,15 @@ jobs:
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
             - name: Install Python dependencies
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install Node dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash
@@ -398,7 +367,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -460,6 +429,24 @@ jobs:
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
+                  # The dump is produced by ci-backend.yml, where TEST=1 activates
+                  # ProductDBRouter and routes the apps in products/db_routing.yaml to
+                  # separate databases: their tables are absent from the dump, but
+                  # django_migrations still records their migrations as applied. This job
+                  # configures no product DBs, so those apps live on the default DB —
+                  # drop their migration records so migrate below replays them from 0001
+                  # and actually creates the tables.
+                  APPS=$(python - <<'EOF'
+                  import yaml
+                  with open("products/db_routing.yaml") as f:
+                      routes = yaml.safe_load(f)["routes"]
+                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
+                  EOF
+                  )
+                  if [ -n "$APPS" ]; then
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog posthog \
+                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
+                  fi
 
             - name: Run migrations
               run: |
@@ -508,6 +495,13 @@ jobs:
                       cat /tmp/rust-flags.log || true
                       exit 1
                   fi
+
+            - name: Start personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
@@ -636,7 +630,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
-                  workflow-type: backend
+                  workflow-type: mcp
                   patch-path: /tmp/snapshot-patches
                   snapshot-path: 'services/mcp/tests/unit/'
                   commit-message: 'test(mcp): update unit test snapshots'

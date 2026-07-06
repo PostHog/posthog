@@ -36,6 +36,31 @@ mod tests {
         mock_group_type_cache(HashMap::new())
     }
 
+    /// Sets up a fresh team and a `FeatureFlagMatcher` for it, returning the
+    /// owning `TestContext` (keeps DB connections alive), the matcher, and the
+    /// team id for building flags. Use when a test needs a single matcher with
+    /// the default empty group-type cache.
+    async fn matcher_for_team(distinct_id: &str) -> (TestContext, FeatureFlagMatcher, TeamId) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let team_id = team.id;
+        let matcher = FeatureFlagMatcher::new(
+            distinct_id.to_string(),
+            None,
+            team_id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        (context, matcher, team_id)
+    }
+
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
         let context = TestContext::new(None).await;
@@ -158,16 +183,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_person_property_overrides() {
-        let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
-        let team = context.insert_new_team(None).await.unwrap();
+        let (_context, mut matcher, team_id) = matcher_for_team("test_user").await;
 
         let flag = mock!(FeatureFlag,
-            team_id: team.id,
+            team_id: team_id,
             filters: mock!(crate::properties::property_models::PropertyFilter,
                 key: "email".mock_into(),
                 value: Some(json!("override@example.com")),
@@ -176,17 +195,6 @@ mod tests {
         );
 
         let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
-
-        let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            None, // device_id
-            team.id,
-            router,
-            cohort_cache,
-            empty_group_type_cache(),
-            None,
-        );
 
         let flags = flag_list_with_metadata(vec![flag.clone()]);
         let result = matcher
@@ -220,32 +228,16 @@ mod tests {
         #[case] flag_value: &str,
         #[case] explicit_override: Option<&str>,
     ) {
-        let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
-        let team = context.insert_new_team(None).await.unwrap();
+        let (_context, mut matcher, team_id) = matcher_for_team(matcher_distinct_id).await;
 
         let flag = mock!(FeatureFlag,
-            team_id: team.id,
+            team_id: team_id,
             filters: mock!(crate::properties::property_models::PropertyFilter,
                 key: "distinct_id".mock_into(),
                 value: Some(json!(flag_value)),
                 operator: Some(OperatorType::Exact),
                 prop_type: PropertyType::Person
             ).mock_into()
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            matcher_distinct_id.to_string(),
-            None,
-            team.id,
-            context.create_postgres_router(),
-            cohort_cache,
-            empty_group_type_cache(),
-            None,
         );
 
         let overrides = match explicit_override {
@@ -281,34 +273,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_person_only_flags_succeed_without_group_type_mappings() {
-        let context = TestContext::new(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(
-            context.non_persons_reader.clone(),
-            None,
-            None,
-        ));
-        let team = context.insert_new_team(None).await.unwrap();
+        // The matcher's default empty group-type cache means no group type
+        // mappings are initialized — this should not cause an error for
+        // person-only flags.
+        let (_context, mut matcher, team_id) = matcher_for_team("test_user").await;
 
         let flag = mock!(FeatureFlag,
-            team_id: team.id,
+            team_id: team_id,
             filters: mock!(crate::properties::property_models::PropertyFilter,
                 key: "email".mock_into(),
                 value: Some(json!("test@example.com")),
                 operator: None
             ).mock_into()
-        );
-
-        // No group type mappings initialized — this should not cause an error
-        // for person-only flags
-        let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            None,
-            team.id,
-            router,
-            cohort_cache,
-            empty_group_type_cache(),
-            None,
         );
 
         let flags = flag_list_with_metadata(vec![flag.clone()]);
@@ -4378,6 +4354,7 @@ mod tests {
             team_id: team.id,
             name: Some("Beta feature".to_string()),
             key: "beta-feature".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: None,
@@ -5697,6 +5674,7 @@ mod tests {
             team_id: team.id,
             name: Some("Test Order Flag".to_string()),
             key: "test_order_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![
                     FlagPropertyGroup {

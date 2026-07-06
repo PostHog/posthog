@@ -269,3 +269,89 @@ class TestInsightModel(BaseTest):
             team=self.team, query=test_case["query"], filters=test_case.get("filters") or {}
         )
         assert insight.show_legend is test_case["expected"]
+
+    def test_get_analytics_query_metadata_for_trends_query(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "ActionsNode", "id": 1},
+                    ],
+                    "dateRange": {"date_from": "-7d"},
+                    "filterTestAccounts": True,
+                    "breakdownFilter": {"breakdown_type": "event"},
+                    "trendsFilter": {"formula": "A+B"},
+                },
+            },
+        )
+        assert insight.get_analytics_query_metadata() == {
+            "series_length": 2,
+            "event_entity_count": 1,
+            "action_entity_count": 1,
+            "data_warehouse_entity_count": 0,
+            "has_properties": False,
+            "filter_test_accounts": True,
+            "breakdown_type": "event",
+            "has_formula": True,
+            "date_from": "-7d",
+        }
+
+    def test_get_analytics_query_metadata_for_funnels_query(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [{"kind": "EventsNode"}, {"kind": "EventsNode"}],
+                    "funnelsFilter": {"funnelVizType": "steps", "funnelOrderType": "ordered"},
+                },
+            },
+        )
+        metadata = insight.get_analytics_query_metadata()
+        assert metadata["funnel_viz_type"] == "steps"
+        assert metadata["funnel_order_type"] == "ordered"
+        assert metadata["series_length"] == 2
+
+    @parameterized.expand(
+        [
+            ("hogql_via_data_visualization", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}),
+            ("bare_hogql", {"kind": "HogQLQuery"}),
+            ("no_query", None),
+        ]
+    )
+    def test_get_analytics_query_metadata_is_empty_for_non_insight_queries(
+        self, _name: str, query: dict | None
+    ) -> None:
+        # Non-insight queries (raw SQL/table) carry no series/breakdown/etc., so they emit only the kinds.
+        insight = Insight.objects.create(team=self.team, query=query)
+        assert insight.get_analytics_query_metadata() == {}
+
+    @parameterized.expand(
+        [
+            (
+                "wrapped_trends",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                {"query_kind": "InsightVizNode", "query_source_kind": "TrendsQuery"},
+            ),
+            (
+                "hogql_via_data_visualization",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}},
+                {"query_kind": "DataVisualizationNode", "query_source_kind": "HogQLQuery"},
+            ),
+            (
+                "data_table_events",
+                {"kind": "DataTableNode", "source": {"kind": "EventsQuery"}},
+                {"query_kind": "DataTableNode", "query_source_kind": "EventsQuery"},
+            ),
+            ("bare_hogql_no_source", {"kind": "HogQLQuery"}, {"query_kind": "HogQLQuery"}),
+            ("no_query", None, {}),
+        ]
+    )
+    def test_get_analytics_query_kinds(self, _name: str, query: dict | None, expected: dict) -> None:
+        insight = Insight.objects.create(team=self.team, query=query)
+        assert insight.get_analytics_query_kinds() == expected

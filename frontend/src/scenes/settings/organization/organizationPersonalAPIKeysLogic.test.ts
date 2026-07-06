@@ -54,4 +54,23 @@ describe('organizationPersonalAPIKeysLogic', () => {
         expect(logic.values.keys).toEqual([])
         expect(logic.values.keysLoading).toEqual(true)
     })
+
+    it('filters by owner name, email, or scope', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearch('lovelace')
+        expect(logic.values.filteredKeys).toEqual([MOCK_KEYS[0]])
+
+        logic.actions.setSearch('alan@x.com')
+        expect(logic.values.filteredKeys).toEqual([MOCK_KEYS[1]])
+
+        logic.actions.setSearch('feature_flag')
+        expect(logic.values.filteredKeys).toEqual([MOCK_KEYS[1]])
+
+        logic.actions.setSearch('  ')
+        expect(logic.values.filteredKeys).toEqual(MOCK_KEYS)
+
+        logic.actions.setSearch('nomatch')
+        expect(logic.values.filteredKeys).toEqual([])
+    })
 })

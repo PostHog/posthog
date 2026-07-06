@@ -397,20 +397,30 @@ class SelectQueryType(Type):
 @dataclass(kw_only=True, slots=True)
 class SelectSetQueryType(Type):
     types: list[Union["SelectQueryType", "SelectSetQueryType"]]
+    columns: dict[str, Type] = field(default_factory=dict)
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
+        if name in self.columns:
+            return FieldType(name=name, table_type=self)
         return self.types[0].get_child(name, context)
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
+        if name in self.columns:
+            return True
         return self.types[0].has_child(name, context)
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        if name in self.columns:
+            return self.columns[name].resolve_constant_type(context)
         return self.types[0].resolve_column_constant_type(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.columns:
+            first_column = next(iter(self.columns.values()))
+            return first_column.resolve_constant_type(context)
         return self.types[0].resolve_constant_type(context)
 
 
@@ -597,10 +607,30 @@ class ArrayType(ConstantType):
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: list[ConstantType]
+    field_names: list[str | None] = field(default_factory=list)
     repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
+
+
+@dataclass(kw_only=True, slots=True)
+class AggregateStateType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+    wrapped_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "AggregateState"
+
+
+@dataclass(kw_only=True, slots=True)
+class MapType(ConstantType):
+    data_type: ConstantDataType = field(default="map", init=False)
+    key_type: ConstantType = field(default_factory=UnknownType)
+    value_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "Map"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -761,16 +791,30 @@ class PropertyType(Type):
             constant_type.nullable = nullable
             return constant_type
 
+        metadata_type = self._metadata_constant_type(context)
+        if metadata_type is not None:
+            return metadata_type
+
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
+
+    def _metadata_constant_type(self, context: HogQLContext) -> ConstantType | None:
+        from posthog.hogql.property_planner import (
+            metadata_constant_type,  # noqa: PLC0415 — property_planner imports ast; deferring breaks the cycle
+        )
+
+        return metadata_constant_type(self, context)
 
 
 @dataclass(kw_only=True, slots=True)
 class LambdaArgumentType(Type):
     name: str
+    constant_type: Optional[ConstantType] = None
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        return UnknownType()
+        if self.constant_type is None:
+            return UnknownType()
+        return dataclasses.replace(self.constant_type)
 
 
 @dataclass(kw_only=True, slots=True)
@@ -940,6 +984,36 @@ class Tuple(Expr):
 
 
 @dataclass(kw_only=True, slots=True)
+class PropertyAccess(Expr):
+    """The lowered form of a `properties.X` read: "read this key path from this properties field."
+
+    The properties field is treated as an abstract key-value document — how the value is physically served (raw JSON
+    extract, materialized column, property-group map) is decided by later passes, never encoded in this node.
+
+    This is what a blob property read becomes after logical lowering. The contrast that matters is with
+    `PropertyType`, the read's *type* before lowering. A `PropertyType` means "this is an unresolved property — nobody has
+    turned it into anything concrete yet." A `PropertyAccess` is that property **lowered to its concrete pieces**: `expr`
+    is the blob column (e.g. `events.properties`), `keys` is the path into it, and the node's own type is the value type of
+    the read — a nullable String. It has dropped the "I'm an unresolved property" meaning (it carries *no* `PropertyType`),
+    so nothing downstream mistakes it for one and re-runs property logic on it.
+
+    It does **not** decide where the value ultimately comes from. Lowering produces a `PropertyAccess` for *every* blob
+    property — a materialized one and a raw one look identical at this stage. On ClickHouse, the next pass (the
+    materialized-column / property-group / skip-index physical passes) may rewrite this node to a concrete column read — a
+    faster source of the *same* value — when a backing column exists. Raw JSON is only the **default rendering if nothing
+    rewrites it**: each printer renders a surviving node mechanically in its own JSON syntax via `visit_property_access`
+    (ClickHouse `JSONExtractRaw` + null/quote scrub; Postgres/DuckDB `->`/`->>`) and makes no physical-column decision —
+    that is the whole point of this split. For the warehouse dialects there is no second pass, so the node always renders
+    as the extract. `keys` mirrors a `PropertyType.chain` —
+    string object keys and integer array indices, passed through untyped so each dialect's `_json_property_args` handles
+    them just like the legacy `visit_property_type` blob fallback did.
+    """
+
+    expr: Expr
+    keys: list[str | int]
+
+
+@dataclass(kw_only=True, slots=True)
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block
@@ -948,6 +1022,18 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # When True, the SQL printer routes this constant through
+    # ``HogQLContext.add_sensitive_value`` so the placeholder key gets the
+    # ``_sensitive`` suffix and ``substitute_params_for_display`` redacts the
+    # value to ``[HIDDEN]``
+    is_sensitive: bool | None = None
+    # Internal ClickHouse-printer hint, not part of the logical AST. Set True only by the physical pass, only for its
+    # fixed scrubbing sentinels (the nullIf ''/'null' literals, the quote-trim regex, the 'true'/'false' the property
+    # group stores booleans as), to render them inline instead of as a bound parameter — matching the inline string the
+    # `json_extract_trim_quotes` helper emits. The printer enforces a fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it
+    # can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
+    # compilers, `pretty_dataclasses` snapshots) leave it out.
+    inline_sentinel: bool | None = None
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.

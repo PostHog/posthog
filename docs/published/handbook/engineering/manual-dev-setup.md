@@ -54,7 +54,7 @@ d22559261575   temporalio/auto-setup:1.20.0               "/etc/temporal/entry�
 c04358d8309f   zookeeper:3.7.0                            "/docker-entrypoint.…"   51 seconds ago   Up 50 seconds             2181/tcp, 2888/tcp, 3888/tcp, 8080/tcp                                                           posthog-zookeeper-1
 09add699866e   maildev/maildev:2.0.5                      "bin/maildev"            51 seconds ago   Up 50 seconds (healthy)   0.0.0.0:1025->1025/tcp, 0.0.0.0:1080->1080/tcp                                                   posthog-maildev-1
 61a44c094753   elasticsearch:7.16.2                       "/bin/tini -- /usr/l…"   51 seconds ago   Up 50 seconds             9200/tcp, 9300/tcp                                                                               posthog-elasticsearch-1
-a478cadf6911   minio/minio:RELEASE.2022-06-25T15-50-16Z   "sh -c 'mkdir -p /da…"   51 seconds ago   Up 50 seconds             9000/tcp, 0.0.0.0:19000-19001->19000-19001/tcp                                                   posthog-object_storage-1
+a478cadf6911   chrislusf/seaweedfs:4.29                   "/bin/sh -c '(while …"   51 seconds ago   Up 50 seconds             0.0.0.0:19000-19001->19000-19001/tcp                                                             posthog-objectstorage-1
 91f838afe40e   redis:6.2.7-alpine                         "docker-entrypoint.s…"   51 seconds ago   Up 50 seconds             0.0.0.0:6379->6379/tcp                                                                           posthog-redis-1
 
 # docker logs posthog-db-1 -n 1
@@ -131,6 +131,9 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
 4. Install Node packages by running `pnpm i`.
 
 5. Run `pnpm --filter=@posthog/frontend typegen:write` to generate types for [Kea](https://keajs.org/) state management logics used all over the frontend.
+
+When iterating on one logic file, run `pnpm --filter=@posthog/frontend typegen:file <path-to-logic-file>` instead.
+The path can be absolute, repo-relative like `frontend/src/scenes/foo/fooLogic.ts`, or frontend-relative like `src/scenes/foo/fooLogic.ts`.
 
 > The first time you run typegen, it may get stuck in a loop. If so, cancel the process (`Ctrl+C`), discard all changes in the working directory (`git reset --hard`), and run `pnpm typegen:write` again. You may need to discard all changes once more when the second round of type generation completes.
 

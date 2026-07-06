@@ -38,6 +38,11 @@ from posthog.dags.person_property_reconciliation import (
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
+from posthog.dags.tests.conftest import refresh_person_from_persons_db
+
+# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
+# run against the real persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestClickHouseResultParsing:
@@ -5791,7 +5796,7 @@ class TestBatchCommitsEndToEnd:
             get_person_property_updates_from_clickhouse,
             process_persons_in_batches,
         )
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         num_persons = 5
         batch_size = 2
@@ -5807,7 +5812,7 @@ class TestBatchCommitsEndToEnd:
         # Create persons in Postgres with old property values
         persons = []
         for i in range(num_persons):
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team_id,
                 properties={"email": f"old_{i}@example.com", "counter": i},
                 properties_last_updated_at={
@@ -5880,13 +5885,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             # Set up cursor settings
             cursor.execute("SET application_name = 'test_batch_commits'")
 
@@ -5913,7 +5915,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify Postgres was actually updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["email"] == f"new_{i}@example.com", (
@@ -5929,6 +5931,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp for email
+            assert person.properties_last_updated_at is not None
             assert "email" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'email' key"
             )
@@ -5939,6 +5942,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set' for email
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("email") == "set", (
                 f"Person {i} properties_last_operation['email'] should be 'set', "
                 f"got '{person.properties_last_operation.get('email')}'"
@@ -5960,7 +5964,7 @@ class TestBatchCommitsEndToEnd:
             get_person_property_updates_from_clickhouse,
             process_persons_in_batches,
         )
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         team_id = team.id
 
@@ -5971,7 +5975,7 @@ class TestBatchCommitsEndToEnd:
         # Create only 3 persons in Postgres
         persons = []
         for i in range(3):
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team_id,
                 properties={"name": f"old_name_{i}"},
                 properties_last_updated_at={"name": "2024-01-01T00:00:00+00:00"},
@@ -6062,13 +6066,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             result = process_persons_in_batches(
                 person_property_diffs=person_property_updates,
                 cursor=cursor,
@@ -6088,7 +6089,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify existing persons were updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["name"] == f"new_name_{i}", (
@@ -6099,6 +6100,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp
+            assert person.properties_last_updated_at is not None
             assert "name" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'name' key"
             )
@@ -6108,6 +6110,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set'
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("name") == "set", (
                 f"Person {i} properties_last_operation['name'] should be 'set', "
                 f"got '{person.properties_last_operation.get('name')}'"
@@ -6202,10 +6205,10 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import publish_person_to_kafka
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Create person in Postgres
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "kafka_test@example.com", "name": "Kafka Test User"},
             version=1,
@@ -6267,10 +6270,10 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import publish_person_to_kafka
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Create person in Postgres with version 1
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "original@example.com"},
             version=1,
@@ -6358,7 +6361,7 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Person
+        from posthog.test.persons import create_person
 
         # Time setup - create a bug window that includes our test events
         now = datetime.now().replace(microsecond=0)
@@ -6367,7 +6370,7 @@ class TestKafkaClickHouseRoundTrip:
         event_ts = now - timedelta(days=5)
 
         # Create person in Postgres with old property value
-        person = Person.objects.create(
+        person = create_person(
             team_id=team.id,
             properties={"email": "old@example.com", "unchanged": "value"},
             properties_last_updated_at={
@@ -6415,15 +6418,10 @@ class TestKafkaClickHouseRoundTrip:
 
         cluster.any_host(insert_person_ch).result()
 
-        # Get a Postgres connection for the job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        # Create real Kafka producer
-        with override_settings(TEST=False):
+        # Create real Kafka producer. Non-autocommit: the dagster job drives commit()/rollback() on this resource.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
@@ -6467,7 +6465,7 @@ class TestKafkaClickHouseRoundTrip:
                 kafka_producer.close()
 
         # Verify Postgres was updated
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties["email"] == "new@example.com", (
             f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
         )
@@ -6528,7 +6526,8 @@ class TestKafkaClickHouseRoundTrip:
 
         from posthog.dags.person_property_reconciliation import person_property_reconciliation_job
         from posthog.kafka_client.client import _KafkaProducer
-        from posthog.models import Organization, Person, Team
+        from posthog.models import Organization, Team
+        from posthog.test.persons import create_person
 
         # Create two organizations and teams for isolation
         org1 = Organization.objects.create(name="Test Org 1 for timestamp permutations")
@@ -6574,7 +6573,7 @@ class TestKafkaClickHouseRoundTrip:
         # Create persons in Postgres for team 1
         persons_team1 = {}
         for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team1:
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team1.id,
                 properties={prop_name: "old_value"},
                 properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},
@@ -6586,7 +6585,7 @@ class TestKafkaClickHouseRoundTrip:
         # Create persons in Postgres for team 2
         persons_team2 = {}
         for suffix, _person_ts, _event_ts, _expected, prop_name in test_cases_team2:
-            person = Person.objects.create(
+            person = create_person(
                 team_id=team2.id,
                 properties={prop_name: "old_value"},
                 properties_last_updated_at={prop_name: "2020-01-01T00:00:00+00:00"},
@@ -6690,13 +6689,10 @@ class TestKafkaClickHouseRoundTrip:
         cluster.any_host(insert_persons_ch_team2).result()
 
         # Run the Dagster job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        with override_settings(TEST=False):
+        # Non-autocommit: the dagster job drives commit()/rollback() on this resource connection.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
@@ -6739,7 +6735,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 1 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team1:
             person = persons_team1[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (
@@ -6757,7 +6753,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 2 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team2:
             person = persons_team2[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (

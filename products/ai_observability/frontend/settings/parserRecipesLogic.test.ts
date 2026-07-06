@@ -60,6 +60,18 @@ describe('parserRecipesLogic', () => {
         expect(logic.values.storedForMerge).toEqual([{ id: 'r1', source: 'rules: []\n' }])
     })
 
+    it('bumps recipesVersion every time loaded recipes are applied to the normalizer', async () => {
+        enableFlag()
+        logic = parserRecipesLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecipesSuccess', 'recipesApplied'])
+        expect(logic.values.recipesVersion).toBe(1)
+
+        logic.actions.loadRecipes()
+        await expectLogic(logic).toDispatchActions(['loadRecipesSuccess', 'recipesApplied'])
+        expect(logic.values.recipesVersion).toBe(2)
+    })
+
     it('surfaces a compile error for invalid editor source and clears it on close', () => {
         logic = parserRecipesLogic()
         logic.mount()

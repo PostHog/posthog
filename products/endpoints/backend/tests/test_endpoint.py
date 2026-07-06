@@ -3,7 +3,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from parameterized import parameterized
 from rest_framework import status
@@ -435,6 +435,19 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["name"], "reusable_name")
+
+    def test_create_rolls_back_endpoint_when_version_creation_fails(self):
+        payload = {"name": "rollback-endpoint", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}}
+
+        with mock.patch.object(EndpointVersion.objects, "create", side_effect=RuntimeError("boom")):
+            response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Endpoint.objects.filter(team=self.team, name="rollback-endpoint", deleted=False).count(), 0)
+
+        # The name must be reusable after the failed create
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_soft_deleted_endpoint_not_runnable(self):
         create_endpoint_with_version(
@@ -1284,6 +1297,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["range_pairs"][0]["column"] == "timestamp"
         assert set(data["range_pairs"][0]["variables"]) == {"start_ts", "end_ts"}
 
+        # The endpoint isn't materialized yet, so its backing table doesn't exist in the database.
+        # The execution-query preview must still be produced (printed without type resolution)
+        # rather than failing with "Unknown table".
+        assert data["execution_query"] is not None
+        assert data["display_execution_query"] is not None
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
@@ -1454,7 +1473,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.api.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.trigger_saved_query_schedule") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
@@ -1479,7 +1498,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
         with mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.trigger_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
         ) as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",

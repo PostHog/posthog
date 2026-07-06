@@ -54,6 +54,10 @@ CRAWL_HARD_MAX_DEPTH = 5
 # hammering an origin. In-process (threading.Semaphore), not cross-worker;
 # cross-worker rate limiting is Stage 5 Temporal work.
 PER_HOST_CONCURRENCY = 2
+# Total bytes of page bodies the same-origin BFS may carry over to the fetch
+# phase (so traversed pages aren't downloaded twice). Past the budget the
+# fetch phase re-downloads — a bounded-memory tradeoff, not a correctness one.
+PREFETCH_CACHE_MAX_BYTES = 64 * 1024 * 1024
 
 # --- Stage 3: file upload tunables ---
 # Hard cap on uploaded file size (compressed). Above this the serializer
@@ -112,6 +116,40 @@ PENDING_EMBEDDING_SCAN_CAP = 50
 # re-checking docs whose vectors are simply still in flight through Kafka.
 RECONCILE_EMBEDDING_SCAN_CAP = 50
 RECONCILE_EMBEDDING_GRACE = datetime.timedelta(hours=2)
+# Periodic TTL refresh. The shared document_embeddings table TTLs rows at
+# `timestamp + 3 MONTH`, computed from the user-supplied `timestamp` we pass at
+# emit time (NOT inserted_at). A SAFE doc embedded once and never re-emitted
+# silently loses its vectors after ~3 months and falls back to FTS-only forever
+# — the first-emission `embeddings_emitted_at IS NULL` guard means it's never
+# re-emitted on its own. This window picks up docs whose last emission is older
+# than ~2 months, comfortably under the 3-month TTL, so the re-emit lands a
+# fresh live row before the old one expires.
+#
+# Both the TTL-refresh path and the first-emission path for OLD docs (created_at
+# older than EMBEDDING_STABLE_TS_MAX_AGE) use timestamp=now() — the TTL is on
+# `timestamp`, so emitting under an old created_at would land an expired or
+# soon-to-expire row. Young docs still use the stable created_at for sort-key
+# dedup. The fresh-timestamp row lands under today's partition; any prior row
+# ages out under its own TTL. This is correctness-safe: the read path always
+# re-joins to Postgres and dedups candidates by chunk_id, so a transient extra
+# row can never double-count or surface stale content.
+EMBEDDING_TTL_REFRESH_WINDOW = datetime.timedelta(days=60)
+# The shared embeddings table TTLs rows at `timestamp + 3 MONTH` (see
+# error_tracking's indexed_embedding.py — the table definition is the source of
+# truth; this mirrors it for arithmetic).
+BK_EMBEDDING_TABLE_TTL = datetime.timedelta(days=90)
+# Max document age at first emit for which the stable created_at timestamp is
+# safe. The invariant: the row must survive until the refresh cron re-emits at
+# emitted_at + EMBEDDING_TTL_REFRESH_WINDOW, i.e. created_at + TTL must exceed
+# that — so created_at can be at most TTL - REFRESH_WINDOW old. Older docs
+# (incl. re-nulled in-place crawl docs, late-SAFE classifications, and backfill)
+# must emit with now() or they'd lose vectors before the refresh cron fires.
+EMBEDDING_STABLE_TS_MAX_AGE = BK_EMBEDDING_TABLE_TTL - EMBEDDING_TTL_REFRESH_WINDOW
+# Per coordinator pass: how many aging SAFE docs to re-emit (oldest-emitted
+# first). Same memory knob as the other embedding caps — each doc loads its
+# chunk content to produce to Kafka. A large refresh wave drains over many
+# hourly passes instead of blowing up a single run across all teams.
+REEMIT_EMBEDDING_SCAN_CAP = 50
 
 # --- Hybrid retrieval tunables (PR2 read path) ---
 # cosineDistance threshold: vectors above this are discarded BEFORE re-joining
@@ -135,9 +173,18 @@ BK_RRF_K = 60
 # off-topic query. 1/(60+5) ≈ 0.0154, so a semantic-only candidate must land in
 # roughly the top-5 of the semantic list to survive.
 BK_RRF_SCORE_FLOOR = 0.015
+# Listwise reranker model for post-search reordering (opt-in via rerank=true).
+BK_RERANK_MODEL = "claude-haiku-4-5"
+# Max chars of chunk content included in the rerank prompt per candidate.
+BK_RERANK_SNIPPET_CHARS = 500
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
+
+# --- Always-on context cap ---
+# Hard char cap for always-on sources injected into every support prompt.
+# These bypass query filtering, so unbounded injection blows the token budget.
+MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
 
 # --- Drill-down (agentic read) tunables ---
 # Default chunk radius for get_document_window: returns center +/- radius

@@ -3,7 +3,8 @@ import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -138,12 +139,15 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey): 'dashboard' | 'journeys' | 'accounts' => {
+            (sceneKey): 'dashboard' | 'journeys' | 'accounts' | 'notes' => {
                 if (sceneKey === 'customerAnalyticsJourneys') {
                     return 'journeys'
                 }
                 if (sceneKey === 'customerAnalyticsAccounts') {
                     return 'accounts'
+                }
+                if (sceneKey === 'customerAnalyticsNotes') {
+                    return 'notes'
                 }
                 return 'dashboard'
             },

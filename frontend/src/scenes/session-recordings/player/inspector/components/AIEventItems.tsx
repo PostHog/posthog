@@ -1,7 +1,7 @@
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
-import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { isObject } from 'lib/utils/guards'
 
 import { AIDataLoading } from 'products/ai_observability/frontend/components/AIDataLoading'
 import { ConversationMessagesDisplay } from 'products/ai_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
@@ -30,8 +30,8 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
         <div>
             {isGeneration ? (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', tools)}
-                    outputNormalized={normalizeMessages(output, 'assistant')}
+                    inputNormalized={normalizeMessages(input, 'user', tools).messages}
+                    outputNormalized={normalizeMessages(output, 'assistant').messages}
                     errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}
                     raisedError={raisedError}

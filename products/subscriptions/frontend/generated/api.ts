@@ -36,65 +36,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSubscriptionsDeliveriesListUrl = (
-    projectId: string,
-    subscriptionId: number,
-    params?: SubscriptionsDeliveriesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
-        : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
-}
-
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const subscriptionsDeliveriesList = async (
-    projectId: string,
-    subscriptionId: number,
-    params?: SubscriptionsDeliveriesListParams,
-    options?: RequestInit
-): Promise<PaginatedSubscriptionDeliveryListApi> => {
-    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
-        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
-    return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
-}
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const subscriptionsDeliveriesRetrieve = async (
-    projectId: string,
-    subscriptionId: number,
-    id: string,
-    options?: RequestInit
-): Promise<SubscriptionDeliveryApi> => {
-    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getSubscriptionsListUrl = (projectId: string, params?: SubscriptionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -216,6 +157,65 @@ export const subscriptionsTestDeliveryCreate = async (
     return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSubscriptionsDeliveriesListUrl = (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/subscriptions/${subscriptionId}/deliveries/`
+}
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const subscriptionsDeliveriesList = async (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionDeliveryListApi> => {
+    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
+        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
+    return `/api/projects/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
+}
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const subscriptionsDeliveriesRetrieve = async (
+    projectId: string,
+    subscriptionId: number,
+    id: string,
+    options?: RequestInit
+): Promise<SubscriptionDeliveryApi> => {
+    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

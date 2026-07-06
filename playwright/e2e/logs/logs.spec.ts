@@ -1,10 +1,18 @@
 import path from 'path'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Logs', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
     test.describe('UI integration tests (mocked API)', () => {
-        test.beforeEach(async ({ page }) => {
+        test.beforeEach(async ({ page, playwrightSetup }) => {
+            await playwrightSetup.login(page, workspace!)
+
             // Mock APIs BEFORE navigation to avoid race conditions
             await page.route('**/api/environments/*/logs/query/', (route) =>
                 route.fulfill({
@@ -30,7 +38,7 @@ test.describe('Logs', () => {
                 })
             )
 
-            await page.goto('/project/1/logs')
+            await page.goto(`/project/${workspace!.team_id}/logs`)
             await page.waitForLoadState('networkidle')
         })
 

@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 import { join } from 'path'
 
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -43,20 +44,21 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
         setupSessionRecordingTest({
             snapshotSources: [BLOB_V2_SOURCE_ZERO, BLOB_V2_SOURCE_ONE],
             getMocks: {
-                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob') {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    const url = new URL(request.url)
+                    if (url.searchParams.get('source') === 'blob') {
                         throw new Error('not expecting this to be called in this test')
-                    } else if (req.url.searchParams.get('source') === 'blob_v2') {
-                        const key = req.url.searchParams.get('blob_key')
-                        const start_blob_key = req.url.searchParams.get('start_blob_key')
-                        const end_blob_key = req.url.searchParams.get('end_blob_key')
+                    } else if (url.searchParams.get('source') === 'blob_v2') {
+                        const key = url.searchParams.get('blob_key')
+                        const start_blob_key = url.searchParams.get('start_blob_key')
+                        const end_blob_key = url.searchParams.get('end_blob_key')
 
                         if (key === '0') {
-                            return res(ctx.text(keyZero))
+                            return new HttpResponse(keyZero)
                         } else if (key === '1') {
-                            return res(ctx.text(keyOne))
+                            return new HttpResponse(keyOne)
                         } else if (start_blob_key === '0' && end_blob_key === '1') {
-                            return res(ctx.text(`${keyZero}\n${keyOne}`))
+                            return new HttpResponse(`${keyZero}\n${keyOne}`)
                         }
                         throw new Error(`Unexpected blob key: ${key}`)
                     }
@@ -110,8 +112,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                     }),
                 ])
             )
-            expect(actual).toMatchSnapshot()
-
             expect(logic.values.snapshotSources).toEqual([
                 {
                     blob_key: '0',

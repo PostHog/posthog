@@ -8,7 +8,7 @@ use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
     fan_out::{extract_tuple, fan_out, fan_out_group},
-    producer::AggregatedProducer,
+    producer::{AggregatedProducer, WireFormat},
     types::{Event, GroupIdentify, PropertyValueMessage},
     worker::{worker_loop, ReductionConfig},
 };
@@ -88,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_consumer_group = %config.groups_kafka_consumer_group,
         intermediate_topic = %config.intermediate_topic,
         intermediate_topic_encoding = ?config.intermediate_topic_encoding,
+        intermediate_topic_format = ?config.intermediate_topic_format,
         merger_consumer_group = %config.merger_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
@@ -103,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.intermediate_topic.clone(),
         produce_timeout,
         config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -116,6 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.intermediate_topic.clone(),
         produce_timeout,
         config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -130,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.output_topic.clone(),
         produce_timeout,
         EnvelopeEncoding::None,
+        WireFormat::Json,
     )
     .await?;
 

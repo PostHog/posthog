@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
     PaginatedPersonRecordListApi,
     PatchedPersonRecordApi,
@@ -28,6 +29,7 @@ import type {
     PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
     PersonsDeletionStatusListParams,
+    PersonsEmailsListParams,
     PersonsFunnelCreateParams,
     PersonsFunnelRetrieveParams,
     PersonsLifecycleRetrieveParams,
@@ -265,6 +267,37 @@ export const personsDeletePropertyCreate = async (
     })
 }
 
+export const getPersonsEmailsListUrl = (projectId: string, id: number, params?: PersonsEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/${id}/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/${id}/emails/`
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const personsEmailsList = async (
+    projectId: string,
+    id: number,
+    params?: PersonsEmailsListParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
     id: number,
@@ -320,7 +353,9 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?:
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
  * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
- * - **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the person's properties are wiped and the first distinct_id is treated as the one to keep.
+ * - **`main_distinct_id`**: keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the first distinct_id is kept.
+ *
+ * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *
  * The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
  */

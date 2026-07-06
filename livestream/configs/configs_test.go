@@ -20,7 +20,6 @@ func TestLoadConfig(t *testing.T) {
 			setup: func() {
 				// Values already set in setupTestConfig
 				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
-				_ = os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
 			},
 			want: &Config{
 				Debug:            true,
@@ -49,11 +48,9 @@ func TestLoadConfig(t *testing.T) {
 						GroupID:          "livestream-dev-notifications",
 					},
 				},
-				Postgres: PostgresConfig{
-					URL: "pg url",
-				},
 				JWT: JWTConfig{
-					Secret: "token",
+					Secret:          "token",
+					SecretFallbacks: []string{"<previous secret key>"},
 				},
 				SessionRecording: SessionRecordingConfig{
 					MaxLRUEntries: 2_000_000_000,
@@ -79,7 +76,6 @@ func TestLoadConfig(t *testing.T) {
 			}
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
-			assert.Equal(t, tt.want.Postgres.URL, viper.GetString("postgres.url"))
 			assert.Equal(t, tt.want.JWT.Secret, viper.GetString("jwt.secret"))
 		})
 	}

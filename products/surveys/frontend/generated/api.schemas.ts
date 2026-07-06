@@ -148,6 +148,13 @@ export const ResponseSamplingIntervalTypeEnumApi = {
     Month: 'month',
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * @nullable
  */
@@ -357,6 +364,8 @@ export interface SurveyApi {
      */
     readonly user_access_level: string | null
     form_content?: unknown
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedSurveyListApi {
@@ -822,6 +831,8 @@ export const DescriptionContentTypeEnumApi = {
 } as const
 
 export interface SurveyOpenQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyOpenQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -849,6 +860,8 @@ export const SurveyLinkQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveyLinkQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyLinkQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -976,6 +989,8 @@ export type SurveyBranchingSchemaApi =
     | SurveyResponseBasedBranchingApi
 
 export interface SurveyRatingQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyRatingQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -1018,6 +1033,8 @@ export const SurveySingleChoiceQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveySingleChoiceQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveySingleChoiceQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -1056,6 +1073,8 @@ export const SurveyMultipleChoiceQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveyMultipleChoiceQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyMultipleChoiceQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -1200,6 +1219,10 @@ export interface SurveyAppearanceSchemaApi {
     placeholder?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+    allowGoBack?: boolean
+    /** Optional override for the back button label. Defaults to 'Back'. */
+    backButtonText?: string
     widgetType?: WidgetTypeEnumApi
     widgetSelector?: string
     widgetLabel?: string
@@ -2118,6 +2141,10 @@ export interface SurveyGlobalStatsResponseApi {
 
 export type SurveysListParams = {
     archived?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    ids?: string[]
     /**
      * Number of results to return per page.
      */

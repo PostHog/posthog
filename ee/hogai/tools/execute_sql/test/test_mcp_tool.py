@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 
@@ -35,6 +35,19 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("test_event", content)
 
+    async def test_result_has_no_prompt_framing(self):
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
+        )
+
+        # The MCP tool returns the data table straight to an external agent, so the human-assistant
+        # framing (format description + "Here is the results table of the ... insight:" reminder) is stripped.
+        self.assertIn("test_event", content)
+        self.assertNotIn("You are given a table with the results of a SQL query", content)
+        self.assertNotIn("Here is the results table", content)
+
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await self.tool.execute(
@@ -56,7 +69,6 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         validated = self.tool.args_schema.model_validate({"query": "SELECT 1"})
         self.assertEqual(validated.query, "SELECT 1")
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
         await sync_to_async(Insight.objects.create)(
             team=self.team,

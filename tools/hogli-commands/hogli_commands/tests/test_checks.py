@@ -11,6 +11,7 @@ from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     CheckContext,
     FileFolderConflictsCheck,
+    IsolationChainCheck,
     OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
     ProductYamlCheck,
@@ -23,6 +24,12 @@ from hogli_commands.product.checks import (
     validate_facade_alternation,
     validate_interface_blocks,
     validate_tach_references,
+)
+from hogli_commands.product.isolation import (
+    has_narrowed_turbo_inputs,
+    permanent_interface_modules,
+    routes_in_turbo_inputs,
+    uncovered_permanent_modules,
 )
 
 # ---------------------------------------------------------------------------
@@ -223,6 +230,213 @@ class TestAbsenceChecks:
         )
         result = check.run(ctx)
         assert not result.issues
+
+    def test_contract_check_forbidden_with_deferred_presentation_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An isolated product still owing presentation-wave work can't opt into the skip."""
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: ["e1", "e2"])
+        ctx = _make_product(
+            tmp_path,
+            scripts={
+                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+                "backend:contract-check": "echo 'Contract files unchanged'",
+            },
+            isolated=True,
+            extra_dirs=["backend"],
+        )
+        result = check.run(ctx)
+        assert any("presentation-wave ignore_imports" in i for i in result.issues)
+        # and it must not nag the same product to *add* the script it can't have yet
+        assert not any("missing 'backend:contract-check'" in i for i in result.issues)
+
+
+# ---------------------------------------------------------------------------
+# Isolation chain: earned-but-not-turned-on enforcement
+# ---------------------------------------------------------------------------
+
+
+_NARROWED_TURBO = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": ["backend/facade/**", "backend/presentation/**"],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
+_NARROWED_TURBO_WITH_ROUTES = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
+chain_check = IsolationChainCheck()
+
+
+_WITH_SCRIPT = {
+    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+    "backend:contract-check": "echo 'Contract files unchanged'",
+}
+
+
+def _seal_externally(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The tmp fixture product isn't declared in the repo's real tach.toml/pyproject.toml,
+    # so force compute_isolation_status to see an externally sealed, internally clean product.
+    import hogli_commands.product.isolation as isolation_module
+
+    monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: True)
+    monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+    monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+
+
+class TestIsolationChainTurnOn:
+    def test_eligible_with_script_but_no_narrowed_turbo_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        result = chain_check.run(ctx)
+        assert any("inert" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
+
+    def test_eligible_with_narrowed_turbo_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert not result.issues
+
+    def test_eligible_without_script_is_not_nagged_to_narrow_turbo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Eligible + sealed but the contract-check script isn't added yet: PackageJsonScriptsCheck
+        # owns nagging for the script, so IsolationChainCheck must not raise the turn-on issue
+        # (which would falsely claim the product "carries 'backend:contract-check'").
+        _seal_externally(monkeypatch)
+        ctx = _make_product(
+            tmp_path,
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+            isolated=True,
+        )
+        result = chain_check.run(ctx)
+        assert not any("inert" in i for i in result.issues)
+
+    def test_not_externally_sealed_does_not_demand_turbo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Without the tach interface the product isn't externally sealed — TachCheck owns that
+        # failure, so the chain check must not pile on a turbo-narrowing demand.
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        result = chain_check.run(ctx)
+        assert not any("inert" in i for i in result.issues)
+
+
+class TestIsolationChainRoutes:
+    def test_narrowed_with_routes_not_in_inputs_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert any("routes.py" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
+
+    def test_narrowed_with_routes_in_inputs_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO_WITH_ROUTES))
+        result = chain_check.run(ctx)
+        assert not result.issues
+
+    def test_narrowed_with_routes_package_dir_not_in_inputs_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # routes/ as a package directory (not a routes.py file) is the other form has_routes_module
+        # accepts — it must be demanded in the inputs the same way.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        # the message must point at the package glob, not backend/routes.py
+        assert any("backend/routes/**" in i for i in result.issues)
+
+    def test_narrowed_without_routes_module_is_not_demanded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No routes.py at all — nothing to watch, so the routes demand must not fire.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert not any("routes.py" in i for i in result.issues)
+
+    def test_unnarrowed_with_routes_is_not_demanded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Not narrowed (no turbo.json) — contract-check still watches all of backend/, so routes.py
+        # is already covered and the routes demand must not fire.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes.py").write_text("")
+        result = chain_check.run(ctx)
+        assert not any("routes.py" in i for i in result.issues)
+
+
+class TestNarrowedTurboDetection:
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/presentation/**"], True),
+            (["backend/facade/**", "backend/presentation/**", "backend/routes.py"], True),
+            (["backend/presentation/**"], True),
+            (["backend/facade/**", "!backend/facade/**/__pycache__/**"], True),
+            # a broad glob alongside a surface glob keeps the skip inert — must not count as narrowed
+            (["backend/**", "backend/facade/**"], False),
+            (["backend/**"], False),
+            (["**/*.py"], False),
+            ([], False),
+            # near-misses must not pass as surface (anchored on the path separator)
+            (["backend/facade_legacy/**"], False),
+            (["backend/routesmap/**"], False),
+            # a routes input whose path merely contains "presentation" is not a facade/presentation surface
+            (["backend/routes/presentation_router.py"], False),
+        ],
+    )
+    def test_has_narrowed_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        assert has_narrowed_turbo_inputs(tmp_path) is expected
+
+
+class TestRoutesInTurboInputs:
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/routes.py"], True),
+            (["backend/routes/**"], True),
+            (["backend/facade/**", "backend/presentation/**"], False),
+            # 'routes' substring in an unrelated glob must NOT count as watching the routes module
+            (["backend/presentation/routes_views.py"], False),
+            (["backend/logic/routes_helpers/**"], False),
+            # a negated routes exclusion must NOT count as watched
+            (["backend/facade/**", "!backend/routes.py"], False),
+        ],
+    )
+    def test_routes_in_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        assert routes_in_turbo_inputs(tmp_path) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +678,111 @@ from = [
 
     def test_regex_from_does_not_false_positive(self) -> None:
         assert has_legacy_interface_leaks(_TACH_SAMPLE, "products.mcp") is False
+
+
+# ---------------------------------------------------------------------------
+# permanent-interface marker
+# ---------------------------------------------------------------------------
+
+_TACH_PERMANENT = """\
+# Facade + views: canonical public surface
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(error_tracking|experiments)",
+]
+
+# isolation:permanent-interface
+# error_tracking exposes its ClickHouse DDL to core's schema registry + frozen migrations.
+[[interfaces]]
+expose = [
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.error_tracking",
+]
+
+# Legacy leaks — experiments (unmarked, a real leak)
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.experiments",
+]
+"""
+
+
+class TestPermanentInterface:
+    def test_marked_block_is_not_a_leak(self) -> None:
+        # The DDL exposure carries the marker, so it must not hold the external seal open.
+        assert has_legacy_interface_leaks(_TACH_PERMANENT, "products.error_tracking") is False
+
+    def test_unmarked_block_is_still_a_leak(self) -> None:
+        # The experiments block exposes internals with no marker — a genuine leak.
+        assert has_legacy_interface_leaks(_TACH_PERMANENT, "products.experiments") is True
+
+    def test_marker_does_not_leak_across_blocks(self) -> None:
+        # The marker sits above the error_tracking block; the previous block's body separates
+        # it from the facade block, so the facade block is not mistaken for permanent (and the
+        # experiments leak below stays a leak — already covered above).
+        assert permanent_interface_modules(_TACH_PERMANENT, "products.experiments") == set()
+
+    def test_exposed_modules_returned(self) -> None:
+        assert permanent_interface_modules(_TACH_PERMANENT, "products.error_tracking") == {
+            "backend.embedding",
+            "backend.indexed_embedding",
+            "backend.sql",
+        }
+
+    def test_unmarked_exposure_is_not_permanent(self) -> None:
+        assert permanent_interface_modules(_TACH_SAMPLE, "products.experiments") == set()
+
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            # the three DDL modules + facade satisfy the extended-surface narrowing
+            (["backend/facade/**", "backend/sql.py", "backend/embedding.py", "backend/indexed_embedding.py"], True),
+            # facade alone still narrows (permanent modules are allowed, not required, here)
+            (["backend/facade/**"], True),
+            # a broad glob alongside still keeps the skip inert
+            (["backend/**", "backend/sql.py"], False),
+            # a permanent module without any facade/presentation glob is not a real surface
+            (["backend/sql.py"], False),
+        ],
+    )
+    def test_permanent_modules_count_as_extended_surface(
+        self, tmp_path: Path, inputs: list[str], expected: bool
+    ) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        permanent = frozenset({"backend.sql", "backend.embedding", "backend.indexed_embedding"})
+        assert has_narrowed_turbo_inputs(tmp_path, permanent) is expected
+
+    def test_uncovered_permanent_modules_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": ["backend/facade/**", "backend/sql.py"]}}})
+        )
+        permanent = frozenset({"backend.sql", "backend.embedding", "backend.indexed_embedding"})
+        assert uncovered_permanent_modules(tmp_path, permanent) == {"backend.embedding", "backend.indexed_embedding"}
+
+    def test_all_permanent_modules_covered(self, tmp_path: Path) -> None:
+        (tmp_path / "turbo.json").write_text(
+            json.dumps(
+                {
+                    "tasks": {
+                        "backend:contract-check": {
+                            "inputs": ["backend/facade/**", "backend/sql.py", "backend/embedding.py"]
+                        }
+                    }
+                }
+            )
+        )
+        assert uncovered_permanent_modules(tmp_path, frozenset({"backend.sql", "backend.embedding"})) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -1037,3 +1356,41 @@ class TestOrphanedTestFilesCheck:
         (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
         result = self._orphan_check.run(ctx)
         assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
+
+
+_IGNORE_IMPORTS_PYPROJECT = """
+[tool.importlinter]
+root_packages = ["products"]
+
+[[tool.importlinter.contracts]]
+name = "presentation must use facade"
+type = "forbidden"
+source_modules = ["products.*.backend.presentation"]
+forbidden_modules = ["products.*.backend"]
+ignore_imports = [
+    "products.**.backend.presentation.** -> products.**.backend.facade.**",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.runner",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
+]
+"""
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("logs", 2),
+        ("tracing", 1),
+        ("wizard", 0),
+    ],
+)
+def test_presentation_bypass_entries(name: str, expected: int) -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
+
+    assert len(presentation_bypass_entries(name, _IGNORE_IMPORTS_PYPROJECT)) == expected
+
+
+def test_presentation_bypass_entries_handles_broken_toml() -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
+
+    assert presentation_bypass_entries("logs", "not = [valid") == []

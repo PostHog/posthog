@@ -39,7 +39,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_node_total_storage_mib_metric,
 )
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -244,6 +244,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 if duckgres_shadow_handle is not None:
                     await self._collect_shadow_comparison(
                         duckgres_shadow_handle,
+                        duckgres_job_id,
                         materialize_result.row_count,
                         duration_seconds,
                         inputs,
@@ -320,6 +321,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             try:
                 result = await duckgres_shadow_handle
             except Exception as shadow_err:
+                await self._finalize_orphaned_duckgres_job(duckgres_job_id, inputs, str(shadow_err))
                 temporalio.workflow.logger.warning(
                     f"Duckgres shadow activity failed (duckgres_only): {str(shadow_err)}",
                     extra=inputs.properties_to_log,
@@ -340,6 +342,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     async def _collect_shadow_comparison(
         self,
         shadow_handle: temporalio.workflow.ActivityHandle[DuckgresShadowResult],
+        duckgres_job_id: str | None,
         clickhouse_row_count: int,
         clickhouse_duration_seconds: float,
         inputs: MaterializeViewWorkflowInputs,
@@ -386,8 +389,45 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             )
         except Exception as shadow_err:
             get_duckgres_shadow_finished_metric("error").add(1)
+            # the activity died before it could self-finalize its job — back it up here
+            await self._finalize_orphaned_duckgres_job(duckgres_job_id, inputs, str(shadow_err))
             temporalio.workflow.logger.warning(
                 f"Duckgres shadow comparison failed: {str(shadow_err)}",
                 extra=inputs.properties_to_log,
             )
             capture_exception(shadow_err)
+
+    async def _finalize_orphaned_duckgres_job(
+        self,
+        duckgres_job_id: str | None,
+        inputs: MaterializeViewWorkflowInputs,
+        error: str,
+    ) -> None:
+        """Mark a duckgres shadow job FAILED when its activity died before self-finalizing.
+
+        The shadow activity finalizes its own job on the happy path and on caught errors, but a
+        timeout, worker loss, or a raise before its try block leaves the job stuck in RUNNING. The
+        workflow is the only place guaranteed to observe the activity's death, so it backstops
+        finalization here. Idempotent: fail_materialization_activity skips already-terminal jobs.
+        """
+        if duckgres_job_id is None:
+            return
+        try:
+            await temporalio.workflow.execute_activity(
+                fail_materialization_activity,
+                FailMaterializationInputs(
+                    team_id=inputs.team_id,
+                    node_id=inputs.node_id,
+                    dag_id=inputs.dag_id,
+                    job_id=duckgres_job_id,
+                    error=f"Duckgres shadow activity did not finalize: {error}",
+                    update_node=False,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+        except Exception as fail_err:
+            temporalio.workflow.logger.warning(
+                f"Failed to finalize orphaned duckgres job: {str(fail_err)}",
+                extra=inputs.properties_to_log,
+            )

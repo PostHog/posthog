@@ -67,7 +67,7 @@ def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[in
         team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
         logger.info("after rollout filtering", rollout_pct=inputs.rollout_percentage, count=len(team_ids))
 
-    batches = [list(b) for b in batched(team_ids, inputs.batch_size)]
+    batches = [list(b) for b in batched(team_ids, inputs.batch_size, strict=False)]
 
     logger.info("created team batches", batch_count=len(batches), batch_size=inputs.batch_size)
     return batches

@@ -1,18 +1,22 @@
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart as InsightPieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-import { InsightLogicProps, GraphType } from '~/types'
+import { ChartDisplayType, GraphType, InsightLogicProps } from '~/types'
 
 import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { LineGraphProps } from './LineGraph'
+import { SqlPieGraph } from './SqlPieGraph'
+import { buildPieSlices, canRenderSqlPieGraph, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 export interface PieChartProps {
     xData: AxisSeries<string> | null
@@ -23,87 +27,27 @@ export interface PieChartProps {
     uniqueKey: string
 }
 
-export interface PieSlice {
-    label: string
-    value: number
-    color: string
-}
+export function PieChart(props: PieChartProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
-const isBreakdownSeries = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>
-): series is AxisBreakdownSeries<number | null> => {
-    return !('column' in series)
-}
-
-const toSliceLabel = (value: unknown): string => {
-    if (value === null || value === undefined || value === '') {
-        return '[No value]'
+    const sqlPieProps: LineGraphProps = {
+        xData: props.xData,
+        yData: props.yData,
+        visualizationType: ChartDisplayType.ActionsPie,
+        chartSettings: props.chartSettings,
+        presetChartHeight: props.presetChartHeight,
+        className: props.className,
     }
 
-    return String(value)
-}
-
-const sumValues = (values: (number | null)[]): number => {
-    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
-}
-
-const getSeriesLabel = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>,
-    index: number
-): string => {
-    if (isBreakdownSeries(series)) {
-        return series.name || `[Series ${index + 1}]`
+    if (newChartsEnabled && canRenderSqlPieGraph(sqlPieProps)) {
+        return <SqlPieGraph {...sqlPieProps} />
     }
 
-    return series.settings?.display?.label || series.column.name
+    return <LegacyPieChart {...props} />
 }
 
-export const buildPieSlices = (
-    xData: AxisSeries<string> | null,
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
-): PieSlice[] => {
-    if (!yData.length) {
-        return []
-    }
-
-    if (yData.some(isBreakdownSeries)) {
-        return yData
-            .map((series, index) => ({
-                label: getSeriesLabel(series, index),
-                value: sumValues(series.data),
-                color: series.settings?.display?.color ?? getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    if (yData.length === 1 && xData && xData.column.name !== 'None') {
-        const totalsByLabel = new Map<string, number>()
-
-        xData.data.forEach((rawLabel, index) => {
-            const label = toSliceLabel(rawLabel)
-            const value = yData[0].data[index] ?? 0
-            totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
-        })
-
-        return Array.from(totalsByLabel.entries())
-            .map(([label, value], index) => ({
-                label,
-                value,
-                color: getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    return yData
-        .map((series, index) => ({
-            label: getSeriesLabel(series, index),
-            value: sumValues(series.data),
-            color: series.settings?.display?.color ?? getSeriesColor(index),
-        }))
-        .filter((slice) => slice.value > 0)
-}
-
-export function PieChart({
+function LegacyPieChart({
     xData,
     yData,
     chartSettings,
@@ -120,10 +64,25 @@ export function PieChart({
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings
-    const formattingKey = JSON.stringify(formattingSettings?.formatting ?? {})
     const total = slices.reduce((sum, slice) => sum + slice.value, 0)
     const showLegend = chartSettings.showLegend ?? false
-    const showPieTotal = chartSettings.showPieTotal ?? true
+    // Unset means an existing chart from before the labels option — keep showing values. New pies
+    // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
+    const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
+    // The total is a sum-of-values readout, so default it on only when slices show values.
+    // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
+    const showPieTotal = chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? sliceContent === 'values'
+    const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
+
+    const absoluteFormatter = (value: number): string =>
+        String(formatDataWithSettings(value, formattingSettings) ?? value)
+    const sliceFormatter = (value: number): string =>
+        asPercent ? (total > 0 ? `${parseFloat(((value / total) * 100).toFixed(1))}%` : '0%') : absoluteFormatter(value)
+
+    // The legacy chart.js instance only rebuilds when its `useChart` deps change, and those exclude
+    // the value formatter — so remount it when the slice content or absolute/percentage mode changes,
+    // otherwise toggling them leaves the on-slice labels stale (only the React legend updates).
+    const chartKey = `${JSON.stringify(formattingSettings?.formatting ?? {})}-${sliceContent}-${asPercent}`
 
     if (!slices.length) {
         return (
@@ -136,7 +95,7 @@ export function PieChart({
     const chart = (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightPieChart
-                key={formattingKey}
+                key={chartKey}
                 data-attr="sql-pie-chart"
                 type={GraphType.Pie}
                 labelGroupType="none"
@@ -145,6 +104,7 @@ export function PieChart({
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,
+                    renderCount: (value: number) => formatPieSliceCount(value, total, formattingSettings, asPercent),
                 }}
                 datasets={[
                     {
@@ -156,17 +116,16 @@ export function PieChart({
                     },
                 ]}
                 labels={slices.map((slice) => slice.label)}
-                showValuesOnSeries={chartSettings.showValuesOnSeries ?? true}
-                valueFormatter={(value) => String(formatDataWithSettings(value, formattingSettings) ?? value)}
+                showValuesOnSeries={sliceContent === 'values'}
+                showLabelOnSeries={sliceContent === 'labels'}
+                valueFormatter={sliceFormatter}
             />
         </BindLogic>
     )
 
     const totalDisplay = showPieTotal ? (
         <div className="pt-4 text-center shrink-0">
-            <div className="text-5xl font-bold">
-                {String(formatDataWithSettings(total, formattingSettings) ?? total)}
-            </div>
+            <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
         </div>
     ) : null
 
@@ -184,9 +143,11 @@ export function PieChart({
                             </div>
                             <div className="text-right shrink-0">
                                 <div className="font-semibold">
-                                    {String(formatDataWithSettings(slice.value, formattingSettings) ?? slice.value)}
+                                    {asPercent ? `${percent}%` : absoluteFormatter(slice.value)}
                                 </div>
-                                <div className="text-xs text-secondary">{percent}%</div>
+                                <div className="text-xs text-secondary">
+                                    {asPercent ? absoluteFormatter(slice.value) : `${percent}%`}
+                                </div>
                             </div>
                         </div>
                     )

@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCapture } = vi.hoisted(() => ({
+const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
+    mockCaptureToolCall: vi.fn(),
+    mockCaptureInitialize: vi.fn(),
+    // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
 
 vi.mock('@/lib/posthog', () => ({
     getPostHogClient: vi.fn(() => ({
+        captureToolCall: mockCaptureToolCall,
+        captureInitialize: mockCaptureInitialize,
         capture: mockCapture,
     })),
 }))
@@ -16,8 +21,9 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
-            getAnalyticsContextSafe: vi.fn(async () => undefined),
+            safelyGetAnalyticsContext: vi.fn(async () => undefined),
             getSessionUuid: vi.fn(async () => 'session-uuid'),
+            getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
         } as any,
         context: {
             stateManager: {},
@@ -55,20 +61,31 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         allTools: [],
         scopeGatedTools: [],
         distinctId: 'distinct-id',
+        renderUiEnabled: false,
         ...overrides,
     }
 }
 
 describe('Hono MCP analytics contexts', () => {
     beforeEach(() => {
+        mockCaptureToolCall.mockClear()
+        mockCaptureInitialize.mockClear()
         mockCapture.mockClear()
+    })
+
+    it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
+        // Guards against reintroducing the legacy dual-emit, which double-counted every call.
+        await trackInitEvent(makeState())
+        await trackToolCall('user-get', 12, false, makeState())
+
+        expect(mockCapture).not.toHaveBeenCalled()
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())
 
-        expect(mockCapture).toHaveBeenCalledTimes(1)
-        expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+        expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
             $mcp_client_user_agent: 'request-agent/1.0',
@@ -91,7 +108,7 @@ describe('Hono MCP analytics contexts', () => {
     it('omits session properties when there is no MCP session context', async () => {
         await trackToolCall('user-get', 12, false, makeState({ sessionContext: null }))
 
-        const properties = mockCapture.mock.calls[0]![0].properties
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
         expect(properties.$mcp_client_name).toBe('Claude Desktop')
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
@@ -100,12 +117,12 @@ describe('Hono MCP analytics contexts', () => {
     it('stamps $mcp_tool_category from the catalogued tool definition', async () => {
         await trackToolCall('query-logs', 5, false, makeState())
 
-        expect(mockCapture.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
     })
 
     it('omits $mcp_tool_category for tools without a catalogued definition', async () => {
         await trackToolCall('exec', 5, false, makeState())
 
-        expect(mockCapture.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
     })
 })

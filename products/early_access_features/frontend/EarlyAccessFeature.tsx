@@ -15,6 +15,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
@@ -29,6 +30,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -58,6 +60,8 @@ import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
@@ -166,6 +170,13 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     const wasOriginallyGA = originalEarlyAccessFeatureStage === EarlyAccessFeatureStage.GeneralAvailability
     const canShowSaveButtons = !wasOriginallyGA && (isNewEarlyAccessFeature || isEditingFeature)
 
+    const userAccessLevel = 'id' in earlyAccessFeature ? earlyAccessFeature.user_access_level : undefined
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.EarlyAccessFeature,
+        AccessControlLevel.Editor,
+        userAccessLevel
+    )
+
     const earlyAccessFeatureId =
         earlyAccessFeature && 'id' in earlyAccessFeature && earlyAccessFeature.id !== 'new'
             ? earlyAccessFeature.id
@@ -229,6 +240,8 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             <SceneMenuBarItem
                                 variant="destructive"
                                 opensFloatingUi
+                                disabled={!!accessControlDisabledReason}
+                                tooltip={accessControlDisabledReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Permanently delete feature?',
@@ -265,7 +278,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     resourceType={{
                         type: 'early_access_feature',
                     }}
-                    canEdit={isNewEarlyAccessFeature || isEditingFeature}
+                    canEdit={(isNewEarlyAccessFeature || isEditingFeature) && !accessControlDisabledReason}
                     onNameChange={(name) => {
                         setEarlyAccessFeatureValue('name', name)
                     }}
@@ -294,15 +307,21 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                         >
                                             Cancel
                                         </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={submitEarlyAccessFeature}
-                                            data-attr="save-feature"
-                                            loading={isEarlyAccessFeatureSubmitting}
-                                            size="small"
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.EarlyAccessFeature}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={userAccessLevel}
                                         >
-                                            {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
-                                        </LemonButton>
+                                            <LemonButton
+                                                type="primary"
+                                                onClick={submitEarlyAccessFeature}
+                                                data-attr="save-feature"
+                                                loading={isEarlyAccessFeatureSubmitting}
+                                                size="small"
+                                            >
+                                                {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
+                                            </LemonButton>
+                                        </AccessControlAction>
                                     </>
                                 ) : (
                                     <>
@@ -346,25 +365,35 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     },
                                                 ]}
                                             >
+                                                {/* The trigger must stay the direct child of LemonMenu — it
+                                                    clones the trigger to inject the menu-toggle onClick, which an
+                                                    AccessControlAction wrapper would swallow. Gate via disabledReason. */}
                                                 <LemonButton
                                                     tooltip="Publish this feature to make it available"
                                                     type="primary"
                                                     size="small"
+                                                    disabledReason={accessControlDisabledReason ?? undefined}
                                                 >
                                                     Release
                                                 </LemonButton>
                                             </LemonMenu>
                                         )}
                                         {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() => editFeature(true)}
-                                                loading={false}
-                                                data-attr="edit-feature"
-                                                size="small"
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.EarlyAccessFeature}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={userAccessLevel}
                                             >
-                                                Edit
-                                            </LemonButton>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    onClick={() => editFeature(true)}
+                                                    loading={false}
+                                                    data-attr="edit-feature"
+                                                    size="small"
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                            </AccessControlAction>
                                         )}
                                     </>
                                 )
@@ -398,6 +427,8 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             value={earlyAccessFeature.stage}
                             name="stage"
                             dataAttrKey={RESOURCE_TYPE}
+                            canEdit={!accessControlDisabledReason}
+                            buttonProps={{ tooltip: accessControlDisabledReason ?? undefined }}
                             options={[
                                 {
                                     label: 'Draft (default)',
@@ -475,6 +506,8 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             }}
                             variant="danger"
                             menuItem
+                            disabled={!!accessControlDisabledReason}
+                            tooltip={accessControlDisabledReason ?? undefined}
                             data-attr={`${RESOURCE_TYPE}-delete`}
                         >
                             <IconTrash />

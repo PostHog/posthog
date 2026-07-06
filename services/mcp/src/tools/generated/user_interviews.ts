@@ -20,6 +20,8 @@ import {
     UserInterviewTopicsListQueryParams,
     UserInterviewTopicsPartialUpdateBody,
     UserInterviewTopicsPartialUpdateParams,
+    UserInterviewTopicsPreviewInviteCreateBody,
+    UserInterviewTopicsPreviewInviteCreateParams,
     UserInterviewTopicsRemoveIntervieweeCreateBody,
     UserInterviewTopicsRemoveIntervieweeCreateParams,
     UserInterviewTopicsRetrieveParams,
@@ -31,6 +33,7 @@ import {
     UserInterviewsRetrieveParams,
     UserInterviewsSearchCreateBody,
 } from '@/generated/user_interviews/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -318,6 +321,32 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
     },
 })
 
+const UserInterviewTopicsPreviewInviteSchema = UserInterviewTopicsPreviewInviteCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsPreviewInviteCreateBody.shape)
+
+const userInterviewTopicsPreviewInvite = (): ToolBase<
+    typeof UserInterviewTopicsPreviewInviteSchema,
+    Schemas.PreviewInviteResult
+> =>
+    withUiApp('invite-email-preview', {
+        name: 'user-interview-topics-preview-invite',
+        schema: UserInterviewTopicsPreviewInviteSchema,
+        handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPreviewInviteSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.interviewee_identifier !== undefined) {
+                body['interviewee_identifier'] = params.interviewee_identifier
+            }
+            const result = await context.api.request<Schemas.PreviewInviteResult>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/preview_invite/`,
+                body,
+            })
+            return result
+        },
+    })
+
 const UserInterviewTopicsRemoveIntervieweeSchema = UserInterviewTopicsRemoveIntervieweeCreateParams.omit({
     project_id: true,
 }).extend(UserInterviewTopicsRemoveIntervieweeCreateBody.shape)
@@ -497,6 +526,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'user-interview-topics-links-csv': userInterviewTopicsLinksCsv,
     'user-interview-topics-list': userInterviewTopicsList,
     'user-interview-topics-partial-update': userInterviewTopicsPartialUpdate,
+    'user-interview-topics-preview-invite': userInterviewTopicsPreviewInvite,
     'user-interview-topics-remove-interviewee': userInterviewTopicsRemoveInterviewee,
     'user-interview-topics-retrieve': userInterviewTopicsRetrieve,
     'user-interview-topics-send-invites': userInterviewTopicsSendInvites,

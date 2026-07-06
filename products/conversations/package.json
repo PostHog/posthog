@@ -11,9 +11,19 @@
         "posthog-js": "catalog:",
         "ts-pattern": "catalog:"
     },
+    "devDependencies": {
+        "@testing-library/jest-dom": "^5.17.0",
+        "@testing-library/react": "^14.3.1",
+        "@testing-library/user-event": "^14.6.1",
+        "jest": "^29.7.0",
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@tiptap/core": "*",
         "@tiptap/extension-code-block-lowlight": "*",
         "@tiptap/extension-document": "*",
@@ -26,6 +36,7 @@
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
+        "jest": "*",
         "lowlight": "*",
         "react": "*",
         "react-dom": "*"

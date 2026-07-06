@@ -952,6 +952,139 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p2.uuid] == [r[0] for r in res]
 
+    def test_performed_event_first_time_with_explicit_datetime(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        p2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test2", "email": "test2@posthog.com"},
+        )
+        # p1's first event is too old to fall in the window
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=20),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": "-1w",  # first event must fall within the last week
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        res = execute(filter, self.team)
+
+        assert [p2.uuid] == [r[0] for r in res]
+
+    def test_performed_event_first_time_with_explicit_date_range(self):
+        """First occurrence (not just any occurrence) must fall inside the explicit window."""
+        with freeze_time(datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)):
+            # p1's first event is inside the window [-14d, -7d inclusive]
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "p1@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=10),
+            )
+
+            # p2 has an event inside the window, but its FIRST event predates the lower bound,
+            # so it must be excluded by the first-time semantics.
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"name": "test", "email": "p2@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=20),
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=10),
+            )
+
+            # p3's first event is too recent (past the upper bound)
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p3"],
+                properties={"name": "test", "email": "p3@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p3",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+
+            flush_persons_and_events()
+
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "explicit_datetime": "-14d",
+                                "explicit_datetime_to": "-7d",
+                                "value": "performed_event_first_time",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            )
+
+            res = execute(filter, self.team)
+
+            assert [p1.uuid] == [r[0] for r in res]
+
     def test_performed_event_regularly(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -1086,6 +1219,12 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
+        # Pin to midnight so events at now-12h stay on yesterday: the cohort date range ends
+        # at "-1d", so when CI runs after noon UTC those events land on today and get excluded
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            self._assert_performed_event_regularly_with_variable_event_counts()
+
+    def _assert_performed_event_regularly_with_variable_event_counts(self):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],

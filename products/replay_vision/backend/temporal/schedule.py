@@ -9,8 +9,10 @@ from uuid import UUID
 from django.conf import settings
 
 import structlog
+from pydantic import BaseModel
 from temporalio import common
 from temporalio.client import (
+    Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleIntervalSpec,
@@ -97,6 +99,38 @@ def load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
         row["id"]: (row["team_id"], compute_schedule_fingerprint({k: row[k] for k in _FINGERPRINT_FIELDS}))
         for row in rows
     }
+
+
+async def upsert_interval_schedule(
+    client: Client,
+    *,
+    schedule_id: str,
+    workflow_name: str,
+    workflow_id: str,
+    inputs: BaseModel,
+    interval: dt.timedelta,
+    execution_timeout: dt.timedelta,
+    search_attributes: TypedSearchAttributes | None = None,
+) -> None:
+    """Create or update a singleton interval schedule with SKIP overlap; first creation triggers immediately."""
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            workflow_name,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=execution_timeout,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval)]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule, search_attributes=search_attributes)
+    else:
+        await a_create_schedule(
+            client, schedule_id, schedule, trigger_immediately=True, search_attributes=search_attributes
+        )
 
 
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:

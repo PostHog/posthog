@@ -5,8 +5,9 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
-import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import {
     PropertyDefinitionsPaginatedResponse,
     normalizePropertyDefinitionEndpointUrl,

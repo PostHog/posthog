@@ -92,6 +92,7 @@ const quota: VisionQuotaApi = {
     usage_this_month: 2400,
     remaining: 7600,
     exhausted: false,
+    projected_monthly_observations: 5200,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
 }

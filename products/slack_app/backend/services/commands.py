@@ -8,34 +8,53 @@ if TYPE_CHECKING:
 
 
 def _handle_help(
-    slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, slack_user_id: str
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
-    from products.slack_app.backend.api import is_slack_workspace_admin
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
-    lines = [
-        "*Available commands:*\n",
-        "`@PostHog <task description>` — Create a task for the agent to work on",
-        "`@PostHog rules list` — Show all routing rules",
-        '`@PostHog rules add "description" org/repo` — Add a routing rule',
-        '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)',
-        "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
-        "`@PostHog project` — Show which PostHog project your mentions route to in this workspace",
-        "`@PostHog project <id>` — Set the PostHog project your mentions route to in this workspace",
-    ]
+    # Task creation only makes sense on the mention surface — slash commands lack the thread
+    # context the workflow needs, so omit it when the user discovered help via ``/posthog``.
+    lines = ["*Available commands:*\n"]
+    if command_prefix == "@PostHog":
+        lines.append(f"`{command_prefix} <task description>` — Create a task for the agent to work on")
+    lines.extend(
+        [
+            f"`{command_prefix} rules list` — Show all routing rules",
+            f'`{command_prefix} rules add "description" org/repo` — Add a routing rule',
+            f'`{command_prefix} rules add "description"` — Add a routing rule (pick repo from list)',
+            f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
+            f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
+            f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
+        ]
+    )
 
     # The workspace-wide default is admins/owners-only, so only surface it to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
         lines.append(
-            "`@PostHog project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
+            f"`{command_prefix} project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
         )
 
-    lines.append("`@PostHog help` — Show this message\n")
-    lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
+    lines.append(f"`{command_prefix} help` — Show this message\n")
+    if command_prefix == "@PostHog":
+        lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
 
     slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="\n".join(lines))
 
 
-def _handle_rules_list(slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str) -> None:
+def _handle_rules_list(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    *,
+    command_prefix: str = "@PostHog",
+) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
@@ -43,7 +62,10 @@ def _handle_rules_list(slack: SlackIntegration, integration: Integration, channe
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text='No routing rules configured. Add one with `@PostHog rules add "description" [org/repo]`. Omit the repo to pick from a list.',
+            text=(
+                f'No routing rules configured. Add one with `{command_prefix} rules add "description" '
+                "[org/repo]`. Omit the repo to pick from a list."
+            ),
         )
         return
 
@@ -113,6 +135,8 @@ def _handle_rules_remove(
     channel: str,
     thread_ts: str,
     rule_numbers: list[int] | None,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -120,7 +144,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Please provide valid rule number(s). Use `@PostHog rules list` to see current rules.",
+            text=f"Please provide valid rule number(s). Use `{command_prefix} rules list` to see current rules.",
         )
         return
 
@@ -130,7 +154,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `@PostHog rules list` to see them.",
+            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `{command_prefix} rules list` to see them.",
         )
         return
 
@@ -157,6 +181,8 @@ def _handle_project_show(
     slack_workspace_id: str,
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
     from posthog.models.user import User
 
@@ -191,7 +217,7 @@ def _handle_project_show(
             text=(
                 f"Your mentions in this workspace route to *{target.team.organization.name} · "
                 f"{target.team.name}* (id `{target.team_id}`). "
-                "Change it with `@PostHog project <id>`."
+                f"Change it with `{command_prefix} project <id>`."
             ),
         )
         return
@@ -214,7 +240,7 @@ def _handle_project_show(
             "You haven't set a default project for this Slack workspace yet. Available PostHog "
             "projects you can pick:\n"
             f"{lines}\n\n"
-            "Set one with `@PostHog project <id>`."
+            f"Set one with `{command_prefix} project <id>`."
         ),
     )
 
@@ -291,6 +317,8 @@ def _handle_project_set_workspace(
     user_id: int,
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
     """Set the workspace-wide default project (the ``slack_user_id IS NULL`` row),
     which applies to every Slack user in the workspace without a personal default.
@@ -298,8 +326,8 @@ def _handle_project_set_workspace(
     """
     from posthog.models.user import User
 
-    from products.slack_app.backend.api import is_slack_workspace_admin
     from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
         slack.client.chat_postEphemeral(
@@ -353,7 +381,7 @@ def _handle_project_set_workspace(
         text=(
             f"Workspace-wide default set to *{target.team.organization.name} · {target.team.name}* "
             f"(id `{target.team_id}`). Mentions from anyone without a personal default "
-            "(`@PostHog project <id>`) now route here."
+            f"(`{command_prefix} project <id>`) now route here."
         ),
     )
 
@@ -421,6 +449,7 @@ def dispatch_rules_command(
     slack_workspace_id: str,
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
+    command_prefix: str = "@PostHog",
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
     already resolved a single ``integration`` to act on; project commands also
@@ -429,24 +458,30 @@ def dispatch_rules_command(
     ``rules add`` without an inline repo is handled here as a plain "specify the
     repo" reply. The mention workflow's picker flow must catch that case
     *before* calling this dispatcher.
+
+    ``command_prefix`` is the entry-point token surfaced in user-facing help and
+    error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
+    surface. Defaults preserve the mention copy for existing callers.
     """
     if command.action == "help":
-        _handle_help(slack, integration, channel, thread_ts, slack_user_id)
+        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
     elif command.action == "list":
-        _handle_rules_list(slack, integration, channel, thread_ts)
+        _handle_rules_list(slack, integration, channel, thread_ts, command_prefix=command_prefix)
     elif command.action == "add":
         if not command.repository:
             slack.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
-                text='Please specify the repo inline: `@PostHog rules add "description" org/repo`.',
+                text=f'Please specify the repo inline: `{command_prefix} rules add "description" org/repo`.',
             )
         else:
             _handle_rules_add(
                 slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository
             )
     elif command.action == "remove":
-        _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_numbers)
+        _handle_rules_remove(
+            slack, integration, channel, thread_ts, command.rule_numbers, command_prefix=command_prefix
+        )
     elif command.action == "project_show":
         _handle_project_show(
             slack,
@@ -456,6 +491,7 @@ def dispatch_rules_command(
             slack_workspace_id,
             user_id,
             workspace_candidates=workspace_candidates,
+            command_prefix=command_prefix,
         )
     elif command.action == "project_set":
         if command.project_team_id is None:
@@ -483,4 +519,5 @@ def dispatch_rules_command(
             user_id,
             command.project_team_id,
             workspace_candidates=workspace_candidates,
+            command_prefix=command_prefix,
         )

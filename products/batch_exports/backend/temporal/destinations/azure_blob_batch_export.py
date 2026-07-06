@@ -29,6 +29,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+)
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -45,6 +48,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
+    "MalformedConnectionStringError",
     "MissingRequiredPermissionsError",
     "ResourceNotFoundError",
     "UnsupportedCompressionError",
@@ -62,11 +66,6 @@ COMPRESSION_EXTENSIONS = {
     "zstd": "zst",
     "lz4": "lz4",
     "snappy": "sz",
-}
-
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
 }
 
 LOGGER = get_write_only_logger(__name__)
@@ -97,12 +96,32 @@ class MissingRequiredPermissionsError(Exception):
         super().__init__("Missing required permissions to run this batch export")
 
 
+class MalformedConnectionStringError(Exception):
+    """Raised when Azure SDK cannot parse a connection string."""
+
+    def __init__(self):
+        super().__init__(
+            "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
+        )
+
+
 def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     """Check if the provided response error is an authorization failure.
 
     'error_code' is monkey-patched dynamically so we must use 'getattr' for type checkers.
     """
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
+
+
+def _strip_leading_whitespace(conn_str: str) -> str:
+    """Remove any leading whitespace from key=value pairs.
+
+    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
+    get things right. I do not strip trailing whitespace as I cannot confirm whether
+    values can have trailing whitespace, in contrast to keys, which most definitely
+    don't.
+    """
+    return ";".join(value.lstrip() for value in conn_str.split(";"))
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -172,15 +191,20 @@ class AzureBlobConsumer(Consumer):
         # Blobs larger than `max_single_put_size` are uploaded in blocks of `max_block_size`.
         # These are Azure SDK defaults but we set them explicitly for visibility.
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
-        blob_service_client = BlobServiceClient.from_connection_string(
-            conn_str=connection_string,
-            max_single_put_size=64 * 1024 * 1024,  # 64 MiB
-            max_block_size=4 * 1024 * 1024,  # 4 MiB
-            # Increase the read timeout to 10 minutes to account for large uploads.
-            read_timeout=600,
-            # Azure SDK defaults but we set them explicitly for visibility.
-            retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
-        )
+
+        try:
+            blob_service_client = BlobServiceClient.from_connection_string(
+                conn_str=_strip_leading_whitespace(connection_string),
+                max_single_put_size=64 * 1024 * 1024,  # 64 MiB
+                max_block_size=4 * 1024 * 1024,  # 4 MiB
+                # Increase the read timeout to 10 minutes to account for large uploads.
+                read_timeout=600,
+                # Azure SDK defaults but we set them explicitly for visibility.
+                retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+            )
+        except ValueError:
+            raise MalformedConnectionStringError()
+
         container_client = blob_service_client.get_container_client(inputs.container_name)
 
         return cls(
@@ -355,6 +379,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+            records_total=inputs.records_total,
         )
 
 

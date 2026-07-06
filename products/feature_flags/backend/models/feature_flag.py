@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -27,6 +28,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.experiments.backend.models.experiment import live_experiment_exists
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -70,6 +72,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
+    # Archived flags are "done for good" (e.g. a finished experiment's flag): hidden from
+    # the flag list by default but kept so linked experiments/surveys retain their data.
+    # An archived flag must be disabled — enforced at the DB level by the
+    # `archived_flag_must_be_disabled` check constraint below, so writers that bypass the
+    # serializer (e.g. the experiment service) can't persist an archived-but-still-serving flag.
+    archived = models.BooleanField(default=False, db_default=False)
 
     version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(
@@ -128,6 +136,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
+    # Cache projection: whether the flag backs an experiment. Annotated via a bulk
+    # Exists query (or read from cache) to avoid a per-flag experiment lookup.
+    _has_experiment: Optional[bool] = None
+
     last_called_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -138,11 +150,37 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="unique key for team"),
+            # An archived flag must be disabled — keeps an archived flag from ever serving traffic,
+            # regardless of which code path wrote it.
+            models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
+        ]
         db_table = "posthog_featureflag"
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+    def _tombstone_suffix(self) -> str:
+        # Soft-deleting a flag that's still referenced (e.g. by a stopped experiment)
+        # renames its key to free the original for reuse. This is the single source of
+        # truth for that suffix — both tombstoned_key() and key_without_tombstone() use it.
+        return f":deleted:{self.id}"
+
+    def tombstoned_key(self) -> str:
+        # The key to store when soft-deleting this flag. The id keeps it unique while
+        # freeing the original key for a new flag.
+        return f"{self.key}{self._tombstone_suffix()}"
+
+    def key_without_tombstone(self) -> str:
+        # The original key, with the soft-delete tombstone stripped. Readers that need
+        # the pre-deletion key (e.g. experiment query runners resolving historical
+        # events) call this. Only strips when the flag is actually deleted, so a live
+        # flag whose key coincidentally ends this way is left untouched.
+        suffix = self._tombstone_suffix()
+        if self.deleted and self.key.endswith(suffix):
+            return self.key[: -len(suffix)]
+        return self.key
 
     def clean(self) -> None:
         """Reject encrypted payloads on non-remote-config flags.
@@ -259,10 +297,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return None
 
     def get_filters(self) -> dict:
-        if not self.filters:
-            return {"groups": []}
-        if "groups" not in self.filters:
-            return {**self.filters, "groups": []}
         return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
@@ -330,6 +364,15 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):
+            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
+            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
+            # references; modern SDKs raise InconclusiveMatchError on unknown property types
+            # and fall back to /flags/, where the Rust matcher handles them.
+            #
+            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
+            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
+            # `match_property` in particular dispatches purely on `key` and would silently
+            # produce a wrong-but-not-erroring result.
             return self.conditions
 
         if any(property.negation for property in cohort.properties.flat):
@@ -401,6 +444,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         using_database: str = "default",
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
+        stop_traversal_at_static: bool = False,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -434,6 +478,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     cohort,
                                     using_database=using_database,
                                     seen_cohorts_cache=seen_cohorts_cache,
+                                    stop_traversal_at_static=stop_traversal_at_static,
                                 )
                             ]
                         )
@@ -630,7 +675,8 @@ def get_feature_flags(
             "flag_evaluation_contexts__evaluation_context__name",
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
-        )
+        ),
+        has_experiment_agg=live_experiment_exists(),
     )
 
     all_feature_flags = list(qs)
@@ -645,6 +691,7 @@ def get_feature_flags(
         except AttributeError:
             # evaluation_tag_names_agg field missing from aggregation query
             _flag._evaluation_tag_names = None
+        _flag._has_experiment = _flag.has_experiment_agg
 
     return all_feature_flags
 
@@ -659,9 +706,9 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     Returns:
         List of serialized flag dictionaries
     """
-    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
-    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    serialized_data = EvaluationFeatureFlagSerializer(flags, many=True).data
     return list(serialized_data)
 
 
@@ -690,19 +737,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            flags = []
-            for flag_data in parsed_data:
-                # Extract evaluation contexts before creating the model instance since
-                # it's not a DB field. Accept both old and new key names for cache
-                # entries written before or after the rename.
-                contexts_list = flag_data.pop("evaluation_contexts", None)
-                if contexts_list is None:
-                    contexts_list = flag_data.pop("evaluation_tags", None)
-                else:
-                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
-                flag = FeatureFlag(**flag_data)
-                flag._evaluation_tag_names = contexts_list
-                flags.append(flag)
+            flags = [_feature_flag_from_cache_entry(entry) for entry in parsed_data]
             # Filter to only return active flags. The cache includes inactive flags
             # for dependency resolution (used by the Rust service), but Python callers
             # expect only active flags for backward compatibility.
@@ -713,6 +748,40 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
             return None
 
     return None
+
+
+@lru_cache(maxsize=1)
+def _feature_flag_model_field_names() -> frozenset[str]:
+    """Names accepted by the FeatureFlag constructor (concrete fields only), used to
+    separate real model fields from serializer-only extras in cached payloads. The
+    field set is constant for the process, so it's computed once and cached."""
+    names: set[str] = set()
+    for field in FeatureFlag._meta.concrete_fields:
+        names.add(field.name)
+        names.add(field.attname)  # FK attnames like `team_id`
+    return frozenset(names)
+
+
+def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
+    """Reconstruct a FeatureFlag from one cached payload entry.
+
+    The cache payload comes from EvaluationFeatureFlagSerializer, which emits
+    SerializerMethodFields (e.g. `evaluation_contexts`, `has_experiment`) that are not
+    model fields. Keep only real model fields so unknown extras are ignored rather than
+    crashing the FeatureFlag(**...) constructor; known extras are then assigned onto the
+    instance.
+    """
+    model_field_names = _feature_flag_model_field_names()
+    model_fields = {key: value for key, value in entry.items() if key in model_field_names}
+
+    flag = FeatureFlag(**model_fields)
+    # Evaluation contexts are derived data, not a DB field. Accept both the current
+    # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
+    # written before the rename.
+    flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
+    # Preserve has_experiment so a cache-read flag answers without a per-flag experiment query.
+    flag._has_experiment = entry.get("has_experiment")
+    return flag
 
 
 class FeatureFlagDashboards(models.Model):

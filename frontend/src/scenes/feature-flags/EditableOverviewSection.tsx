@@ -30,9 +30,9 @@ export function EditableOverviewSection({
     const canShowEditButton = !featureFlag.deleted
 
     return (
-        <div className={`group relative rounded border p-4 bg-bg-light ${className ?? ''}`}>
+        <div className={`relative rounded border p-4 bg-bg-light ${className ?? ''}`}>
             {canShowEditButton && (
-                <div className="absolute top-3 right-3 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute top-3 right-3 z-10">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}

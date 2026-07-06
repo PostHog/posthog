@@ -1,3 +1,5 @@
+import './menu.css'
+
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { Menubar as MenubarPrimitive } from '@base-ui/react/menubar'
 import * as React from 'react'
@@ -19,7 +21,6 @@ import {
     DropdownMenuTrigger,
 } from './dropdown-menu'
 import { cn } from './lib/utils'
-import './menu.css'
 import { RadioIndicator } from './radio-group'
 
 function Menubar({ className, ...props }: MenubarPrimitive.Props): React.ReactElement {
@@ -84,11 +85,10 @@ function MenubarItem({
         <DropdownMenuItem
             data-slot="menubar-item"
             data-inset={inset}
-            // Forward variant so the inner <Button render> (which colours bg/text via Quill button variants)
-            // receives `destructive` instead of falling back to `default`.
+            // DropdownMenuItem owns destructive styling (red text at rest, red-tinted highlight).
             variant={variant}
             className={cn(
-                "group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed focus:bg-fill-hover data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5 data-[variant=destructive]:*:[svg]:text-destructive!",
+                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed focus:bg-fill-hover data-disabled:opacity-50',
                 className
             )}
             {...props}
@@ -183,14 +183,26 @@ function MenubarSeparator({
     className,
     ...props
 }: React.ComponentProps<typeof DropdownMenuSeparator>): React.ReactElement {
-    return <DropdownMenuSeparator data-slot="menubar-separator" className={cn('quill-menu__separator', className)} {...props} />
+    return (
+        <DropdownMenuSeparator
+            data-slot="menubar-separator"
+            className={cn('quill-menu__separator', className)}
+            {...props}
+        />
+    )
 }
 
 function MenubarShortcut({
     className,
     ...props
 }: React.ComponentProps<typeof DropdownMenuShortcut>): React.ReactElement {
-    return <DropdownMenuShortcut data-slot="menubar-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
+    return (
+        <DropdownMenuShortcut
+            data-slot="menubar-shortcut"
+            className={cn('quill-menu__shortcut', className)}
+            {...props}
+        />
+    )
 }
 
 function MenubarSub({ ...props }: React.ComponentProps<typeof DropdownMenuSub>): React.ReactElement {

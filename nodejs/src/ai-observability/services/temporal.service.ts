@@ -1,10 +1,20 @@
-import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import {
+    Client,
+    Connection,
+    DataConverter,
+    TLSConfig,
+    WorkflowExecutionAlreadyStartedError,
+    WorkflowHandle,
+} from '@temporalio/client'
+import * as crypto from 'crypto'
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+
 import { RawKafkaEvent } from '../../types'
-import { isDevEnv } from '../../utils/env-utils'
-import { logger } from '../../utils/logger'
 import { AIObservabilityConfig } from '../config'
 
 export type TemporalServiceConfig = Pick<
@@ -15,15 +25,52 @@ export type TemporalServiceConfig = Pick<
     | 'TEMPORAL_PORT'
     | 'TEMPORAL_HOST'
     | 'TEMPORAL_NAMESPACE'
+    | 'TEMPORAL_SECRET_KEY'
+    | 'TEMPORAL_FALLBACK_SECRET_KEYS'
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+
+const EVALUATION_WORKFLOW_PREFIXES = {
+    hog: 'llma-hog-eval',
+    llm_judge: 'llma-llm-eval',
+    sentiment: 'llma-sentiment-eval',
+} as const
+
+export type EvaluationWorkflowRuntime = keyof typeof EVALUATION_WORKFLOW_PREFIXES
+
+export function isEvaluationWorkflowRuntime(
+    evaluationRuntime: unknown
+): evaluationRuntime is EvaluationWorkflowRuntime {
+    return typeof evaluationRuntime === 'string' && Object.hasOwn(EVALUATION_WORKFLOW_PREFIXES, evaluationRuntime)
+}
+
+function getEvaluationWorkflowPrefix(evaluationRuntime: EvaluationWorkflowRuntime): string {
+    return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime]
+}
+
+// Fallback aggregation window when an evaluation's target_config carries no window_seconds.
+// Per-eval values come from the eval config; this only applies to legacy/empty configs. Must
+// comfortably exceed a single LLM turn (seconds, or a few minutes with heavy tool usage).
+export const DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS = 30 * 60
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
     help: 'Number of evaluation run workflows started',
     labelNames: ['status'],
 })
+
+/**
+ * Trace ids are user-controlled and unbounded; Temporal workflow ids are capped at 1000
+ * bytes. Hash anything suspiciously long so the workflow id stays valid while remaining
+ * deterministic for dedup.
+ */
+export function workflowSafeTraceId(traceId: string): string {
+    if (traceId.length <= 128) {
+        return traceId
+    }
+    return crypto.createHash('md5').update(traceId).digest('hex')
+}
 
 export class TemporalService {
     private client?: Client
@@ -82,6 +129,22 @@ export class TemporalService {
         }
     }
 
+    private buildDataConverter(): DataConverter | undefined {
+        const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = this.config
+
+        if (!TEMPORAL_SECRET_KEY) {
+            logger.warn('⚠️ No TEMPORAL_SECRET_KEY configured — workflow payloads will NOT be encrypted')
+            return undefined
+        }
+
+        const fallbackKeys = (TEMPORAL_FALLBACK_SECRET_KEYS ?? '')
+            .split(',')
+            .map((key) => key.trim())
+            .filter(Boolean)
+
+        return { payloadCodecs: [new EncryptionCodec(TEMPORAL_SECRET_KEY, fallbackKeys)] }
+    }
+
     private async createClient(): Promise<Client> {
         const tls = await this.buildTLSConfig()
 
@@ -90,15 +153,19 @@ export class TemporalService {
 
         const connection = await Connection.connect({ address, tls })
 
+        const dataConverter = this.buildDataConverter()
+
         const client = new Client({
             connection,
             namespace: this.config.TEMPORAL_NAMESPACE || 'default',
+            dataConverter,
         })
 
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.config.TEMPORAL_NAMESPACE,
             tlsEnabled: tls !== false,
+            payloadEncryption: dataConverter !== undefined,
         })
 
         return client
@@ -107,11 +174,14 @@ export class TemporalService {
     async startEvaluationRunWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
-        evaluationRuntime: string = 'llm_judge'
+        evaluationRuntime: EvaluationWorkflowRuntime
     ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const prefix = evaluationRuntime === 'hog' ? 'llma-hog-eval' : 'llma-llm-eval'
+        if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
+            throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+        }
+        const prefix = getEvaluationWorkflowPrefix(evaluationRuntime)
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 
         const handle = await client.workflow.start('run-evaluation', {
@@ -138,6 +208,67 @@ export class TemporalService {
         })
 
         return handle
+    }
+
+    /**
+     * Start (or join) the delayed whole-trace evaluation for (evaluation, trace).
+     *
+     * The workflow id deliberately excludes the event uuid: the first matching generation of a
+     * trace creates the workflow, and every later one lands on it as a no-op (USE_EXISTING
+     * while pending/running). Once a run completed, ALLOW_DUPLICATE_FAILED_ONLY rejects new
+     * starts — a trace is evaluated at most once per evaluation, which also caps the damage
+     * from runaway shared trace ids ("0", "fixed_id", ...). Returns null when the trace was
+     * already evaluated.
+     */
+    async startTraceEvaluationRunWorkflow(
+        evaluationId: string,
+        event: RawKafkaEvent,
+        traceId: string,
+        sessionId: string | null,
+        windowSeconds: number
+    ): Promise<WorkflowHandle | null> {
+        const client = await this.ensureConnected()
+
+        const workflowId = `llma-trace-eval-${evaluationId}-${workflowSafeTraceId(traceId)}`
+
+        try {
+            const handle = await client.workflow.start('run-trace-evaluation', {
+                args: [
+                    {
+                        evaluation_id: evaluationId,
+                        team_id: event.team_id,
+                        trace_id: traceId,
+                        distinct_id: event.distinct_id,
+                        session_id: sessionId,
+                        window_seconds: windowSeconds,
+                    },
+                ],
+                taskQueue: EVALUATION_TASK_QUEUE,
+                workflowId,
+                workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
+                workflowTaskTimeout: '2 minutes',
+            })
+
+            temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+
+            logger.debug('Started trace evaluation run workflow', {
+                workflowId,
+                evaluationId,
+                traceId,
+                timestamp: event.timestamp,
+            })
+
+            return handle
+        } catch (error) {
+            // A completed run for this (evaluation, trace) already exists — the expected
+            // outcome for every matching event after the trace was evaluated.
+            if (error instanceof WorkflowExecutionAlreadyStartedError) {
+                temporalWorkflowsStarted.labels({ status: 'already_completed' }).inc()
+                return null
+            }
+            throw error
+        }
     }
 
     async startTaggerRunWorkflow(taggerId: string, event: RawKafkaEvent): Promise<WorkflowHandle> {

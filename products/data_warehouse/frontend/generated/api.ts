@@ -15,50 +15,48 @@ import type {
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
+    DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
-    DatabaseSchemaRequestApi,
     DeprovisionWarehouseResponseApi,
-    ExternalDataSchemaApi,
-    ExternalDataSchemasListParams,
-    ExternalDataSourceCreateApi,
-    ExternalDataSourceSerializersApi,
-    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
-    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
-    ExternalDataSourcesConnectionsListParams,
-    ExternalDataSourcesListParams,
+    EnableWarehouseBackfillRequestApi,
+    EnableWarehouseBackfillResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
+    PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
-    PaginatedExternalDataSchemaListApi,
-    PaginatedExternalDataSourceConnectionOptionListApi,
-    PaginatedExternalDataSourceSerializersListApi,
     PaginatedInsightVariableListApi,
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
+    PaginatedWarehouseColumnAnnotationListApi,
+    PaginatedWarehouseColumnStatisticsListApi,
     PatchedDataWarehouseSavedQueryApi,
+    PatchedDataWarehouseSavedQueryColumnAnnotationApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
-    PatchedExternalDataSchemaApi,
-    PatchedExternalDataSourceBulkUpdateSchemasApi,
-    PatchedExternalDataSourceSerializersApi,
     PatchedInsightVariableApi,
     PatchedQueryTabStateApi,
     PatchedTableApi,
     PatchedViewLinkApi,
+    PatchedWarehouseColumnAnnotationApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SavedQueryColumnAnnotationsListParams,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
+    WarehouseColumnAnnotationApi,
+    WarehouseColumnAnnotationsListParams,
+    WarehouseColumnStatisticsApi,
+    WarehouseColumnStatisticsListParams,
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
@@ -258,7 +256,7 @@ export const getDataWarehouseDeprovisionCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start deprovisioning the managed warehouse for this team.
+ * Start deprovisioning the organization's managed warehouse. Restricted to organization admins.
  */
 export const dataWarehouseDeprovisionCreate = async (
     projectId: string,
@@ -267,6 +265,29 @@ export const dataWarehouseDeprovisionCreate = async (
     return apiMutator<DeprovisionWarehouseResponseApi>(getDataWarehouseDeprovisionCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataWarehouseEnableBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/enable_backfill/`
+}
+
+/**
+ * Enable warehouse backfill for this environment with a dedicated set of tables.
+ *
+ * Requires a table name and records the environment's membership in the
+ * organization's managed warehouse. Restricted to organization admins.
+ */
+export const dataWarehouseEnableBackfillCreate = async (
+    projectId: string,
+    enableWarehouseBackfillRequestApi: EnableWarehouseBackfillRequestApi,
+    options?: RequestInit
+): Promise<EnableWarehouseBackfillResponseApi> => {
+    return apiMutator<EnableWarehouseBackfillResponseApi>(getDataWarehouseEnableBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(enableWarehouseBackfillRequestApi),
     })
 }
 
@@ -304,7 +325,7 @@ export const getDataWarehouseProvisionCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start provisioning a managed warehouse for this team.
+ * Start provisioning a managed warehouse for this organization (shared by all its teams).
  */
 export const dataWarehouseProvisionCreate = async (
     projectId: string,
@@ -371,793 +392,13 @@ export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) =>
 }
 
 /**
- * Get the current provisioning status of the managed warehouse.
+ * Get the current provisioning status of the managed warehouse, with this project's backfill state.
  */
 export const dataWarehouseWarehouseStatusRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<WarehouseStatusResponseApi> => {
     return apiMutator<WarehouseStatusResponseApi>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_schemas/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_schemas/`
-}
-
-export const externalDataSchemasList = async (
-    projectId: string,
-    params?: ExternalDataSchemasListParams,
-    options?: RequestInit
-): Promise<PaginatedExternalDataSchemaListApi> => {
-    return apiMutator<PaginatedExternalDataSchemaListApi>(getExternalDataSchemasListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSchemasCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/`
-}
-
-export const externalDataSchemasCreate = async (
-    projectId: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/`
-}
-
-export const externalDataSchemasRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSchemasUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/`
-}
-
-export const externalDataSchemasUpdate = async (
-    projectId: string,
-    id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/`
-}
-
-export const externalDataSchemasPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSchemaApi?: NonReadonly<PatchedExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/`
-}
-
-export const externalDataSchemasDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/cancel/`
-}
-
-export const externalDataSchemasCancelCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasDeleteDataDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/delete_data/`
-}
-
-export const externalDataSchemasDeleteDataDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasDeleteDataDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
-}
-
-export const externalDataSchemasIncrementalFieldsCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasIncrementalFieldsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
-}
-
-export const externalDataSchemasReloadCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
-}
-
-export const externalDataSchemasResyncCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
-export const getExternalDataSourcesListUrl = (projectId: string, params?: ExternalDataSourcesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesList = async (
-    projectId: string,
-    params?: ExternalDataSourcesListParams,
-    options?: RequestInit
-): Promise<PaginatedExternalDataSourceSerializersListApi> => {
-    return apiMutator<PaginatedExternalDataSourceSerializersListApi>(getExternalDataSourcesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSourcesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesCreate = async (
-    projectId: string,
-    externalDataSourceCreateApi: ExternalDataSourceCreateApi,
-    options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceCreateApi),
-    })
-}
-
-export const getExternalDataSourcesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSourcesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesUpdate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
-    projectId: string,
-    id: string,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSourceBulkUpdateSchemasApi?: PatchedExternalDataSourceBulkUpdateSchemasApi,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
-    options?: RequestInit
-): Promise<PaginatedExternalDataSchemaListApi> => {
-    return apiMutator<PaginatedExternalDataSchemaListApi>(
-        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
-        }
-    )
-}
-
-export const getExternalDataSourcesCdcStatusRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/cdc_status/`
-}
-
-/**
- * Live CDC health for an existing source: slot/publication existence and WAL lag.
- *
- * Reads from the source DB via the engine adapter. Returns ``{"enabled": false}``
- * when CDC is off, or the stored config plus live ``slot_exists`` /
- * ``publication_exists`` / ``lag_bytes`` when on. 400s if the source DB is
- * unreachable so the UI can show a degraded/unreachable state.
- */
-export const externalDataSourcesCdcStatusRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/check_cdc_prerequisites_for_source/`
-}
-
-/**
- * Validate CDC prerequisites for an existing source using its stored credentials.
- *
- * The detail=False ``check_cdc_prerequisites`` action is for the creation wizard,
- * where the client still holds the raw connection config (incl. password) in the
- * form. On the Configuration page the source already exists and secret fields are
- * stripped from API responses — so the client can't supply them. This reads the
- * stored (encrypted) credentials from the DB via the adapter instead.
- *
- * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
- * ``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
- */
-export const externalDataSourcesCheckCdcPrerequisitesForSourceCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/create_webhook/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesCreateWebhookCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/delete_webhook/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesDeleteWebhookCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesDisableCdcCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/disable_cdc/`
-}
-
-/**
- * Disable CDC on an existing source.
- *
- * Cancels any running CDC extraction workflow, deletes the extraction schedule,
- * delegates engine-side teardown to the source's adapter (drops slot/publication
- * for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
- * ``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
- * ``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
- * strategy before they resume.
- */
-export const externalDataSourcesDisableCdcCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesEnableCdcCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/enable_cdc/`
-}
-
-/**
- * Enable CDC on an existing source.
- *
- * Provisions engine-side CDC resources via the source's adapter, writes the CDC
- * config into ``source.job_inputs``, and ensures the CDC extraction schedule
- * exists. Re-runs prereq checks server-side so we never trust a stale
- * client-side check.
- *
- * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
- * plus engine-specific identifier hints (e.g. ``cdc_slot_name``,
- * ``cdc_publication_name`` for Postgres). Universal tuning fields:
- * ``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
- * (optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
- */
-export const externalDataSourcesEnableCdcCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesJobsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesJobsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSourcesRefreshSchemasCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/refresh_schemas/`
-}
-
-/**
- * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
- */
-export const externalDataSourcesRefreshSchemasCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRefreshSchemasCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesReloadCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/reload/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesReloadCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesReloadCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
-}
-
-/**
- * Update the revenue analytics configuration and return the full external data source.
- */
-export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedExternalDataSourceSerializersApi?: NonReadonly<PatchedExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/update_cdc_settings/`
-}
-
-/**
- * Update CDC tuning fields without enabling/disabling.
- *
- * Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
- * ``cdc_lag_critical_threshold_mb`` independently. These fields are universal
- * across engines. Engine-specific identifiers (slot name, management mode, …)
- * are immutable post-enable — switching them requires disable + enable.
- */
-export const externalDataSourcesUpdateCdcSettingsCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/update_webhook_inputs/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesUpdateWebhookInputsCreate = async (
-    projectId: string,
-    id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/webhook_info/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesWebhookInfoRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
-}
-
-/**
- * Validate CDC prerequisites against a live Postgres connection.
- *
- * Used by the source wizard to surface ✅/❌ checks before source creation,
- * and by the self-managed setup popup to verify user-created publications.
- */
-export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
-    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
-        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
-}
-
-export const getExternalDataSourcesConnectionsListUrl = (
-    projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/connections/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesConnectionsList = async (
-    projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams,
-    options?: RequestInit
-): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
-    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
-        getExternalDataSourcesConnectionsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/database_schema/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesDatabaseSchemaCreate = async (
-    projectId: string,
-    databaseSchemaRequestApi: DatabaseSchemaRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDatabaseSchemaCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(databaseSchemaRequestApi),
-    })
-}
-
-export const getExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/source_prefix/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesSourcePrefixCreate = async (
-    projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesSourcePrefixCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
-}
-
-export const getExternalDataSourcesWizardRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/wizard/`
-}
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesWizardRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -1536,6 +777,393 @@ export const queryTabStateUserRetrieve = async (
     options?: RequestInit
 ): Promise<QueryTabStateApi> => {
     return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedQueryColumnAnnotationsListUrl = (
+    projectId: string,
+    params?: SavedQueryColumnAnnotationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/saved_query_column_annotations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/saved_query_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsList = async (
+    projectId: string,
+    params?: SavedQueryColumnAnnotationsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataWarehouseSavedQueryColumnAnnotationListApi> => {
+    return apiMutator<PaginatedDataWarehouseSavedQueryColumnAnnotationListApi>(
+        getSavedQueryColumnAnnotationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryColumnAnnotationApi: NonReadonly<DataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(getSavedQueryColumnAnnotationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryColumnAnnotationApi),
+    })
+}
+
+export const getSavedQueryColumnAnnotationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryColumnAnnotationApi: NonReadonly<DataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryColumnAnnotationApi),
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryColumnAnnotationApi?: NonReadonly<PatchedDataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataWarehouseSavedQueryColumnAnnotationApi),
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSavedQueryColumnAnnotationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseColumnAnnotationsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnAnnotationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_annotations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsList = async (
+    projectId: string,
+    params?: WarehouseColumnAnnotationsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnAnnotationListApi> => {
+    return apiMutator<PaginatedWarehouseColumnAnnotationListApi>(
+        getWarehouseColumnAnnotationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnAnnotationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsCreate = async (
+    projectId: string,
+    warehouseColumnAnnotationApi: NonReadonly<WarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseColumnAnnotationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsUpdate = async (
+    projectId: string,
+    id: string,
+    warehouseColumnAnnotationApi: NonReadonly<WarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedWarehouseColumnAnnotationApi?: NonReadonly<PatchedWarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWarehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
+ */
+export const warehouseColumnAnnotationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseColumnAnnotationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseColumnStatisticsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_statistics/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsList = async (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
+    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
+        getWarehouseColumnStatisticsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnStatisticsApi> => {
+    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -2267,19 +1895,17 @@ export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: 
 }
 
 /**
- * Create, Read, Update and Delete Warehouse Tables.
+ * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
+ * @summary Refresh table schema from source
  */
 export const warehouseTablesRefreshSchemaCreate = async (
     projectId: string,
     id: string,
-    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getWarehouseTablesRefreshSchemaCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(tableApi),
     })
 }
 

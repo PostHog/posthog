@@ -20,6 +20,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import (
+    AwsS3Integration,
+    Integration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -36,6 +42,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     default_fields,
     get_data_interval,
     start_batch_export_run,
+)
+from products.batch_exports.backend.temporal.destinations.constants import (
+    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
@@ -69,6 +78,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+    # The linked Integration was deleted or doesn't belong to the team
+    "S3IntegrationNotFoundError",
+    # The linked Integration is the wrong kind or has invalid/missing credentials
+    "S3CredentialIntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -82,11 +95,6 @@ COMPRESSION_EXTENSIONS = {
     "brotli": "br",
     "zstd": "zst",
     "lz4": "lz4",
-}
-
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
 }
 
 LOGGER = get_write_only_logger(__name__)
@@ -107,6 +115,36 @@ class UnsupportedCompressionError(Exception):
         super().__init__(f"'{compression}' is not a supported compression for S3 batch exports.")
 
 
+class S3IntegrationNotFoundError(Exception):
+    """Raised when an S3-family export references an Integration that can't be resolved."""
+
+    def __init__(self, integration_id: int, team_id: int):
+        super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integration | S3CompatibleIntegration:
+    """Fetch an S3-family integration from the database.
+
+    The kind is validated on create by the batch export serializer, so the wrong-kind branch is
+    purely defensive against an integration whose kind was changed out from under the export.
+    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    the credentials are malformed.
+    """
+    try:
+        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+    except Integration.DoesNotExist:
+        raise S3IntegrationNotFoundError(integration_id, team_id)
+
+    if integration.kind == Integration.IntegrationKind.AWS_S3:
+        return AwsS3Integration(integration)
+    if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+        return S3CompatibleIntegration(integration)
+    raise S3CredentialIntegrationError(
+        f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
+        f"(kind='{integration.kind}')"
+    )
+
+
 @dataclasses.dataclass(kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
@@ -118,6 +156,9 @@ class S3InsertInputs(BatchExportInsertInputs):
     bucket_name: str
     region: str
     prefix: str
+    # When set, credentials (and endpoint_url for S3-compatible) are resolved from this Integration
+    # at run time; otherwise the inline credentials below are used (legacy path).
+    integration_id: int | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
@@ -268,6 +309,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             region=inputs.region,
             prefix=inputs.prefix,
             team_id=inputs.team_id,
+            integration_id=inputs.integration_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url or None,
@@ -307,18 +349,18 @@ class S3BatchExportResult(BatchExportResult):
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
-    """Activity to batch export data to a customer's S3.
+    """Activity to batch export data from our internal S3 stage to a customer's S3.
 
-    This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
-    instead of ClickHouse.
+    We support both AWS S3 and S3-compatible destinations (eg Cloudflare R2, DigitalOcean Spaces, etc).
 
-    It will upload multiple files if the max_file_size_mb is set, otherwise it will upload a single file. File uploads
-    are done using multipart upload.
+    It will upload multiple files if the max_file_size_mb is set, otherwise it will upload a single
+    file. File uploads are done using multipart upload.
 
-    We could maybe optimize this by simply copying the data from the internal S3 stage to the customer's S3 bucket,
-    however, we've tried to keep the activity that writes the data to the internal S3 stage as generic as possible, as
-    it will be used by other destinations, not just S3. Our S3 batch exports also support customising the max S3 file
-    size, different file formats, compression, etc, which ClickHouse's S3 functions may not support.
+    We could maybe optimize this by simply copying the data from the internal S3 stage to the
+    customer's S3 bucket, however, we've tried to keep the activity that writes the data to the
+    internal S3 stage as generic as possible, as it will be used by other destinations, not just S3.
+    Our S3 batch exports also support customising the max S3 file size, different file formats,
+    compression, etc, which ClickHouse's S3 functions may not support.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -326,6 +368,15 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
+
+    # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
+    # TODO: require integration
+    if inputs.integration_id is not None:
+        integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+        inputs.aws_access_key_id = integration.aws_access_key_id
+        inputs.aws_secret_access_key = integration.aws_secret_access_key
+        if isinstance(integration, S3CompatibleIntegration):
+            inputs.endpoint_url = integration.endpoint_url
 
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
@@ -403,6 +454,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+            records_total=inputs.records_total,
         )
         return S3BatchExportResult(
             bytes_exported=result.bytes_exported,

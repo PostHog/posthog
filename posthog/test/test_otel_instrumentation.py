@@ -38,6 +38,7 @@ class TestOtelInstrumentation(BaseTest):
 
         super().tearDown()
 
+    @mock.patch("posthog.otel_instrumentation.CeleryInstrumentor")
     @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
@@ -71,6 +72,7 @@ class TestOtelInstrumentation(BaseTest):
         mock_psycopg_instrumentor_cls,
         mock_kafka_instrumentor_cls,
         mock_aio_kafka_instrumentor_cls,
+        mock_celery_instrumentor_cls,
     ):
         # Arrange
         mock_resource_instance = mock.Mock()
@@ -114,6 +116,12 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_django_instrumentor_cls.assert_called_once_with()
         mock_django_instrumentor_instance.instrument.assert_called_once()
+
+        # Assert CeleryInstrumentor call
+        mock_celery_instrumentor_cls.assert_called_once_with()
+        mock_celery_instrumentor_cls.return_value.instrument.assert_called_once_with(
+            tracer_provider=mock_provider_instance
+        )
 
         instrument_call_args = mock_django_instrumentor_instance.instrument.call_args
         self.assertEqual(instrument_call_args[1]["tracer_provider"], mock_provider_instance)
@@ -166,6 +174,7 @@ class TestOtelInstrumentation(BaseTest):
         self.assertEqual(django_otel_lib_logger.level, logging.DEBUG)  # Always set to DEBUG
         self.assertTrue(django_otel_lib_logger.propagate)
 
+    @mock.patch("posthog.otel_instrumentation.CeleryInstrumentor")
     @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
@@ -181,12 +190,14 @@ class TestOtelInstrumentation(BaseTest):
         mock_psycopg_instrumentor_cls,
         mock_kafka_instrumentor_cls,
         mock_aio_kafka_instrumentor_cls,
+        mock_celery_instrumentor_cls,
     ):
         # Act
         initialize_otel()
 
         # Assert
         mock_django_instrumentor_cls.return_value.instrument.assert_not_called()
+        mock_celery_instrumentor_cls.return_value.instrument.assert_not_called()
         mock_redis_instrumentor_cls.return_value.instrument.assert_not_called()
         mock_psycopg_instrumentor_cls.return_value.instrument.assert_not_called()
         mock_kafka_instrumentor_cls.return_value.instrument.assert_not_called()
@@ -251,6 +262,7 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_span.set_attribute.assert_not_called()
 
+    @mock.patch("posthog.otel_instrumentation.CeleryInstrumentor")
     @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.PsycopgInstrumentor")
@@ -286,6 +298,7 @@ class TestOtelInstrumentation(BaseTest):
         mock_psycopg_instrumentor_cls,
         mock_kafka_instrumentor_cls,
         mock_aio_kafka_instrumentor_cls,
+        mock_celery_instrumentor_cls,
     ):
         # Arrange
         mock_resource_instance = mock.Mock()

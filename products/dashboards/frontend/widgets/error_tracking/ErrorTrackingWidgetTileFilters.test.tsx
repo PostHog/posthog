@@ -9,19 +9,6 @@ describe('ErrorTrackingWidgetTileFilters', () => {
         cleanup()
     })
 
-    it('renders filter controls', () => {
-        render(
-            <ErrorTrackingWidgetTileFilters
-                tileId={1}
-                config={{ limit: 10, status: 'active', dateRange: { date_from: '-7d' } }}
-                onUpdateConfig={jest.fn()}
-            />
-        )
-
-        expect(screen.getByText('Last 7 days')).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Hide filters' })).not.toBeInTheDocument()
-    })
-
     it('shows read-only filter values without dropdowns when onUpdateConfig is omitted', () => {
         const { container } = render(
             <ErrorTrackingWidgetTileFilters

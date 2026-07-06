@@ -12,15 +12,17 @@ import {
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
-import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
+import { AnyResponseType, GoalLine, RevenueAnalyticsGoal, TrendsFilter } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
+
+import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { RevenueAnalyticsChart, RevenueAnalyticsChartKind } from './RevenueAnalyticsChart'
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
 export interface TileProps {
@@ -94,7 +96,13 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
             'results' in response &&
             response.results.length === 0
         ) {
-            return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            return (
+                <InsightEmptyState
+                    heading={context?.emptyStateHeading}
+                    detail={context?.emptyStateDetail}
+                    sampleDataVariant="line"
+                />
+            )
         }
 
         if (responseErrorObject) {
@@ -129,31 +137,38 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
     )
 }
 
-const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
-    line: GraphType.Line,
-    area: GraphType.Line,
-    bar: GraphType.Bar,
+const DISPLAY_MODE_TO_CHART_KIND: Record<DisplayMode, RevenueAnalyticsChartKind> = {
+    line: 'line',
+    area: 'area',
+    bar: 'bar',
 
     // not really supported, but here to satisfy the type checker
-    table: GraphType.Line,
+    table: 'line',
 }
 
-// Simple wrapper around the LineGraph component, adding consistent display mode and date filter
-export const RevenueAnalyticsLineGraph = (
-    props: Omit<LineGraphProps, 'type' | 'isArea' | 'isInProgress' | 'labelGroupType'>
-): JSX.Element => {
+export interface RevenueAnalyticsLineGraphProps {
+    'data-attr': string
+    datasets: GraphDataset[]
+    labels: string[]
+    trendsFilter?: TrendsFilter | null
+    legend?: { display: boolean; reverse?: boolean }
+}
+
+export const RevenueAnalyticsLineGraph = (props: RevenueAnalyticsLineGraphProps): JSX.Element => {
     const { insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
 
+    const legend = props.legend ?? { display: props.datasets.length > 1 }
+
     return (
-        <LineGraph
-            type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
-            isArea={insightsDisplayMode !== 'line'}
+        <RevenueAnalyticsChart
+            dataAttr={props['data-attr']}
+            datasets={props.datasets}
+            labels={props.labels}
+            kind={DISPLAY_MODE_TO_CHART_KIND[insightsDisplayMode]}
+            trendsFilter={props.trendsFilter}
+            goalLines={schemaGoalLinesToConfigs(props.trendsFilter?.goalLines)}
             isInProgress={!dateFilter.dateTo}
-            legend={{ display: props.datasets.length > 1, position: 'right' }}
-            trendsFilter={{ aggregationAxisFormat: 'numeric' }}
-            labelGroupType="none"
-            goalLines={props.goalLines || props.trendsFilter?.goalLines}
-            {...props}
+            legend={{ show: legend.display, position: 'right', reverse: legend.reverse }}
         />
     )
 }

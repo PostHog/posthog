@@ -38,6 +38,15 @@
                 document.getElementById("send_2fa_reset").submit();
         });
 
+        // Django's ReadOnlyPasswordHashWidget renders a native "Reset password" button linking to
+        // ../password/ (which we don't support). Repurpose it to email the user a reset link instead.
+        document.querySelector(".field-password a.button")?.addEventListener("click", (event) => {
+            // prevent anchor tag from navigating to ../password/
+            event.preventDefault();
+            if (window.confirm("Send password reset email? This will let the user set a new password."))
+                document.getElementById("send_password_reset").submit();
+        });
+
         // Add read-only toggle to loginas modal
         const reasonField = document.getElementById("loginas-reason");
         if (reasonField) {
@@ -90,6 +99,11 @@
     <form method="POST" id="send_2fa_reset">
         {% csrf_token %}
         <input type="hidden" name="send_2fa_reset" value="1" />
+    </form>
+
+    <form method="POST" id="send_password_reset">
+        {% csrf_token %}
+        <input type="hidden" name="send_password_reset" value="1" />
     </form>
 
 {% endblock %}

@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import { IconGear, IconPlus } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, UserType } from '~/types'
 
 import type { projectNoticeLogicType } from './projectNoticeLogicType'
 
@@ -70,9 +70,11 @@ function storeNoticeDismissal(key: string): void {
 /**
  * Whether the missing-reverse-proxy notice could be eligible to show (and its data should be fetched).
  * Limited to the first 7 days of each month so the nudge stays noticeable without causing fatigue.
+ * Requires an authenticated user and a loaded organization — otherwise the proxy_records GET fires
+ * without a valid session and 401s, polluting error tracking with no banner to show anyway.
  */
-function shouldFetchProxyRecords(): boolean {
-    return new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
+function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: string | null): boolean {
+    return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
 function buildBillingAlertNotice(
@@ -122,6 +124,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             ['memberCount'],
             organizationLogic,
             ['currentOrganizationId'],
+            userLogic,
+            ['user'],
             // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
             // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
             // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
@@ -147,8 +151,17 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         proxyRecords: {
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
-                return response.results
+                try {
+                    const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
+                    return response.results
+                } catch (error) {
+                    // A missing or expired session makes this boot-time GET 401. There's no banner to
+                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && error.status === 401) {
+                        return null
+                    }
+                    throw error
+                }
             },
         },
     })),
@@ -248,7 +261,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Only show the reverse proxy nudge on Cloud (or dev) — self-hosted users
                     // control their own infrastructure and don't need managed proxies.
                     isCloudOrDev &&
-                    shouldFetchProxyRecords() &&
+                    shouldFetchProxyRecords(user, organization?.id ?? null) &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
                     // ...and only once the checker has confirmed there's no self-managed proxy
@@ -372,7 +385,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                     </Link>{' '}
                                     or grab your project API key/HTML snippet from{' '}
                                     <Link
-                                        to={urls.settings('environment-details', 'variables')}
+                                        to={urls.settings('project-details', 'variables')}
                                         data-attr="real_project_with_no_events-settings"
                                     >
                                         Project Settings
@@ -465,8 +478,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        if (shouldFetchProxyRecords()) {
+    afterMount(({ actions, values }) => {
+        if (shouldFetchProxyRecords(values.user, values.currentOrganizationId)) {
             actions.loadRecords()
         }
     }),

@@ -1,12 +1,43 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+
+const LOOKBACK_UNIT_SECONDS = {
+    minutes: 60,
+    hours: 3600,
+    days: 86400,
+} as const
+type LookbackUnit = keyof typeof LOOKBACK_UNIT_SECONDS
+
+// Only timestamp/date incremental fields support a lookback window; the watermark for these is a
+// point in time we can safely re-read from. Mirrors IncrementalFieldType on the backend.
+const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
+export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
+    !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
+
+export const secondsToLookbackParts = (
+    seconds: number | null | undefined
+): { amount: number | null; unit: LookbackUnit } => {
+    if (!seconds || seconds <= 0) {
+        return { amount: null, unit: 'hours' }
+    }
+    // Show the largest unit the value divides into evenly so a 2-day window reads as "2 days", not "48 hours".
+    for (const unit of ['days', 'hours', 'minutes'] as LookbackUnit[]) {
+        if (seconds % LOOKBACK_UNIT_SECONDS[unit] === 0) {
+            return { amount: seconds / LOOKBACK_UNIT_SECONDS[unit], unit }
+        }
+    }
+    // Floor (not round) so a non-divisible value never displays as more than it is and then
+    // saves back the inflated number — e.g. 90 s shows "1 minute" and round-trips to 60 s.
+    return { amount: Math.floor(seconds / 60), unit: 'minutes' }
+}
 
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -60,7 +91,8 @@ interface SyncMethodFormProps {
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
-        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+        incrementalFieldLookbackSeconds?: number | null
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
@@ -92,8 +124,12 @@ const getCdcSyncSupported = (
     }
 }
 
+// xmin is offered only when the source advertises it for the table and the gating flag is on.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
+    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
+
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
     appendField: string | null
 ): string | undefined => {
@@ -114,7 +150,7 @@ const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
     appendSyncSupported: boolean
-): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' => {
+): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
     }
@@ -152,6 +188,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
+    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -175,16 +212,25 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const [cdcTableMode, setCdcTableMode] = useState<'consolidated' | 'cdc_only' | 'both'>(
         schema.cdc_table_mode ?? 'consolidated'
     )
+    const initialLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
+    const [lookbackAmount, setLookbackAmount] = useState<number | null>(initialLookback.amount)
+    const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
 
     useEffect(() => {
         setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
         setIncrementalFieldValue(defaultField)
         setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
+        const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
+        setLookbackAmount(resetLookback.amount)
+        setLookbackUnit(resetLookback.unit)
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const lookbackSeconds =
+        lookbackAmount != null && lookbackAmount > 0 ? lookbackAmount * LOOKBACK_UNIT_SECONDS[lookbackUnit] : null
+
     const radioOptions: {
-        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc'
+        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
         disabledReason?: string
         label: JSX.Element
     }[] = []
@@ -270,8 +316,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">Both</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    CDC history table plus an auto-generated view for the current state
-                                                    (<code>valid_to IS NULL</code>).
+                                                    Consolidated current-state table plus a separate <code>_cdc</code>
+                                                    -suffixed history table.
                                                 </p>
                                             </div>
                                         ),
@@ -280,6 +326,28 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             />
                         </div>
                     )}
+                </div>
+            ),
+        })
+    }
+
+    if (shouldOfferXmin(schema, xminFlagEnabled)) {
+        radioOptions.push({
+            value: 'xmin',
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">xmin replication</h4>
+                    </div>
+                    <p className="mb-2">
+                        Incremental replication using Postgres' internal <code>xmin</code> system column to track
+                        changed rows — no <code>updated_at</code> column required. Each sync reads only rows inserted or
+                        updated since the last run. Requires a primary key on the source table.
+                    </p>
+                    <p className="mb-2">
+                        Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
+                        column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
+                    </p>
                 </div>
             ),
         })
@@ -348,6 +416,48 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             scan the full table on each sync. Consider adding an index, or pick a
                                             different incremental field.
                                         </LemonBanner>
+                                    )}
+                                {radioValue === 'incremental' &&
+                                    incrementalFieldValue &&
+                                    isLookbackEligibleType(
+                                        schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                            ?.field_type
+                                    ) && (
+                                        <div className="mt-4">
+                                            <p className="mb-1 font-semibold">Lookback window (optional)</p>
+                                            <p className="mb-2 text-secondary text-sm">
+                                                On each sync, re-read rows from this far before the last synced value of{' '}
+                                                <code>{incrementalFieldValue}</code>. Catches rows that arrive late or
+                                                with a backdated value. The stored sync position isn't changed.
+                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <LemonInput
+                                                    type="number"
+                                                    min={0}
+                                                    max={60}
+                                                    value={lookbackAmount ?? undefined}
+                                                    onChange={(newValue) => setLookbackAmount(newValue ?? null)}
+                                                    placeholder="0"
+                                                    className="w-24"
+                                                />
+                                                <LemonSelect
+                                                    value={lookbackUnit}
+                                                    onChange={(newValue) => setLookbackUnit(newValue)}
+                                                    options={[
+                                                        { value: 'minutes', label: 'minutes' },
+                                                        { value: 'hours', label: 'hours' },
+                                                        { value: 'days', label: 'days' },
+                                                    ]}
+                                                />
+                                            </div>
+                                            {lookbackSeconds !== null && lookbackSeconds > 604800 && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    Large lookback windows re-read more source data on every sync, which
+                                                    increases warehouse cost and sync duration. Consider a shorter
+                                                    window if your source timestamps are broadly reliable.
+                                                </LemonBanner>
+                                            )}
+                                        </div>
                                     )}
                                 {radioValue === 'incremental' && columns.length > 0 && (
                                     <>
@@ -504,6 +614,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             if (primaryKeyColumns.some((pk, index) => pk !== serverPrimaryKeys[index])) {
                 return true
             }
+            if (lookbackSeconds !== (schema.incremental_field_lookback_seconds ?? null)) {
+                return true
+            }
         }
         if (radioValue === 'append' && appendFieldValue !== (schema.incremental_field ?? null)) {
             return true
@@ -522,6 +635,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             onSave('webhook', null, null, null)
         } else if (radioValue === 'cdc') {
             onSave('cdc', null, null, null, cdcTableMode)
+        } else if (radioValue === 'xmin') {
+            // xmin carries no user-picked incremental field; the source projects the system column.
+            onSave('xmin', null, null, null)
         } else if (radioValue === 'incremental') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
             if (!fieldSelected) {
@@ -533,7 +649,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 'incremental',
                 incrementalFieldValue,
                 fieldSelected.field_type,
-                primaryKeyColumns.length > 0 ? primaryKeyColumns : null
+                primaryKeyColumns.length > 0 ? primaryKeyColumns : null,
+                undefined,
+                isLookbackEligibleType(fieldSelected.field_type) ? lookbackSeconds : null
             )
         } else if (radioValue === 'append') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)

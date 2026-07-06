@@ -226,10 +226,10 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('_posthogUrl')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
 
-            // Formatted results should contain pipe-separated values (the formatter output)
+            // Paths demo data can have pageviews without a path edge in the selected window.
             expect(typeof result.results).toBe('object')
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
-            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toMatch(/\||No data recorded for this time period\./)
         })
 
         it('should execute a paths query with start point', async () => {
@@ -527,6 +527,196 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(sourcePathsFilter.pathEndKey).toBe('3_https://us.posthog.com')
             expect(sourcePathsFilter.startPoint).toBe('https://posthog.com/')
             expect(sourcePathsFilter.endPoint).toBe('https://us.posthog.com/')
+        })
+    })
+
+    describe('query-retention-actors', () => {
+        const pageview = { id: '$pageview', name: 'Pageview', type: 'events' }
+        const retentionSource = {
+            kind: 'RetentionQuery',
+            retentionFilter: {
+                period: 'Day',
+                totalIntervals: 8,
+                targetEntity: pageview,
+                returningEntity: pageview,
+                retentionType: 'retention_first_time',
+            },
+            dateRange: { date_from: '-30d' },
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, { source: retentionSource, interval: 0 })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery with the person + per-interval projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, { source: retentionSource, interval: 1 })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.select).toEqual([
+                'person',
+                'day_0',
+                'day_1',
+                'day_2',
+                'day_3',
+                'day_4',
+                'day_5',
+                'day_6',
+                'day_7',
+            ])
+            expect(result.query.orderBy).toEqual(['length(appearances) DESC', 'actor_id'])
+            expect(result.query.source.kind).toBe('InsightActorsQuery')
+            expect(result.query.source.interval).toBe(1)
+            expect(result.query.source.source.kind).toBe('RetentionQuery')
+            expect(result.results.columns).toEqual([
+                'distinct_id',
+                'email',
+                'name',
+                'day_0',
+                'day_1',
+                'day_2',
+                'day_3',
+                'day_4',
+                'day_5',
+                'day_6',
+                'day_7',
+            ])
+        })
+
+        it('derives the interval column count from custom brackets', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, {
+                source: {
+                    ...retentionSource,
+                    retentionFilter: { ...retentionSource.retentionFilter, retentionCustomBrackets: [1, 3, 5] },
+                },
+                interval: 0,
+            })) as any
+
+            // 3 custom brackets → 3 + 1 = 4 interval columns.
+            expect(result.query.select).toEqual(['person', 'day_0', 'day_1', 'day_2', 'day_3'])
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'day_0', 'day_1', 'day_2', 'day_3'])
+        })
+
+        it('rejects a totalIntervals above the supported maximum', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            await expect(
+                tool.handler(context, {
+                    source: {
+                        ...retentionSource,
+                        retentionFilter: { ...retentionSource.retentionFilter, totalIntervals: 50 },
+                    },
+                    interval: 0,
+                })
+            ).rejects.toThrow(/maximum is 32/)
+        })
+    })
+
+    describe('query-stickiness-actors', () => {
+        const stickinessSource = {
+            kind: 'StickinessQuery',
+            series: [{ kind: 'EventsNode', event: '$pageview', name: 'Pageview', math: 'dau' }],
+            interval: 'day',
+            dateRange: { date_from: '-30d' },
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-stickiness-actors')
+            const result = (await tool.handler(context, { source: stickinessSource, day: 1 })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery with the actor projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-stickiness-actors')
+            const result = (await tool.handler(context, { source: stickinessSource, day: 2, series: 0 })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.select).toEqual(['actor'])
+            expect(result.query.orderBy).toEqual([])
+            expect(result.query.source.kind).toBe('InsightActorsQuery')
+            expect(result.query.source.day).toBe(2)
+            expect(result.query.source.series).toBe(0)
+            expect(result.query.source.source.kind).toBe('StickinessQuery')
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name'])
+        })
+
+        it('does not project a recordings column (membership-based output)', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-stickiness-actors')
+            const result = (await tool.handler(context, { source: stickinessSource, day: 1 })) as any
+
+            expect(result.query.select).not.toContain('matched_recordings')
+            expect(result.results.columns).not.toContain('recordings')
+        })
+    })
+
+    describe('query-funnel-actors', () => {
+        const funnelSource = {
+            kind: 'FunnelsQuery',
+            series: [
+                { kind: 'EventsNode', event: '$pageview', name: 'Pageview' },
+                { kind: 'EventsNode', event: '$pageview', name: '$pageview' },
+            ],
+            funnelsFilter: { funnelVizType: 'steps' },
+            dateRange: { date_from: '-30d' },
+            interval: 'day',
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: 2 })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery and passes the converted step through', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: 2 })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.orderBy).toEqual([])
+            expect(result.query.source.kind).toBe('FunnelsActorsQuery')
+            expect(result.query.source.funnelStep).toBe(2)
+            expect(result.query.source.source.kind).toBe('FunnelsQuery')
+            // includeRecordings defaults to true, so the recordings column is projected.
+            expect(result.query.select).toEqual(['actor', 'matched_recordings'])
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'recordings'])
+        })
+
+        it('passes a negative funnelStep through for the dropped-off cohort', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: -2 })) as any
+
+            expect(result.query.source.funnelStep).toBe(-2)
+            expect(result.query.source.source.kind).toBe('FunnelsQuery')
+        })
+
+        it('omits the recordings column when includeRecordings is false', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, {
+                source: funnelSource,
+                funnelStep: 2,
+                includeRecordings: false,
+            })) as any
+
+            expect(result.query.select).toEqual(['actor'])
+            expect(result.query.select).not.toContain('matched_recordings')
+            expect(result.results.columns).not.toContain('recordings')
         })
     })
 })

@@ -89,7 +89,23 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             service_names=service_names,
         )
-        self.assertEqual(response.results, {"count": expected_count})
+        self.assertEqual(response.results["count"], expected_count)
+
+    @parameterized.expand(
+        [
+            # count() is per-span; traceCount is distinct traces whose root matches. Unfiltered, every
+            # root matches, so count = 9 spans but traceCount = 3 traces.
+            ("unfiltered", None, NUM_TRACES * 3, NUM_TRACES),
+            ("no_match_returns_zero_for_both", ["does-not-exist"], 0, 0),
+        ]
+    )
+    def test_count_includes_distinct_trace_count(self, _name, service_names, expected_spans, expected_traces):
+        response = run_count_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            service_names=service_names,
+        )
+        self.assertEqual(response.results, {"count": expected_spans, "traceCount": expected_traces})
 
     def test_count_via_api_with_name_filter(self):
         body = {
@@ -101,4 +117,47 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
         res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
         self.assertEqual(res.status_code, 200, res.content)
         # One root span named process_query_model per trace.
-        self.assertEqual(res.json(), {"count": NUM_TRACES})
+        self.assertEqual(res.json()["count"], NUM_TRACES)
+
+    def test_count_api_child_only_filter_matches_spans_but_no_trace_roots(self):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "filterGroup": [{"key": "is_root_span", "type": "span", "operator": "exact", "value": False}],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        # 2 child spans per trace = 6 matching spans, but no trace's ROOT matches (the filter excludes
+        # roots), so the Traces view shows 0 traces — traceCount must agree with that, not count traces
+        # by any matching span.
+        self.assertEqual(res.json(), {"count": NUM_TRACES * 2, "traceCount": 0})
+
+    @parameterized.expand(
+        [
+            # Seed: 3 traces × (1 root + 2 children); every span is status_code=0 (Unset)
+            # and kind=2 (Server). A span-field filter must RESTRICT the count, never
+            # silently match every row — across the value forms agents actually send.
+            ("is_root_span_bool_true_matches_roots", "is_root_span", True, NUM_TRACES),
+            ("is_root_span_bool_false_matches_children", "is_root_span", False, NUM_TRACES * 2),
+            ("is_root_span_string_true_matches_roots", "is_root_span", "true", NUM_TRACES),
+            ("is_root_span_string_false_matches_children", "is_root_span", "false", NUM_TRACES * 2),
+            ("is_root_span_int_one_matches_roots", "is_root_span", 1, NUM_TRACES),
+            ("is_root_span_int_zero_matches_children", "is_root_span", 0, NUM_TRACES * 2),
+            ("status_code_int_2_matches_no_errors", "status_code", 2, 0),
+            ("status_code_str_2_matches_no_errors", "status_code", "2", 0),
+            ("status_code_int_0_matches_all_unset", "status_code", 0, NUM_TRACES * 3),
+            ("kind_str_3_matches_no_clients", "kind", "3", 0),
+            ("kind_int_2_matches_all_servers", "kind", 2, NUM_TRACES * 3),
+        ]
+    )
+    def test_count_span_field_filters_restrict(self, _name, key, value, expected_count):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "filterGroup": [{"key": key, "type": "span", "operator": "exact", "value": value}],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["count"], expected_count)

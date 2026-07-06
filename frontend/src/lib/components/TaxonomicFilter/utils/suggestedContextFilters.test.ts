@@ -63,6 +63,70 @@ describe('suggestedContextFilters', () => {
         })
     })
 
+    describe('filterRecentsForContext bare-key expansion (value mode)', () => {
+        const complete = (key: string, value: string): Record<string, unknown> => ({
+            propertyFilter: { key, operator: PropertyOperator.Exact, value },
+        })
+        const propertyFilterOf = (item: TaxonomicDefinitionTypes): unknown =>
+            (item as unknown as { _recentContext: { propertyFilter?: unknown } })._recentContext.propertyFilter
+
+        it('prepends a bare key before a complete recent', () => {
+            const out = filterRecentsForContext(
+                [recent(EventProperties, 'host', complete('host', 'us'))],
+                [EventProperties]
+            )
+            expect(names(out)).toEqual(['host', 'host'])
+            expect(propertyFilterOf(out[0])).toBeUndefined()
+            expect(propertyFilterOf(out[1])).toBeTruthy()
+        })
+
+        it('does not append a bare key for an incomplete recent', () => {
+            expect(filterRecentsForContext([recent(EventProperties, 'host')], [EventProperties])).toHaveLength(1)
+        })
+
+        it('emits two fulls and a single bare key for two complete recents of the same key', () => {
+            const out = filterRecentsForContext(
+                [
+                    recent(EventProperties, 'host', complete('host', 'us')),
+                    recent(EventProperties, 'host', complete('host', 'eu')),
+                ],
+                [EventProperties]
+            )
+            expect(out).toHaveLength(3)
+            expect(out.filter((i) => propertyFilterOf(i) === undefined)).toHaveLength(1)
+        })
+
+        it('does not expand in key-only mode', () => {
+            const out = filterRecentsForContext(
+                [recent(EventProperties, 'host', complete('host', 'us'))],
+                [EventProperties],
+                undefined,
+                true
+            )
+            expect(out).toHaveLength(1)
+            expect(propertyFilterOf(out[0])).toBeUndefined()
+        })
+
+        it('honors a per-group key-only dict: key-only group stripped, value group expanded', () => {
+            const out = filterRecentsForContext(
+                [recent(Cohorts, '1', complete('id', '1')), recent(EventProperties, 'host', complete('host', 'us'))],
+                [Cohorts, EventProperties],
+                undefined,
+                { [Cohorts]: true }
+            )
+            const groupOf = (i: TaxonomicDefinitionTypes): TaxonomicFilterGroupType =>
+                (i as unknown as { _recentContext: { sourceGroupType: TaxonomicFilterGroupType } })._recentContext
+                    .sourceGroupType
+            const cohortRows = out.filter((i) => groupOf(i) === Cohorts)
+            const propRows = out.filter((i) => groupOf(i) === EventProperties)
+            expect(cohortRows).toHaveLength(1)
+            expect(propertyFilterOf(cohortRows[0])).toBeUndefined()
+            expect(propRows).toHaveLength(2)
+            expect(propRows.filter((i) => propertyFilterOf(i) === undefined)).toHaveLength(1)
+            expect(propRows.filter((i) => propertyFilterOf(i) !== undefined)).toHaveLength(1)
+        })
+    })
+
     describe.each([
         ['only in-scope kept', [pinned(Events, 'a'), pinned(Cohorts, 'c')], [Events], ['a']],
         ['all out-of-scope dropped', [pinned(Cohorts, 'c')], [Events], []],

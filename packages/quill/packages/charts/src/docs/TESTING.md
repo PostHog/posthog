@@ -55,9 +55,10 @@ For interactions, use the module-level helpers:
 
 - `hoverAtIndex(wrapper, i, totalLabels)` — `mouseMove` over labels[i].
 - `clickAtIndex(wrapper, i, totalLabels)` — hover-then-click. Resolves after the click handler runs.
+- `dragSelection(wrapper, fromIndex, toIndex, totalLabels)` — simulates a drag-to-zoom gesture between two label indices.
 - `waitForHogChartTooltip()` — resolves with the rendered tooltip element once it mounts in the `FloatingPortal`.
 
-`chart.hoverAtIndex(i)` and `chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need `renderHogChart` — they read label count and the captured `TooltipContext` that only the library's own render wrapper sets up. For most consumer tests, DOM assertions through the accessor are enough.
+`chart.hoverAtIndex(i)`, `chart.dragSelection(i, j)`, and `chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need `renderHogChart` — they read label count and the captured `TooltipContext` that only the library's own render wrapper sets up. For most consumer tests, DOM assertions through the accessor are enough.
 
 ## Testing the library itself
 

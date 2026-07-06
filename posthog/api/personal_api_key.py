@@ -1,8 +1,6 @@
 import uuid
 from typing import cast
 
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 from django.utils import timezone
 
 import posthoganalytics
@@ -13,13 +11,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
-from posthog.models.activity_logging.activity_log import changes_between
-from posthog.models.activity_logging.personal_api_key_utils import (
-    log_personal_api_key_activity,
-    log_personal_api_key_scope_change,
-)
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
@@ -27,6 +19,53 @@ from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SC
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
+
+
+def validate_personal_api_key_scopes(
+    scopes: list[str],
+    requesting_user: User,
+    *,
+    existing_scopes: list[str] | None = None,
+    allowed_scopes: frozenset[str] | None = None,
+) -> None:
+    for scope in scopes:
+        if scope == "*":
+            if allowed_scopes is None:
+                continue
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        scope_parts = scope.split(":")
+        if (
+            len(scope_parts) != 2
+            or scope_parts[0] not in API_SCOPE_OBJECTS
+            or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
+            or scope_parts[1] not in API_SCOPE_ACTIONS
+        ):
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        if allowed_scopes is not None and scope not in allowed_scopes:
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        # Check feature flag for llm_gateway scope - block if newly adding this scope
+        if scope_parts[0] == "llm_gateway":
+            existing_has_llm_gateway = existing_scopes is not None and any(
+                s.startswith("llm_gateway:") for s in existing_scopes
+            )
+            if not existing_has_llm_gateway:
+                organization_id = requesting_user.current_organization_id
+                if organization_id is None:
+                    raise serializers.ValidationError("Unable to verify feature access.")
+                if not posthoganalytics.feature_enabled(
+                    "gateway-personal-api-key",
+                    str(requesting_user.distinct_id),
+                    groups={"organization": str(organization_id)},
+                    group_properties={"organization": {"id": str(organization_id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                ):
+                    raise serializers.ValidationError(
+                        "LLM gateway scope is not available. Contact support to enable this feature."
+                    )
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -75,40 +114,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
-
-        for scope in scopes:
-            if scope == "*":
-                continue
-
-            scope_parts = scope.split(":")
-            if (
-                len(scope_parts) != 2
-                or scope_parts[0] not in API_SCOPE_OBJECTS
-                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
-                or scope_parts[1] not in API_SCOPE_ACTIONS
-            ):
-                raise serializers.ValidationError(f"Invalid scope: {scope}")
-
-            # Check feature flag for llm_gateway scope - block if newly adding this scope
-            if scope_parts[0] == "llm_gateway":
-                existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in self.instance.scopes
-                )
-                if not existing_has_llm_gateway:
-                    organization_id = requesting_user.current_organization_id
-                    if organization_id is None:
-                        raise serializers.ValidationError("Unable to verify feature access.")
-                    if not posthoganalytics.feature_enabled(
-                        "gateway-personal-api-key",
-                        str(requesting_user.distinct_id),
-                        groups={"organization": str(organization_id)},
-                        group_properties={"organization": {"id": str(organization_id)}},
-                        only_evaluate_locally=False,
-                        send_feature_flag_events=False,
-                    ):
-                        raise serializers.ValidationError(
-                            "LLM gateway scope is not available. Contact support to enable this feature."
-                        )
+        existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
+        validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes
 
@@ -262,30 +269,3 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
-
-
-@mutable_receiver(model_activity_signal, sender=PersonalAPIKey)
-def handle_personal_api_key_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    changes = changes_between(scope, previous=before_update, current=after_update)
-
-    # Check if scope changed (scoped_teams or scoped_organizations)
-    scope_fields = ["scoped_teams", "scoped_organizations"]
-    scope_changed = any(change.field in scope_fields for change in changes if change.field)
-
-    if scope_changed and activity == "updated":
-        # Filter out scope fields from changes as we dont want to present them to the user
-        filtered_changes = [
-            change for change in changes if change.field not in ["scoped_teams", "scoped_organizations"]
-        ]
-        log_personal_api_key_scope_change(before_update, after_update, user, was_impersonated, filtered_changes)
-    else:
-        log_personal_api_key_activity(after_update, activity, user, was_impersonated, changes)
-
-
-@receiver(pre_delete, sender=PersonalAPIKey)
-def handle_personal_api_key_delete(sender, instance, **kwargs):
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
-    log_personal_api_key_activity(instance, "deleted", get_current_user(), get_was_impersonated())

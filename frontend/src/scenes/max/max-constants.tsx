@@ -18,15 +18,28 @@ import {
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
+import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { isObject } from '~/lib/utils'
-import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantTool,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    TaskExecutionStatus,
+} from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
-import { EnhancedToolCall } from './Thread'
+
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: TaskExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
+}
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
@@ -67,6 +80,11 @@ export interface ToolDefinition<N extends string = string> {
     alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
+    /**
+     * Set for tools using ToolRegistration.clientExecution, so a pending call is resumed with
+     * a refusal (instead of stranded) after the owning view deregistered the handler.
+     */
+    clientExecuted?: boolean
 }
 
 /** Active instance of a tool. */
@@ -104,6 +122,13 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
+    /**
+     * Optional: executes part of the tool client-side. Runs with the tool call's arguments when
+     * the backend pauses via `MaxTool.request_client_execution()`; the returned result resumes
+     * the conversation and becomes that call's return value. Keep results small (verdicts, ids):
+     * they ride a Temporal resume payload capped at ~2MiB.
+     */
+    clientExecution?: (args: Record<string, any>) => Promise<Record<string, unknown>>
 }
 
 export interface RecordingsWidgetDef {
@@ -134,6 +159,7 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
     'list_data',
+    'list_feature_flags',
     'search',
     'switch_mode',
     'list_llm_skills',
@@ -499,6 +525,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return `Listing ${entityLabel}${pageInfo}...`
         },
     },
+    list_feature_flags: {
+        name: 'List feature flags',
+        description: 'List feature flags with their status, filterable by stale/enabled/disabled',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const status = typeof toolCall.args?.status === 'string' ? toolCall.args.status : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+            const label = status ? `${status} feature flags` : 'feature flags'
+            return toolCall.status === 'completed' ? `Listed ${label}${pageInfo}` : `Listing ${label}${pageInfo}...`
+        },
+    },
     create_insight: {
         name: 'Create an insight or edit an existing one',
         description: "Create an insight or edit an existing one you're viewing",
@@ -738,6 +776,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Drafted scanner prompt'
             }
             return 'Drafting scanner prompt...'
+        },
+    },
+    search_replay_vision_observations: {
+        name: 'Search observations',
+        description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched observations'
+            }
+            return 'Searching observations...'
         },
     },
     create_survey: {
@@ -1194,6 +1244,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching LLM traces...'
         },
     },
+    create_ai_trace_parser: {
+        name: 'Create custom parsers',
+        description: 'Create custom parsers to control how AI observability events are displayed',
+        icon: iconForType('llm_analytics'),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS,
+        clientExecuted: true,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a custom parser'
+            }
+            return 'Writing a custom parser...'
+        },
+    },
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
@@ -1395,6 +1458,11 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
         flag: 'PHAI_SANDBOX_MODE',
         alpha: true,
     },
+}
+
+/** Human-readable label for an agent or special mode value (e.g. `'product_analytics'` → `'Product analytics'`). */
+export function getModeDisplayName(mode: string): string {
+    return MODE_DEFINITIONS[mode as keyof typeof MODE_DEFINITIONS]?.name ?? SPECIAL_MODES[mode]?.name ?? mode
 }
 
 /** Get tools available for a specific agent mode */

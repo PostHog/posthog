@@ -9,6 +9,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -2173,15 +2174,19 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert not hasattr(query_runner.query, "breakdownFilter")
 
-        query_runner.apply_dashboard_filters(
-            DashboardFilter(
-                breakdown_filter=BreakdownFilter(
-                    breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+        # LifecycleQuery has no breakdownFilter field, so a dashboard breakdown override is
+        # silently ignored — and it must not pollute error tracking with a captured exception.
+        with patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception:
+            query_runner.apply_dashboard_filters(
+                DashboardFilter(
+                    breakdown_filter=BreakdownFilter(
+                        breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+                    )
                 )
             )
-        )
 
         assert not hasattr(query_runner.query, "breakdownFilter")
+        mock_capture_exception.assert_not_called()
 
     def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
         query_runner = LifecycleQueryRunner(

@@ -3,7 +3,7 @@
 Direct-query-only utilities (DataWarehouseTable upserts, the `direct://postgres`
 url_pattern, the option keys that encode source location on a direct table) live
 in `direct_postgres.py`. Generic projection / `schema_metadata` builders live in
-`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
+`products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
 """
 
 from __future__ import annotations
@@ -14,17 +14,6 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql.metadata import (
-    extract_available_column_names,
-    sql_schema_metadata as _sql_schema_metadata,
-)
-from posthog.temporal.data_imports.sources.common.sql.projection import (
-    filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
-    prune_enabled_columns,
-)
-
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
@@ -33,10 +22,19 @@ from products.data_warehouse.backend.direct_postgres import (
     rename_direct_postgres_join_references,
     upsert_direct_postgres_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
+)
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
+    extract_available_column_names,
+    filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
+    prune_enabled_columns,
+    sql_schema_metadata as _sql_schema_metadata,
 )
 
 if TYPE_CHECKING:
@@ -50,13 +48,6 @@ filter_dwh_columns_by_enabled_columns = _filter_dwh_columns_by_enabled_columns
 
 type PostgresDwhColumns = dict[str, dict[str, Any]]
 type PostgresSourceLocation = tuple[str | None, str, str]
-
-
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-    normalized = default_schema.strip()
-    return normalized or None
 
 
 def postgres_schema_metadata(
@@ -108,7 +99,7 @@ def get_postgres_source_location(
     source_catalog = schema_metadata.get("source_catalog") if isinstance(schema_metadata, dict) else None
     source_schema = schema_metadata.get("source_schema") if isinstance(schema_metadata, dict) else None
     source_table_name = schema_metadata.get("source_table_name") if isinstance(schema_metadata, dict) else None
-    normalized_default = _normalize_default_schema(default_schema)
+    normalized_default = normalize_namespace(default_schema)
 
     if isinstance(source_schema, str) and isinstance(source_table_name, str):
         return source_catalog if isinstance(source_catalog, str) else None, source_schema, source_table_name
@@ -173,7 +164,7 @@ def reconcile_postgres_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every Postgres row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
@@ -338,7 +329,7 @@ def rename_postgres_schemas_to_match_source_schemas(
     Direct mode (`allow_rename=True`) rewrites `name` in place; warehouse mode pins
     `schema_metadata` only — the rename happens in `postgres_warehouse_migration`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     default_schema = (source.job_inputs or {}).get("schema")
     schema_models = list(

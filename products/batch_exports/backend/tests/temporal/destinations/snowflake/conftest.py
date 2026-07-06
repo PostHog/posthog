@@ -69,7 +69,7 @@ def snowflake_config(database, schema) -> dict[str, str | None]:
 @pytest_asyncio.fixture
 async def snowflake_batch_export(
     ateam, table_name, snowflake_config, interval, exclude_events, temporal_client
-) -> AsyncGenerator[BatchExport, None]:
+) -> AsyncGenerator[BatchExport]:
     """Manage BatchExport model (and associated Temporal Schedule) for tests"""
     destination_data = {
         "type": "Snowflake",
@@ -113,6 +113,7 @@ def snowflake_cursor(snowflake_config: dict[str, str]):
         role=f'"{snowflake_config["role"]}"' if snowflake_config["role"] is not None else None,
         warehouse=f'"{snowflake_config["warehouse"]}"',
         private_key=private_key,
+        login_timeout=5,
     ) as connection:
         connection.telemetry_enabled = False
         cursor = connection.cursor()

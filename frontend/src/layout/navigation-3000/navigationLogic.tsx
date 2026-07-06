@@ -34,8 +34,8 @@ import { Spinner, lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isNotNil } from 'lib/utils/guards'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -56,6 +56,8 @@ import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from '
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
 export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
+
+export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_button' | 'url'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -107,8 +109,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         focusPreviousItem: true,
         toggleAccordion: (key: string) => ({ key }),
         toggleListItemAccordion: (key: string) => ({ key }),
-        setZenMode: (zenMode: boolean) => ({ zenMode }),
-        toggleZenMode: true,
+        setZenMode: (zenMode: boolean, trigger: ZenModeTrigger) => ({ zenMode, trigger }),
+        toggleZenMode: (trigger: ZenModeTrigger) => ({ trigger }),
     }),
     reducers({
         isSidebarShown: [
@@ -240,11 +242,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             { persist: true },
             {
                 setZenMode: (_, { zenMode }) => zenMode,
-                toggleZenMode: (state) => !state,
             },
         ],
     }),
     listeners(({ actions, values }) => ({
+        setZenMode: ({ zenMode, trigger }) => {
+            posthog.capture('zen mode toggled', { enabled: zenMode, trigger })
+        },
+        toggleZenMode: ({ trigger }) => {
+            actions.setZenMode(!values.zenMode, trigger)
+        },
         initiateNewItemInCategory: ({ category: categoryKey }) => {
             let category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
             if (!category) {
@@ -820,7 +827,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             // Enable zen mode when URL parameter is present (e.g., ?zen or ?zen=true)
             // Only enable, never disable from URL - user can manually disable
             if (zenModeFromUrl && !values.zenMode) {
-                actions.setZenMode(true)
+                actions.setZenMode(true, 'url')
             }
         },
     })),

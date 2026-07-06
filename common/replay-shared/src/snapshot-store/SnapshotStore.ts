@@ -1,7 +1,7 @@
 import { EventType, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
-import { SourceEntry, SourceLoadingState } from './types'
+import { FullSnapshotRef, SourceEntry, SourceLoadingState } from './types'
 
 export class SnapshotStore {
     private entries: SourceEntry[] = []
@@ -32,7 +32,7 @@ export class SnapshotStore {
                 index,
                 state: 'unloaded' as const,
                 processedSnapshots: null,
-                fullSnapshotTimestamps: [],
+                fullSnapshots: [],
                 metaTimestamps: [],
                 startMs: source.start_timestamp ? new Date(source.start_timestamp).getTime() : 0,
                 endMs: source.end_timestamp ? new Date(source.end_timestamp).getTime() : 0,
@@ -61,11 +61,11 @@ export class SnapshotStore {
 
         processedSnapshots.sort((a, b) => a.timestamp - b.timestamp)
 
-        const fullSnapshotTimestamps: number[] = []
+        const fullSnapshots: FullSnapshotRef[] = []
         const metaTimestamps: number[] = []
         for (const snap of processedSnapshots) {
             if (snap.type === EventType.FullSnapshot) {
-                fullSnapshotTimestamps.push(snap.timestamp)
+                fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
             }
             if (snap.type === EventType.Meta) {
                 metaTimestamps.push(snap.timestamp)
@@ -74,7 +74,7 @@ export class SnapshotStore {
 
         entry.state = 'loaded'
         entry.processedSnapshots = processedSnapshots
-        entry.fullSnapshotTimestamps = fullSnapshotTimestamps
+        entry.fullSnapshots = fullSnapshots
         entry.metaTimestamps = metaTimestamps
         this.bump()
     }
@@ -138,7 +138,7 @@ export class SnapshotStore {
         return Math.max(0, this.entries.length - 1)
     }
 
-    canPlayAt(ts: number): boolean {
+    canPlayAt(ts: number, windowId?: number): boolean {
         if (this.entries.length === 0) {
             return false
         }
@@ -147,7 +147,7 @@ export class SnapshotStore {
             return false
         }
 
-        const fullSnapshotInfo = this.findNearestFullSnapshot(ts)
+        const fullSnapshotInfo = this.findNearestFullSnapshot(ts, windowId)
         if (!fullSnapshotInfo) {
             return false
         }
@@ -165,14 +165,23 @@ export class SnapshotStore {
         return true
     }
 
-    findNearestFullSnapshot(ts: number): { sourceIndex: number; timestamp: number } | null {
+    /**
+     * Returns the latest loaded FullSnapshot at or before `ts`, or null if none.
+     * When `windowId` is given, only FullSnapshots captured in that window count —
+     * rrweb renders one window at a time, so another window's FullSnapshot cannot
+     * make this window's events renderable.
+     */
+    findNearestFullSnapshot(ts: number, windowId?: number): { sourceIndex: number; timestamp: number } | null {
         let bestTs = -1
         let bestSourceIndex = -1
 
         for (const entry of this.entries) {
-            for (const fullTs of entry.fullSnapshotTimestamps) {
-                if (fullTs <= ts && fullTs > bestTs) {
-                    bestTs = fullTs
+            for (const fullSnapshot of entry.fullSnapshots) {
+                if (windowId !== undefined && fullSnapshot.windowId !== windowId) {
+                    continue
+                }
+                if (fullSnapshot.timestamp <= ts && fullSnapshot.timestamp > bestTs) {
+                    bestTs = fullSnapshot.timestamp
                     bestSourceIndex = entry.index
                 }
             }
@@ -184,29 +193,50 @@ export class SnapshotStore {
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
     }
 
+    /**
+     * Returns all loaded FullSnapshots at or after `ts`, sorted by timestamp.
+     * Used to recover playback when the data before `ts` has no FullSnapshot to
+     * render from (e.g. the initial full snapshot was lost at capture time).
+     */
+    fullSnapshotsAfter(ts: number): (FullSnapshotRef & { sourceIndex: number })[] {
+        const result: (FullSnapshotRef & { sourceIndex: number })[] = []
+        for (const entry of this.entries) {
+            for (const fullSnapshot of entry.fullSnapshots) {
+                if (fullSnapshot.timestamp >= ts) {
+                    result.push({ ...fullSnapshot, sourceIndex: entry.index })
+                }
+            }
+        }
+        return result.sort((a, b) => a.timestamp - b.timestamp)
+    }
+
     syncFullSnapshotTimestamps(processedSnapshots: RecordingSnapshot[]): boolean {
         let changed = false
         for (const entry of this.entries) {
             if (entry.state !== 'loaded') {
                 continue
             }
-            const timestamps: number[] = []
+            const fullSnapshots: FullSnapshotRef[] = []
             for (const snap of processedSnapshots) {
                 if (
                     snap.type === EventType.FullSnapshot &&
                     snap.timestamp >= entry.startMs &&
                     snap.timestamp <= entry.endMs
                 ) {
-                    timestamps.push(snap.timestamp)
+                    fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
                 }
             }
-            timestamps.sort((a, b) => a - b)
+            fullSnapshots.sort((a, b) => a.timestamp - b.timestamp)
             if (
-                timestamps.length > 0 &&
-                (timestamps.length !== entry.fullSnapshotTimestamps.length ||
-                    timestamps.some((t, j) => t !== entry.fullSnapshotTimestamps[j]))
+                fullSnapshots.length > 0 &&
+                (fullSnapshots.length !== entry.fullSnapshots.length ||
+                    fullSnapshots.some(
+                        (fs, j) =>
+                            fs.timestamp !== entry.fullSnapshots[j].timestamp ||
+                            fs.windowId !== entry.fullSnapshots[j].windowId
+                    ))
             ) {
-                entry.fullSnapshotTimestamps = timestamps
+                entry.fullSnapshots = fullSnapshots
                 changed = true
             }
         }

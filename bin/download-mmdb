@@ -10,6 +10,9 @@ mkdir -p "$DIR/../share"
 if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2-City.json" ]; then
     rm -f "$DIR/../share/GeoLite2-City.mmdb" "$DIR/../share/GeoLite2-City.json"
 
+    TMPFILE=$(mktemp)
+    trap 'rm -f "$TMPFILE"' EXIT
+
     echo "Downloading GeoLite2-City.mmdb..."
     if curl -L "https://mmdbcdn.posthog.net/" \
         --http1.1 \
@@ -18,9 +21,10 @@ if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2
         --retry-max-time 300 \
         --retry-all-errors \
         --progress-bar \
-        --show-error |
-        brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
-        echo "Download successful"
+        --show-error \
+        --output "$TMPFILE"; then
+        echo "Download successful, decompressing..."
+        brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb" "$TMPFILE"
     else
         echo "Download failed after retries"
         exit 1

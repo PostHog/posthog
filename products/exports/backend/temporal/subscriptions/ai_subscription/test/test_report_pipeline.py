@@ -1,10 +1,15 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    _MAX_CONCURRENT_STEPS,
+    QUERY_FAILED_PREFIX,
     AiReportStageError,
+    QueryStepDiagnostic,
     _arequest_hogql_fix,
     _run_steps,
     generate_ai_report,
@@ -67,12 +72,19 @@ async def test_successful_report_emits_slo_success(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=2)
-    mock_run.return_value = (["### s0\n\nok", "### s1\n\nok"], 0)
+    mock_run.return_value = (
+        ["### s0\n\nok", "### s1\n\nok"],
+        0,
+        [
+            QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None),
+            QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
+        ],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
 
-    assert result == "# Report"
+    assert result.markdown == "# Report"
     props = _slo_completed(mock_capture)
     assert props["operation"] == "ai_subscription_prompt_generation"
     assert props["outcome"] == "success"
@@ -90,12 +102,20 @@ async def test_degraded_report_still_synthesizes(
 ) -> None:
     # One step failed (failed_count=1) but the report still ships — graceful degradation.
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\n_Query failed: ExposedHogQLError_"], 1)
+    mock_run.return_value = (
+        ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
+        1,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
 
-    assert result == "# Weekly report"
+    assert result.markdown == "# Weekly report"
+    # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
+    assert result.diagnostics == (
+        QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
+    )
     # A degraded-but-shipped report is an SLO success, tagged so the coverage signal survives.
     props = _slo_completed(mock_capture)
     assert props["outcome"] == "success"
@@ -112,7 +132,11 @@ async def test_synthesis_failure_wrapped_with_stage(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\nok"], 0)
+    mock_run.return_value = (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+    )
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
@@ -166,9 +190,53 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
-    assert "_Query failed:" in rendered[0]
+    assert "Query failed to run" in rendered[0]
+    assert diagnostics[0].ok is False
+    assert diagnostics[0].error_type == "RuntimeError"
+    assert diagnostics[0].hogql == "SELECT 1"
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_forwards_resolution_error_message_to_fix(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    # ResolutionError names the field the planner referenced — its message, not just the type name,
+    # must reach the fix LLM so it can actually repair the query.
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
+        side_effect=[ResolutionError("Unable to resolve field 'operaton'"), ("formatted table", None)]
+    )
+    mock_fix.return_value = "SELECT fixed"
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    assert mock_fix.await_args is not None
+    assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_synthesis_prompt_carries_the_failure_marker(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+) -> None:
+    # The marker is injected into the synthesis prompt from the same constant the placeholder renders, so
+    # the prompt's "this is an error, not 'no data'" instruction can't drift from what _run_steps emits.
+    mock_bep.return_value = _spec(steps=1)
+    mock_run.return_value = (
+        ["### s0\n\nfailed"],
+        1,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+    )
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+
+    (messages,) = mock_chat.return_value.invoke.call_args[0]
+    system_message = messages[0][1]
+    assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
+    assert "{{{" not in system_message  # no placeholder left unrendered
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -179,10 +247,13 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
+    # The diagnostic tracks the fixed query (current_hogql), not the original SELECT 1.
+    assert diagnostics[0].ok is True
+    assert diagnostics[0].hogql == "SELECT fixed"
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -194,9 +265,35 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # degrade rather than burn the retry budget on an identical query.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
-    assert "_Query failed:" in rendered[0]
+    assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: MagicMock) -> None:
+    # The planner can emit many steps; they must not all hit ClickHouse at once. With more steps than
+    # the cap, no more than _MAX_CONCURRENT_STEPS run their query simultaneously (a regression that drops
+    # the semaphore would let every step fan out at once).
+    concurrent = 0
+    max_concurrent = 0
+    saturated = asyncio.Event()
+
+    async def _track(_query: object) -> tuple[str, None]:
+        nonlocal concurrent, max_concurrent
+        concurrent += 1
+        max_concurrent = max(max_concurrent, concurrent)
+        if concurrent >= _MAX_CONCURRENT_STEPS:
+            saturated.set()  # cap reached — release the held steps so the rest can run
+        await saturated.wait()
+        concurrent -= 1
+        return ("formatted", None)
+
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_track)
+
+    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), None)
+
+    assert max_concurrent == _MAX_CONCURRENT_STEPS

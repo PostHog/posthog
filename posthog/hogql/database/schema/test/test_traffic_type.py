@@ -3,7 +3,9 @@ import pytest
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.database.schema.traffic_type import (
+    client_ip_expr,
     create_bot_name_field,
+    create_bot_operator_field,
     create_is_bot_field,
     create_traffic_category_field,
     create_traffic_type_field,
@@ -44,6 +46,14 @@ class TestUserAgentExpr:
         assert expr.args[1] == ast.Field(chain=["poe", "properties", "$user_agent"])
 
 
+class TestClientIPExpr:
+    def test_default_properties_path(self):
+        assert client_ip_expr() == ast.Field(chain=["properties", "$ip"])
+
+    def test_custom_properties_path(self):
+        assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
+
+
 class TestExpressionFieldFactories:
     @pytest.mark.parametrize(
         "factory_fn,field_name",
@@ -71,134 +81,29 @@ class TestExpressionFieldFactories:
         assert default_field.expr != custom_field.expr
 
 
-class TestIsBotField:
-    def test_returns_compare_operation(self):
-        field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert field.expr.op == ast.CompareOperationOp.NotEq
-
-    def test_uses_multiMatchAnyIndex(self):
-        field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert isinstance(field.expr.left, ast.Call)
-        assert field.expr.left.name == "multiMatchAnyIndex"
-
-    def test_compares_against_zero(self):
-        field = create_is_bot_field(name="$virt_is_bot")
-        assert isinstance(field.expr, ast.CompareOperation)
-        assert isinstance(field.expr.right, ast.Constant)
-        assert field.expr.right.value == 0
-
-    def test_wraps_user_agent_in_ifnull(self):
-        field = create_is_bot_field(name="$virt_is_bot")
-        expr = field.expr
-        assert isinstance(expr, ast.CompareOperation)
-        index_call = expr.left
-        assert isinstance(index_call, ast.Call)
-        safe_ua = index_call.args[0]
-        assert isinstance(safe_ua, ast.Call)
-        assert safe_ua.name == "ifNull"
-        coalesce_call = safe_ua.args[0]
-        assert isinstance(coalesce_call, ast.Call)
-        assert coalesce_call.name == "coalesce"
-        # First coalesce arg should be nullIf for empty string handling
-        null_if = coalesce_call.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
+# Each field creator emits a single bot/traffic-type marker call, expanded to the classification SQL in
+# the resolver. These assert the field emits the right marker over its user-agent expression; the
+# expansion structure (multiMatchAnyIndex, labels, defaults) is covered in test_traffic_type_functions.py.
+FIELD_MARKERS = [
+    (create_is_bot_field, "$virt_is_bot", "isLikelyBot"),
+    (create_traffic_type_field, "$virt_traffic_type", "getTrafficType"),
+    (create_traffic_category_field, "$virt_traffic_category", "getTrafficCategory"),
+    (create_bot_name_field, "$virt_bot_name", "getBotName"),
+    (create_bot_operator_field, "$virt_bot_operator", "getBotOperator"),
+]
 
 
-class TestTrafficTypeField:
-    def test_returns_if_expression(self):
-        field = create_traffic_type_field(name="$virt_traffic_type")
+class TestFieldMarkers:
+    @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)
+    def test_emits_marker_over_user_agent_and_ip(self, factory_fn, field_name, marker):
+        field = factory_fn(name=field_name)
         assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
+        assert field.expr.name == marker
+        assert field.expr.args == [user_agent_expr(), client_ip_expr()]
 
-    def test_default_value_is_regular(self):
-        field = create_traffic_type_field(name="$virt_traffic_type")
+    @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)
+    def test_marker_respects_custom_properties_path(self, factory_fn, field_name, marker):
+        field = factory_fn(name=field_name, properties_path=["poe", "properties"])
         assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == "Regular"
-
-    def test_labels_contain_expected_values(self):
-        expr = create_traffic_type_field(name="$virt_traffic_type").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "AI Agent" in labels
-        assert "Bot" in labels
-        assert "Automation" in labels
-
-    def test_uses_multiMatchAnyIndex(self):
-        field = create_traffic_type_field(name="$virt_traffic_type")
-        assert isinstance(field.expr, ast.Call)
-        comparison = field.expr.args[0]
-        assert isinstance(comparison, ast.CompareOperation)
-        assert isinstance(comparison.left, ast.Call)
-        assert comparison.left.name == "multiMatchAnyIndex"
-
-
-class TestTrafficCategoryField:
-    def test_returns_if_expression(self):
-        field = create_traffic_category_field(name="$virt_traffic_category")
-        assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
-
-    def test_default_value_is_regular(self):
-        field = create_traffic_category_field(name="$virt_traffic_category")
-        assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == "regular"
-
-    def test_labels_contain_expected_categories(self):
-        expr = create_traffic_category_field(name="$virt_traffic_category").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "ai_crawler" in labels
-        assert "ai_search" in labels
-        assert "ai_assistant" in labels
-        assert "search_crawler" in labels
-        assert "seo_crawler" in labels
-        assert "social_crawler" in labels
-        assert "monitoring" in labels
-        assert "http_client" in labels
-        assert "headless_browser" in labels
-        assert "no_user_agent" in labels
-
-
-class TestBotNameField:
-    def test_returns_if_expression(self):
-        field = create_bot_name_field(name="$virt_bot_name")
-        assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
-
-    def test_default_value_is_empty_string(self):
-        field = create_bot_name_field(name="$virt_bot_name")
-        assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == ""
-
-    def test_labels_contain_expected_bot_names(self):
-        expr = create_bot_name_field(name="$virt_bot_name").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "Googlebot" in labels
-        assert "ChatGPT" in labels
-        assert "Claude" in labels
-        assert "GPTBot" in labels
-        assert "OpenAI Search" in labels
-        assert "curl" in labels
-        assert "" in labels
+        assert field.expr.name == marker
+        assert field.expr.args == [user_agent_expr(["poe", "properties"]), client_ip_expr(["poe", "properties"])]

@@ -118,6 +118,42 @@ describe('LoadingScheduler', () => {
             expect(maxIdx).toBe(29)
         })
 
+        it('scans forward beyond the buffer window when nothing renderable is known', () => {
+            // Playhead at the start, buffer window fully loaded, but no FullSnapshot
+            // anywhere — e.g. the initial full snapshot was lost at capture time
+            const loaded = Array.from({ length: 30 }, (_, i) => i)
+            const store = createLoadedStore(50, loaded, [])
+            const scheduler = new LoadingScheduler()
+
+            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
+        })
+
+        it('does not scan beyond the buffer window when the playhead is renderable', () => {
+            const loaded = Array.from({ length: 30 }, (_, i) => i)
+            const store = createLoadedStore(50, loaded, [0])
+            const scheduler = new LoadingScheduler()
+
+            expect(scheduler.getNextBatch(store, 10, tsForMinute(0))).toBeNull()
+        })
+
+        it('scans forward when the playhead window has no FullSnapshot even though another window does', () => {
+            // The FullSnapshot at source 0 belongs to window 2 — it can't render
+            // window-1 content at the playhead, so the scan must still fire
+            const store = new SnapshotStore()
+            store.setSources(makeSources(50))
+            for (let i = 0; i < 30; i++) {
+                const ts = tsForMinute(i)
+                store.markLoaded(i, i === 0 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+            }
+            const scheduler = new LoadingScheduler()
+
+            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0), 1)
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
+        })
+
         it('does not load backward from playback position', () => {
             // Sources 0-9 unloaded, 10-19 loaded
             const store = createLoadedStore(
@@ -224,6 +260,74 @@ describe('LoadingScheduler', () => {
             const batch = scheduler.getNextBatch(store, 10)
             expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
             expect(batch).toBeNull()
+        })
+
+        it('searches forward when no FullSnapshot exists at or before the target', () => {
+            // Everything up to source 17 loaded without any FullSnapshot, 18-19 unloaded
+            const loaded = Array.from({ length: 18 }, (_, i) => i)
+            const store = createLoadedStore(20, loaded, [])
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(10))
+
+            const batch = scheduler.getNextBatch(store, 10)
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([18, 19])
+            expect(scheduler.isSeeking).toBe(true)
+        })
+
+        it('stops searching forward once a later FullSnapshot is known', () => {
+            // No FullSnapshot before the target, but one is loaded at source 18
+            const allIndices = Array.from({ length: 20 }, (_, i) => i)
+            const store = createLoadedStore(20, allIndices, [18])
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(10))
+
+            // The player recovers by clamping the seek to the later FullSnapshot,
+            // so the scheduler gives up this seek instead of loading more
+            const batch = scheduler.getNextBatch(store, 10)
+            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+            expect(batch).toBeNull()
+        })
+
+        it('keeps searching forward when the only later FullSnapshot belongs to another window', () => {
+            // Sources 0-18 loaded; the FullSnapshot at source 18 belongs to window 2,
+            // which can't render a window-1 target — source 19 must still be scanned
+            const store = new SnapshotStore()
+            store.setSources(makeSources(20))
+            for (let i = 0; i < 19; i++) {
+                const ts = tsForMinute(i)
+                store.markLoaded(i, i === 18 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+            }
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(10), 1)
+
+            const batch = scheduler.getNextBatch(store, 10)
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([19])
+        })
+
+        it('only counts FullSnapshots of the target window when targetWindowId is passed', () => {
+            // FullSnapshot at source 5 belongs to window 2; sources 0-2 unloaded
+            const loaded = Array.from({ length: 17 }, (_, i) => i + 3)
+            const store = new SnapshotStore()
+            store.setSources(makeSources(20))
+            for (const i of loaded) {
+                const ts = tsForMinute(i)
+                store.markLoaded(i, i === 5 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+            }
+
+            // Window-agnostic seek is satisfied by window 2's FullSnapshot
+            const agnosticScheduler = new LoadingScheduler()
+            agnosticScheduler.seekTo(tsForMinute(10))
+            expect(agnosticScheduler.getNextBatch(store, 10)?.reason).not.toBe('seek_backward')
+            expect(agnosticScheduler.isSeeking).toBe(false)
+
+            // A seek targeting window 1 must keep searching backward for window 1's FullSnapshot
+            const windowAwareScheduler = new LoadingScheduler()
+            windowAwareScheduler.seekTo(tsForMinute(10), 1)
+            const batch = windowAwareScheduler.getNextBatch(store, 10)
+            expect(batch?.reason).toBe('seek_backward')
+            expect(batch?.sourceIndices).toEqual([0, 1, 2])
         })
     })
 

@@ -17,8 +17,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER,
     AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
     AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL,
+    AI_OBSERVABILITY_EVALUATION_JOB_ID_METADATA_KEY,
+    AI_OBSERVABILITY_EVALUATION_RENDERING,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.models import SamplerActivityInputs, SamplerActivityResult
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -163,9 +166,11 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         )
         return SamplerActivityResult(team_id=team.id, job_id=inputs.job_id, sampled=0, embedded=0)
 
-    # Keep the rendering format identical to trace/generation clustering so Stage B can
-    # read eval embeddings with the same endsWith(rendering, '_{job_id}') pattern.
-    rendering = f"{team.id}_{inputs.run_ts}_{inputs.job_id}"
+    # `rendering` stays a fixed low-cardinality enum (the render mode). The job id that scopes
+    # Stage B's read is carried in the embedding `metadata` instead — see the column-cardinality
+    # note on AI_OBSERVABILITY_EVALUATION_RENDERING.
+    rendering = AI_OBSERVABILITY_EVALUATION_RENDERING
+    metadata = {AI_OBSERVABILITY_EVALUATION_JOB_ID_METADATA_KEY: inputs.job_id}
     # Use the small (1536-dim) model — see AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL in constants.py.
     # The lazy import keeps EmbeddingModelName out of the module top-level (avoids pulling
     # posthog.schema into the workflow-side graph via the activity module).
@@ -195,16 +200,21 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
             reasoning=row[4],
             description=descriptions_by_id.get(eval_id),
         )
-        # Use the eval event UUID as document_id so repeated runs over the same window
-        # would land the same row (idempotent at the document level). A collision is fine —
-        # ClickHouse will just see the same (team_id, product, document_type, document_id)
-        # tuple with a new timestamp/rendering.
+        # Scope document_id per (event, job): the job id is appended to the event uuid so two jobs
+        # that sample the same event on the same day don't share a ReplacingMergeTree key and
+        # collapse, which would drop a job's embeddings (see the delimiter note in constants).
+        # Stage B strips it back to the bare uuid. Still idempotent per job: the same job re-running
+        # the same window lands the same row.
+        document_id = (
+            f"{event_uuid or str(uuid4())}{AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER}{inputs.job_id}"
+        )
         embedder.embed_document(
             content=content,
-            document_id=event_uuid or str(uuid4()),
+            document_id=document_id,
             document_type=AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
             rendering=rendering,
             product=LLM_TRACES_SUMMARIES_PRODUCT,
+            metadata=metadata,
         )
         embedded += 1
 

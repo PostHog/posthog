@@ -22,6 +22,9 @@ export const DEFAULT_SPARKLINE_BREAKDOWN_BY: LogsSparklineBreakdownBy = 'severit
 
 export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 
+export type LogsViewerViewMode = 'logs' | 'patterns'
+export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
+
 export interface LogsViewerConfigProps {
     id: string
 }
@@ -40,6 +43,9 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
         setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         toggleSparklineCollapsed: true,
+        setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
+        setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
+        setGroupBy: (groupBy: string | null) => ({ groupBy }),
     }),
 
     reducers({
@@ -67,10 +73,32 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 toggleSparklineCollapsed: (state) => !state,
             },
         ],
+        facetRailCollapsed: [
+            false,
+            { persist: true },
+            {
+                setFacetRailCollapsed: (_, { facetRailCollapsed }) => facetRailCollapsed,
+            },
+        ],
         orderBy: [
             DEFAULT_ORDER_BY as LogsOrderBy,
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        // Not persisted — the Viewer always opens in Logs mode; Patterns is an explicit switch.
+        viewMode: [
+            DEFAULT_VIEW_MODE as LogsViewerViewMode,
+            {
+                setViewMode: (_, { viewMode }) => viewMode,
+            },
+        ],
+        // The attribute to group results by (behind the logs-group-by flag); null = ungrouped.
+        // Not persisted — grouping is an explicit, per-visit exploration like Patterns.
+        groupBy: [
+            null as string | null,
+            {
+                setGroupBy: (_, { groupBy }) => groupBy,
             },
         ],
     }),

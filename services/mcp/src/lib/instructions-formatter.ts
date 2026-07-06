@@ -14,9 +14,12 @@ import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
 import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
+import ENTITY_SCHEMA_DISCOVERY_INFOSCHEMA from '@/templates/sections/entity-schema-discovery-infoschema.md'
+import ENTITY_SCHEMA_DISCOVERY_LEGACY from '@/templates/sections/entity-schema-discovery-legacy.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
@@ -24,6 +27,7 @@ import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
+import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
 
 export interface InstructionsContext {
     guidelines: string
@@ -34,6 +38,18 @@ export interface InstructionsContext {
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
     featureFlags?: EvaluatedFlags | undefined
+    /** Whether `render-ui` is actually available to this client (the `mcp-render-ui`
+     *  flag is on AND the client is an MCP Apps host). Gates the CLI rendering section
+     *  so it never reaches clients — like Claude Code — that can't mount the iframe. */
+    renderUiEnabled?: boolean | undefined
+}
+
+/** Whether schema discovery should be routed through `system.information_schema.*`
+ *  SQL (the `mcp-sql-schema-discovery` flag) instead of the `read-data-warehouse-schema`
+ *  tool. Prompt-only: when on, no instruction names the tool, so the agent discovers
+ *  tables/columns/relationships with SQL. The tool itself stays advertised either way. */
+export function schemaDiscoveryViaSqlEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
+    return featureFlags?.[SQL_SCHEMA_DISCOVERY_FEATURE_FLAG] === true
 }
 
 /**
@@ -86,6 +102,7 @@ export class InstructionsFormatter {
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
             CLI_ERROR_HANDLING,
+            ...(ctx.renderUiEnabled ? [CLI_RENDERING] : []),
             BASIC_FUNCTIONALITY,
             TOOL_SEARCH,
             RETRIEVING_DATA,
@@ -96,7 +113,7 @@ export class InstructionsFormatter {
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext
-            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools }
+            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools, featureFlags: ctx.featureFlags }
             : ctx
         return this.compose(sections, renderCtx, { compact: false })
     }
@@ -113,12 +130,16 @@ export class InstructionsFormatter {
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
+        const entitySchemaDiscovery = schemaDiscoveryViaSqlEnabled(ctx.featureFlags)
+            ? ENTITY_SCHEMA_DISCOVERY_INFOSCHEMA
+            : ENTITY_SCHEMA_DISCOVERY_LEGACY
         const vars = {
             guidelines: ctx.guidelines.trim(),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
+            entity_schema_discovery: entitySchemaDiscovery.trim(),
         }
         const body = sections
             .map((s) => s.trim())

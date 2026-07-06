@@ -17,6 +17,7 @@
         "conclusion_comment": {
             "anyOf": [
                 {
+                    "maxLength": 4000,
                     "type": "string"
                 },
                 {

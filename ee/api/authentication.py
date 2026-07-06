@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -94,8 +95,6 @@ class MultitenantSAMLAuth(SAMLAuth):
             saml_logger.info("saml_auth_complete")
             return result
         except Exception as e:
-            import json
-
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
             saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
@@ -127,12 +126,13 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
+        idp_config = organization_domain.idp_config
         return SAMLIdentityProvider(
             self,
             str(organization_domain.id),
-            entity_id=organization_domain.saml_entity_id,
-            url=organization_domain.saml_acs_url,
-            x509cert=organization_domain.saml_x509_cert,
+            entity_id=idp_config.saml_entity_id,
+            url=idp_config.saml_acs_url,
+            x509cert=idp_config.saml_x509_cert,
         )
 
     def auth_url(self):
@@ -159,10 +159,16 @@ class MultitenantSAMLAuth(SAMLAuth):
             **_saml_log_context(email, instance),
         )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
-        # Below, return_to sets the RelayState, which contains the ID of
-        # the `OrganizationDomain`.  We use it to store the specific SAML IdP
-        # name, since we multiple IdPs share the same auth_complete URL.
-        return auth.login(return_to=str(instance.id))
+        # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
+        # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
+        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
+        # carrying it in RelayState lets the base `auth_complete` recover it for the post-login
+        # redirect. `idp` carries the OrganizationDomain id since multiple IdPs share the URL.
+        # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
+        # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
+        # redirect, and `next` alone is enough to recover the redirect without it.
+        relay_state = {"idp": str(instance.id), "next": self.data.get("next")}
+        return auth.login(return_to=json.dumps(relay_state))
 
     def _get_attr(
         self,

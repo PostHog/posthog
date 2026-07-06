@@ -4,8 +4,8 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
+from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import (
     ExecuteTaskInput,
     execute_task_in_sandbox,

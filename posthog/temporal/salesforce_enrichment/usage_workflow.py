@@ -171,7 +171,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
         errors: list[str] = []
         sf = get_salesforce_client()
 
-        for batch_tuple in batched(all_org_ids, batch_size):
+        for batch_tuple in batched(all_org_ids, batch_size, strict=False):
             batch_org_ids = list(batch_tuple)
             try:
                 # Aggregate usage signals
@@ -185,7 +185,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
                 ]
 
                 if update_records:
-                    for sf_batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE):
+                    for sf_batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE, strict=False):
                         response = await asyncio.to_thread(sf.bulk.Account.update, list(sf_batch))  # type: ignore[union-attr,arg-type]
                         for result in response:
                             if result.get("success"):

@@ -4,8 +4,8 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { getCurrentTeamId } from '~/lib/utils/getAppContext'

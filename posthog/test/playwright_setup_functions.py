@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from django.conf import settings
 from django.utils import timezone
 
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import PersonalAPIKey, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -75,6 +76,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
+    staff: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -144,7 +146,11 @@ def create_organization_with_team(
             organization=organization,
             has_completed_onboarding_for={"product_analytics": True},
         )
-        user = User.objects.create_and_join(organization, user_email, user_password)
+        # The user creates the organization, so they own it. Without owner-level access,
+        # admin-only areas (e.g. billing) render a "restricted to organization admins" page.
+        user = User.objects.create_and_join(
+            organization, user_email, user_password, level=OrganizationMembership.Level.OWNER
+        )
     else:
         command = GenerateDemoDataCommand()
 
@@ -213,7 +219,13 @@ def create_organization_with_team(
 
     # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
     user.credentials_reviewed_at = timezone.now()
-    user.save(update_fields=["credentials_reviewed_at"])
+    # The system-status help-menu link checks the Django is_staff flag (not org-level admin), so the
+    # spec needs it. is_staff is powerful, so only grant it under E2E_TESTING/CI — not DEBUG alone.
+    update_fields = ["credentials_reviewed_at"]
+    if data.staff and (getattr(settings, "E2E_TESTING", False) or getattr(settings, "CI", False)):
+        user.is_staff = True
+        update_fields.append("is_staff")
+    user.save(update_fields=update_fields)
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
@@ -432,10 +444,13 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     import uuid as uuid_module
 
-    from posthog.models import Person, PersonDistinctId
     from posthog.models.event.util import create_event
     from posthog.models.person.util import create_person, create_person_distinct_id
     from posthog.models.utils import UUIDT
+    from posthog.test.persons import (
+        add_distinct_id,
+        create_person as create_test_person,
+    )
 
     person_uuids: dict[str, str] = {}
 
@@ -445,10 +460,10 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
-            pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
+            pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
             for distinct_id in person_spec.distinct_ids:
                 create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-                PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+                add_distinct_id(person=pg_person, distinct_id=distinct_id)
                 person_uuids[distinct_id] = person_uuid
 
     if not data.events:
@@ -470,8 +485,8 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         props = person_props.get(distinct_id, {})
         create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
         create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-        pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
-        PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+        pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
+        add_distinct_id(person=pg_person, distinct_id=distinct_id)
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
@@ -490,7 +505,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
 
     # Populate event/property definitions so the taxonomic filter works
-    from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
+    from products.demo.backend.facade.api import infer_taxonomy_for_team
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         infer_taxonomy_for_team(team.pk)

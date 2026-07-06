@@ -1,0 +1,332 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "bundle_uri": {
+            "default": "",
+            "type": "string"
+        },
+        "parent_revision": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "spec": {
+            "properties": {
+                "auth": {
+                    "default": {
+                        "mode": "public"
+                    },
+                    "properties": {
+                        "header": {
+                            "type": "string"
+                        },
+                        "mode": {
+                            "default": "public",
+                            "enum": ["public", "pat", "posthog_internal", "shared_secret"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "entrypoint": {
+                    "default": "agent.md",
+                    "type": "string"
+                },
+                "integrations": {
+                    "default": [],
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "limits": {
+                    "default": {
+                        "max_tool_calls": 200,
+                        "max_turns": 50,
+                        "max_wall_seconds": 900
+                    },
+                    "properties": {
+                        "max_tool_calls": {
+                            "default": 200,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        },
+                        "max_turns": {
+                            "default": 50,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        },
+                        "max_wall_seconds": {
+                            "default": 900,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                "mcps": {
+                    "default": [],
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "kind": {
+                                        "const": "agent",
+                                        "type": "string"
+                                    },
+                                    "slug": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "slug"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "allowlist": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "auth": {
+                                        "properties": {
+                                            "integration": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "kind": {
+                                        "const": "external",
+                                        "type": "string"
+                                    },
+                                    "url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "url"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "model": {
+                    "minLength": 1,
+                    "type": "string"
+                },
+                "reasoning": {
+                    "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                    "type": "string"
+                },
+                "secrets": {
+                    "default": [],
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "skills": {
+                    "default": [],
+                    "items": {
+                        "properties": {
+                            "description": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "path"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "tools": {
+                    "default": [],
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "native",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "id"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "custom",
+                                        "type": "string"
+                                    },
+                                    "path": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "id", "path"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "triggers": {
+                    "default": [],
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "config": {
+                                        "properties": {
+                                            "channel_id": {
+                                                "type": "string"
+                                            },
+                                            "mention_only": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            },
+                                            "trusted_workspaces": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "type": "string"
+                                                        },
+                                                        "minItems": 1,
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "const": "*",
+                                                        "type": "string"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "required": ["trusted_workspaces"],
+                                        "type": "object"
+                                    },
+                                    "type": {
+                                        "const": "slack",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "config"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "config": {
+                                        "properties": {
+                                            "path": {
+                                                "type": "string"
+                                            },
+                                            "secret": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["path"],
+                                        "type": "object"
+                                    },
+                                    "type": {
+                                        "const": "webhook",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "config"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "config": {
+                                        "properties": {
+                                            "schedule": {
+                                                "type": "string"
+                                            },
+                                            "timezone": {
+                                                "default": "UTC",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["schedule"],
+                                        "type": "object"
+                                    },
+                                    "type": {
+                                        "const": "cron",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "config"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "config": {
+                                        "properties": {
+                                            "require_auth": {
+                                                "default": true,
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "type": {
+                                        "const": "chat",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type", "config"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "config": {
+                                        "default": {},
+                                        "properties": {},
+                                        "type": "object"
+                                    },
+                                    "type": {
+                                        "const": "mcp",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["type"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["model"],
+            "type": "object"
+        }
+    },
+    "required": ["application_id"],
+    "type": "object"
+}

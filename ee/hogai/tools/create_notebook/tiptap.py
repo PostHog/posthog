@@ -389,6 +389,10 @@ def _tiptap_node_to_text(node: Any) -> str:
         session_id = attrs.get("id", "unknown")
         return f'<session_replay id="{session_id}" />'
 
+    if node_type == "ph-markdown-notebook":
+        markdown = attrs.get("markdown")
+        return markdown if isinstance(markdown, str) else ""
+
     # Fallback: try to extract text from children
     children = node.get("content", [])
     if children:

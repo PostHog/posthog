@@ -1,7 +1,5 @@
 from collections import defaultdict
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -17,6 +15,7 @@ from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind,
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
@@ -24,9 +23,19 @@ ZERO_DECIMAL = ast.Call(
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
-    "person_id": StringDatabaseField(name="person_id"),
-    "revenue": DecimalDatabaseField(name="revenue", nullable=False),
-    "mrr": DecimalDatabaseField(name="mrr", nullable=False),
+    "person_id": StringDatabaseField(
+        name="person_id", description="Person these revenue figures are aggregated for; join target for `persons.id`."
+    ),
+    "revenue": DecimalDatabaseField(
+        name="revenue",
+        nullable=False,
+        description="Total revenue attributed to the person, summed across all their customers, in the project's base currency.",
+    ),
+    "mrr": DecimalDatabaseField(
+        name="mrr",
+        nullable=False,
+        description="Monthly recurring revenue attributed to the person, summed across all their customers, in the project's base currency.",
+    ),
 }
 
 
@@ -173,6 +182,10 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
 
 
 class PersonsRevenueAnalyticsTable(LazyTable):
+    description: str = (
+        "Revenue and MRR aggregated per person from the revenue analytics views. "
+        "One row per person; reachable from persons via the `revenue_analytics` join."
+    )
     fields: dict[str, FieldOrTable] = FIELDS
 
     def lazy_select(

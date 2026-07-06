@@ -1,14 +1,13 @@
-import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
-import { cssEscape } from 'lib/utils/cssEscape'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { finder } from '~/toolbar/vendor/finder'
 import { ActionStepType } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
@@ -18,6 +17,19 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+
+// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
+// site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
+// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
+// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
+// callers can treat it as an ordinary request failure rather than crashing.
+export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const response = await fetch(input, init)
+    if (response && typeof response === 'object') {
+        return response
+    }
+    return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+}
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
@@ -146,7 +158,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             continue
         }
 
-        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const escapedSelector = `[${CSS.escape(name)}="${CSS.escape(value)}"]`
         const unescapedSelector = `[${name}="${value}"]`
 
         if (querySelectorAllDeep(escapedSelector).length == 1) {
@@ -167,6 +179,14 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                 // that aren't in the PostHog preferred list - they were returned early above
                 return name.startsWith('data-')
             },
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
@@ -407,7 +427,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     }
 
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
-        selector += `[href="${cssEscape(step.href)}"]`
+        selector += `[href="${CSS.escape(step.href)}"]`
     }
 
     const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')

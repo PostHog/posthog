@@ -17,6 +17,7 @@ import type {
     EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
+    EndpointsLogsRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
@@ -147,6 +148,34 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     return apiMutator<void>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, params?: EndpointsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/logs/`
+}
+
+export const endpointsLogsRetrieve = async (
+    projectId: string,
+    name: string,
+    params?: EndpointsLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsLogsRetrieveUrl(projectId, name, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

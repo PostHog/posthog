@@ -4,7 +4,7 @@ import { LemonButton, LemonModal, LemonSegmentedButton, LemonSelect } from '@pos
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { PersonType } from '~/types'
 

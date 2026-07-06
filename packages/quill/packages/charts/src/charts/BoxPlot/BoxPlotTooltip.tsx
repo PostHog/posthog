@@ -3,7 +3,7 @@ import React from 'react'
 import type { TooltipContext } from '../../core/types'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
-import type { BoxPlotDatum } from './computeBoxLayout'
+import type { BoxPlotDatum } from './types'
 
 /** Rows shown per box, in the same order the legacy BoxPlotChart used. */
 const ROWS: { label: string; key: keyof BoxPlotDatum }[] = [

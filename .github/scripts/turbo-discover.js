@@ -23,13 +23,20 @@
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
-const { analyzeSchemaImpact } = require('./schema-impact')
+const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// Per-product per-shard wall-clock target override. A product that runs a large temporal suite in
+// its own job (warehouse_sources) is split more aggressively so the long integration tests fan out
+// across more shards. Kept modest — every extra shard pays the full docker-stack + temporal-server
+// startup, so over-splitting trades runner cost for little wall-clock once startup dominates.
+const PRODUCT_TARGET_WALL_OVERRIDE = {
+    'warehouse-sources': 6 * 60,
+}
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -41,6 +48,11 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that run their OWN temporal suite inside the product test job (backend:test covers
+// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
+// the temporal durations must count toward product sizing so the product is sharded for that load —
+// otherwise a huge suite lands in one unsharded bucket and times out.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -135,6 +147,67 @@ function logAffectedReasons(label, tasks) {
     console.error(`${label} affected reasons: ${JSON.stringify(reasons)}`)
 }
 
+// --- Test quarantine (.test_quarantine.json) ---
+// Schema contract: tools/hogli-commands/hogli_commands/quarantine/core.py.
+// This script consumes a deliberately trivial subset of it: pytest entries
+// with an explicit `product:<dashed-name>` selector and `mode: "skip"` drop
+// the whole product from the matrix (mode "run" entries need no matrix change
+// — their tests xfail in-shard). ISO date strings compare lexicographically;
+// an entry is active while today <= expires.
+const QUARANTINE_FILE = '.test_quarantine.json'
+
+function quarantinedSkipProducts(jsonText, todayISO) {
+    const parsed = JSON.parse(jsonText)
+    if (parsed?.version !== 1 || !Array.isArray(parsed.entries)) {
+        return new Set()
+    }
+    const products = new Set()
+    for (const entry of parsed.entries) {
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        products.add(entry.id.slice('product:'.length))
+    }
+    return products
+}
+
+function loadQuarantinedSkipProducts(todayISO) {
+    try {
+        return quarantinedSkipProducts(fs.readFileSync(QUARANTINE_FILE, 'utf-8'), todayISO)
+    } catch (e) {
+        // Fail-open: a missing or malformed file means no quarantine, never a blocked matrix.
+        console.error(`Warning: could not read ${QUARANTINE_FILE} (${e.message}) — quarantine ignored`)
+        return new Set()
+    }
+}
+
+function loadBaseQuarantinedSkipProducts(base, todayISO) {
+    // Fail-open: file absent at base (or unreadable ref) means nothing was quarantined there.
+    try {
+        const raw = readBaseSchema(base, QUARANTINE_FILE)
+        return raw === null ? new Set() : quarantinedSkipProducts(raw, todayISO)
+    } catch {
+        return new Set()
+    }
+}
+
+// Warn on names matching no real product (catches the dash/underscore mixup:
+// the dir is batch_exports but the product is batch-exports), then drop the
+// rest from the matrix.
+function dropProducts(products, allProducts, names, label) {
+    const allProductSet = new Set(allProducts)
+    for (const name of names) {
+        if (!allProductSet.has(name)) {
+            console.error(
+                `::warning::${label}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
+            )
+        }
+    }
+    const remaining = products.filter((p) => !names.has(p))
+    console.error(`${label}: ${[...names].join(',')} — dropped ${products.length - remaining.length} product(s)`)
+    return remaining
+}
+
 function loadTestDurations() {
     let parsed
     try {
@@ -169,9 +242,12 @@ function getProductDuration(product, durations) {
     }
     const dirName = product.replace(/-/g, '_')
     const prefix = `products/${dirName}/`
+    // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
+    // that runs its own temporal suite in the product job must count them toward its size.
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
@@ -290,8 +366,9 @@ function buildMatrix(products, durations) {
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
         const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
+        const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
+        if (raw > targetWall) {
+            const shards = Math.ceil(raw / targetWall)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {
@@ -424,19 +501,31 @@ if (legacyChanged) {
 // running, and blocking on, a product whose tests are temporarily too flaky.
 const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
 if (skipProducts.size > 0) {
-    // Warn loudly on a name that matches no real product (checked against the
-    // full product list, not just the affected ones) — catches the dash/
-    // underscore mixup where the dir is batch_exports but the product is
-    // batch-exports, which would otherwise silently skip nothing.
+    products = dropProducts(products, allProducts, skipProducts, 'SKIP_PRODUCT_TESTS')
+}
+
+const todayISO = new Date().toISOString().slice(0, 10)
+const quarantinedProducts = loadQuarantinedSkipProducts(todayISO)
+if (quarantinedProducts.size > 0) {
+    products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
+}
+
+// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
+// filter already forces a full run on any PR touching the quarantine file, so
+// this diff against the merge base rarely changes the outcome — it is the
+// backstop that keeps product re-runs correct if that coarse trigger is ever
+// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+if (process.env.TURBO_SCM_BASE) {
+    const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
-    for (const name of skipProducts) {
-        if (!allProductSet.has(name)) {
-            console.error(`::warning::SKIP_PRODUCT_TESTS: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`)
-        }
+    const productSet = new Set(products)
+    for (const name of baseQuarantined) {
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
+        if (!allProductSet.has(name) || productSet.has(name)) continue
+        console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
+        products.push(name)
     }
-    const before = products.length
-    products = products.filter((p) => !skipProducts.has(p))
-    console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
+    products.sort()
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)

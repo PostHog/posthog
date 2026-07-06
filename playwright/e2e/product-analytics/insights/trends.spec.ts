@@ -21,6 +21,19 @@ test.describe('Trends insights', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
+    // Changing the date range right after entering edit mode can race the editor's
+    // hydration — a late insight load can revert the edit, leaving the save button stuck
+    // on "No changes". Require the dirty state to stick and re-apply if it was reverted.
+    async function selectDateRangeUntilDirty(insight: InsightPage, label: string): Promise<void> {
+        await expect(async () => {
+            await insight.trends.selectDateRange(label)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 2000 })
+            await insight.page.waitForTimeout(300)
+            await expect(insight.saveButton).not.toContainText('No changes', { timeout: 500 })
+            await expect(insight.saveButton).toBeEnabled({ timeout: 500 })
+        }).toPass({ timeout: 30000 })
+    }
+
     test('View default pageview trends and verify daily totals', async ({ page }) => {
         const insight = new InsightPage(page)
 
@@ -271,15 +284,15 @@ test.describe('Trends insights', () => {
 
         await test.step('move away and verify tooltip hides', async () => {
             await insight.trends.hoverAway()
-            const wrapper = page.getByTestId('insight-tooltip-wrapper')
-            await expect(wrapper).toHaveCSS('opacity', '0')
+            // The quill chart unmounts the tooltip on mouse-leave rather than fading a
+            // persistent wrapper, so assert it detaches from the DOM.
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
 
         await test.step('hover again and scroll to dismiss', async () => {
             await insight.trends.hoverChartAt(0.5, 0.5)
             await page.mouse.wheel(0, 200)
-            const wrapper = page.getByTestId('insight-tooltip-wrapper')
-            await expect(wrapper).toHaveCSS('opacity', '0')
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
 
         await test.step('add breakdown and verify tooltip shows Chrome and Firefox', async () => {
@@ -320,11 +333,10 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('change date range then discard and verify revert', async () => {
-            await insight.trends.selectDateRange('Last 30 days')
+            await selectDateRangeUntilDirty(insight, 'Last 30 days')
             await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
             await expect(insight.saveButton).toBeEnabled()
             await insight.discard()
-            // Wait for mode transition to complete first (Edit → View)
             await expect(insight.editButton).toBeVisible()
             await insight.trends.waitForChart()
             // Handle race where DateFilter state is lost during mode transition remount
@@ -333,7 +345,7 @@ test.describe('Trends insights', () => {
 
         await test.step('edit again, make a change, and save', async () => {
             await insight.edit()
-            await insight.trends.selectDateRange('Last 14 days')
+            await selectDateRangeUntilDirty(insight, 'Last 14 days')
             await insight.save()
             await expect(insight.trends.dateRangeButton).toContainText('Last 14 days')
         })

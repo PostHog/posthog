@@ -6,12 +6,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'
@@ -33,19 +34,30 @@ export interface TraceReviewFilters {
 const ALLOWED_ORDER_BY_VALUES = new Set(['updated_at', '-updated_at', 'created_at', '-created_at'])
 
 function cleanFilters(values: Record<string, unknown>): TraceReviewFilters {
-    const pageValue = values.page ?? values.review_page
-    const searchValue = values.search ?? values.review_search
-    const definitionValue = values.definition_id ?? values.review_definition_id
-    const orderByValue = values.order_by ?? values.review_order_by
+    const orderByValue = values.order_by
     const orderBy =
         typeof orderByValue === 'string' && ALLOWED_ORDER_BY_VALUES.has(orderByValue) ? orderByValue : '-updated_at'
 
     return {
-        page: parseInt(String(pageValue)) || 1,
-        search: String(searchValue || ''),
-        definition_id: typeof definitionValue === 'string' ? definitionValue : '',
+        page: parseInt(String(values.page)) || 1,
+        search: String(values.search || ''),
+        definition_id: typeof values.definition_id === 'string' ? values.definition_id : '',
         order_by: orderBy,
     }
+}
+
+// Only read the namespaced review_* params. The bare names (`search`, `page`,
+// `order_by`) on this shared URL belong to the Scorers sub-tab, so reading them
+// would leak Scorers state into the Reviews filters — e.g. clearing a review
+// filter back to its default would resurrect a stale Scorers value on the next
+// urlToAction pass. Matches the queues logic.
+function filtersFromUrl(searchParams: Record<string, unknown>): TraceReviewFilters {
+    return cleanFilters({
+        page: searchParams.review_page,
+        search: searchParams.review_search,
+        definition_id: searchParams.review_definition_id,
+        order_by: searchParams.review_order_by,
+    })
 }
 
 function getUrlFilters(filters: TraceReviewFilters): Record<string, unknown> {
@@ -208,19 +220,26 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'reviews' }
             const urlValues = {
-                ...getUrlFilters(cleanFilters(router.values.searchParams)),
+                ...getUrlFilters(filtersFromUrl(router.values.searchParams)),
                 human_reviews_tab: router.values.searchParams.human_reviews_tab === 'reviews' ? 'reviews' : undefined,
             }
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // Spread current params first — this logic only owns the review_* /
+                // human_reviews_tab params and must not strip anyone else's.
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),
 
     urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters(searchParams)
+            const newFilters = filtersFromUrl(searchParams)
 
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)

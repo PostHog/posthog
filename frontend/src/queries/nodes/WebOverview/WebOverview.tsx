@@ -5,7 +5,7 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
@@ -46,9 +46,7 @@ export function WebOverview(props: {
 
     const numSkeletons = props.query.conversionGoal ? 4 : 5
 
-    const usedWebAnalyticsPreAggregatedTables =
-        response && 'usedPreAggregatedTables' in response && response.usedPreAggregatedTables
-    const usedWebAnalyticsLazyPrecompute = response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    const preComputeStrategy = webOverviewQueryResponse?.preComputeStrategy
 
     const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
 
@@ -76,8 +74,7 @@ export function WebOverview(props: {
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
-                usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
-                usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+                preComputeStrategy={preComputeStrategy}
                 onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
                 labelFromKey={labelFromKey}
             />
@@ -90,8 +87,7 @@ export function WebOverview(props: {
             loading={responseLoading}
             numSkeletons={numSkeletons}
             samplingRate={samplingRate}
-            usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
-            usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+            preComputeStrategy={preComputeStrategy}
             onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
             labelFromKey={labelFromKey}
         />

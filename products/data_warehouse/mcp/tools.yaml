@@ -29,26 +29,15 @@ tools:
         enabled: false
     data-warehouse-data-health-issues-retrieve:
         operation: data_warehouse_data_health_issues_retrieve
-        enabled: true
-        scopes:
-            - warehouse_view:read
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List data pipeline health issues
-        description: >
-            Return all failed or degraded items across the data pipeline: materialized saved queries that failed,
-            external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports,
-            and disabled/degraded transformations. Each entry includes id, name, type (materialized_view,
-            external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use
-            this for a one-shot audit of what's broken in a project's data warehouse.
+        enabled: false
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
     data-warehouse-deprovision-create:
         operation: data_warehouse_deprovision_create
+        enabled: false
+    data-warehouse-enable-backfill-create:
+        operation: data_warehouse_enable_backfill_create
         enabled: false
     data-warehouse-job-stats-retrieve:
         operation: data_warehouse_job_stats_retrieve
@@ -71,405 +60,6 @@ tools:
     data-warehouse-warehouse-status-retrieve:
         operation: data_warehouse_warehouse_status_retrieve
         enabled: false
-    external-data-schemas-cancel:
-        operation: external_data_schemas_cancel_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Cancel running sync
-        description: >
-            Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error.
-            Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.
-    external-data-schemas-create:
-        operation: external_data_schemas_create
-        enabled: false
-    external-data-schemas-delete-data:
-        operation: external_data_schemas_delete_data_destroy
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete synced table data
-        description: >
-            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
-            source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
-    external-data-schemas-destroy:
-        operation: external_data_schemas_destroy
-        enabled: false
-    external-data-schemas-incremental-fields-create:
-        operation: external_data_schemas_incremental_fields_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Refresh candidate incremental fields for a schema
-        description: >
-            Re-inspect the source for a single table schema and return the currently available incremental fields,
-            detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available.
-            Use this when the source schema has changed, an incremental field has been dropped, or the user wants to
-            switch to a different incremental_field/sync_type on an existing schema. The operation_id is
-            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.
-    external-data-schemas-list:
-        operation: external_data_schemas_list
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List data import schemas
-        description: >
-            List all table schemas across all data warehouse sources. Each schema represents one table being synced from
-            an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
-            and latest error. Use this to see which tables are actively syncing and their health.
-    external-data-schemas-partial-update:
-        operation: external_data_schemas_partial_update
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update data import schema
-        description: >
-            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
-            key columns, CDC table mode, and enable/disable the schema.
-    external-data-schemas-reload:
-        operation: external_data_schemas_reload_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Trigger sync for a table schema
-        description: >
-            Trigger a sync for a single table schema using its configured sync method (incremental, full refresh,
-            append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.
-    external-data-schemas-resync:
-        operation: external_data_schemas_resync_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Resync table schema from scratch
-        description: >
-            Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the
-            source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt
-            or out of sync.
-    external-data-schemas-retrieve:
-        operation: external_data_schemas_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get data import schema
-        description: >
-            Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
-            field, latest error, and the associated source and table metadata.
-    external-data-schemas-update:
-        operation: external_data_schemas_update
-        enabled: false
-    external-data-sources-bulk-update-schemas-partial-update:
-        operation: external_data_sources_bulk_update_schemas_partial_update
-        enabled: false
-    external-data-sources-cdc-status-retrieve:
-        operation: external_data_sources_cdc_status_retrieve
-        enabled: false
-    external-data-sources-check-cdc-prerequisites-create:
-        operation: external_data_sources_check_cdc_prerequisites_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Check Postgres CDC prerequisites
-        description: >
-            Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled
-            (wal_level=logical), replication slot available, publication present, and required permissions.
-            Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
-            diagnose why an existing CDC sync has started failing.
-        param_overrides:
-            source_type:
-                input_schema: ExternalDataSourceTypeSchema
-    external-data-sources-check-cdc-prerequisites-for-source-create:
-        operation: external_data_sources_check_cdc_prerequisites_for_source_create
-        enabled: false
-    external-data-sources-connections-list:
-        operation: external_data_sources_connections_list
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List direct-query connections
-        description: >
-            List external data sources that can be used as a connectionId when running execute-sql against an external
-            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
-            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
-            discover valid connectionId values.
-    external-data-sources-create:
-        operation: external_data_sources_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create data warehouse source
-        description: >
-            Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to
-            discover source types and 'external-data-sources-db-schema' to validate credentials and discover available
-            tables. Present the db-schema results to the user showing each table's available sync methods, incremental
-            fields, detected primary keys, and columns so they can configure before creation. The payload must include a
-            'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append),
-            and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema
-            response.
-        exclude_params:
-            - client_secret
-            - account_id
-            - job_inputs
-            - created_via
-        inject_body:
-            created_via: mcp
-        param_overrides:
-            source_type:
-                input_schema: ExternalDataSourceTypeSchema
-            payload:
-                input_schema: ExternalDataSourcePayloadSchema
-    external-data-sources-create-webhook-create:
-        operation: external_data_sources_create_webhook_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create and register a webhook for a source
-        description: >
-            For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and
-            register the webhook URL with the external service using the source's stored credentials. Requires at least
-            one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success
-            flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service,
-            so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate
-            Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and
-            only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response
-            and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must
-            create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
-    external-data-sources-db-schema:
-        operation: external_data_sources_database_schema_create
-        enabled: false
-    external-data-sources-delete-webhook-create:
-        operation: external_data_sources_delete_webhook_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete a source's webhook
-        description: >
-            Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it.
-            Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas
-            are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
-            (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
-            create-webhook.
-    external-data-sources-destroy:
-        operation: external_data_sources_destroy
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Delete data warehouse source
-        description: >
-            Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
-            delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
-            resume syncing.
-    external-data-sources-disable-cdc-create:
-        operation: external_data_sources_disable_cdc_create
-        enabled: false
-    external-data-sources-enable-cdc-create:
-        operation: external_data_sources_enable_cdc_create
-        enabled: false
-    external-data-sources-jobs:
-        operation: external_data_sources_jobs_retrieve
-        enabled: false
-    external-data-sources-list:
-        operation: external_data_sources_list
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List data warehouse sources
-        description: >
-            List all configured data warehouse import sources in the project. Returns each source's type (Postgres,
-            Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this
-            to discover what external data sources are connected.
-    external-data-sources-partial-update:
-        operation: external_data_sources_partial_update
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update data warehouse source
-        description: >
-            Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description,
-            or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.
-    external-data-sources-refresh-schemas:
-        operation: external_data_sources_refresh_schemas_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Refresh available schemas
-        description: >
-            Fetch the latest table list from the remote database and create schema entries for any new tables found.
-            Does not trigger a data sync. Use this after adding new tables to a source database to make them available
-            for syncing.
-        exclude_params:
-            - client_secret
-            - account_id
-            - prefix
-            - description
-            - job_inputs
-    external-data-sources-reload:
-        operation: external_data_sources_reload_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Trigger sync for a source
-        description: >
-            Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the
-            source uses direct query mode, this refreshes the schema metadata instead.
-        exclude_params:
-            - client_secret
-            - account_id
-            - prefix
-            - description
-            - job_inputs
-    external-data-sources-retrieve:
-        operation: external_data_sources_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get data warehouse source
-        description: >
-            Get a single data warehouse source by ID. Returns full details including source type, connection status,
-            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.
-    external-data-sources-revenue-analytics-config-partial-update:
-        operation: external_data_sources_revenue_analytics_config_partial_update
-        enabled: false
-    external-data-sources-source-prefix-create:
-        operation: external_data_sources_source_prefix_create
-        enabled: false
-    external-data-sources-update:
-        operation: external_data_sources_update
-        enabled: false
-    external-data-sources-update-cdc-settings-create:
-        operation: external_data_sources_update_cdc_settings_create
-        enabled: false
-    external-data-sources-update-webhook-inputs-create:
-        operation: external_data_sources_update_webhook_inputs_create
-        enabled: true
-        scopes:
-            - external_data_source:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update webhook inputs (signing secret, etc.)
-        description: >
-            Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has
-            been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to
-            be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret).
-            Fails if no webhook has been created for this source yet — call create-webhook first.
-    external-data-sources-webhook-info-retrieve:
-        operation: external_data_sources_webhook_info_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get webhook status for a source
-        description: >
-            Return webhook state for a source: supports_webhooks (is this source type webhook-capable), exists (has a
-            webhook been created), webhook_url (the PostHog endpoint the external service should POST to),
-            schema_mapping (external event type → PostHog schema id), and external_status (what the remote service
-            reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a webhook
-            is healthy and whether the external registration is still valid.
-    external-data-sources-wizard:
-        operation: external_data_sources_wizard_retrieve
-        enabled: true
-        scopes:
-            - external_data_source:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get source type configurations
-        description: >
-            Return the configuration metadata for all supported data warehouse source types. Each entry describes the
-            required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to
-            discover what source types are available and what parameters are needed to create a new source.
-        response:
-            include:
-                - '*.name'
-                - '*.caption'
-                - '*.docsUrl'
-                - '*.featured'
-                - '*.unreleasedSource'
-                - '*.fields'
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
@@ -527,6 +117,56 @@ tools:
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
         enabled: false
+    saved-query-column-annotations-create:
+        operation: saved_query_column_annotations_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add a view column description
+        description: >
+            Add or replace a semantic description for a data-modelling view (saved query) or one of its columns. Use
+            this ONLY for views — rows where table_type = 'view' in system.information_schema.tables. For
+            imported/physical warehouse tables (table_type = 'data_warehouse') use warehouse-column-annotations-create
+            instead. Core PostHog tables (events, persons, groups, sessions; table_type = 'posthog') cannot be
+            described. Provide the saved_query id, the column_name (empty string for a view-level description), and the
+            description. The annotation is recorded as user-edited, which prevents automatic enrichment from overwriting
+            it. Calling this again for the same column replaces the existing description.
+        param_overrides:
+            column_name:
+                description: Column to describe. Use an empty string to describe the view itself.
+    saved-query-column-annotations-destroy:
+        operation: saved_query_column_annotations_destroy
+        enabled: false
+    saved-query-column-annotations-list:
+        operation: saved_query_column_annotations_list
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List view column descriptions
+        description: >
+            List semantic descriptions of data-modelling views (saved queries) and their columns. Use this for views
+            (table_type = 'view' in system.information_schema.tables); for physical warehouse tables use
+            warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view. Each entry has the
+            column_name (empty string = view-level description), the description, and its source (ai_generated or
+            user_edited). Use this to see what a view's columns mean before writing SQL against it.
+    saved-query-column-annotations-partial-update:
+        operation: saved_query_column_annotations_partial_update
+        enabled: false
+    saved-query-column-annotations-retrieve:
+        operation: saved_query_column_annotations_retrieve
+        enabled: false
+    saved-query-column-annotations-update:
+        operation: saved_query_column_annotations_update
+        enabled: false
     sql-variables-create:
         operation: insight_variables_create
         enabled: true
@@ -582,7 +222,8 @@ tools:
         description: >
             Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
             updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
-            by name in other HogQL queries.
+            by name in other HogQL queries. Set `description` to record what the view represents (a semantic description
+            surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.
         exclude_params:
             - deleted
             - edited_history_id
@@ -630,7 +271,9 @@ tools:
         title: Get saved query
         description: >
             Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
-            query, column schema, materialization status, sync frequency, and run history metadata.
+            query, column schema, materialization status, sync frequency, and run history metadata. Also returns the
+            view's semantic `description` and a `description` on each entry of `columns` when set — use this to see what
+            a view and its columns mean.
     view-list:
         operation: warehouse_saved_queries_list
         enabled: true
@@ -645,8 +288,9 @@ tools:
         title: List saved queries
         description: >
             List all data warehouse saved queries (views) in the project. Returns each view's name, materialization
-            status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available
-            views before querying them in HogQL.
+            status, sync frequency, column schema, latest error, and last run timestamp. Each view also includes its
+            semantic `description` and a `description` on each entry of `columns` when set. Use this to discover
+            available views and what they mean before querying them in HogQL.
     view-materialize:
         operation: warehouse_saved_queries_materialize_create
         enabled: true
@@ -717,9 +361,12 @@ tools:
         enrich_url: ?open_view={id}
         title: Update saved query
         description: >
-            Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency.
-            Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to
-            control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when
+            Update an existing data warehouse saved query (view). Can change the name, HogQL query, sync frequency, or
+            `description`. To set what the view represents (the semantic description surfaced to agents), pass
+            `description` — an empty string clears it; per-column descriptions are set via the saved-query column
+            annotation tools. Changing the query triggers column re-inference and sets the status to 'modified'. Use
+            sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour',
+            '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when
             updating the query field, you must first retrieve the view to get its latest_history_id, then pass that
             value as edited_history_id for conflict detection.
         exclude_params:
@@ -744,6 +391,67 @@ tools:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
                     optimistic concurrency control.
+    warehouse-column-annotations-create:
+        operation: warehouse_column_annotations_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add a warehouse column description
+        description: >
+            Add a semantic description for a data warehouse table or column. Provide the table id, the column_name
+            (empty string for a table-level description), and the description. The new annotation is recorded as
+            user-edited, which prevents automatic enrichment from overwriting it.
+        param_overrides:
+            column_name:
+                description: Column to describe. Use an empty string to describe the table itself.
+    warehouse-column-annotations-destroy:
+        operation: warehouse_column_annotations_destroy
+        enabled: false
+    warehouse-column-annotations-list:
+        operation: warehouse_column_annotations_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List warehouse column descriptions
+        description: >
+            List semantic descriptions of data warehouse tables and columns. Pass ?table_id=<uuid> to scope to one
+            table. Each entry has the column_name (empty string = table-level description), the description, and its
+            source (canonical from the source's API documentation, ai_generated, or user_edited). Use this to see what
+            the imported data means before writing SQL against it.
+    warehouse-column-annotations-partial-update:
+        operation: warehouse_column_annotations_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Edit a warehouse column description
+        description: >
+            Update the description of an existing warehouse table or column annotation by its id. The annotation is
+            marked user-edited, so automatic enrichment will no longer overwrite it.
+    warehouse-column-annotations-retrieve:
+        operation: warehouse_column_annotations_retrieve
+        enabled: false
+    warehouse-column-annotations-update:
+        operation: warehouse_column_annotations_update
+        enabled: false
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false
     warehouse-dag-list:
         operation: warehouse_dag_list
         enabled: false
@@ -824,7 +532,20 @@ tools:
         enabled: false
     warehouse-tables-refresh-schema-create:
         operation: warehouse_tables_refresh_schema_create
-        enabled: false
+        enabled: true
+        scopes:
+            - warehouse_table:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Refresh table schema from source
+        description: >
+            Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source
+            files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns
+            added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns —
+            PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an
+            external data source sync (those refresh on their own schedule); for those, trigger a sync instead.
     warehouse-tables-retrieve:
         operation: warehouse_tables_retrieve
         enabled: false

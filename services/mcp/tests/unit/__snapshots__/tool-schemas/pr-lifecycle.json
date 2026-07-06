@@ -6,10 +6,14 @@
             "type": "number"
         },
         "repo": {
-            "description": "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.",
+            "description": "'owner/name' repository the pull request belongs to.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
             "type": "string"
         }
     },
-    "required": ["pr_number"],
+    "required": ["pr_number", "repo"],
     "type": "object"
 }

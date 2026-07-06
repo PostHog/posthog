@@ -218,7 +218,7 @@ class TestVercelPermissionIntegration(VercelTestBase):
         cls.client_id_patcher = patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
         cls.jwks_patcher = patch("ee.api.authentication.get_vercel_jwks")
         cls.license_patcher = patch("ee.vercel.integration.get_cached_instance_license", return_value=Mock())
-        cls.billing_patcher = patch("ee.vercel.integration.BillingManager")
+        cls.billing_patcher = patch("ee.billing.billing_manager.BillingManager")
         cls.client_id_patcher.start()
         cls.mock_get_jwks = cls.jwks_patcher.start()
         cls.license_patcher.start()

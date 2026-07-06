@@ -1,22 +1,18 @@
 name: Agent Skills
 
+# No paths filter on master pushes (matching the other ci-* workflows): the skills build
+# imports product code whose import graph any Python change can affect, so a filtered
+# master trigger lets unrelated commits break the build invisibly until the next
+# skills-path commit takes the blame. PR runs stay filtered via the changes job below.
 on:
     pull_request:
     push:
         branches:
             - master
-        paths:
-            - 'products/*/skills/**'
-            - 'products/posthog_ai/scripts/**'
-            - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
-
-env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
@@ -48,6 +44,7 @@ jobs:
                         - 'products/*/backend/max_tools.py'
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
+                        - 'services/mcp/schema/**'
 
     check-skills:
         name: Check agent skills
@@ -57,6 +54,9 @@ jobs:
         if: needs.changes.outputs.skills == 'true'
         permissions:
             contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -65,7 +65,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -96,13 +96,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -141,14 +134,44 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
+    current-master:
+        name: Check current master
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: check-skills
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
+        outputs:
+            is-current: ${{ steps.current-master.outputs.is_current }}
+        permissions:
+            contents: read
+
+        steps:
+            - name: Check current master
+              id: current-master
+              env:
+                  GIT_SHA: ${{ github.sha }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  REMOTE_MASTER=$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/master || true)
+                  CURRENT_MASTER=$(printf '%s\n' "$REMOTE_MASTER" | awk '{print $1}')
+                  if [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
+                      echo "is_current=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "is_current=false" >> "$GITHUB_OUTPUT"
+                      echo "Skipping agent skills release for stale master SHA $GIT_SHA"
+                  fi
+
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
         timeout-minutes: 30
-        needs: check-skills
-        if: github.ref == 'refs/heads/master'
+        needs: [check-skills, current-master]
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && needs.current-master.outputs.is-current == 'true'
         permissions:
             contents: write
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -157,7 +180,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -188,13 +211,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: false
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

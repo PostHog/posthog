@@ -3,17 +3,16 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
+import { TeamManager } from '~/common/utils/team-manager'
+import { tryCatch } from '~/common/utils/try-catch'
+import { UUIDT } from '~/common/utils/utils'
 
-import { buildIntegerMatcherWithPercentage } from '../../config/config'
-import { PluginsServerConfig, ValueMatcher } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { TeamManager } from '../../utils/team-manager'
-import { UUIDT } from '../../utils/utils'
+import { PluginsServerConfig } from '../../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
 import type {
@@ -28,6 +27,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -35,6 +35,15 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import {
+    SELF_LOOP_MAX_DEPTH,
+    SelfLoopGuardMode,
+    getSelfLoopDepth,
+    injectSelfLoopDepth,
+    isPostHogIngestUrl,
+    isSelfReferentialIngestFetch,
+    selfLoopGuardCounter,
+} from './self-loop-guard'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -48,7 +57,7 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
-    emailQueueRouting: string
+    selfLoopGuardMode: SelfLoopGuardMode
 }
 
 export interface HogExecutorAsyncContext {
@@ -184,20 +193,21 @@ export type HogExecutorExecuteOptions = {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
+    // When true, emails are sent inline via EmailService instead of being routed to
+    // the dedicated email queue. Used by the test panel — the test endpoint executes
+    // in-process and never enqueues to cyclotron, so routing would leave the job
+    // unworked.
+    sendEmailsInline?: boolean
 }
 
 export class HogExecutorService {
-    private emailQueueMatcher: ValueMatcher<number>
-
     constructor(
         private config: HogExecutorConfig,
         private asyncContext: HogExecutorAsyncContext,
         private hogInputsService: HogInputsService,
         private emailService: EmailService,
         private recipientTokensService: RecipientTokensService
-    ) {
-        this.emailQueueMatcher = buildIntegerMatcherWithPercentage(config.emailQueueRouting)
-    }
+    ) {}
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -205,6 +215,51 @@ export class HogExecutorService {
         additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
+    }
+
+    /**
+     * For mapping destinations the per-mapping inputs (e.g. the Google Ads
+     * `gclid`) are resolved only for mappings whose filters match the event —
+     * see `buildHogFunctionInvocations`, which merges `mapping.inputs` when it
+     * first builds the invocation. The rerun path re-enqueues invocations with
+     * `inputs` stripped and keeps no record of which mapping produced them, so
+     * a plain rebuild against the top-level config drops those inputs entirely
+     * and any function guarding on them (e.g. `if (empty(inputs.gclid))`)
+     * early-exits. Re-match the mappings here against the (current) config to
+     * rebuild the additional inputs before the executor resolves them.
+     *
+     * When several mappings match one event the original produced a separate
+     * invocation per mapping; the stored row can't be tied back to a single
+     * one, so we merge all matching mappings' inputs — exact for the common
+     * single-mapping case and strictly better than dropping them.
+     */
+    private async resolveMappingInputs(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<HogFunctionType['inputs'] | undefined> {
+        const mappings = hogFunction.mappings
+        if (!mappings || mappings.length === 0) {
+            return undefined
+        }
+
+        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+        let merged: HogFunctionType['inputs'] | undefined
+
+        for (const mapping of mappings) {
+            if (!mapping.inputs) {
+                continue
+            }
+            const { match } = await filterFunctionInstrumented({
+                fn: hogFunction,
+                filters: mapping.filters,
+                filterGlobals,
+            })
+            if (match) {
+                merged = { ...(merged ?? {}), ...mapping.inputs }
+            }
+        }
+
+        return merged
     }
 
     async buildHogFunctionInvocations(
@@ -353,8 +408,7 @@ export class HogExecutorService {
                 // Queue-aware routing: each worker can execute some actions inline
                 // and routes others to a specialized queue. The email worker sends
                 // emails inline but routes fetches back to hogflow. The hogflow
-                // worker does fetches inline but routes emails to the email queue
-                // (when the team is configured for it via CDP_EMAIL_QUEUE_ROUTING).
+                // worker does fetches inline but routes emails to the email queue.
                 //
                 // Future: once we add an execution time budget, the email worker
                 // will also handle fetches inline. The only reason to reschedule
@@ -370,12 +424,18 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there
-                    // and the team is configured for it. Otherwise send inline.
-                    if (invocation.queue !== 'email' && this.emailQueueMatcher(nextInvocation.teamId)) {
+                    // Route to the email queue only if we're not already there and the
+                    // caller hasn't asked for inline-only execution (e.g. the test panel).
+                    const routeToEmailQueue = invocation.queue !== 'email' && !options?.sendEmailsInline
+                    if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
-                        result = await this.emailService.executeSendEmail(nextInvocation)
+                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
+                        // "this is a test send" signal — propagated into the email's tracking code.
+                        result = await this.emailService.executeSendEmail(
+                            nextInvocation,
+                            options?.sendEmailsInline ?? false
+                        )
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
@@ -501,9 +561,17 @@ export class HogExecutorService {
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
-                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                    // Mapping destinations need their per-mapping inputs
+                    // re-merged here — they aren't part of the top-level config
+                    // and were stripped from the rerun blob.
+                    const additionalInputs = await this.resolveMappingInputs(
                         invocation.hogFunction,
                         invocation.state.globals
+                    )
+                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                        invocation.hogFunction,
+                        invocation.state.globals,
+                        additionalInputs
                     )
                 }
             } catch (e) {
@@ -747,7 +815,78 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // Bound event-forwarding loops: a fetch back into this project's own ingestion
+        // endpoint re-enters the pipeline and can re-trigger this same function. The
+        // ingest-URL check gates the team lookup so external fetches (the common case) pay
+        // nothing, and the whole block fails open - the guard must never break a destination
+        // it was only meant to protect.
+        const guardMode = this.config.selfLoopGuardMode
+        if (guardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+            try {
+                const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                    // Depth is counted per function id, so this destination is bounded only
+                    // by how many times IT has re-fed itself - an event that merely passed
+                    // through other functions can never trip the guard for it.
+                    const functionId = invocation.hogFunction.id
+                    const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
+
+                    if (guardMode === 'warn') {
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'detected' })
+                        addLog(
+                            'warn',
+                            `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                        )
+                    } else if (depth >= SELF_LOOP_MAX_DEPTH) {
+                        // enforce, this destination has re-fed itself to the cap - break it.
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'blocked' })
+                        addLog(
+                            'error',
+                            `Refusing to fetch a PostHog ingestion endpoint using this project's own API key - this destination's event-forwarding loop has already repeated ${SELF_LOOP_MAX_DEPTH} times. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                        )
+                        result.error = new Error('Self-referential event-forwarding loop blocked at max depth')
+                        result.finished = true
+                        return result
+                    } else {
+                        // enforce, under the cap - stamp this destination's next hop and proceed.
+                        selfLoopGuardCounter.inc({ mode: guardMode, action: 'allowed_with_counter' })
+                        params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
+                    }
+                }
+            } catch (err) {
+                logger.warn('🦔', '[HogExecutor] Self-loop guard skipped due to an internal error', {
+                    error: err,
+                    teamId: invocation.teamId,
+                })
+            }
+        }
+
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
+                result.finished = true
+                return result
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: resolved.credentials,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

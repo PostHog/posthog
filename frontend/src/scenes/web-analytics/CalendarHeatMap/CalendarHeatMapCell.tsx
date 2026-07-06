@@ -1,6 +1,7 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor, humanFriendlyLargeNumber } from 'lib/utils'
+import { gradateColor } from 'lib/utils/colors'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 interface HeatMapCellProps {
     values: HeatMapValues

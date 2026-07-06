@@ -27,7 +27,7 @@ use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
-use crate::metrics_middleware::{apply_request_timeout, track_metrics};
+use crate::metrics_middleware::track_metrics;
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
 
@@ -82,6 +82,8 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub capture_v1_scatter_gather_min_batch: usize,
+    pub ai_gateway_signing_secret: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -142,7 +144,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
     ai_blob_storage: Option<Arc<dyn BlobStorage>>,
-    request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -150,6 +151,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
 ) -> Router {
     let state = State {
         sink,
@@ -175,6 +178,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
+        capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -209,6 +214,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .route(
             "/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
+        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
             post(v0_endpoint::event)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
@@ -336,25 +355,12 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => {
-            let mut events_router = Router::new()
-                .merge(batch_router)
-                .merge(event_router)
-                .merge(test_router)
-                .merge(ai_router)
-                .merge(otel_router);
-            // The v1 analytics endpoint is only routable when a v1 sink is
-            // configured. Without a sink the handler can't publish, so we keep
-            // the path unregistered (404) rather than advertising an endpoint
-            // that can only ever return 503. This also isolates the route to
-            // deployments that opt in via CAPTURE_V1_SINKS.
-            if state.v1_sink_router.is_some() {
-                events_router = events_router.merge(crate::v1::analytics::router::router().layer(
-                    DefaultBodyLimit::max(state.capture_v1_max_compressed_body_bytes),
-                ));
-            }
-            events_router
-        }
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router)
+            .merge(ai_router)
+            .merge(otel_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
@@ -362,15 +368,33 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         router = router.layer(ConcurrencyLimitLayer::new(limit));
     }
 
-    // add this prior to timeout middleware to ensure healthchecks are sensitive to load
+    // keep healthchecks outside the concurrency limit so they stay responsive under load
     router = router.merge(status_router);
 
-    // apply request timeout middleware if request_timeout_seconds is set
-    router = apply_request_timeout(router, request_timeout_seconds);
+    // Legacy CORS is applied before the v1 router is merged so it stays
+    // scoped to v0/status routes; v1 ships its own policy.
+    router = router.layer(cors);
+
+    // The v1 analytics endpoint is only routable when a v1 sink is
+    // configured. Without a sink the handler can't publish, so we keep
+    // the path unregistered (404) rather than advertising an endpoint
+    // that can only ever return 503. This also isolates the route to
+    // deployments that opt in via CAPTURE_V1_SINKS.
+    //
+    // Merged after every legacy layer above: the v1 router owns its full
+    // middleware stack (CORS, limits) and applies the same per-route
+    // concurrency cap to its own routes.
+    if matches!(capture_mode, CaptureMode::Events | CaptureMode::Ai)
+        && state.v1_sink_router.is_some()
+    {
+        router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
+            concurrency_limit,
+            max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+        }));
+    }
 
     let router = router
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
@@ -387,164 +411,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::time::Duration as StdDuration;
-
-    use axum::http::StatusCode;
-    use axum_test_helper::TestClient;
-
-    async fn slow_handler() -> &'static str {
-        // Sleep for 2 seconds to ensure timeout with 1 second timeout
-        tokio::time::sleep(StdDuration::from_secs(2)).await;
-        "slow response"
-    }
-
-    async fn fast_handler() -> &'static str {
-        "fast response"
-    }
-
-    #[tokio::test]
-    async fn test_timeout_returns_408() {
-        // Use a 1 second timeout - the slow handler sleeps for 2 seconds, so it should timeout
-        // Create router with test route included before timeout middleware is applied
-        let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout(router, Some(1));
-
-        let client = TestClient::new(router);
-        let response = client.get("/slow").send().await;
-
-        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
-        let body = response.text().await;
-        assert_eq!(body, "Request timeout");
-    }
-
-    #[tokio::test]
-    async fn test_normal_request_completes_within_timeout() {
-        // Use a longer timeout (1 second) so normal requests complete
-        let router = Router::new().route("/fast", get(fast_handler));
-        let router = apply_request_timeout(router, Some(1));
-
-        let client = TestClient::new(router);
-        let response = client.get("/fast").send().await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.text().await;
-        assert_eq!(body, "fast response");
-    }
-
-    #[tokio::test]
-    async fn test_timeout_configuration_works() {
-        // Test with 1 second timeout - should timeout on slow handler (which sleeps 2 seconds)
-        let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout(router, Some(1));
-
-        let client = TestClient::new(router);
-        let start = std::time::Instant::now();
-        let response = client.get("/slow").send().await;
-        let elapsed = start.elapsed();
-
-        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
-        // Should timeout around 1 second (within 1.5 seconds, accounting for test overhead)
-        assert!(elapsed >= StdDuration::from_millis(900)); // At least 900ms
-        assert!(elapsed < StdDuration::from_millis(1500)); // But less than 1.5s
-    }
-
-    #[tokio::test]
-    async fn test_no_timeout_when_none_specified() {
-        // Test when None is specified - should complete without timeout
-        let router = Router::new().route("/slow", get(slow_handler));
-        let router = apply_request_timeout(router, None);
-
-        let client = TestClient::new(router);
-        let start = std::time::Instant::now();
-        let response = client.get("/slow").send().await;
-        let elapsed = start.elapsed();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        // Should complete within 2 seconds since no timeout is specified
-        assert!(elapsed >= StdDuration::from_millis(2000)); // At least 2 seconds
-    }
-
-    #[tokio::test]
-    async fn test_timeout_on_incomplete_request() {
-        // Test with 1 second timeout - simulate slow body transfer (slowloris style)
-        // Send complete headers but incomplete/slow body so handler starts but times out during body reading
-        use std::net::SocketAddr;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::{TcpListener, TcpStream};
-
-        async fn body_reading_handler(body: axum::body::Body) -> &'static str {
-            // This handler reads body as a stream, which will hang if body is incomplete
-            // The timeout middleware should trigger while waiting for body chunks
-            use futures::StreamExt;
-
-            let mut stream = body.into_data_stream();
-            // Try to read all chunks - this will hang if body is incomplete
-            while stream.next().await.is_some() {
-                // Process chunks
-            }
-            "should never reach here"
-        }
-
-        let router = Router::new().route("/test", post(body_reading_handler));
-        let router = apply_request_timeout(router, Some(1));
-
-        // Bind to a random port
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn the server
-        let server_handle = tokio::spawn(async move {
-            axum::serve(
-                listener,
-                router.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-            .unwrap();
-        });
-
-        // Give server time to start
-        tokio::time::sleep(StdDuration::from_millis(100)).await;
-
-        // Connect and send complete headers but incomplete body
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-
-        // Send complete request line and headers
-        stream.write_all(b"POST /test HTTP/1.1\r\n").await.unwrap();
-        stream.write_all(b"Host: localhost\r\n").await.unwrap();
-        stream
-            .write_all(b"Content-Length: 10000\r\n")
-            .await
-            .unwrap(); // Claim large body
-        stream
-            .write_all(b"Content-Type: application/json\r\n")
-            .await
-            .unwrap();
-        stream.write_all(b"\r\n").await.unwrap(); // Complete headers - this triggers request parsing
-
-        // Send just a tiny bit of body data, then wait
-        stream.write_all(b"{").await.unwrap();
-
-        // Keep connection alive but don't send more data
-        // The handler is waiting for the remaining 9999 bytes
-        tokio::time::sleep(StdDuration::from_millis(1200)).await;
-
-        // Try to read response - should get timeout response
-        let mut buf = [0u8; 1024];
-        let read_result = stream.read(&mut buf).await;
-
-        // Should receive timeout response (408 Request Timeout)
-        if let Ok(bytes_read) = read_result {
-            if bytes_read > 0 {
-                let response = String::from_utf8_lossy(&buf[..bytes_read]);
-                assert!(response.contains("408") || response.contains("Request timeout"));
-            }
-        }
-
-        // Clean up
-        server_handle.abort();
-    }
 
     #[tokio::test]
     async fn test_body_chunk_timeout_fires_on_stalled_upload() {

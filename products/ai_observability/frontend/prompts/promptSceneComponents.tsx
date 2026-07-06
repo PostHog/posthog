@@ -19,13 +19,14 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
-import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'
+import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
 import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -337,7 +338,7 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
     )
 }
 
-function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
+function experimentStatusTag(experiment: ExperimentBasicApi): JSX.Element {
     if (experiment.archived) {
         return <LemonTag type="muted">Archived</LemonTag>
     }
@@ -350,7 +351,7 @@ function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
     return <LemonTag type="default">Draft</LemonTag>
 }
 
-function promptMetadata(experiment: ExperimentApi): { templates: string[]; versions: number[] } {
+function promptMetadata(experiment: ExperimentBasicApi): { templates: string[]; versions: number[] } {
     const params = experiment.parameters as { prompt_metadata?: { templates?: string[]; versions?: number[] } } | null
     const meta = params?.prompt_metadata
     return {
@@ -364,7 +365,7 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
     const { openModal } = useActions(createPromptExperimentModalLogic)
     const { experiments, experimentsLoading } = useValues(promptExperimentsLogic({ promptName: prompt.name }))
 
-    const columns: LemonTableColumns<ExperimentApi> = [
+    const columns: LemonTableColumns<ExperimentBasicApi> = [
         {
             title: 'Name',
             dataIndex: 'name',
@@ -478,11 +479,20 @@ export function PromptEditForm({
     isHistoricalVersion: boolean
     selectedVersion: number | null
 }): JSX.Element {
-    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm } = useValues(llmPromptLogic)
+    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm, publishConflict } = useValues(llmPromptLogic)
     const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
+            {publishConflict ? (
+                <LemonBanner type="warning" data-attr="llma-prompt-publish-conflict-banner">
+                    {publishConflict.latestVersion
+                        ? `v${publishConflict.latestVersion} was published while you were editing.`
+                        : 'This prompt changed while you were editing.'}{' '}
+                    Your edits below are preserved — review them before publishing again.
+                </LemonBanner>
+            ) : null}
+
             {isHistoricalVersion && selectedVersion ? (
                 <LemonBanner type="info">
                     You are publishing a new latest version from historical version v{selectedVersion}. The original

@@ -8,7 +8,7 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
+import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils/strings'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 

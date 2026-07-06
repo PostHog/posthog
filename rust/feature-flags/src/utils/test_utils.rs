@@ -55,6 +55,26 @@ pub async fn update_team_in_hypercache(
     Ok(())
 }
 
+/// Write a raw team-token hypercache entry that omits `project_id`, simulating a cache entry
+/// written before that field existed. `verify_token_and_get_team` then deserializes it with
+/// `project_id == None` (via `#[serde(default)]`), which is the only way to exercise the
+/// `project_id_for_team` fallback — the typed `update_team_in_hypercache` always carries the field.
+pub async fn update_team_in_hypercache_without_project_id(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team: &Team,
+) -> Result<(), Error> {
+    let mut value = serde_json::to_value(team)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("project_id");
+    }
+    let json_string = serde_json::to_string(&value)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
@@ -183,6 +203,55 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     .await
     .expect("Failed to create redis client");
     Arc::new(client)
+}
+
+/// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
+/// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
+pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .zrangebyscore(
+            "flag_definitions:rebuild_requests".to_string(),
+            "-inf".to_string(),
+            "+inf".to_string(),
+        )
+        .await
+        .unwrap_or_default()
+}
+
+/// An S3 client that reports every key as NotFound. Lets integration tests force a
+/// genuine HyperCache `CacheMiss` (redis miss + S3 NotFound) without a real object
+/// store, so a `/flags/definitions` miss classifies as `cache_miss` rather than
+/// `s3_error`.
+pub struct AlwaysMissS3Client;
+
+#[async_trait]
+impl common_hypercache::S3Client for AlwaysMissS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Err(common_hypercache::S3Error::NotFound(key.to_string()))
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// A dummy S3 client (always NotFound) for injecting into the test server.
+pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(AlwaysMissS3Client)
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.
@@ -611,6 +680,7 @@ pub async fn insert_flag_for_team_in_pg(
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         },
     };
 
@@ -672,6 +742,30 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
     Ok(())
 }
 
+pub async fn insert_experiment_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    deleted: bool,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_experiment
+        (name, filters, feature_flag_id, team_id, deleted, archived,
+         only_count_matured_users, created_at, updated_at)
+        VALUES ('test experiment', '{}'::jsonb, $1, $2, $3, false, false, NOW(), NOW())
+        "#,
+    )
+    .bind(flag_id)
+    .bind(team_id)
+    .bind(deleted)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn insert_person_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
@@ -716,6 +810,7 @@ pub async fn insert_person_for_team_in_pg(
     Ok(person_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_cohort_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
@@ -724,6 +819,7 @@ pub async fn insert_cohort_for_team_in_pg(
     is_static: bool,
     cohort_type: Option<CohortType>,
     last_backfill_person_properties_at: Option<DateTime<Utc>>,
+    last_backfill_events_at: Option<DateTime<Utc>>,
 ) -> Result<Cohort, Error> {
     let cohort = Cohort {
         id: 0, // Placeholder, will be updated after insertion
@@ -743,13 +839,14 @@ pub async fn insert_cohort_for_team_in_pg(
         created_by_id: None,
         cohort_type,
         last_backfill_person_properties_at,
+        last_backfill_events_at,
     };
 
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_cohort
-        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id, cohort_type, last_backfill_person_properties_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id, cohort_type, last_backfill_person_properties_at, last_backfill_events_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING id"#,
     )
     .bind(&cohort.name)
@@ -768,6 +865,7 @@ pub async fn insert_cohort_for_team_in_pg(
     .bind(cohort.created_by_id)
     .bind(cohort.cohort_type)
     .bind(cohort.last_backfill_person_properties_at)
+    .bind(cohort.last_backfill_events_at)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -892,6 +990,20 @@ pub async fn update_team_autocapture_exceptions(
     let mut conn = client.get_connection().await?;
     sqlx::query("UPDATE posthog_team SET autocapture_exceptions_opt_in = $1 WHERE id = $2")
         .bind(enabled)
+        .bind(team_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_team_timezone(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    timezone: &str,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query("UPDATE posthog_team SET timezone = $1 WHERE id = $2")
+        .bind(timezone)
         .bind(team_id)
         .execute(&mut *conn)
         .await?;
@@ -1131,6 +1243,16 @@ impl TestContext {
         insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
     }
 
+    pub async fn insert_experiment(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        deleted: bool,
+    ) -> Result<(), Error> {
+        insert_experiment_for_flag_in_pg(self.non_persons_writer.clone(), flag_id, team_id, deleted)
+            .await
+    }
+
     pub async fn insert_person(
         &self,
         team_id: i32,
@@ -1161,10 +1283,12 @@ impl TestContext {
             is_static,
             None,
             None,
+            None,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_cohort_with_type(
         &self,
         team_id: i32,
@@ -1173,6 +1297,7 @@ impl TestContext {
         is_static: bool,
         cohort_type: Option<CohortType>,
         last_backfill_person_properties_at: Option<DateTime<Utc>>,
+        last_backfill_events_at: Option<DateTime<Utc>>,
     ) -> Result<Cohort, Error> {
         insert_cohort_for_team_in_pg(
             self.non_persons_writer.clone(),
@@ -1182,6 +1307,7 @@ impl TestContext {
             is_static,
             cohort_type,
             last_backfill_person_properties_at,
+            last_backfill_events_at,
         )
         .await
     }
@@ -1266,6 +1392,10 @@ impl TestContext {
         enabled: bool,
     ) -> Result<(), Error> {
         update_team_autocapture_exceptions(self.non_persons_writer.clone(), team_id, enabled).await
+    }
+
+    pub async fn update_team_timezone(&self, team_id: i32, timezone: &str) -> Result<(), Error> {
+        update_team_timezone(self.non_persons_writer.clone(), team_id, timezone).await
     }
 
     pub async fn get_person_id_by_distinct_id(

@@ -45,6 +45,10 @@ BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages"
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+# Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_responses")
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",
@@ -62,17 +66,26 @@ def normalize_litellm_model_name(model: str, provider: str) -> str:
     return f"{provider}/{model}"
 
 
-# Google providers require litellm[google], which we don't install. Reject these
-# at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
-# Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
-# that litellm will route to vertex/gemini — most commonly anything starting with
-# "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
-# registry when brand new.
-_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini"})
+# Block model prefixes that would route to a provider we don't call via the generic path:
+# - Google needs litellm[google] (not installed) — would crash in vertex_llm_base with ImportError.
+# - Native `cloudflare/...` bypasses per-call credential injection and the CLOUDFLARE_ALLOWED_MODELS
+#   allowlist the `@cf/...` path enforces — reject so callers can't smuggle models onto gateway creds.
+# Matches explicit prefixes (gemini/, vertex_ai/) and bare gemini- names litellm routes to vertex/gemini,
+# which may not be in the cost registry yet when brand new.
+_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini", "cloudflare"})
 _UNSUPPORTED_MODEL_PREFIXES = (
     *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
     "gemini-",
 )
+
+
+class ProviderError(HTTPException):
+    """An HTTPException raised from the upstream provider call itself, as opposed to gateway-local
+    validation (unsupported model, bad headers, timeouts). Lets downstream handlers tell a genuine
+    provider failure apart from a gateway 400 that merely echoes caller-controlled input — e.g. the
+    Anthropic billing-block detector must not key off an unsupported-model message containing the
+    caller's model name. Subclasses HTTPException so it serializes to the client identically.
+    """
 
 
 def _raise_unsupported_model(model: str) -> None:
@@ -98,18 +111,15 @@ def _raise_if_unsupported_model(model: str) -> None:
         _raise_unsupported_model(model)
 
 
-# Parameters that control LLM client routing/authentication.
-# These must never be accepted from user input to prevent request
-# redirection and API key exfiltration.
+# LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
     {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
 )
 
 
 def _sanitize_request_value(value: Any) -> Any:
-    # Recursively strip forbidden params from nested dicts and lists.
-    # litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
-    # to the upstream provider, so a shallow filter is insufficient.
+    # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
+    # to the provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
         return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
     if isinstance(value, list):
@@ -204,7 +214,7 @@ async def handle_llm_request(
             provider_error_type=getattr(e, "type", None),
             provider_error_code=getattr(e, "code", None),
         )
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {
@@ -286,7 +296,7 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {
@@ -297,7 +307,7 @@ async def _handle_streaming_request(
             },
         ) from e
 
-    async def stream_generator() -> AsyncGenerator[bytes, None]:
+    async def stream_generator() -> AsyncGenerator[bytes]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
         provider_start = time.monotonic()

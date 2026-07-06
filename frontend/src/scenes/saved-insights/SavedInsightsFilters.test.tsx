@@ -42,10 +42,10 @@ describe('SavedInsightsFilters Created by dropdown', () => {
         ]
         useMocks({
             get: {
-                '/api/organizations/:organization_id/members/': (req) => {
+                '/api/organizations/:organization_id/members/': ({ request }) => {
                     // membersLogic now does server-side search; mock honors `?search=`
                     // by filtering on first_name, last_name, and email substring.
-                    const search = new URL(req.url).searchParams.get('search')?.toLowerCase()
+                    const search = new URL(request.url).searchParams.get('search')?.toLowerCase()
                     const results = search
                         ? allMembers.filter((m) => {
                               const u = m.user

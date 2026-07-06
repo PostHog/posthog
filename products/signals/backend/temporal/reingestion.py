@@ -17,6 +17,7 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -55,6 +56,7 @@ class SoftDeleteReportSignalsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def soft_delete_report_signals_activity(input: SoftDeleteReportSignalsInput) -> None:
     """Soft-delete all ClickHouse signals for a report by re-emitting with metadata.deleted=True."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -104,6 +106,7 @@ class ReingestSignalsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
     """Re-emit all signals via emit_signal() through the active Signals pipeline."""
     team = await Team.objects.aget(pk=input.team_id)
@@ -162,6 +165,7 @@ class DeleteTeamReportsInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
     team = await Team.objects.aget(pk=input.team_id)
 

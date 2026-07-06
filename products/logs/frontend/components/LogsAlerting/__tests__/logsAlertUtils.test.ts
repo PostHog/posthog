@@ -1,6 +1,9 @@
 import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertThresholdOperatorEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
 import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
@@ -17,7 +20,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
-    thresholdOperator: ThresholdOperatorEnumApi.Above,
+    thresholdOperator: LogsAlertThresholdOperatorEnumApi.Above,
     thresholdCount: 1,
     windowMinutes: 5,
     evaluationPeriods: 1,
@@ -63,6 +66,16 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
+        // The Microsoft Teams template stores its URL under `webhookUrl`, not `url`.
+        const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `teams-${id}`,
+                enabled,
+                inputs: { webhookUrl: { value: url } },
+                filters: {},
+            }) as unknown as HogFunctionType
+
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -92,6 +105,22 @@ describe('logsAlertUtils', () => {
                 key: 'webhook:https://example.com/hook',
                 type: 'webhook',
                 label: 'Webhook https://example.com/hook',
+            })
+            expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('collapses multiple HogFunctions for the same teams url into one group', () => {
+            const teamsUrl = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke'
+            const a = teamsHf('hf-1', teamsUrl)
+            const b = teamsHf('hf-2', teamsUrl)
+
+            const groups = groupLogsAlertDestinations([a, b], resolveSlack)
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: `teams:${teamsUrl}`,
+                type: 'teams',
+                label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })

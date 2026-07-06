@@ -21,6 +21,7 @@ bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 hex = "0.4"
+http-body-util = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -60,6 +61,7 @@ lz4 = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 sha2 = { workspace = true }
+hmac = { workspace = true }
 
 [dev-dependencies]
 capture = { path = ".", features = ["test-utils"] }

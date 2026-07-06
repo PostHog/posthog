@@ -64,6 +64,8 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
                 date_to: params.date_to,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
+                limit: params.limit,
+                offset: params.offset,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -97,6 +99,9 @@ const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schem
         }
         if (params.type !== undefined) {
             body['type'] = params.type
+        }
+        if (params.block_consent_modals !== undefined) {
+            body['block_consent_modals'] = params.block_consent_modals
         }
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'POST',
@@ -194,6 +199,9 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.block_consent_modals !== undefined) {
+            body['block_consent_modals'] = params.block_consent_modals
         }
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'PATCH',

@@ -6,7 +6,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { parseTagsFilter } from 'lib/utils'
+import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
@@ -20,6 +20,7 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { facetRailLogic } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetRailLogic'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
@@ -69,6 +70,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['setLinkToLogId', 'clearLinkToLogId'],
             logDetailsModalLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['closeLogDetails'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['setFacetNameSearch'],
         ],
         values: [
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -79,6 +82,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['facetNameSearch'],
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
@@ -164,6 +169,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
                 actions.setLinkToLogId(linkToLogId)
             }
+
+            // Facet-name search: a plain string param. Absent param resets the field to empty.
+            const facetNameSearch = typeof params.facetNameSearch === 'string' ? params.facetNameSearch : ''
+            if (facetNameSearch !== values.facetNameSearch) {
+                actions.setFacetNameSearch(facetNameSearch)
+            }
         }
         return {
             '*': urlToAction,
@@ -171,6 +182,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     }),
 
     trackedActionToUrl(({ values, cache }) => {
+        // Guard to prevent infinite loops between actionToUrl and urlToAction.
+        // Uses setTimeout (macrotask) so the flag stays set until the router has
+        // fully processed the URL change, even in test environments with
+        // synchronously-resolving mocks.
+        const withUrlSyncGuard = <T,>(fn: () => T): T => {
+            cache.isSyncingUrl = true
+            const result = fn()
+            setTimeout(() => {
+                cache.isSyncingUrl = false
+            }, 0)
+            return result
+        }
+
         const syncUrl = (): [
             string,
             Params,
@@ -179,27 +203,32 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 replace: boolean
             },
         ] => {
-            cache.isSyncingUrl = true // to prevent an infinite loop between actionToUrl and urlToAction
-            const result = syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
-                updateSearchParams(params, 'filterGroup', values.filters.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
-                updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
-                updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                return params
-            })
-            queueMicrotask(() => {
-                cache.isSyncingUrl = false
-            })
-            return result
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
+                    updateSearchParams(
+                        params,
+                        'filterGroup',
+                        values.filters.filterGroup,
+                        DEFAULT_UNIVERSAL_GROUP_FILTER
+                    )
+                    updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
+                    updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                    updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
+                    updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                    updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
+                    return params
+                })
+            )
         }
 
         const clearLinkToLogId = (): ReturnType<typeof syncSearchParams> => {
-            return syncSearchParams(router, (params: Params) => {
-                delete params.linkToLogId
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    delete params.linkToLogId
+                    return params
+                })
+            )
         }
 
         const clearInitialLogsLimit = (): [
@@ -210,17 +239,21 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 replace: boolean
             },
         ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
+                    return params
+                })
+            )
         }
 
         const syncActiveTab = (): ReturnType<typeof syncSearchParams> => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                    return params
+                })
+            )
         }
 
         return {
@@ -270,6 +303,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.syncUrl()
         },
         setOrderBy: () => {
+            actions.syncUrl()
+        },
+        setFacetNameSearch: () => {
             actions.syncUrl()
         },
         keepSqlEditorMounted: ({ editorTabId }) => {

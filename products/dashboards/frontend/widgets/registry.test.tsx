@@ -1,8 +1,13 @@
 import posthog from 'posthog-js'
 
-import { DASHBOARD_WIDGET_CATALOG } from '../widget_types/catalog'
-import { getDashboardWidgetDefinition, parseDashboardWidgetConfigApiError } from './registry'
-import { resetDashboardWidgetRegistryReportingForTests } from './registry'
+import { ApiError } from 'lib/api-error'
+
+import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogEntry } from '../widget_types/catalog'
+import {
+    getDashboardWidgetDefinition,
+    parseDashboardWidgetConfigApiError,
+    resetDashboardWidgetRegistryReportingForTests,
+} from './registry'
 
 jest.mock('posthog-js', () => ({
     __esModule: true,
@@ -17,47 +22,37 @@ describe('dashboard widget registry', () => {
         resetDashboardWidgetRegistryReportingForTests()
     })
 
-    it('registers error_tracking_list widget', () => {
-        const definition = getDashboardWidgetDefinition('error_tracking_list')
+    it.each(Object.keys(DASHBOARD_WIDGET_CATALOG))('registers catalog widget %s', (widgetType) => {
+        const definition = getDashboardWidgetDefinition(widgetType)
+        const catalogEntry: DashboardWidgetCatalogEntry =
+            DASHBOARD_WIDGET_CATALOG[widgetType as keyof typeof DASHBOARD_WIDGET_CATALOG]
+
         expect(definition?.Component).toBeTruthy()
         expect(definition?.EditModal).toBeTruthy()
-        expect(definition?.TileFilters).toBeTruthy()
-        expect(DASHBOARD_WIDGET_CATALOG.error_tracking_list.tileFilters).toBeTruthy()
-        expect(definition?.productAccess).toBe('error_tracking')
-        expect(definition?.parseConfigApiError).toBeTruthy()
+        expect(definition?.productAccess).toBe(catalogEntry.productAccess)
+        if (catalogEntry.tileFilters) {
+            expect(definition?.TileFilters).toBeTruthy()
+            expect(catalogEntry.tileFilters.allowedPropertyNames.length).toBeGreaterThan(0)
+        }
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
-    it('registers session_replay_list widget', () => {
-        const definition = getDashboardWidgetDefinition('session_replay_list')
-        expect(definition?.Component).toBeTruthy()
-        expect(definition?.EditModal).toBeTruthy()
-        expect(definition?.TileFilters).toBeTruthy()
-        expect(DASHBOARD_WIDGET_CATALOG.session_replay_list.tileFilters).toBeTruthy()
-        expect(definition?.productAccess).toBe('session_recording')
-        expect(definition?.parseConfigApiError).toBeTruthy()
-    })
-
-    it('defines tileFilters catalog config for every widget with TileFilters', () => {
-        for (const key of Object.keys(DASHBOARD_WIDGET_CATALOG) as Array<keyof typeof DASHBOARD_WIDGET_CATALOG>) {
-            const definition = getDashboardWidgetDefinition(key)
-            if (!definition?.TileFilters) {
-                continue
-            }
-            expect(DASHBOARD_WIDGET_CATALOG[key].tileFilters?.allowedPropertyNames.length).toBeGreaterThan(0)
-        }
-    })
-
     it('delegates config api error parsing to the widget registry entry', () => {
-        expect(parseDashboardWidgetConfigApiError('unknown_widget_type', new Error('nope'), {})).toBeNull()
-        expect(parseDashboardWidgetConfigApiError('error_tracking_list', new Error('nope'), {})).toBeNull()
-        expect(parseDashboardWidgetConfigApiError('session_replay_list', new Error('nope'), {})).toBeNull()
-    })
-
-    it('registers every catalog key', () => {
-        for (const key of Object.keys(DASHBOARD_WIDGET_CATALOG)) {
-            expect(getDashboardWidgetDefinition(key)).not.toBeUndefined()
+        const error = new ApiError('limit must be an integer between 1 and 25.', 400, undefined, {
+            config: 'limit must be an integer between 1 and 25.',
+        })
+        const invalidConfig = {
+            limit: 30,
+            orderBy: 'occurrences',
+            orderDirection: 'DESC',
+            status: 'active',
+            dateRange: { date_from: '-7d' },
         }
+
+        expect(parseDashboardWidgetConfigApiError('error_tracking_list', error, invalidConfig)).toEqual({
+            limit: 'Too big: expected number to be <=25',
+        })
+        expect(parseDashboardWidgetConfigApiError('unknown_widget_type', error, invalidConfig)).toBeNull()
     })
 
     it('reports unknown widget types to PostHog once per canonical type', () => {

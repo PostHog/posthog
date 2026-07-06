@@ -17,7 +17,7 @@ def _serialize_chunk(obj: Any) -> Any:
     return obj
 
 
-async def format_sse_stream(llm_stream: AsyncGenerator[Any, None]) -> AsyncGenerator[bytes, None]:
+async def format_sse_stream(llm_stream: AsyncGenerator[Any]) -> AsyncGenerator[bytes]:
     is_raw_passthrough = None
 
     try:

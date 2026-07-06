@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonDropdown,
-    LemonDropdownProps,
-    LemonInput,
-    ProfilePicture,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
+
+import { MemberSelectRow } from './MemberSelectRow'
 
 export type MemberMultiSelectProps = {
     defaultLabel?: string
@@ -32,7 +27,7 @@ export function MemberMultiSelect({
     children,
     ...buttonProps
 }: MemberMultiSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, selectableMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -62,16 +57,35 @@ export function MemberMultiSelect({
         setShowPopover(false)
     }
 
-    useEffect(() => {
-        if (showPopover) {
+    const handleVisibilityChange = (visible: boolean): void => {
+        setShowPopover(visible)
+        if (visible) {
             ensureAllMembersLoaded()
         }
-    }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }
 
-    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user.id))
+    // Load members when the selection is non-empty even before the popover opens, so a value
+    // pre-populated from the URL resolves to a name rather than falling back to the default label.
+    useEffect(() => {
+        if (value?.length) {
+            ensureAllMembersLoaded()
+        }
+    }, [value?.length]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const members = selectableMembers(excludedMembers, 'id')
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
+
+    const buttonLabel = ((): string => {
+        if (selectedCount === 0) {
+            return defaultLabel
+        }
+        if (selectedCount > 1) {
+            return `${selectedCount} selected`
+        }
+        return selectedMembersAsUsers[0] ? fullName(selectedMembersAsUsers[0]) : defaultLabel
+    })()
 
     return (
         <LemonDropdown
@@ -80,7 +94,7 @@ export function MemberMultiSelect({
             matchWidth={false}
             placement="bottom-start"
             actionable
-            onVisibilityChange={(visible) => setShowPopover(visible)}
+            onVisibilityChange={handleVisibilityChange}
             overlay={
                 <div className="max-w-100 deprecated-space-y-2">
                     <LemonInput
@@ -92,36 +106,19 @@ export function MemberMultiSelect({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {selectableMembers.map((member) => (
-                            <li key={member.user.uuid}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => handleMemberToggle(member.user.id)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={value?.includes(member.user.id) || false}
-                                                readOnly
-                                            />
-                                            <span>{fullName(member.user)}</span>
-                                        </span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
+                        {members.map((member) => (
+                            <MemberSelectRow
+                                key={member.user.uuid}
+                                member={member}
+                                isYou={member.user.uuid === me?.user.uuid}
+                                onClick={() => handleMemberToggle(member.user.id)}
+                                checked={value?.includes(member.user.id) || false}
+                            />
                         ))}
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : selectableMembers.length === 0 ? (
+                        ) : members.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
@@ -151,7 +148,7 @@ export function MemberMultiSelect({
                 children(selectedMembersAsUsers)
             ) : (
                 <LemonButton size="small" type="secondary" className={buttonClass} {...buttonProps}>
-                    {selectedCount > 0 ? `${selectedCount} selected` : defaultLabel}
+                    {buttonLabel}
                 </LemonButton>
             )}
         </LemonDropdown>

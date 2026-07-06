@@ -1,49 +1,71 @@
-import os
 import re
 import time
+from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+from django.utils import timezone
 
 import requests
 import structlog
 import posthoganalytics
 from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
-from playwright.sync_api import (
-    Browser,
-    Page,
-    Playwright,
-    ProxySettings,
-    TimeoutError as PlaywrightTimeoutError,
-    sync_playwright,
-)
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
-from posthog.security.url_validation import is_url_allowed, should_block_url
+from posthog.scoping_audit import skip_team_scope_audit
+from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_instance_region
 
 from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
 
-TMP_DIR = "/tmp"
-
-HEATMAP_BROWSERLESS_FLAG = "heatmap-browserless-cloud"
-
 # Reclaim a hung worker rather than letting a stuck render hold an EXPORTS slot for the full retry budget.
 HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
 HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 # Reject implausibly large Browserless responses before they reach worker memory / Postgres.
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
+HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
+HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
+
+HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
+    "heatmap_screenshot_task_succeeded",
+    "A heatmap screenshot task succeeded",
+)
+HEATMAP_SCREENSHOT_FAILED = Counter(
+    "heatmap_screenshot_task_failed",
+    "A heatmap screenshot task failed",
+    labelnames=["failure_type"],
+)
+HEATMAP_SCREENSHOT_TIMER = Histogram(
+    "heatmap_screenshot_task_duration_seconds",
+    "End-to-end heatmap screenshot render time",
+    labelnames=["outcome"],
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
+HEATMAP_BROWSERLESS_REQUEST_SECONDS = Histogram(
+    "heatmap_screenshot_browserless_request_duration_seconds",
+    "Latency of a single Browserless /screenshot call",
+    labelnames=["outcome", "width_bucket"],
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120, float("inf")),
+)
+HEATMAP_SCREENSHOT_STUCK_PROCESSING = Gauge(
+    "heatmap_screenshot_stuck_processing",
+    "Screenshot heatmaps still processing past the task time limit",
+)
 
 
 class BrowserlessError(Exception):
     """Base class for Browserless /screenshot failures."""
+
+    def __init__(self, message: str, *, status_code: int | None = None, cause: str | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.cause = cause
 
 
 class BrowserlessTransientError(BrowserlessError):
@@ -54,156 +76,44 @@ class BrowserlessPermanentError(BrowserlessError):
     """A failure that will not be fixed by retrying (4xx, misconfiguration, oversized output)."""
 
 
-def _dismiss_cookie_banners(page: Page) -> None:
-    # Try to click obvious accept/allow buttons (generic + Cookiebot)
-    click_selectors = [
-        # Generic
-        'button:has-text("Accept")',
-        'button:has-text("I Agree")',
-        'button:has-text("I agree")',
-        'button:has-text("Got it")',
-        'button:has-text("OK")',
-        'button[aria-label*="accept" i]',
-        '[role="dialog"] button:has-text("Accept")',
-        'button[id*="accept" i], button[class*="accept" i]',
-        # OneTrust
-        "#onetrust-accept-btn-handler",
-        ".onetrust-accept-btn-handler",
-        # Cookiebot specific
-        "#CybotCookiebotDialogBodyButtonAccept",
-        "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
-    ]
-    for sel in click_selectors:
-        try:
-            el = page.locator(sel).first
-            # wait a short time for element to appear, then click
-            el.wait_for(timeout=500)
-            el.click(timeout=500)
-            page.wait_for_timeout(250)
-            break
-        except Exception:
-            pass
-
-    # CSS-hide common cookie/consent containers and overlays
-    # Important: Only target specific container elements (div, section, aside, etc.) to avoid hiding html/body
-    # which may have cookie-related classes (e.g., <html class="supports-no-cookies">)
-    css_hide = """
-    div[id*="cookie" i], div[class*="cookie" i],
-    div[id*="consent" i], div[class*="consent" i],
-    div[id*="gdpr" i], div[class*="gdpr" i],
-    div[id*="onetrust" i], div[class*="onetrust" i],
-    div[id*="ot-sdk" i], div[class*="ot-sdk" i],
-    div[id*="sp_message" i], div[class*="sp_message" i],
-    div[id*="sp-consent" i], div[class*="sp-consent" i],
-    div[id*="quantcast" i], div[class*="quantcast" i],
-    section[id*="cookie" i], section[class*="cookie" i],
-    section[id*="consent" i], section[class*="consent" i],
-    section[id*="gdpr" i], section[class*="gdpr" i],
-    section[id*="onetrust" i], section[class*="onetrust" i],
-    section[id*="ot-sdk" i], section[class*="ot-sdk" i],
-    section[id*="sp_message" i], section[class*="sp_message" i],
-    section[id*="sp-consent" i], section[class*="sp-consent" i],
-    section[id*="quantcast" i], section[class*="quantcast" i],
-    aside[id*="cookie" i], aside[class*="cookie" i],
-    aside[id*="consent" i], aside[class*="consent" i],
-    aside[id*="gdpr" i], aside[class*="gdpr" i],
-    aside[id*="onetrust" i], aside[class*="onetrust" i],
-    aside[id*="ot-sdk" i], aside[class*="ot-sdk" i],
-    aside[id*="sp_message" i], aside[class*="sp_message" i],
-    aside[id*="sp-consent" i], aside[class*="sp-consent" i],
-    aside[id*="quantcast" i], aside[class*="quantcast" i],
-    iframe[src*="consent" i], iframe[src*="cookie" i], iframe[src*="onetrust" i],
-    /* generic fixed overlays */
-    div[style*="position:fixed" i][style*="z-index" i] {
-        display: none !important;
-        visibility: hidden !important;
-        pointer-events: none !important;
-    }
-    """
-    try:
-        page.add_style_tag(content=css_hide)
-    except Exception:
-        pass
-
-    # Explicitly remove Cookiebot dialog + underlay if present (add here more specific selectors if needed)
-    try:
-        page.evaluate(
-            """
-            () => {
-              document.getElementById('CybotCookiebotDialog')?.remove();
-              document.getElementById('CybotCookiebotDialogBodyUnderlay')?.remove();
-            }
-            """
-        )
-    except Exception:
-        pass
+def _width_bucket(width: int) -> str:
+    if width < 500:
+        return "mobile"
+    if width < 900:
+        return "tablet"
+    if width < 1440:
+        return "desktop"
+    return "wide"
 
 
-def _block_internal_requests(page: Page) -> None:
-    page.route("**/*", lambda route: route.abort() if should_block_url(route.request.url) else route.continue_())
-
-
-def _scroll_page(page: Page) -> None:
-    """
-    Scroll to bottom and back to top to trigger lazy-loaded content and CSS.
-
-    Some sites lazy-load CSS, images, or other content as you scroll.
-    Scrolling through the page ensures everything is loaded before screenshot.
-    Uses smooth, human-like scrolling to avoid triggering scroll-based hiding.
-    """
-    try:
-        page.evaluate(
-            """
-            async () => {
-                // Smooth scroll function (more human-like)
-                const smoothScroll = (target) => {
-                    return new Promise(resolve => {
-                        window.scrollTo({
-                            top: target,
-                            behavior: 'smooth'
-                        });
-                        // Wait for smooth scroll to finish
-                        setTimeout(resolve, 500);
-                    });
-                };
-
-                const step = window.innerHeight * 0.7;
-                let maxScroll = document.body.scrollHeight;
-                const maxIterations = 5; // ~3 viewport heights max
-                let iterations = 0;
-
-                // Scroll down slowly (just enough to trigger lazy loading)
-                for (let y = 0; y < maxScroll && iterations < maxIterations; y += step) {
-                    await smoothScroll(y);
-                    await new Promise(r => setTimeout(r, 300));
-                    // Re-measure as images load and page expands
-                    maxScroll = Math.max(maxScroll, document.body.scrollHeight);
-                    iterations++;
-                }
-
-                // Scroll to absolute bottom
-                await smoothScroll(maxScroll);
-                await new Promise(r => setTimeout(r, 500));
-
-                // Scroll back to top slowly
-                await smoothScroll(0);
-                await new Promise(r => setTimeout(r, 500));
-            }
-            """
-        )
-        page.wait_for_timeout(500)
-    except Exception:
-        pass
+def _classify_failure(e: BaseException) -> str:
+    if isinstance(e, SoftTimeLimitExceeded):
+        return "soft_time_limit"
+    if isinstance(e, BrowserlessError):
+        if e.cause == "not_configured":
+            return "not_configured"
+        if e.cause in ("empty_body", "non_image", "non_jpeg", "oversized"):
+            return "validation_error"
+        if e.cause == "request_exception":
+            return "browserless_timeout"
+        if e.status_code is not None:
+            if e.status_code == 408:
+                return "browserless_timeout"
+            if 400 <= e.status_code < 500:
+                return "browserless_4xx"
+            if e.status_code >= 500:
+                return "browserless_5xx"
+    return "unknown"
 
 
 def _capture_mode_usage(
     screenshot: SavedHeatmap,
-    use_browserless: bool,
     *,
     success: bool,
     width_count: int | None = None,
     duration_seconds: float | None = None,
     error_type: str | None = None,
+    failure_type: str | None = None,
 ) -> None:
     # ph_scoped_capture (not posthoganalytics.capture) — events from Celery tasks are otherwise
     # silently lost; no-ops off PostHog Cloud. Telemetry must never fail the task, so swallow errors.
@@ -214,11 +124,12 @@ def _capture_mode_usage(
                 distinct_id=str(team.uuid),
                 event="heatmap screenshot generated",
                 properties={
-                    "mode": "browserless" if use_browserless else "local",
+                    "mode": "browserless",
                     "success": success,
                     "width_count": width_count,
                     "duration_seconds": duration_seconds,
                     "error_type": error_type,
+                    "failure_type": failure_type,
                     "team_id": team.id,
                     "screenshot_id": str(screenshot.id),
                 },
@@ -228,18 +139,24 @@ def _capture_mode_usage(
         logger.warning("heatmap_screenshot.usage_capture_failed", screenshot_id=screenshot.id, exc_info=True)
 
 
-def _record_failure(screenshot: SavedHeatmap, use_browserless: bool, e: Exception) -> None:
+def _record_failure(screenshot: SavedHeatmap, e: Exception, *, started_at: float | None = None) -> None:
+    failure_type = _classify_failure(e)
     screenshot.status = SavedHeatmap.Status.FAILED
     screenshot.exception = str(e)
     screenshot.save(update_fields=["status", "exception"])
 
-    _capture_mode_usage(screenshot, use_browserless, success=False, error_type=type(e).__name__)
+    HEATMAP_SCREENSHOT_FAILED.labels(failure_type=failure_type).inc()
+    if started_at is not None:
+        HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
+
+    _capture_mode_usage(screenshot, success=False, error_type=type(e).__name__, failure_type=failure_type)
 
     logger.exception(
         "heatmap_screenshot.failed",
         screenshot_id=screenshot.id,
         team_id=screenshot.team_id,
         url=screenshot.url,
+        failure_type=failure_type,
         exception=str(e),
         exc_info=True,
     )
@@ -269,17 +186,30 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
         logger.exception("heatmap_screenshot.not_found", screenshot_id=screenshot_id)
         return
 
+    queue_wait_seconds = max((timezone.now() - screenshot.updated_at).total_seconds(), 0.0)
+    logger.info(
+        "heatmap_screenshot.started",
+        screenshot_id=screenshot.id,
+        team_id=screenshot.team_id,
+        url=screenshot.url,
+        retries=self.request.retries,
+        task_id=self.request.id,
+        queue_wait_seconds=round(queue_wait_seconds, 2),
+    )
+
+    started_at = time.monotonic()
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", screenshot.team_id)
         posthoganalytics.tag("screenshot_id", screenshot.id)
 
-        use_browserless = False
         try:
             ok, err = is_url_allowed(screenshot.url)
             if not ok:
                 screenshot.status = SavedHeatmap.Status.FAILED
                 screenshot.exception = f"SSRF blocked: {err}"
                 screenshot.save(update_fields=["status", "exception"])
+                HEATMAP_SCREENSHOT_FAILED.labels(failure_type="ssrf_blocked").inc()
+                HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
                 logger.warning(
                     "heatmap_screenshot.ssrf_blocked",
                     screenshot_id=screenshot.id,
@@ -289,19 +219,17 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 )
                 return
 
-            use_browserless = _use_browserless_for_screenshot(screenshot)
-            posthoganalytics.tag("use_browserless", use_browserless)
-
-            started_at = time.monotonic()
-            width_count = _generate_screenshots(screenshot, use_browserless)
+            width_count = _generate_screenshots(screenshot)
             duration_seconds = round(time.monotonic() - started_at, 2)
 
             screenshot.status = SavedHeatmap.Status.COMPLETED
             screenshot.save()
 
+            HEATMAP_SCREENSHOT_SUCCEEDED.inc()
+            HEATMAP_SCREENSHOT_TIMER.labels(outcome="succeeded").observe(duration_seconds)
+
             _capture_mode_usage(
                 screenshot,
-                use_browserless,
                 success=True,
                 width_count=width_count,
                 duration_seconds=duration_seconds,
@@ -312,28 +240,35 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 screenshot_id=screenshot.id,
                 team_id=screenshot.team_id,
                 url=screenshot.url,
-                mode="browserless" if use_browserless else "local",
+                mode="browserless",
+                width_count=width_count,
                 duration_seconds=duration_seconds,
             )
 
         except (BrowserlessPermanentError, SoftTimeLimitExceeded) as e:
             # Won't succeed on retry (bad request / config / oversized output / timed out) — fail now.
-            _record_failure(screenshot, use_browserless, e)
+            _record_failure(screenshot, e, started_at=started_at)
             raise
         except Exception as e:
-            # Transient cloud failure or a local render error: retry with backoff, but only record
-            # FAILED + emit the failure event once retries are exhausted, so a blip doesn't flap the
-            # status or inflate the failure metric.
+            # Transient Browserless failure: retry with backoff, but only record FAILED + emit the
+            # failure event once retries are exhausted, so a blip doesn't flap the status or inflate
+            # the failure metric.
             if self.request.called_directly or self.request.retries >= self.max_retries:
-                _record_failure(screenshot, use_browserless, e)
+                _record_failure(screenshot, e, started_at=started_at)
                 raise
+            countdown = min(2 ** (self.request.retries + 1), 60)
             logger.warning(
                 "heatmap_screenshot.retrying",
                 screenshot_id=screenshot.id,
+                team_id=screenshot.team_id,
+                url=screenshot.url,
                 retries=self.request.retries,
+                max_retries=self.max_retries,
+                countdown=countdown,
+                failure_type=_classify_failure(e),
                 exception=str(e),
             )
-            raise self.retry(exc=e, countdown=min(2 ** (self.request.retries + 1), 60))
+            raise self.retry(exc=e, countdown=countdown)
 
 
 def _build_browserless_screenshot_url() -> str | None:
@@ -346,8 +281,11 @@ def _build_browserless_screenshot_url() -> str | None:
         return None
     # Preserve a non-default port so self-hosted / local Browserless (e.g. wss://host:3000/chromium) works.
     netloc = f"{host}:{parsed.port}" if parsed.port else host
+    # Keep a plain-http scheme for in-network Browserless (e.g. hobby's http://browserless:3000);
+    # anything else (https/wss/missing) goes over https.
+    scheme = "http" if parsed.scheme in ("http", "ws") else "https"
     params = {"token": settings.HEATMAP_BROWSERLESS_TOKEN, "timeout": str(settings.HEATMAP_BROWSERLESS_TIMEOUT_MS)}
-    return f"https://{netloc}/screenshot?{urlencode(params)}"
+    return f"{scheme}://{netloc}/screenshot?{urlencode(params)}"
 
 
 def _redact_browserless_url(url: str) -> str:
@@ -385,26 +323,30 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     content = response.content
     if len(content) > HEATMAP_SCREENSHOT_MAX_BYTES:
         raise BrowserlessPermanentError(
-            f"Browserless screenshot too large ({len(content)} bytes) for {_redact_browserless_url(endpoint_url)}"
+            f"Browserless screenshot too large ({len(content)} bytes) for {_redact_browserless_url(endpoint_url)}",
+            cause="oversized",
         )
     if not content:
         raise BrowserlessTransientError(
-            f"Browserless returned an empty body for {_redact_browserless_url(endpoint_url)}"
+            f"Browserless returned an empty body for {_redact_browserless_url(endpoint_url)}",
+            cause="empty_body",
         )
     content_type = response.headers.get("content-type", "")
     if not content_type.startswith("image/"):
         raise BrowserlessTransientError(
             f"Browserless returned non-image content-type {content_type!r} for "
-            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:200])}"
+            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:200])}",
+            cause="non_image",
         )
     if not content.startswith(b"\xff\xd8\xff"):  # JPEG start-of-image marker
         raise BrowserlessTransientError(
-            f"Browserless returned a non-JPEG body for {_redact_browserless_url(endpoint_url)}"
+            f"Browserless returned a non-JPEG body for {_redact_browserless_url(endpoint_url)}",
+            cause="non_jpeg",
         )
     return content
 
 
-def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> bytes:
+def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_consent_modals: bool) -> bytes:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
@@ -419,9 +361,13 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> byt
         },
         "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
         "scrollPage": True,
-        "blockConsentModals": settings.HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS,
         "bestAttempt": True,
     }
+    # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
+    # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
+    # them when enabled.
+    if block_consent_modals:
+        body["blockConsentModals"] = True
     if settings.HEATMAP_BROWSERLESS_BLOCK_ADS:
         body["blockAds"] = True
 
@@ -429,145 +375,74 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> byt
         settings.HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS / 1000,
         settings.HEATMAP_BROWSERLESS_TIMEOUT_MS / 1000 + 30,
     )
+    width_bucket = _width_bucket(width)
+    started = time.monotonic()
     try:
         response = requests.post(endpoint_url, json=body, timeout=timeout)
     except Exception as e:
-        # The endpoint URL carries the token; scrub it before it reaches logs / SavedHeatmap.exception.
-        raise BrowserlessTransientError(
+        elapsed = time.monotonic() - started
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        err: BrowserlessError = BrowserlessTransientError(
             f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
-            f"{_sanitize_browserless_error(str(e))}"
-        ) from None
-    if response.status_code != 200:
+            f"{_sanitize_browserless_error(str(e))}",
+            cause="request_exception",
+        )
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            outcome="error",
+            cause="request_exception",
+            latency_ms=round(elapsed * 1000),
+        )
+        raise err from None
+
+    elapsed = time.monotonic() - started
+    status_code = response.status_code
+    byte_size = len(response.content or b"")
+
+    if status_code != 200:
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
         message = (
-            f"Browserless screenshot failed ({response.status_code}) for "
+            f"Browserless screenshot failed ({status_code}) for "
             f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:500])}"
         )
-        if _is_permanent_status(response.status_code):
-            raise BrowserlessPermanentError(message)
-        raise BrowserlessTransientError(message)
-    return _validate_screenshot_response(response, endpoint_url)
-
-
-def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
-    # Gated per team in prod; in local dev (DEBUG) the env var alone is the switch. Fail closed to
-    # the local launch on any flag-eval error.
-    if not settings.HEATMAP_BROWSERLESS_URL:
-        return False
-    if settings.DEBUG:
-        return True
-
-    team = screenshot.team
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
-    # Expose the deploy region (US / EU / DEV) so the flag can target by environment, e.g. to keep
-    # the rollout off the dev environment while it's at 100% in prod.
-    region = get_instance_region() or "DEV"
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                HEATMAP_BROWSERLESS_FLAG,
-                project_id,  # bucket per team so a whole team flips together, not per user
-                groups={"organization": org_id, "project": project_id},
-                person_properties={"region": region},
-                group_properties={
-                    "organization": {"id": org_id, "region": region},
-                    "project": {"id": project_id, "region": region},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+        error_cls = BrowserlessPermanentError if _is_permanent_status(status_code) else BrowserlessTransientError
+        err = error_cls(message, status_code=status_code, cause="http_status")
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            browserless_status=status_code,
+            latency_ms=round(elapsed * 1000),
+            bytes=byte_size,
+            outcome="error",
         )
-    except Exception:
-        return False
+        raise err
 
-
-def _launch_local_browser(p: Playwright) -> Browser:
-    launch_args = [
-        "--force-device-scale-factor=1",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-    ]
-    if settings.HEATMAP_CHROMIUM_NO_SANDBOX:
-        launch_args.append("--no-sandbox")
-    proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-    proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
-    # In the production image CHROME_BIN points at the only installed browser (/usr/bin/chromium);
-    # Playwright's bundled browser is intentionally NOT installed. So when CHROME_BIN is set but the
-    # path is missing, fail loudly with a config error rather than silently falling through to a
-    # non-existent bundled browser. When CHROME_BIN is unset (local dev), executable_path stays None
-    # and Playwright uses its own bundled Chromium. NOTE: Playwright skips browser-version enforcement
-    # when executable_path is set, so re-check system-chromium compatibility when bumping `playwright`.
-    executable_path = os.environ.get("CHROME_BIN") or None
-    if executable_path and not os.path.exists(executable_path):
-        logger.error("heatmap_screenshot.chrome_bin_invalid", chrome_bin=executable_path)
-        raise ImproperlyConfigured(
-            f"CHROME_BIN is set to '{executable_path}' but no executable exists there. The production "
-            "image installs Chromium at /usr/bin/chromium and does not bundle a Playwright browser."
+    try:
+        content = _validate_screenshot_response(response, endpoint_url)
+    except BrowserlessError as err:
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            browserless_status=status_code,
+            latency_ms=round(elapsed * 1000),
+            bytes=byte_size,
+            outcome="error",
+            cause=err.cause,
         )
-    return p.chromium.launch(
-        headless=True,  # TIP: for debugging, set to False
-        executable_path=executable_path,
-        args=launch_args,
-        proxy=proxy_config,
+        raise
+
+    HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
+    logger.info(
+        "heatmap_screenshot.browserless_request",
+        width=width,
+        browserless_status=status_code,
+        latency_ms=round(elapsed * 1000),
+        bytes=len(content),
+        outcome="ok",
     )
-
-
-def _render_width(browser: Browser, width: int, url: str) -> bytes:
-    ctx = browser.new_context(
-        viewport={"width": int(width), "height": 800},
-        device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
-        is_mobile=(width < 500),  # trigger mobile layout on small widths
-        has_touch=(width < 500),  # some sites key on touch capability
-        user_agent=(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
-            "Mobile/15E148 Safari/604.1"
-            if width < 500
-            else None
-        ),
-    )
-    try:
-        page = ctx.new_page()
-        # The local --no-sandbox Chromium is on our network, so per-request SSRF interception stays.
-        _block_internal_requests(page)
-
-        # Start navigation and try to wait for DOM ready, but only up to 5s
-        dom_ready = True
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=5_000)
-        except PlaywrightTimeoutError:
-            dom_ready = False
-            # Navigation may still continue in the background; we just won't block on it.
-
-        # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
-        page.wait_for_timeout(3000 if dom_ready else 1000)
-
-        # Try to clear overlays/cookie banners if present
-        _dismiss_cookie_banners(page)
-        page.wait_for_timeout(500)
-
-        # Scroll to bottom and back to top to trigger lazy-loaded content
-        _scroll_page(page)
-
-        # Hide scrollbars so they don't appear in the exported image
-        try:
-            page.add_style_tag(
-                content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
-            )
-        except Exception:
-            pass
-
-        return page.screenshot(full_page=True, type="jpeg", quality=70)
-    finally:
-        ctx.close()
-
-
-def _close_browser_quietly(browser: Browser) -> None:
-    # Closing an already-torn-down browser can itself raise; swallow so it can't mask the render error.
-    try:
-        browser.close()
-    except Exception:
-        logger.warning("heatmap_screenshot.browser_close_failed", exc_info=True)
+    return content
 
 
 def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
@@ -579,7 +454,21 @@ def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
             widths.append(w)
             seen.add(w)
     if not widths:
+        logger.warning(
+            "heatmap_screenshot.no_valid_widths",
+            screenshot_id=screenshot.id,
+            team_id=screenshot.team_id,
+            target_widths=target_widths,
+        )
         return [1024]
+    if len(widths) > MAX_TARGET_WIDTHS:
+        logger.warning(
+            "heatmap_screenshot.widths_capped",
+            screenshot_id=screenshot.id,
+            team_id=screenshot.team_id,
+            requested_count=len(widths),
+            cap=MAX_TARGET_WIDTHS,
+        )
     # Backstop the per-width render fan-out for heatmaps created before the serializer cap (or via the
     # regenerate path), so one heatmap can't spawn an unbounded number of Browserless sessions.
     return widths[:MAX_TARGET_WIDTHS]
@@ -592,11 +481,9 @@ def _persist_snapshot(screenshot: SavedHeatmap, width: int, image_data: bytes) -
     snapshot.save()
 
 
-def _generate_screenshots(screenshot: SavedHeatmap, use_browserless: bool) -> int:
+def _generate_screenshots(screenshot: SavedHeatmap) -> int:
     widths = _resolve_widths(screenshot)
-    if use_browserless:
-        return _generate_browserless_screenshots(screenshot, widths)
-    return _generate_local_screenshots(screenshot, widths)
+    return _generate_browserless_screenshots(screenshot, widths)
 
 
 def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int]) -> int:
@@ -604,27 +491,47 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     # release each image as it arrives so worker memory holds one full-page JPEG at a time.
     endpoint_url = _build_browserless_screenshot_url()
     if not endpoint_url:
-        raise BrowserlessPermanentError("Browserless screenshot URL is not configured")
+        raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
+    logger.info(
+        "heatmap_screenshot.rendering_widths",
+        screenshot_id=screenshot.id,
+        team_id=screenshot.team_id,
+        width_count=len(widths),
+        widths=widths,
+    )
     count = 0
     for w in widths:
-        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w)
+        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w, screenshot.block_consent_modals)
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count
 
 
-def _generate_local_screenshots(screenshot: SavedHeatmap, widths: list[int]) -> int:
-    # Local Chromium: one launch renders every width. ORM must run after the Playwright block — calls
-    # inside `with sync_playwright()` raise SynchronousOnlyOperation (its event-loop context).
-    snapshot_bytes: list[tuple[int, bytes]] = []
-    with sync_playwright() as p:
-        browser = _launch_local_browser(p)
-        try:
-            for w in widths:
-                snapshot_bytes.append((w, _render_width(browser, w, screenshot.url)))
-        finally:
-            _close_browser_quietly(browser)
-
-    for w, image_data in snapshot_bytes:
-        _persist_snapshot(screenshot, w, image_data)
-    return len(snapshot_bytes)
+@shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
+@skip_team_scope_audit
+def report_stuck_heatmap_screenshots() -> int:
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS)
+    stuck = SavedHeatmap.objects.filter(
+        type=SavedHeatmap.Type.SCREENSHOT,
+        status=SavedHeatmap.Status.PROCESSING,
+        updated_at__lt=cutoff,
+    )
+    count = stuck.count()
+    HEATMAP_SCREENSHOT_STUCK_PROCESSING.set(count)
+    if count:
+        sample = stuck.order_by("updated_at").only("id", "team_id", "updated_at")[:HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE]
+        logger.warning(
+            "heatmap_screenshot.stuck_processing",
+            stuck_count=count,
+            threshold_seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
+            sample=[
+                {
+                    "screenshot_id": str(s.id),
+                    "team_id": s.team_id,
+                    "age_seconds": round((now - s.updated_at).total_seconds()),
+                }
+                for s in sample
+            ],
+        )
+    return count

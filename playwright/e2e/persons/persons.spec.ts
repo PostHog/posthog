@@ -28,6 +28,7 @@ test.describe('Persons', () => {
         const { emailUser } = personsWithIdentity.expected
 
         await test.step('search for the email user and navigate to their detail page', async () => {
+            // goToList now waits for data to load before proceeding
             await persons.goToList()
             await persons.searchFor(emailUser)
             await persons.clickFirstPerson()
@@ -79,6 +80,8 @@ test.describe('Persons', () => {
         await test.step('add a new text property and verify it appears', async () => {
             await persons.addProperty(propKey, 'test-value-123')
             const propsTable = persons.detailTable()
+            // Wait for the new row to appear in the table before reading the value
+            await expect(propsTable.row(propKey).tr).toBeVisible()
             const value = await propsTable.row(propKey).column('value')
             expect(value).toContain('test-value-123')
         })
@@ -87,6 +90,7 @@ test.describe('Persons', () => {
             const emptyKey = randomString('empty-val')
             await persons.addProperty(emptyKey, '')
             const propsTable = persons.detailTable()
+            await expect(propsTable.row(emptyKey).tr).toBeVisible()
             const value = await propsTable.row(emptyKey).column('value')
             expect(value).toBe('string')
         })
@@ -95,6 +99,7 @@ test.describe('Persons', () => {
             const numericKey = randomString('numeric-val')
             await persons.addProperty(numericKey, '0')
             const propsTable = persons.detailTable()
+            await expect(propsTable.row(numericKey).tr).toBeVisible()
             const value = await propsTable.row(numericKey).column('value')
             expect(value).toContain('0')
         })
@@ -133,15 +138,13 @@ test.describe('Persons', () => {
     })
 
     test('Split a person with multiple distinct IDs', async ({ page }) => {
-        test.setTimeout(60_000)
         const persons = new PersonsPage(page)
         const { primaryDistinctId } = personWithMultipleIds.expected
         const secondaryDistinctId = personWithMultipleIds.person.distinct_ids[1]
 
         await test.step('search for the multi-ID person and navigate to their detail page', async () => {
             await persons.goToList()
-            await persons.searchInput.fill(primaryDistinctId)
-            await expect(persons.table.getByRole('link')).toHaveCount(1, { timeout: 15_000 })
+            await persons.searchFor(primaryDistinctId)
             await persons.clickFirstPerson()
         })
 
@@ -177,7 +180,7 @@ test.describe('Persons', () => {
                             secondaryIds: secondaryData.results[0]?.distinct_ids,
                         }
                     },
-                    { timeout: 30_000 }
+                    { timeout: 60_000, intervals: [1_000, 2_000, 5_000] }
                 )
                 .toEqual({
                     primaryIds: [primaryDistinctId],

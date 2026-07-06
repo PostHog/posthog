@@ -2,12 +2,22 @@ import { ApiError } from 'lib/api-error'
 
 import { PropertyOperator } from '~/types'
 
-import { errorTrackingWidgetConfigSchema } from '../../widget_types/configSchemas'
+import { errorTrackingWidgetConfigSchema } from '../../generated/widget-configs.zod'
 import {
+    ERROR_TRACKING_WIDGET_FORM_FIELD_NAMES,
     parseErrorTrackingWidgetConfigApiError,
     patchErrorTrackingWidgetFilterFields,
     validateErrorTrackingWidgetConfigInput,
 } from './errorTrackingWidgetConfigValidation'
+
+describe('errorTrackingWidgetConfigValidation', () => {
+    it('form picked fields exist on the generated config schema', () => {
+        const shape = errorTrackingWidgetConfigSchema.shape
+        for (const field of ERROR_TRACKING_WIDGET_FORM_FIELD_NAMES) {
+            expect(shape).toHaveProperty(field)
+        }
+    })
+})
 
 describe('validateErrorTrackingWidgetConfigInput', () => {
     it('rejects limit above 25 with inline-friendly message', () => {
@@ -21,7 +31,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
 
         expect(result.success).toBe(false)
         if (!result.success) {
-            expect(result.fieldErrors.limit).toBe('Must be an integer between 1 and 25.')
+            expect(result.fieldErrors.limit).toBe('Too big: expected number to be <=25')
         }
     })
 
@@ -75,7 +85,7 @@ describe('parseErrorTrackingWidgetConfigApiError', () => {
                 dateRange: { date_from: '-7d' },
             })
         ).toEqual({
-            limit: 'Must be an integer between 1 and 25.',
+            limit: 'Too big: expected number to be <=25',
         })
     })
 })

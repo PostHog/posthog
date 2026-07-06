@@ -1,4 +1,4 @@
-import { hexToRGB } from 'lib/utils'
+import { hexToRGB } from 'lib/utils/colors'
 
 import { HeatmapGradientStop, HeatmapSettings } from '~/queries/schema/schema-general'
 

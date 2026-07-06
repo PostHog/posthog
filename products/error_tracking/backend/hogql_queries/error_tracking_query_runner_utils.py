@@ -1,12 +1,36 @@
 import re
 import datetime
-from typing import Literal
+from typing import Literal, overload
+from uuid import UUID
 
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
+
+
+@overload
+def validate_uuid_param(value: str, name: str) -> str: ...
+
+
+@overload
+def validate_uuid_param(value: None, name: str) -> None: ...
+
+
+def validate_uuid_param(value: str | None, name: str) -> str | None:
+    """Canonicalize a UUID query param, rejecting values ClickHouse could not parse.
+
+    Returns the dashed-hex form: Python accepts looser formats (32 hex chars, braces,
+    urn prefixes) that would still fail ClickHouse's UUID parsing at query time.
+    DRF's ValidationError, not Django's: the query API only maps the DRF one to a 400.
+    """
+    if value is None:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise DRFValidationError(f"{name} must be a valid UUID")
 
 
 def search_tokenizer(query: str) -> list[str]:
@@ -94,213 +118,6 @@ def select_sparkline_array(date_from: datetime.datetime, date_to: datetime.datet
         ],
     )
     return ast.Call(name="sumForEach", args=[hot_indices])
-
-
-def build_select_expressions(
-    query: ErrorTrackingQuery, date_from: datetime.datetime, date_to: datetime.datetime
-) -> list[ast.Expr]:
-    """CH aggregation SELECT shared by V1 and the V2 inner subquery."""
-    exprs: list[ast.Expr] = [
-        ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id"])),
-        ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-        ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-        ast.Alias(alias="function", expr=innermost_frame_attribute("$exception_functions")),
-        ast.Alias(alias="source", expr=innermost_frame_attribute("$exception_sources")),
-    ]
-
-    if query.withAggregations:
-        exprs.extend(
-            [
-                ast.Alias(
-                    alias="occurrences",
-                    expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
-                ),
-                ast.Alias(
-                    alias="sessions",
-                    expr=ast.Call(
-                        name="count",
-                        distinct=True,
-                        args=[ast.Call(name="nullIf", args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")])],
-                    ),
-                ),
-                ast.Alias(
-                    alias="users",
-                    expr=ast.Call(
-                        name="count",
-                        distinct=True,
-                        args=[
-                            ast.Call(
-                                name="coalesce",
-                                args=[
-                                    ast.Call(
-                                        name="nullIf",
-                                        args=[
-                                            ast.Call(name="toString", args=[ast.Field(chain=["person_id"])]),
-                                            ast.Constant(value="00000000-0000-0000-0000-000000000000"),
-                                        ],
-                                    ),
-                                    ast.Field(chain=["distinct_id"]),
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-                ast.Alias(alias="volumeRange", expr=select_sparkline_array(date_from, date_to, query.volumeResolution)),
-            ]
-        )
-
-    if query.withFirstEvent:
-        exprs.append(
-            ast.Alias(
-                alias="first_event",
-                expr=ast.Call(
-                    name="argMin",
-                    args=[
-                        ast.Tuple(
-                            exprs=[
-                                ast.Field(chain=["uuid"]),
-                                ast.Field(chain=["distinct_id"]),
-                                ast.Field(chain=["timestamp"]),
-                                ast.Field(chain=["properties"]),
-                            ]
-                        ),
-                        ast.Field(chain=["timestamp"]),
-                    ],
-                ),
-            )
-        )
-
-    if query.withLastEvent:
-        exprs.append(
-            ast.Alias(
-                alias="last_event",
-                expr=ast.Call(
-                    name="argMax",
-                    args=[
-                        ast.Tuple(
-                            exprs=[
-                                ast.Field(chain=["uuid"]),
-                                ast.Field(chain=["distinct_id"]),
-                                ast.Field(chain=["timestamp"]),
-                                ast.Field(chain=["properties"]),
-                            ]
-                        ),
-                        ast.Field(chain=["timestamp"]),
-                    ],
-                ),
-            )
-        )
-
-    exprs.append(
-        ast.Alias(
-            alias="library",
-            expr=ast.Call(
-                name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
-            ),
-        )
-    )
-
-    return exprs
-
-
-def build_event_where_exprs(
-    query: ErrorTrackingQuery, date_from: datetime.datetime, date_to: datetime.datetime
-) -> list[ast.Expr]:
-    exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value="$exception"),
-        ),
-        ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id"])]),
-        ast.Placeholder(expr=ast.Field(chain=["filters"])),
-    ]
-
-    if date_from:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)]),
-            )
-        )
-
-    if date_to:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)]),
-            )
-        )
-
-    if query.issueId:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["e", "issue_id"]),
-                right=ast.Constant(value=query.issueId),
-            )
-        )
-
-    if query.personId:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["person_id"]),
-                right=ast.Constant(value=query.personId),
-            )
-        )
-
-    if query.groupKey and query.groupTypeIndex is not None:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[f"$group_{query.groupTypeIndex}"]),
-                right=ast.Constant(value=query.groupKey),
-            )
-        )
-
-    if query.searchQuery:
-        tokens = search_tokenizer(query.searchQuery)
-        if len(tokens) > 100:
-            raise ValidationError("Too many search tokens")
-
-        and_exprs: list[ast.Expr] = []
-        for token in tokens:
-            if not token:
-                continue
-            or_exprs: list[ast.Expr] = []
-            props_to_search = {
-                ("properties",): [
-                    "$exception_types",
-                    "$exception_values",
-                    "$exception_sources",
-                    "$exception_functions",
-                    "email",
-                ],
-                ("person", "properties"): ["email"],
-            }
-            for chain_prefix, properties in props_to_search.items():
-                for prop in properties:
-                    or_exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, prop])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
-                        )
-                    )
-            and_exprs.append(ast.Or(exprs=or_exprs))
-
-        exprs.append(ast.And(exprs=and_exprs))
-
-    return exprs
 
 
 def extract_event(event_tuple) -> dict | None:

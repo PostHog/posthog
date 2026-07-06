@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { DuplicateStepIndicator } from 'scenes/funnels/FunnelBarHorizontal/DuplicateStepIndicator'
 import { FunnelStepMore } from 'scenes/funnels/FunnelStepMore'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -34,7 +34,7 @@ export function StepHeader({ step, stepIndex, previousStep, isUnordered, isOptio
                 {!isUnordered && previousStep != null && step.action_id === previousStep.action_id && (
                     <DuplicateStepIndicator />
                 )}
-                <FunnelStepMore stepIndex={stepIndex} />
+                <FunnelStepMore stepIndex={stepIndex} className="ml-1" />
             </div>
             {showAverageTime ? (
                 <div className="text-secondary text-xs" title="Average time of conversion from previous step">

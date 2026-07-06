@@ -105,6 +105,24 @@
             }
         }
 
+        .PlayerSeekbar__unplayable {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 4;
+            height: 100%;
+            cursor: help;
+            background: repeating-linear-gradient(
+                45deg,
+                var(--danger) 0,
+                var(--danger) 2px,
+                transparent 2px,
+                transparent 6px
+            );
+            border-radius: var(--bar-height) 0 0 var(--bar-height);
+            opacity: 0.6;
+        }
+
         .PlayerSeekbar__played {
             position: absolute;
             top: 0;

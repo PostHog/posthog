@@ -2,13 +2,6 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
-from posthog.hogql.functions.traffic_type import (
-    get_bot_name,
-    get_bot_operator,
-    get_traffic_category,
-    get_traffic_type,
-    is_bot,
-)
 
 
 def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
@@ -29,22 +22,28 @@ def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
     )
 
 
-def _dummy_call(name: str = "__placeholder") -> ast.Call:
-    return ast.Call(name=name, args=[])
+def client_ip_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
+    if not properties_path:
+        properties_path = ["properties"]
+    return ast.Field(chain=[*properties_path, "$ip"])
 
 
+def _classification_args(properties_path: Optional[list[str]] = None) -> list[ast.Expr]:
+    return [user_agent_expr(properties_path), client_ip_expr(properties_path)]
+
+
+# These one-node calls are expanded to the classification SQL in the resolver (see Resolver.visit_call),
+# so the big expression only materializes for queries that select the field.
 def create_is_bot_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
-        name=name,
-        expr=is_bot(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
-        isolate_scope=True,
+        name=name, expr=ast.Call(name="isLikelyBot", args=_classification_args(properties_path)), isolate_scope=True
     )
 
 
 def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_traffic_type(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getTrafficType", args=_classification_args(properties_path)),
         isolate_scope=True,
     )
 
@@ -52,7 +51,7 @@ def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = 
 def create_traffic_category_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_traffic_category(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getTrafficCategory", args=_classification_args(properties_path)),
         isolate_scope=True,
     )
 
@@ -60,7 +59,7 @@ def create_traffic_category_field(name: str, properties_path: Optional[list[str]
 def create_bot_name_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_bot_name(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getBotName", args=_classification_args(properties_path)),
         isolate_scope=True,
     )
 
@@ -68,6 +67,6 @@ def create_bot_name_field(name: str, properties_path: Optional[list[str]] = None
 def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=get_bot_operator(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getBotOperator", args=_classification_args(properties_path)),
         isolate_scope=True,
     )

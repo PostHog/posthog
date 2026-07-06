@@ -5,11 +5,11 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_complete
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
-from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.stream.redis_stream import publish_task_run_stream_complete
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)

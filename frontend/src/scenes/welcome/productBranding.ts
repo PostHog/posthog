@@ -23,7 +23,7 @@ export interface ProductBranding {
     rgb: string
 }
 
-// Lifted from frontend/src/scenes/onboarding/utils.tsx so each product shows its actual brand color.
+// Lifted from frontend/src/scenes/onboarding/shared/utils.tsx so each product shows its actual brand color.
 export const PRODUCT_BRANDING: Record<string, ProductBranding> = {
     product_analytics: {
         label: 'Product analytics',

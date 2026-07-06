@@ -24,6 +24,7 @@ from posthog.models.team.team import Team
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
+    _enriched_flag_key_expr_sql,
     _extract_sdk_breakdown_from_redis,
     _flag_key_filter_sql,
     capture_team_decide_usage,
@@ -87,6 +88,29 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_increment_request_count_remote_config_uses_own_bucket(self):
+        team_id = 3
+
+        with freeze_time("2022-05-07 12:23:07"):
+            for _ in range(4):
+                increment_request_count(team_id)
+            for _ in range(6):
+                increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
+
+            client = redis.get_client()
+
+            # Remote config fetches are telemetry-only, so they must never leak into the
+            # decide bucket that billing consumes.
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:{team_id}"),
+                {b"165192618": b"4"},
+            )
+            self.assertEqual(
+                client.hgetall(f"posthog:remote_config_requests:{team_id}"),
+                {b"165192618": b"6"},
+            )
+
+    @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_capture_team_decide_usage(self):
         mock_capture = MagicMock()
         team_id = 3
@@ -102,6 +126,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(7):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
@@ -112,6 +137,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(3):
                 # 3 requests for other team
                 increment_request_count(other_team_id)
@@ -122,13 +148,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
                 increment_request_count(other_team_id)
 
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             # these other requests should not add duplicate counts
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
-            assert mock_capture.capture.call_count == 2
+            assert mock_capture.capture.call_count == 3
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="decide usage",
@@ -144,6 +171,18 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="local evaluation usage",
+                properties={
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
+            )
+            mock_capture.capture.assert_any_call(
+                distinct_id=team_id,
+                event="remote config usage",
                 properties={
                     "count": 15,
                     "team_id": team_id,
@@ -611,6 +650,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-java",
             "posthog-dotnet",
             "posthog-elixir",
+            "posthog-rs",
             "posthog-android",
             "posthog-ios",
             "posthog-react-native",
@@ -1085,7 +1125,7 @@ class TestFlagKeyFilterSQL(BaseTest):
             sql = _flag_key_filter_sql()
         assert "JSONExtractString(properties, '$feature_flag')" in sql
 
-    def test_uses_materialized_column_when_available(self):
+    def test_uses_escaped_materialized_column_when_available(self):
         fake_column = MagicMock()
         fake_column.name = "mat_$feature_flag"
         with patch(
@@ -1093,5 +1133,37 @@ class TestFlagKeyFilterSQL(BaseTest):
             return_value=fake_column,
         ):
             sql = _flag_key_filter_sql()
-        assert "mat_$feature_flag" in sql
+        assert "`mat_$feature_flag` = %(flag_key)s" in sql
         assert "JSONExtractString" not in sql
+
+
+class TestEnrichedFlagKeyExprSQL(BaseTest):
+    def test_falls_back_to_json_extract_when_not_materialized(self):
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=None,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "JSONExtractString(properties, 'feature_flag')"
+
+    def test_uses_escaped_materialized_column_when_available(self):
+        fake_column = MagicMock()
+        fake_column.name = "mat_feature_flag"
+        fake_column.is_nullable = False
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=fake_column,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "`mat_feature_flag`"
+
+    def test_coalesces_nullable_materialized_column(self):
+        fake_column = MagicMock()
+        fake_column.name = "mat_feature_flag"
+        fake_column.is_nullable = True
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=fake_column,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "ifNull(`mat_feature_flag`, '')"

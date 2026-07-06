@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getSentrySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
@@ -52,7 +53,7 @@ export const getSentrySteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 // Initialize PostHog with Sentry integration
                                 posthog.init('<ph_project_token>', {
                                   api_host: '<ph_client_api_host>',
-                                  defaults: '2026-01-30'
+                                  defaults: '${SDK_DEFAULTS_DATE}'
                                 })
 
                                 // Set PostHog session ID on Sentry scope

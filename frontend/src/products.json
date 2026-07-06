@@ -1,6 +1,13 @@
 {
     "products": [
         {
+            "path": "AI gateway",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "ai_gateway",
+            "intents": ["ai_gateway"]
+        },
+        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
@@ -47,13 +54,6 @@
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_prompts",
-            "intents": ["llm_prompts"]
-        },
-        {
-            "path": "Skills",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_skills",
             "intents": ["llm_prompts"]
         },
         {
@@ -120,6 +120,13 @@
             "intents": ["endpoints"]
         },
         {
+            "path": "Engineering analytics",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": "engineering_analytics",
+            "intents": ["engineering_analytics"]
+        },
+        {
             "path": "Error tracking",
             "category": "App monitoring",
             "iconType": null,
@@ -139,6 +146,13 @@
             "iconType": null,
             "type": "feature_flag",
             "intents": ["feature_flags", "experiments", "early_access_features"]
+        },
+        {
+            "path": "Identity matching",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["marketing_analytics"]
         },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
@@ -207,6 +221,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {
@@ -295,7 +310,6 @@
             "type": null,
             "intents": []
         },
-        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",

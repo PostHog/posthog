@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { LemonSelectOption, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getRecordingLinkInfo } from 'scenes/comments/commentUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

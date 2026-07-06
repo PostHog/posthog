@@ -34,10 +34,13 @@ from .coder import (
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
+    _start_app_param,
+    clone_workspace,
     coder_authenticated,
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
+    create_clone_image,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -55,6 +58,7 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_username,
     get_workspace,
     get_workspace_name,
     get_workspace_region,
@@ -73,6 +77,7 @@ from .coder import (
     parse_workspace_target,
     port_forward_replace,
     print_setup_summary,
+    region_from_workspace_name,
     restart_workspace,
     server_supports_user_secrets,
     share_workspace,
@@ -121,6 +126,11 @@ WORKSPACE_STATUS_COLORS = {
 }
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
+# Printed whenever --start-app/--no-start-app is passed but cannot be applied:
+# the parameter is only pushed on the pre-start sync of a stopped workspace,
+# so the flag is dropped (not queued) on running/transitioning boxes.
+_START_APP_NOT_APPLIED_NOTE = "Note: --start-app/--no-start-app was not applied; re-run it once the devbox is stopped."
+
 
 def resolve_workspace_name(
     workspace: str | None, *, region: str | None = None
@@ -137,11 +147,13 @@ def resolve_workspace_name(
     when available, so callers can skip a second ``_list_workspaces`` call.
 
     ``region`` controls the region suffix used when constructing names for
-    workspaces that don't exist yet (e.g. ``devbox:start --region``). When
+    workspaces that don't exist yet (a bare ``devbox:start --region`` bypasses
+    this resolver and targets the region's default name directly). When
     resolving an OWN label against the user's actual workspaces, the region
     suffix is treated as a preference, not a constraint: if the preferred
     name doesn't exist but a workspace with the same label exists in another
-    region, that one is returned. This keeps a saved region pref from
+    region, that one is returned. The same fallback applies to the default
+    workspace in the multi-box case. This keeps a saved region pref from
     silently masking existing workspaces created before the pref was set.
     """
     effective_region = region if region is not None else _preferred_region()
@@ -162,10 +174,13 @@ def resolve_workspace_name(
     if len(workspaces) == 1:
         return workspaces[0]["name"], workspaces
 
-    # Multiple workspaces -- prefer default
-    default_name = get_workspace_name(region=effective_region)
-    for ws in workspaces:
-        if ws.get("name") == default_name:
+    # Multiple workspaces -- prefer the effective region's default, then
+    # defaults in other regions (a region pref should not mask the box the
+    # user actually has -- same philosophy as the label fallback above).
+    existing_names = {ws.get("name") for ws in workspaces}
+    for candidate_region in (effective_region, *(r for r in REGIONS if r != effective_region)):
+        default_name = get_workspace_name(region=candidate_region)
+        if default_name in existing_names:
             return default_name, workspaces
 
     # No default among multiple -- require explicit workspace argument
@@ -305,7 +320,7 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
-def _sync_workspace_parameters(name: str) -> None:
+def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
     """Push local config (git identity, dotfiles) to workspace parameters before start.
 
     `workspace_region` is intentionally not forwarded: it is immutable, so Coder
@@ -325,24 +340,35 @@ def _sync_workspace_parameters(name: str) -> None:
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    if extra:
+        params.update(extra)
+
     if params:
         update_workspace_parameters(name, params)
 
 
-def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
+def _start_existing_workspace(
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
+        if start_app is not None:
+            # Pushing the parameter needs `coder update`, which rebuilds a
+            # running workspace -- only safe on the pre-start sync below.
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
         click.echo(f"Devbox '{name}' is in state: {status}")
         click.echo("Wait for the current operation to complete.")
+        if start_app is not None:
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
-    _sync_workspace_parameters(name)
+    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -582,17 +608,25 @@ def maybe_configure_git_signing(
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
 
+def _saved_region() -> str | None:
+    """Return the saved region preference, or ``None`` when absent or invalid.
+
+    A persisted value that's no longer in ``REGIONS`` (e.g. a stale entry
+    from a hand-edited config) reads as unset instead of poisoning every
+    downstream lookup.
+    """
+    saved = load_config().get("region")
+    return saved if saved in REGIONS else None
+
+
 def _preferred_region() -> str:
     """Return the saved preferred region, falling back to ``DEFAULT_REGION``.
 
     Centralized so every command path that needs the user's region
     preference reads the same value -- and so the fallback to the built-in
-    default lives in one place. A persisted value that's no longer in
-    ``REGIONS`` (e.g. a stale entry from a hand-edited config) falls back
-    to ``DEFAULT_REGION`` instead of poisoning every downstream lookup.
+    default lives in one place.
     """
-    saved = load_config().get("region")
-    return saved if saved in REGIONS else DEFAULT_REGION
+    return _saved_region() or DEFAULT_REGION
 
 
 def maybe_configure_region(configure_region: bool | None) -> None:
@@ -1253,6 +1287,24 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
+def _maybe_hint_region_mismatch(name: str) -> None:
+    """On resuming a default box outside the saved region pref, say how to get one there.
+
+    Quiet for labeled boxes -- the pref only governs the default box. Callers
+    gate on a bare invocation (a label or ``--region`` is already a deliberate
+    choice).
+    """
+    saved = _saved_region()
+    if saved is None or extract_workspace_label(name) is not None:
+        return
+    box_region = region_from_workspace_name(name)
+    if box_region != saved:
+        click.echo(
+            f"Your devbox '{name}' is in {box_region}, but your saved region is {saved}. "
+            f"Create a {saved} devbox with `hogli devbox:start --region {saved}`."
+        )
+
+
 @click.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_argument
 @click.option(
@@ -1280,8 +1332,18 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     type=click.Choice(REGIONS),
     default=None,
     help=(
-        "Region to create the devbox in (set once at creation, cannot be changed later). "
-        "Defaults to the value saved by `devbox:setup --configure-region`, then us-east-1."
+        "Region whose default devbox to start, creating it if needed (a devbox's region is "
+        "set at creation and cannot change). Defaults to the value saved by "
+        "`devbox:setup --configure-region`, then us-east-1."
+    ),
+)
+@click.option(
+    "--start-app/--no-start-app",
+    "start_app",
+    default=None,
+    help=(
+        "Bring the PostHog app up in the background on every workspace start. "
+        "Sticky on the workspace until flipped with --no-start-app."
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
@@ -1291,19 +1353,27 @@ def devbox_start(
     template: str,
     preset: str,
     region: str | None,
+    start_app: bool | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
     effective_region = region or _preferred_region()
-    # Thread the effective region into name resolution so an explicit
-    # --region overrides the saved preference for both the new workspace's
-    # region AND its `-eu` name suffix.
-    name, workspaces = resolve_workspace_name(workspace, region=effective_region)
+    if workspace is None and region is not None:
+        # An explicit --region targets that region's default directly, so it
+        # can be created (or resumed) regardless of boxes in other regions.
+        name = get_workspace_name(region=effective_region)
+        workspaces: list[dict[str, Any]] | None = list_user_workspaces()
+    else:
+        # Resolution prefers the effective region's default but falls back to
+        # the box the user already has -- a saved pref alone never abandons it.
+        name, workspaces = resolve_workspace_name(workspace, region=effective_region)
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
-        _start_existing_workspace(name, ws, verbose=verbose)
+        if workspace is None and region is None:
+            _maybe_hint_region_mismatch(name)
+        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
         return
 
     config = load_config()
@@ -1320,10 +1390,80 @@ def devbox_start(
         region=effective_region,
         template=template,
         preset=preset,
+        start_app=start_app,
         verbose=verbose,
     )
     click.echo("Created.")
     _print_connection_info(name)
+
+
+@click.command(
+    name="devbox:clone",
+    help="Clone a running devbox into a new one, carrying its full disk state",
+)
+@workspace_argument
+@click.option(
+    "--as",
+    "new_label",
+    default="clone",
+    show_default=True,
+    help="Label for the new devbox (becomes devbox-<you>-<label>)",
+)
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool) -> None:
+    """Duplicate a running devbox, disk and all.
+
+    Captures the source box's root volume into a private, short-lived AMI and
+    boots a new devbox from it, so the clone comes up with the source's full
+    disk state -- uncommitted work, local databases, installed tooling -- not
+    just the settings that dotfiles and user secrets already carry. The source
+    must be running; quiesce its dev stack first for an application-consistent
+    copy. The capture image is private to you and auto-expires.
+    """
+    ensure_runtime_ready()
+    source_name, workspaces = resolve_workspace_name(workspace)
+    ws = _get_workspace_or_fail(source_name, workspaces)
+
+    owner = get_username()
+    if str(ws.get("owner_name") or "").lower() not in ("", owner):
+        _fail("You can only clone your own devbox.")
+
+    template = ws.get("template_name") or DEFAULT_TEMPLATE
+    if template != DEFAULT_TEMPLATE:
+        _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
+
+    region = region_from_workspace_name(source_name)
+    if region != DEFAULT_REGION:
+        _fail("Clone is us-east-1 only for now (an AMI is region-scoped). EU clone is not wired yet.")
+
+    status = get_workspace_status(ws)
+    if status != "running":
+        suffix = _workspace_arg_suffix(source_name)
+        _fail(
+            f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
+        )
+
+    target_name = get_workspace_name(new_label, region=region)
+    if get_workspace(target_name, workspaces) is not None:
+        _fail(f"A devbox named '{target_name}' already exists. Pass `--as <label>` to pick another name.")
+
+    if not yes:
+        click.echo(f"Clone '{source_name}' -> '{target_name}'.")
+        click.echo(
+            "This images the source box's entire disk (including any on-disk secrets) into a\n"
+            "private AMI and boots the new box from it. The image auto-expires after a few days."
+        )
+        if not click.confirm("Proceed?"):
+            click.echo("Cancelled.")
+            return
+
+    click.echo("Capturing a clone image from the source devbox (this takes a few minutes)...")
+    ami = create_clone_image(source_name, owner=owner, source_label=source_name)
+    click.echo(f"Captured {ami}. Creating '{target_name}'...")
+    clone_workspace(source_name, target_name, base_ami=ami, template=template, verbose=verbose)
+    click.echo("Cloned.")
+    _print_connection_info(target_name)
 
 
 @click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")

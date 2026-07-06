@@ -6,9 +6,11 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
@@ -16,7 +18,7 @@ from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductK
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
@@ -28,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
@@ -47,6 +50,14 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+
+logger = structlog.get_logger(__name__)
+
+HEATMAP_CONTENT_REQUESTS = Counter(
+    "heatmap_screenshot_content_requests",
+    "Heatmap screenshot content endpoint responses",
+    labelnames=["outcome"],
+)
 
 
 def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
@@ -82,6 +93,9 @@ DEFAULT_QUERY = """
                      where {predicates}
                 )
             group by `pointer_target_fixed`, pointer_relative_x, client_y
+            order by cnt desc
+            limit {limit}
+            offset {offset}
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -210,6 +224,23 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
         "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
     )
+    limit = serializers.IntegerField(
+        required=False,
+        default=500,
+        min_value=0,
+        max_value=MAX_SELECT_HEATMAPS_LIMIT,
+        help_text="Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. "
+        "Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. "
+        "Ignored for the 'scrolldepth' type, which always returns every bucket.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=MAX_SELECT_HEATMAPS_LIMIT,
+        help_text="Number of hottest-first points to skip, for paging through cooler coordinates. "
+        "Ignored for the 'scrolldepth' type.",
+    )
 
     def validate_cohort_ids(self, value: str | None) -> list[int]:
         if value is None or value == "":
@@ -329,6 +360,12 @@ class HeatmapsResponseSerializer(serializers.Serializer):
         help_text="Above/below-the-fold summary for the returned interactions. Present for "
         "click/rageclick/mousemove; omitted for scrolldepth.",
     )
+    has_more = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True when more coordinate points exist beyond the returned page. Raise 'limit' or page with "
+        "'offset' to fetch them. Always false for scrolldepth, which returns every bucket.",
+    )
 
 
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
@@ -410,6 +447,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        limit = request_serializer.validated_data.pop("limit")
+        offset = request_serializer.validated_data.pop("offset")
         if request_serializer.validated_data.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
             cast(User, request.user), self.team
         ):
@@ -430,7 +469,19 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
 
-        stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
+        unbounded = limit == 0
+        query_placeholders: dict[str, Expr] = {
+            "aggregation_count": aggregation_count,
+            "predicates": ast.And(exprs=exprs),
+        }
+        if not is_scrolldepth_query:
+            # Unbounded fetches everything up to the hard cap; otherwise fetch one extra row so we can
+            # report has_more without a second count query.
+            fetch_limit = MAX_SELECT_HEATMAPS_LIMIT if unbounded else limit + 1
+            query_placeholders["limit"] = Constant(value=fetch_limit)
+            query_placeholders["offset"] = Constant(value=offset)
+
+        stmt = parse_select(raw_query, query_placeholders)
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
@@ -438,8 +489,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_scrolldepth_query:
             return self._return_scroll_depth_response(results)
 
+        has_more = not unbounded and len(results.results or []) > limit
+        if not unbounded:
+            results.results = (results.results or [])[:limit]
+
         fold = self._compute_fold_summary(exprs)
-        return self._return_heatmap_coordinates_response(results, fold)
+        return self._return_heatmap_coordinates_response(results, fold, has_more)
 
     def _compute_fold_summary(self, exprs: List[ast.Expr]) -> dict[str, Any]:  # noqa: UP006
         stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
@@ -533,7 +588,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @staticmethod
     def _return_heatmap_coordinates_response(
-        query_response: HogQLQueryResponse, fold: dict[str, Any]
+        query_response: HogQLQueryResponse, fold: dict[str, Any], has_more: bool
     ) -> response.Response:
         data = [
             {
@@ -545,7 +600,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for item in query_response.results or []
         ]
 
-        response_serializer = HeatmapsResponseSerializer(data={"results": data, "fold": fold})
+        response_serializer = HeatmapsResponseSerializer(data={"results": data, "fold": fold, "has_more": has_more})
         response_serializer.is_valid(raise_exception=True)
 
         resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
@@ -700,6 +755,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "has_content",
             "snapshots",
             "deleted",
+            "block_consent_modals",
             "created_by",
             "created_at",
             "updated_at",
@@ -725,6 +781,10 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
             "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
             "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
+            "block_consent_modals": {
+                "help_text": "Whether the headless browser dismisses cookie/consent banners before capturing "
+                "the screenshot. Only applies to 'screenshot' heatmaps."
+            },
             "exception": {"help_text": "Error detail when screenshot generation failed, otherwise null."},
         }
 
@@ -780,46 +840,71 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
         screenshot = self.get_object()
-        if screenshot.deleted:
-            return response.Response(status=status.HTTP_404_NOT_FOUND)
 
-        # Pick requested width or default
+        def _finish(resp: HttpResponse, outcome: str, **attrs: Any) -> HttpResponse:
+            HEATMAP_CONTENT_REQUESTS.labels(outcome=outcome).inc()
+            if outcome in ("not_found", "bad_request", "not_implemented"):
+                log = logger.warning if outcome in ("bad_request", "not_implemented") else logger.info
+                log(
+                    "heatmap_screenshot.content_request",
+                    screenshot_id=str(screenshot.id),
+                    team_id=screenshot.team_id,
+                    outcome=outcome,
+                    status_code=resp.status_code,
+                    **attrs,
+                )
+            return resp
+
+        if screenshot.deleted:
+            return _finish(response.Response(status=status.HTTP_404_NOT_FOUND), "not_found")
+
         try:
             requested_width = int(request.query_params.get("width", 1024))
         except (ValueError, TypeError):
-            return response.Response(
-                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+            return _finish(
+                response.Response(
+                    {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                ),
+                "bad_request",
             )
 
-        # Try exact match snapshot
         snapshot = screenshot.snapshots.filter(width=requested_width).first()
 
-        # If not found, pick closest by absolute difference among available snapshots
         if not snapshot:
             all_snaps = list(screenshot.snapshots.all())
             if all_snaps:
                 snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
 
         if not snapshot:
-            # Nothing generated yet
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            return _finish(
+                response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                "generating",
+            )
 
         if snapshot.content:
             http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
             http_response["Content-Disposition"] = (
                 f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
             )
-            return http_response
+            return _finish(http_response, "served")
         elif snapshot.content_location:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(
-                {**response_serializer.data, "error": "Content location not implemented yet"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
+            return _finish(
+                response.Response(
+                    {**response_serializer.data, "error": "Content location not implemented yet"},
+                    status=status.HTTP_501_NOT_IMPLEMENTED,
+                ),
+                "not_implemented",
+                requested_width=requested_width,
+                served_width=snapshot.width,
             )
         else:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            return _finish(
+                response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                "generating",
+            )
 
 
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
@@ -847,7 +932,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SavedHeatmap
-        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        fields = ["name", "url", "data_url", "widths", "type", "deleted", "block_consent_modals"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True, "help_text": "Human-readable label for the saved heatmap."},
             "url": {
@@ -866,6 +951,12 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
                 "or 'recording'. Only 'screenshot' generates image bytes.",
             },
             "deleted": {"required": False, "help_text": "Set true to soft-delete the saved heatmap."},
+            "block_consent_modals": {
+                "required": False,
+                "help_text": "When true, ask the headless browser to dismiss cookie/consent banners before "
+                "capturing the screenshot. Off by default: the blocker can stall the render on some sites and "
+                "time out. Only applies to 'screenshot' heatmaps.",
+            },
         }
 
 
@@ -969,6 +1060,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         data_url = serializer.validated_data.get("data_url") or url
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
         heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+        block_consent_modals = serializer.validated_data.get("block_consent_modals", False)
 
         screenshot = SavedHeatmap.objects.create(
             team=self.team,
@@ -977,6 +1069,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             data_url=data_url,
             target_widths=widths,
             type=heatmap_type,
+            block_consent_modals=block_consent_modals,
             created_by=cast(User, request.user),
             status=SavedHeatmap.Status.PROCESSING
             if heatmap_type == SavedHeatmap.Type.SCREENSHOT
@@ -993,7 +1086,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="created",
             detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
 
         if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
@@ -1023,7 +1116,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
         "and re-renders at every target width; status returns to 'processing'.",
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["heatmap:write"])
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         if obj.type != SavedHeatmap.Type.SCREENSHOT:
@@ -1050,11 +1143,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         old_url = obj.url
+        old_block_consent_modals = obj.block_consent_modals
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 
-        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+        render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
             self._regenerate(updated)
 
         log_activity(
@@ -1067,6 +1162,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="updated",
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

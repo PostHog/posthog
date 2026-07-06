@@ -374,16 +374,15 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
-        insight_id, response_data = self.dashboard_api.create_insight(
-            data={
-                "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk],
-            }
+        # Attach via ORM: the create API now blocks attaching to a dashboard the user can't edit,
+        # and this test is about the resulting edit restriction, not the attach permission.
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="on a restricted and unrestricted dashboard", created_by=self.user
         )
-        assert [t["dashboard_id"] for t in response_data["dashboard_tiles"]] == [dashboard_restricted.pk]
+        DashboardTile.objects.create(dashboard=dashboard_restricted, insight=insight)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            f"/api/projects/{self.team.id}/insights/{insight.id}",
             {"name": "changing when restricted"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -421,6 +420,43 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             {"dashboards": [dashboard_restricted_id]},
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_non_admin_user_cannot_create_an_insight_on_a_restricted_dashboard(
+        self,
+    ) -> None:
+        self._require_access_control()
+        self._set_project_default_member_access()
+        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        )
+
+        user_without_permissions = User.objects.create_and_join(
+            organization=self.organization,
+            email="no_access_user@posthog.com",
+            password=None,
+        )
+        self.client.force_login(user_without_permissions)
+
+        self.dashboard_api.create_insight(
+            data={"name": "blocked on create", "dashboards": [dashboard_restricted_id]},
+            expected_status=status.HTTP_403_FORBIDDEN,
+        )
+        assert not DashboardTile.objects.filter(dashboard_id=dashboard_restricted_id).exists()
+        # the rejected request must not leave an orphaned insight behind
+        assert not Insight.objects.filter(created_by=user_without_permissions).exists()
+
+    def test_admin_user_can_create_an_insight_on_a_restricted_dashboard(self) -> None:
+        self._require_access_control()
+        self._set_project_default_member_access()
+        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        )
+
+        self.client.force_login(self.user)
+        self.dashboard_api.create_insight(
+            data={"name": "allowed on create", "dashboards": [dashboard_restricted_id]},
+        )
+        assert DashboardTile.objects.filter(dashboard_id=dashboard_restricted_id).exists()
 
     def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self) -> None:
         self._require_access_control()
@@ -481,9 +517,14 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             team=self.team,
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
-        _, response_data = self.dashboard_api.create_insight(
-            data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
+        # Attach via ORM: the create API now blocks attaching to a dashboard the user can't edit,
+        # and this test is about the inherited restriction, not the attach permission.
+        insight: Insight = Insight.objects.create(
+            team=self.team, name="on a restricted dashboard", created_by=self.user
         )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}").json()
         self.assertEqual(
             response_data["effective_restriction_level"],
             Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,

@@ -1,3 +1,4 @@
+from posthog.hogql.database.lazy_join_tags import PERSONS
 from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
@@ -7,16 +8,19 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.persons import join_with_persons_table
 
 COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
-    "person_id": StringDatabaseField(name="person_id", nullable=False),
-    "cohort_id": IntegerDatabaseField(name="cohort_id", nullable=False),
+    "person_id": StringDatabaseField(
+        name="person_id", nullable=False, description="Person who is a member of the cohort; join to `persons.id`."
+    ),
+    "cohort_id": IntegerDatabaseField(
+        name="cohort_id", nullable=False, description="Identifier of the cohort this person belongs to."
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
-        join_function=join_with_persons_table,
+        resolver=PERSONS,
     ),
 }
 
@@ -60,10 +64,23 @@ def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]]
 
 
 class RawCohortPeople(Table):
+    description: str = (
+        "Raw membership rows for dynamic (calculated) cohorts, one row per person per cohort version. "
+        "Backed by a CollapsingMergeTree, so rows must be summed by `sign` and filtered to the latest "
+        "`version`; query the `cohort_people` lazy table instead, which does this for you."
+    )
     fields: dict[str, FieldOrTable] = {
         **COHORT_PEOPLE_FIELDS,
-        "sign": IntegerDatabaseField(name="sign", nullable=False),
-        "version": IntegerDatabaseField(name="version", nullable=False),
+        "sign": IntegerDatabaseField(
+            name="sign",
+            nullable=False,
+            description="CollapsingMergeTree sign: +1 adds a membership row, -1 cancels it; sum to get current membership.",
+        ),
+        "version": IntegerDatabaseField(
+            name="version",
+            nullable=False,
+            description="Cohort calculation version this row belongs to; only the latest version per cohort is current.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
@@ -74,6 +91,11 @@ class RawCohortPeople(Table):
 
 
 class CohortPeople(LazyTable):
+    description: str = (
+        "Current membership of dynamic (calculated) cohorts: one row per person per cohort, "
+        "already deduplicated to the latest cohort version. Use this to find which persons are in a cohort. "
+        "Static (CSV-imported) cohorts live in `static_cohort_people`."
+    )
     fields: dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

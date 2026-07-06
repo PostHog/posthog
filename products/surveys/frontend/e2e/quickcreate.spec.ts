@@ -95,7 +95,7 @@ test.describe('Quick create survey from feature flag', () => {
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         // Dedicated empty workspace per test — no shared demo team, so the feature-flag
-        // list only contains the flag this test creates (see playwright-test-base deprecation).
+        // list only contains the flag this test creates.
         // Seed a *recent* $autocapture event: the survey event picker (Events taxonomic list)
         // sends exclude_stale=true, which drops definitions whose last_seen_at is >30 days old —
         // so a fixed past timestamp never surfaced "Autocapture". `now` keeps it non-stale.

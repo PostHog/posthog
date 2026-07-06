@@ -39,7 +39,10 @@ ACCOUNT_ANALYSIS_CONNECTED_TEMPLATE = """
 <account_analysis_context>
 For your own analysis only — do not repeat these identifiers to the user.
 This account is connected to its product data as group type index {group_type_index}, group key "{group_key}".
-To answer questions about its usage, events, or feature flags, switch to product analytics or SQL and scope the analysis to this group. Its usage trends also live in the account's Usage tab in the Accounts list.
+
+Two different questions, two different data sources — pick the right one:
+- CONSUMPTION and SPEND — how much the account uses PostHog as a product (events ingested, rows synced, recordings, feature-flag requests, exceptions, MRR, cost) — is the DEFAULT for "usage", "volume", "spike", "growth", "cost", and "spend" questions. This lives in warehouse-synced billing data, surfaced by the account's saved Usage and Spend insights{billing_insights_clause} — the same insights behind the Usage and Spend tabs in the Accounts list. To analyze it, read those insights to get their warehouse SQL, then switch to SQL and run an adapted query scoped to this account (its group key is the billing organization_id). Do NOT answer a usage, volume, or spend question by counting group-scoped events.
+- ENGAGEMENT — what the people at this account DO inside the product (pages viewed, features clicked) — is the group-scoped event stream. Only use this when the user explicitly asks about behavior or activity, not consumption. To analyze it, switch to product analytics or SQL and scope to this group.
 </account_analysis_context>
 """.strip()
 

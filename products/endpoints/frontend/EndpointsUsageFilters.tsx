@@ -6,7 +6,7 @@ import { LemonButton, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
-import { formatDateRange } from 'lib/utils'
+import { formatDateRange } from 'lib/utils/datetime'
 
 import { EndpointsUsageBreakdown } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'

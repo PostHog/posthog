@@ -1,13 +1,12 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
+import { TICK_GAP } from '../core/y-axis-gutters'
 import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
-    /** Formatter for the right y-axis. Falls back to `yTickFormatter` if not provided. */
-    yRightTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
@@ -20,7 +19,17 @@ interface AxisLabelsProps {
     maxCategoryLabelWidth?: number
 }
 
-const LABEL_PADDING = 20
+// Minimum gap (px) required between adjacent kept labels. Category labels are often words and get
+// generous breathing room; uniformly-spaced numeric value ticks read clearly much closer, so forcing
+// the category gap on them culls ticks that have plenty of room.
+const CATEGORY_LABEL_PADDING = 20
+const VALUE_TICK_LABEL_PADDING = 8
+
+// Minimum center-to-center spacing (px) between stacked y-axis tick labels. A 12px font renders a
+// box ~14px tall, so anything closer than this overlaps. Used to thin a crowded value axis — most
+// notably a log scale, whose `.ticks()` emits sub-decade values (…8, 9, 20, 30…) that pack far
+// tighter than a linear axis's `.nice()`-bounded ticks ever do.
+const Y_TICK_LABEL_MIN_GAP = 16
 
 interface XLabelCandidate {
     index: number
@@ -35,6 +44,35 @@ interface XLabelCandidate {
 function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { text: string; title?: string } {
     const text = truncateToWidth(fullText, maxCategoryLabelWidth)
     return { text, title: text === fullText ? undefined : fullText }
+}
+
+/** Greedily keep entries left→right, dropping any whose centered label would collide with the
+ *  previously kept one (closer than `padding` px). Entries must be sorted by ascending `x`. */
+function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
+    if (candidates.length === 0) {
+        return []
+    }
+
+    const ctx = getTextMeasureCtx()
+    if (!ctx) {
+        return candidates
+    }
+    ctx.font = AXIS_LABEL_FONT
+
+    const visible: T[] = []
+    let lastRightEdge = -Infinity
+
+    for (const candidate of candidates) {
+        const halfWidth = ctx.measureText(candidate.text).width / 2
+        const leftEdge = candidate.x - halfWidth
+
+        if (leftEdge >= lastRightEdge + padding) {
+            visible.push(candidate)
+            lastRightEdge = candidate.x + halfWidth
+        }
+    }
+
+    return visible
 }
 
 export function computeVisibleXLabels(
@@ -58,32 +96,84 @@ export function computeVisibleXLabels(
         candidates.push({ index: i, text, title, x })
     }
 
-    if (candidates.length === 0) {
-        return []
+    return dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING)
+}
+
+interface ValueTickCandidate {
+    tick: number
+    text: string
+    x: number
+}
+
+/** Value-axis ticks for a horizontal bar chart map onto the x-axis, where wide numeric labels
+ *  (e.g. "450,000") collide far more readily than stacked y-axis labels do. Greedily drop the
+ *  ones that would overlap so the axis stays legible — the same pass `computeVisibleXLabels`
+ *  applies to a vertical chart's category axis. Ticks arrive value-sorted, so ascending value
+ *  maps to ascending x for an increasing value scale. */
+export function computeVisibleValueTicks(
+    ticks: number[],
+    valueToCoord: (value: number) => number,
+    formatter?: (value: number) => string
+): ValueTickCandidate[] {
+    const candidates: ValueTickCandidate[] = []
+    for (const tick of ticks) {
+        const x = valueToCoord(tick)
+        if (!isFinite(x)) {
+            continue
+        }
+        candidates.push({ tick, text: formatter ? formatter(tick) : String(tick), x })
     }
 
-    const ctx = getTextMeasureCtx()
-    if (!ctx) {
-        return candidates
+    return dropOverlappingLabels(candidates, VALUE_TICK_LABEL_PADDING)
+}
+
+// Roundness rank for a value, lowest = most preferred to keep as a label: a power of ten beats a
+// 5×10ⁿ, which beats a 2×10ⁿ, which beats everything else. Drives which labels survive when a log
+// axis is too crowded to show them all — yielding the classic 1-2-5 decade labelling.
+function tickRoundness(value: number): number {
+    if (value === 0) {
+        return 0
     }
-    ctx.font = AXIS_LABEL_FONT
+    const abs = Math.abs(value)
+    const mantissa = abs / Math.pow(10, Math.floor(Math.log10(abs)))
+    const rounded = Math.round(mantissa)
+    if (rounded === 1 || rounded === 10) {
+        return 0
+    }
+    if (rounded === 5) {
+        return 1
+    }
+    if (rounded === 2) {
+        return 2
+    }
+    return 3
+}
 
-    const widths = candidates.map((c) => ctx.measureText(c.text).width)
+/** Thin value-axis ticks whose stacked labels would overlap vertically, keeping the roundest values
+ *  (powers of ten, then 5s, then 2s) so a crowded axis — chiefly a log scale — reads as clean 1-2-5
+ *  decade labels instead of an unreadable smear. Linear axes are `.nice()`-bounded to comfortably
+ *  spaced ticks, so every one clears the gap and all are kept unchanged. Returns ticks in ascending
+ *  value order, matching the input. */
+export function computeVisibleYTicks(
+    ticks: number[],
+    valueToCoord: (value: number) => number,
+    minGap = Y_TICK_LABEL_MIN_GAP
+): number[] {
+    const candidates = ticks.map((tick) => ({ tick, y: valueToCoord(tick) })).filter(({ y }) => isFinite(y))
+    if (candidates.length <= 1) {
+        return candidates.map((c) => c.tick)
+    }
 
-    const visible: XLabelCandidate[] = []
-    let lastRightEdge = -Infinity
-
-    for (let i = 0; i < candidates.length; i++) {
-        const halfWidth = widths[i] / 2
-        const leftEdge = candidates[i].x - halfWidth
-
-        if (leftEdge >= lastRightEdge + LABEL_PADDING) {
-            visible.push(candidates[i])
-            lastRightEdge = candidates[i].x + halfWidth
+    // Offer the roundest ticks first; ties broken by position so the greedy fills the axis evenly.
+    const ordered = [...candidates].sort((a, b) => tickRoundness(a.tick) - tickRoundness(b.tick) || a.y - b.y)
+    const kept: { tick: number; y: number }[] = []
+    for (const candidate of ordered) {
+        if (kept.every((k) => Math.abs(k.y - candidate.y) >= minGap)) {
+            kept.push(candidate)
         }
     }
 
-    return visible
+    return kept.sort((a, b) => a.tick - b.tick).map((c) => c.tick)
 }
 
 const TICK_STYLE_BASE: React.CSSProperties = {
@@ -92,8 +182,6 @@ const TICK_STYLE_BASE: React.CSSProperties = {
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
-
-const TICK_GAP = 8
 
 interface ChartBox {
     width: number
@@ -117,6 +205,7 @@ function YTickLabel({
     color,
     dataAttr,
     title,
+    offset = 0,
 }: {
     y: number
     side: 'left' | 'right'
@@ -125,11 +214,13 @@ function YTickLabel({
     color: string
     dataAttr: string
     title?: string
+    /** Extra px pushing this gutter outward (away from the plot) so stacked axes don't overlap. */
+    offset?: number
 }): React.ReactElement {
     const edge =
         side === 'left'
-            ? { right: box.width - box.plotLeft + TICK_GAP }
-            : { left: box.plotLeft + box.plotWidth + TICK_GAP }
+            ? { right: box.width - box.plotLeft + TICK_GAP + offset }
+            : { left: box.plotLeft + box.plotWidth + TICK_GAP + offset }
     return (
         <div
             data-attr={dataAttr}
@@ -177,7 +268,6 @@ function XTickLabel({
 export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
-    yRightTickFormatter,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
@@ -185,16 +275,8 @@ export const AxisLabels = React.memo(function AxisLabels({
     labelToCoord,
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChartLayout()
+    const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
-
-    const rightAxis = useMemo(() => {
-        if (!scales.yAxes) {
-            return null
-        }
-        return Object.values(scales.yAxes).find((a) => a.position === 'right') ?? null
-    }, [scales.yAxes])
-    const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
 
     const visibleXLabels = useMemo(
         () =>
@@ -204,7 +286,13 @@ export const AxisLabels = React.memo(function AxisLabels({
         [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
     )
 
-    const rightFormatter = yRightTickFormatter ?? yTickFormatter
+    // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)
+    // doesn't re-run the per-tick `ctx.measureText` measurements in `dropOverlappingLabels`.
+    const visibleValueTicks = useMemo(
+        () =>
+            hideXAxis || orientation !== 'horizontal' ? [] : computeVisibleValueTicks(yTicks, scales.y, yTickFormatter),
+        [hideXAxis, orientation, yTicks, scales.y, yTickFormatter]
+    )
 
     if (orientation === 'horizontal') {
         // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
@@ -236,70 +324,42 @@ export const AxisLabels = React.memo(function AxisLabels({
                             />
                         )
                     })}
-                {!hideXAxis &&
-                    yTicks.map((tick: number) => {
-                        const x = scales.y(tick)
-                        if (!isFinite(x)) {
-                            return null
-                        }
-                        const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
-                        return (
-                            <XTickLabel
-                                key={`x-val-${tick}`}
-                                x={x}
-                                box={dimensions}
-                                text={label}
-                                color={axisColor}
-                                dataAttr="hog-chart-axis-tick-x"
-                            />
-                        )
-                    })}
+                {visibleValueTicks.map(({ tick, text, x }) => (
+                    <XTickLabel
+                        key={`x-val-${tick}`}
+                        x={x}
+                        box={dimensions}
+                        text={text}
+                        color={axisColor}
+                        dataAttr="hog-chart-axis-tick-x"
+                    />
+                ))}
             </>
         )
     }
 
     return (
         <>
-            {!hideYAxis &&
-                yTicks.map((tick: number) => {
-                    const y = scales.y(tick)
+            {yGutters.flatMap((gutter) =>
+                computeVisibleYTicks(gutter.ticks, gutter.scale).map((tick: number) => {
+                    const y = gutter.scale(tick)
                     if (!isFinite(y)) {
                         return null
                     }
-                    const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
                     return (
                         <YTickLabel
-                            key={`y-${tick}`}
+                            key={`${gutter.key}-${tick}`}
                             y={y}
-                            side="left"
+                            side={gutter.side}
+                            offset={gutter.offset}
                             box={dimensions}
-                            text={label}
+                            text={gutter.formatter(tick)}
                             color={axisColor}
-                            dataAttr="hog-chart-axis-tick-y"
+                            dataAttr={gutter.side === 'left' ? 'hog-chart-axis-tick-y' : 'hog-chart-axis-tick-yr'}
                         />
                     )
-                })}
-
-            {!hideYAxis &&
-                rightAxis &&
-                rightTicks.map((tick: number) => {
-                    const y = rightAxis.scale(tick)
-                    if (!isFinite(y)) {
-                        return null
-                    }
-                    const label = rightFormatter ? rightFormatter(tick) : String(tick)
-                    return (
-                        <YTickLabel
-                            key={`yr-${tick}`}
-                            y={y}
-                            side="right"
-                            box={dimensions}
-                            text={label}
-                            color={axisColor}
-                            dataAttr="hog-chart-axis-tick-yr"
-                        />
-                    )
-                })}
+                })
+            )}
 
             {visibleXLabels.map(({ index, text, title, x }) => (
                 <XTickLabel

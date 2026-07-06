@@ -5,7 +5,9 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,
@@ -15,16 +17,25 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
+from products.data_warehouse.backend.direct_snowflake import (
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
+)
+from products.warehouse_sources.backend.facade.models import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+    postgres_column_to_dwh_column,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):
@@ -147,6 +158,128 @@ class TestTable(BaseTest):
 
         with pytest.raises(QueryError, match="Direct Postgres tables cannot be printed into ClickHouse SQL"):
             definition.to_printed_clickhouse(context=None)
+
+    def test_direct_mysql_table_uses_physical_schema_and_table_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.MYSQL,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="shop.orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_MYSQL_SCHEMA_OPTION: "shop",
+                DIRECT_MYSQL_TABLE_OPTION: "orders",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectMySQLTable)
+        assert definition.name == "shop.orders"
+        assert definition.mysql_schema == "shop"
+        assert definition.mysql_table_name == "orders"
+        assert definition.to_printed_mysql(context=None) == "shop.orders"
+
+    def test_direct_mysql_table_requires_schema_when_printing(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.MYSQL,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectMySQLTable)
+        with pytest.raises(QueryError, match="Direct MySQL tables require a database name."):
+            definition.to_printed_mysql(context=None)
+
+    def test_direct_snowflake_table_uses_physical_catalog_schema_and_table_options(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "ANALYTICS", "schema": ""},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="SALES.ORDERS",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            options={
+                DIRECT_SNOWFLAKE_CATALOG_OPTION: "ANALYTICS",
+                DIRECT_SNOWFLAKE_SCHEMA_OPTION: "SALES",
+                DIRECT_SNOWFLAKE_TABLE_OPTION: "ORDERS",
+            },
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectSnowflakeTable)
+        assert definition.name == "SALES.ORDERS"
+        assert definition.snowflake_catalog == "ANALYTICS"
+        assert definition.snowflake_schema == "SALES"
+        assert definition.snowflake_table_name == "ORDERS"
+        assert definition.to_printed_snowflake(context=None) == '"ANALYTICS"."SALES"."ORDERS"'
+
+    def test_direct_snowflake_table_requires_schema_when_printing(self):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            prefix="Readable Name",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="ORDERS",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        definition = table.hogql_definition()
+
+        assert isinstance(definition, DirectSnowflakeTable)
+        with pytest.raises(QueryError, match="Direct Snowflake tables require a schema name."):
+            definition.to_printed_snowflake(context=None)
 
     def test_postgres_column_to_dwh_column_supports_struct_types(self):
         column = postgres_column_to_dwh_column(
@@ -354,7 +487,7 @@ class TestTable(BaseTest):
         chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
         with (
             patch("products.warehouse_sources.backend.models.table.TEST", False),
-            patch("products.warehouse_sources.backend.models.table.chdb.query", return_value=chdb_result) as chdb_query,
+            patch("chdb.query", return_value=chdb_result) as chdb_query,
         ):
             getattr(table, method_name)()
 
@@ -756,7 +889,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is None
 
     def test_remove_named_tuples_backtick_quoted(self):
-        from products.warehouse_sources.backend.models.util import remove_named_tuples
+        from products.warehouse_sources.backend.facade.models import remove_named_tuples
 
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"

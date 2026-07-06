@@ -7,7 +7,7 @@ import { Editor, ReactRenderer } from '@tiptap/react'
 import { IconEye, IconTriangleDownFilled, IconTriangleRightFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 
 import { NotebookNodeType } from '../types'
 

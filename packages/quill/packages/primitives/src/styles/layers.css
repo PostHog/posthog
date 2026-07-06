@@ -73,6 +73,28 @@
 }
 
 /*
+ * Desktop-app cursor reset.
+ *
+ * On the web a pointer cursor signals "clickable"; in the Electron desktop app
+ * native chrome uses the default arrow, so the pointer reads as a web tell.
+ * Consumers tag <body class="is-desktop"> to opt every interactive primitive
+ * back to the arrow. Each selector mirrors a `cursor: pointer` rule in the
+ * component CSS. These rules are unlayered, so they beat the component rules
+ * inside `@layer components` by layer precedence (unlayered > layered),
+ * independent of specificity or import order.
+ *
+ * Add a row here whenever a new primitive sets `cursor: pointer`.
+ */
+body.is-desktop .quill-button,
+body.is-desktop .quill-toggle,
+body.is-desktop .quill-accordion__trigger,
+body.is-desktop .quill-checkbox:not(:disabled),
+body.is-desktop .quill-field__label:has(> [data-slot='field']),
+body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
+    cursor: default;
+}
+
+/*
  * Tailwind v4 emits `@keyframes` from `@theme` only when the corresponding
  * `animate-*` utility is statically used in JSX. BEM CSS references these
  * animations via `var(--animate-*)`, which the scanner can't detect, so we

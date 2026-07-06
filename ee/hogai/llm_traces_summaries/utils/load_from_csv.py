@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 csv.field_size_limit(sys.maxsize)
 
 
-def load_traces_from_csv_files(csv_paths: list[str]) -> Generator[LLMTrace, None, None]:
+def load_traces_from_csv_files(csv_paths: list[str]) -> Generator[LLMTrace]:
     """Load traces from CSV files, useful for local development."""
     # The assumption is that the CSV was exported through default Traces query runner query
     fields_to_column_mapping = {

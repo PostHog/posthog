@@ -1,19 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { AdminLoginButtons } from '~/layout/navigation/ImpersonationNotice/AdminLoginButtons'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 
 export function StaffActionsPanel(): JSX.Element {
-    const { ticketContext, adminLoginUrl } = useValues(impersonationNoticeLogic)
-
-    const disabledReason = !ticketContext?.email
-        ? 'This ticket has no associated email'
-        : !ticketContext?.region
-          ? 'Unable to determine region for this ticket, no login available'
-          : !adminLoginUrl
-            ? 'Unable to determine admin URL'
-            : undefined
+    const { ticketContext, adminLoginUrls } = useValues(impersonationNoticeLogic)
 
     return (
         <LemonCollapse
@@ -25,7 +18,7 @@ export function StaffActionsPanel(): JSX.Element {
                     header: 'Staff actions',
                     content: (
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs text-muted-alt">
                                     {ticketContext?.email ? (
                                         <>
@@ -35,19 +28,7 @@ export function StaffActionsPanel(): JSX.Element {
                                         'No customer email on this ticket'
                                     )}
                                 </span>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    tooltip={
-                                        !disabledReason
-                                            ? 'This currently redirects to the admin login page, but in future will log you in directly.'
-                                            : undefined
-                                    }
-                                    disabledReason={disabledReason}
-                                    onClick={() => adminLoginUrl && window.open(adminLoginUrl, '_blank')}
-                                >
-                                    Login as {ticketContext?.email || 'customer'}
-                                </LemonButton>
+                                <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
                             </div>
                         </div>
                     ),

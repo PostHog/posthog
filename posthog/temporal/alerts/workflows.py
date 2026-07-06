@@ -18,11 +18,7 @@ from posthog.temporal.alerts.activities import (
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
-from posthog.temporal.alerts.retry_policy import (
-    ALERT_EVALUATE_RETRY_POLICY,
-    ALERT_NOTIFY_RETRY_POLICY,
-    ALERT_PREPARE_RETRY_POLICY,
-)
+from posthog.temporal.alerts.retry_policy import ALERT_NOTIFY_RETRY_POLICY, ALERT_PREPARE_RETRY_POLICY, alert_timeouts
 from posthog.temporal.alerts.types import (
     CheckAlertWorkflowInputs,
     EvaluateAlertActivityInputs,
@@ -88,7 +84,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                 ),
                 id=f"check-alert-{alert.alert_id}",
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(minutes=15),
+                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
             )
             tasks.append(task)
 
@@ -130,6 +126,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
         new_state: AlertState | None = None
         skip_reason: str | None = None
         caught_error: BaseException | None = None
+        timeouts = alert_timeouts(inputs.calculation_interval)
 
         try:
             # Phase 1 — prepare: load alert, validate config, check should-skip
@@ -137,6 +134,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                 retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )
 
@@ -148,9 +146,10 @@ class CheckAlertWorkflow(PostHogWorkflow):
             evaluation = await temporalio.workflow.execute_activity(
                 evaluate_alert,
                 EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=ALERT_EVALUATE_RETRY_POLICY,
+                start_to_close_timeout=timeouts.evaluate_start_to_close,
+                schedule_to_close_timeout=timeouts.activity_schedule_to_close,
+                heartbeat_timeout=timeouts.heartbeat_timeout,
+                retry_policy=timeouts.evaluate_retry_policy,
             )
             new_state = evaluation.new_state
 
@@ -166,7 +165,8 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         alert_check_id=evaluation.alert_check_id,
                         breaches=evaluation.breaches,
                     ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=timeouts.notify_start_to_close,
+                    schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     retry_policy=ALERT_NOTIFY_RETRY_POLICY,
                 )
 

@@ -85,7 +85,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
     def _run(self, *, root_spans: bool | None, prefetch: int, service_names: list[str] | None = None) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            orderBy="latest",
+            orderBy="timestamp",
             limit=100,
             rootSpans=root_spans,
             prefetchSpans=prefetch,

@@ -2,7 +2,7 @@ import { LogicWrapper, actions, connect, kea, key, listeners, path, props, selec
 import { forms } from 'kea-forms'
 
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'

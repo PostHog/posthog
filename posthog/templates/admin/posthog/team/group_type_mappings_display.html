@@ -1,0 +1,42 @@
+<div style="margin: 10px 0;">
+{% if mappings %}
+<table style="border-collapse: collapse; width: 100%;">
+    <thead>
+        <tr>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Index</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Group type</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Name (singular)</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Name (plural)</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Detail dashboard</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for m in mappings %}
+        <tr>
+            <td style="border: 1px solid #ddd; padding: 8px;">{{ m.group_type_index }}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;"><code>{{ m.group_type }}</code></td>
+            <td style="border: 1px solid #ddd; padding: 8px;">{{ m.name_singular|default:"-" }}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">{{ m.name_plural|default:"-" }}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">
+                {% if m.detail_dashboard_id %}
+                    {% if m.detail_dashboard_url %}
+                        <a href="{{ m.detail_dashboard_url }}">Dashboard {{ m.detail_dashboard_id }}</a>
+                    {% else %}
+                        Dashboard {{ m.detail_dashboard_id }}
+                    {% endif %}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td style="border: 1px solid #ddd; padding: 8px;">
+                <a class="button" href="{{ m.edit_url }}" style="padding: 4px 12px; font-size: 12px;">Edit</a>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="color: #666;">No group type mappings found for this team.</p>
+{% endif %}
+</div>

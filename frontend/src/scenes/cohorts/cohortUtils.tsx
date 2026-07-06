@@ -2,8 +2,11 @@ import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
+import { calculateDays } from 'lib/utils/durations'
+import { isNumeric } from 'lib/utils/guards'
+import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
@@ -14,6 +17,7 @@ import {
 } from 'scenes/cohorts/CohortFilters/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     ActionType,
     AnyCohortCriteriaType,
@@ -32,6 +36,33 @@ import {
     PropertyType,
     TimeUnitType,
 } from '~/types'
+
+/**
+ * Single source of truth for whether a HaveProperty/NotHaveProperty criterion targets a
+ * top-level persons-table column (PersonMetadata) or the JSON properties blob (Person).
+ *
+ * `event_type` is the transient taxonomic-group hint set when the user picks a property: it
+ * wins when present, so a freshly-picked property derives the right key immediately. Once
+ * that hint has been dropped (e.g. a cohort loaded from the API), the durable `type` carries
+ * the answer. We only fall back to a PersonMetadata `type` when `event_type` is absent — so
+ * switching away from a PersonMetadata property to a plain person property (which arrives
+ * with `event_type === PersonProperties`) correctly downgrades to Person rather than
+ * persisting a `person_metadata` criterion the server would reject.
+ */
+export function behavioralKeyForPersonProperty(criteria: {
+    type?: BehavioralFilterKey | null
+    event_type?: TaxonomicFilterGroupType | null
+}): BehavioralFilterKey.Person | BehavioralFilterKey.PersonMetadata {
+    return criteria.event_type === TaxonomicFilterGroupType.PersonMetadata ||
+        (criteria.type === BehavioralFilterKey.PersonMetadata && !criteria.event_type)
+        ? BehavioralFilterKey.PersonMetadata
+        : BehavioralFilterKey.Person
+}
+
+/** True for either flavor of person-property criterion (JSON-blob lookup or persons-table column). */
+export function isPersonPropertyFilterKey(type: BehavioralFilterKey | undefined): boolean {
+    return type === BehavioralFilterKey.Person || type === BehavioralFilterKey.PersonMetadata
+}
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -61,7 +92,7 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
             criteria.value as BehavioralEventType
         )
     ) {
-        type = BehavioralFilterKey.Person
+        type = behavioralKeyForPersonProperty(criteria)
     }
     return {
         ...criteria,
@@ -172,7 +203,13 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
+            .map((c) => {
+                const behavioralFilterType = criteriaToBehavioralFilterType(c)
+                // Fall back to the raw filter type when the label map has no entry: this surfaces which
+                // BehavioralFilterType is missing from BEHAVIORAL_TYPE_TO_LABEL (e.g. a new enum value that
+                // landed before the map was updated) rather than crashing on an undefined `.label`.
+                return `'${BEHAVIORAL_TYPE_TO_LABEL[behavioralFilterType]?.label ?? behavioralFilterType}'`
+            })
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
@@ -367,11 +404,13 @@ export function validateGroup(
                         fieldKey === 'value_property' &&
                         'key' in c &&
                         'type' in c &&
-                        c.type === BehavioralFilterKey.Person
+                        isPersonPropertyFilterKey(c.type)
                     ) {
                         const propertyKey = c.key as string
                         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(
-                            PropertyFilterType.Person
+                            c.type === BehavioralFilterKey.PersonMetadata
+                                ? PropertyFilterType.PersonMetadata
+                                : PropertyFilterType.Person
                         )
 
                         const mountedModel = propertyDefinitionsModel.findMounted()
@@ -423,7 +462,7 @@ export function criteriaToBehavioralFilterType(criteria: AnyCohortCriteriaType):
         if (criteria.value === BehavioralEventType.PerformEvent) {
             return BehavioralEventType.NotPerformedEvent
         }
-        if (criteria.type === BehavioralFilterKey.Person) {
+        if (isPersonPropertyFilterKey(criteria.type)) {
             return BehavioralEventType.NotHaveProperty
         }
         if (criteria.type === BehavioralFilterKey.Cohort) {
@@ -464,7 +503,11 @@ export function determineFilterType(
     }
     if (value === BehavioralEventType.NotHaveProperty || (value === BehavioralEventType.HaveProperty && negation)) {
         return {
-            type: BehavioralFilterKey.Person,
+            // Preserve PersonMetadata vs Person — the original type drives whether the
+            // filter targets the persons-table column or the JSON properties blob.
+            // Without this, a negated PersonMetadata criterion silently degrades to
+            // a JSON-blob lookup on every cleanCriteria pass.
+            type: behavioralKeyForPersonProperty({ type }),
             value: BehavioralEventType.HaveProperty,
             negation: true,
         }
@@ -543,7 +586,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {
@@ -598,6 +641,17 @@ export function criteriaToHumanSentence(
                     words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
                 } else if (type === FilterType.EventFilters && (criteria.event_filters?.length || 0) > 0) {
                     words.push(<pre>with filters</pre>)
+                } else if (
+                    fieldKey === 'key' &&
+                    (criteria as AnyCohortCriteriaType).type === BehavioralFilterKey.PersonMetadata
+                ) {
+                    // PersonMetadata keys (e.g. created_at) are stored raw; resolve the taxonomy
+                    // label ("First seen") so the human sentence doesn't surface the column name.
+                    const label = getCoreFilterDefinition(
+                        value as string,
+                        TaxonomicFilterGroupType.PersonMetadata
+                    )?.label
+                    words.push(<pre>{label ?? value}</pre>)
                 } else {
                     words.push(<pre>{value}</pre>)
                 }

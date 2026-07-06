@@ -14,6 +14,7 @@ type ExperimentLogicMock = {
                 resetExperiment: jest.Mock
                 loadExperiment: jest.Mock
                 loadExposures: jest.Mock
+                refreshStaleResultsOnReentry: jest.Mock
             }
             props: any
         }
@@ -28,6 +29,7 @@ jest.mock('./experimentLogic', () => {
             resetExperiment: jest.fn(),
             loadExperiment: jest.fn(),
             loadExposures: jest.fn(),
+            refreshStaleResultsOnReentry: jest.fn(),
         },
         props: {},
     }

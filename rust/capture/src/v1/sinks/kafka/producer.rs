@@ -10,6 +10,7 @@ use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::ClientConfig;
 use tracing::{error, info};
 
+use super::constants::KAFKA_CLIENT_ERRORS_TOTAL;
 use super::types::error_code_tag;
 use crate::v1::sinks::kafka::config::Config as KafkaConfig;
 use crate::v1::sinks::kafka::context::KafkaContext;
@@ -74,7 +75,7 @@ impl ProduceError {
 pub struct ProduceRecord<'a> {
     pub topic: &'a str,
     pub key: Option<&'a str>,
-    pub payload: &'a str,
+    pub payload: &'a [u8],
     pub headers: OwnedHeaders,
 }
 
@@ -205,7 +206,7 @@ impl KafkaProducer {
                     sink.as_str()
                 );
                 counter!(
-                    "capture_v1_kafka_client_errors_total",
+                    KAFKA_CLIENT_ERRORS_TOTAL,
                     "cluster" => sink.as_str(),
                     "mode" => capture_mode,
                     "error" => "metadata_fetch_failed",
@@ -242,7 +243,7 @@ impl super::KafkaProducerTrait for KafkaProducer {
                 let returned_record = ProduceRecord {
                     topic: returned.topic,
                     key: returned.key,
-                    payload: returned.payload.unwrap_or(""),
+                    payload: returned.payload.unwrap_or(&[]),
                     headers: returned.headers.unwrap_or_else(OwnedHeaders::new),
                 };
                 Err((produce_error_from_kafka(e), returned_record))

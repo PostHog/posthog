@@ -1,6 +1,5 @@
-import enum
+import dataclasses
 from datetime import timedelta
-from typing import get_args
 
 from django.conf import settings
 
@@ -9,14 +8,13 @@ import structlog
 import temporalio
 import posthoganalytics
 
-from posthog.schema import SignalInput, SignalRemediation
-
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
@@ -29,46 +27,161 @@ def _token_count(text: str) -> int:
     return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
 
 
-def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
+def dismiss_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> bool:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
+    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
 
 
-def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
-    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
-    args = get_args(field.annotation)
-    if args:
-        return args
-    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
-        return tuple(m.value for m in field.annotation)
-    if field.default is not pydantic.fields.PydanticUndefined:
-        return (field.default,)
-    return ()
+def get_default_slack_notification_channel(team_id: int) -> str | None:
+    """Team-default Slack channel for signal notifications, stored as "<channel_id>|#name"."""
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
+    if config is None:
+        return None
+    value = (config.default_slack_notification_channel or "").strip()
+    return value or None
 
 
-# Build a lookup from (source_product, source_type) -> variant model class
-# so we can validate signals without needing the synthetic discriminator tag.
-_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
-for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
-    _product_field = _variant_type.model_fields.get("source_product")
-    _type_field = _variant_type.model_fields.get("source_type")
-    if _product_field is None or _type_field is None:
-        continue
-    for _product in _get_field_values(_product_field):
-        for _source_type in _get_field_values(_type_field):
-            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
+def set_default_slack_notification_channel(team_id: int, value: str | None) -> None:
+    """Idempotently set the team-default Slack channel for signal notifications."""
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    SignalTeamConfig.objects.update_or_create(
+        team_id=team_id,
+        defaults={"default_slack_notification_channel": value or None},
+    )
 
 
-# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
-# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
-# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
-# summaries) that must not leak into product analytics; scalars are the cheap-to-query
-# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
-# bounds top-level strings that could still be large (e.g. an `error_message`).
+# ---------------------------------------------------------------------------
+# Slack onboarding: the signal sources offered in the inbox onboarding flow.
+# One catalog drives the list, the toggles, and the "connected" checks.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+
+@dataclasses.dataclass(frozen=True)
+class OnboardingSource:
+    """A signal source offered as a checkbox in the Slack onboarding flow, with current state."""
+
+    key: str
+    label: str
+    description: str
+    enabled: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class _SourceSpec:
+    key: str
+    label: str
+    description: str
+    # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
+    pairs: tuple[tuple[str, str], ...]
+    needs_ai_approval: bool = False
+
+
+_SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
+    _SourceSpec(
+        "error_tracking",
+        "Error tracking",
+        "new, reopened & spiking issues",
+        (
+            ("error_tracking", "issue_created"),
+            ("error_tracking", "issue_reopened"),
+            ("error_tracking", "issue_spiking"),
+        ),
+    ),
+    _SourceSpec(
+        "session_replay",
+        "Session replay analysis",
+        "problems real users hit",
+        (("session_replay", "session_analysis_cluster"),),
+        needs_ai_approval=True,
+    ),
+)
+_SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
+
+
+def _ai_data_processing_approved(team_id: int) -> bool:
+    return bool(
+        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+    )
+
+
+def has_enabled_source(team_id: int) -> bool:
+    """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
+    return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+
+
+def onboarding_sources(team_id: int) -> list[OnboardingSource]:
+    """The onboarding sources, in order, with current enabled state (for pre-checking the checkboxes)."""
+    enabled_pairs = set(
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).values_list("source_product", "source_type")
+    )
+    return [
+        OnboardingSource(
+            key=spec.key,
+            label=spec.label,
+            description=spec.description,
+            enabled=any(pair in enabled_pairs for pair in spec.pairs),
+        )
+        for spec in _SOURCE_CATALOG
+    ]
+
+
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+    """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
+    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
+    enabled because AI data processing isn't approved (session replay analysis)."""
+    selected = set(selected_keys)
+    ai_approved = _ai_data_processing_approved(team_id)
+    blocked: list[str] = []
+    for spec in _SOURCE_CATALOG:
+        want_on = spec.key in selected
+        if want_on and spec.needs_ai_approval and not ai_approved:
+            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
+            # previously-approved source when the full checkbox snapshot is re-submitted.
+            blocked.append(spec.label)
+            continue
+        for source_product, source_type in spec.pairs:
+            if want_on:
+                defaults: dict = {"enabled": True, "created_by_id": user_id}
+                if source_type == "session_analysis_cluster":
+                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
+                obj, created = SignalSourceConfig.objects.get_or_create(
+                    team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
+                )
+                if not created and not obj.enabled:
+                    obj.enabled = True
+                    obj.save(update_fields=["enabled", "updated_at"])
+            else:
+                SignalSourceConfig.objects.filter(
+                    team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+                ).update(enabled=False)
+    return blocked
+
+
+# The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
+# each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
+# customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
+# `event_history`, scout `evidence` summaries) that we don't want to forward wholesale; scalars
+# are the cheap-to-query attribution we actually want (`scout_run_id`, `task_run_id`,
+# `skill_name`, …). The cap bounds top-level strings that could still be large (e.g. an
+# `error_message`). This governs only the opaque `extra` blob — it is NOT a blanket ban on
+# report substance in telemetry. The report channel deliberately forwards specific, curated,
+# scout-authored fields (title / summary) on its own lifecycle events, where the content *is*
+# the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
 
@@ -163,7 +276,7 @@ async def emit_signal(
             )
 
     # Validate the signal against the matching schema variant
-    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
     if variant_model is None:
         raise pydantic.ValidationError.from_exception_data(
             title="SignalInput",

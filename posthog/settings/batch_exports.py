@@ -26,7 +26,11 @@ BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
 BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS", "")
 )
+
 BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS: int = get_from_env("BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS", 5, type_cast=int)
+BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS: int = get_from_env(
+    "BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS", 5, type_cast=int
+)
 BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT: str = get_from_env("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", "")
 BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD: str = get_from_env("BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD", "")
 
@@ -77,6 +81,10 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 )
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+# Used in internal stage to cap Arrow record batch size
+BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
+)
 
 BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
     "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"
@@ -86,6 +94,11 @@ BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STA
 # The number of partitions controls how many files ClickHouse writes to concurrently. Used as the fallback
 # when we have no size estimate to drive a dynamic partition count (e.g. the first ever run of an export).
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 10, type_cast=int)
+# Kill switch for dynamic partition sizing: when disabled, every run uses the static
+# BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS value.
+BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED: bool = get_from_env(
+    "BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED", True, type_cast=str_to_bool
+)
 # When a previous run's row count is known, the staging partition count is chosen to target roughly this many
 # rows per staging Arrow file (file size ≈ rows × per-team row width), clamped to [MIN, MAX]. Set MIN == MAX to
 # pin the partition count back to a fixed value.

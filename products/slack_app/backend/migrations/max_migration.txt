@@ -1,1 +1,1 @@
-0005_slackchannel
+0010_slacksettings_default_integration_nullable

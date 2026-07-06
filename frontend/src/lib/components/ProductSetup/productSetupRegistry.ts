@@ -32,6 +32,49 @@ export const SET_UP_REVERSE_PROXY: SetupTask = {
     getUrl: () => urls.settings('organization-proxy'),
 }
 
+/**
+ * AI tasks - appended to the end of every product's setup flow.
+ * These surface PostHog's AI capabilities regardless of which product the user onboards with.
+ */
+export const AI_TASKS: SetupTask[] = [
+    {
+        id: SetupTaskId.UsePosthogAi,
+        title: 'Try PostHog AI',
+        description:
+            "Ask Max, PostHog's AI assistant, to build insights, write SQL, and answer questions about your data.",
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        getUrl: () => urls.ai(),
+    },
+    {
+        id: SetupTaskId.UsePosthogCode,
+        title: 'Try PostHog Code',
+        description:
+            'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        docsUrl: 'https://posthog.com/code',
+    },
+    {
+        id: SetupTaskId.UsePosthogMcp,
+        title: 'Try PostHog MCP',
+        description:
+            'Query your PostHog data in plain English from your coding agent — run funnels, check errors, and toggle flags without leaving your editor.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        docsUrl: 'https://posthog.com/mcp',
+    },
+    {
+        id: SetupTaskId.UsePosthogInSlack,
+        title: 'Try PostHog in Slack',
+        description:
+            'Tag @PostHog in any Slack thread to ask data questions, run SQL, and draft pull requests — plus get insights and alerts delivered to your channels.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        getUrl: () => urls.integration('slack'),
+    },
+]
+
 // ============================================================================
 // Product Setup Registry
 // ============================================================================
@@ -120,6 +163,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 title: 'Track custom events',
                 description: 'Go beyond autocapture by tracking specific actions that matter.',
                 taskType: 'explore',
+                dependsOn: [SetupTaskId.IngestFirstEvent],
                 requiresManualCompletion: true,
                 docsUrl: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                 targetSelector: '[data-attr="help-button"]',
@@ -700,19 +744,22 @@ export function getProductSetupConfig(productKey: ProductKey): ProductSetupConfi
     return PRODUCT_SETUP_REGISTRY[productKey] ?? null
 }
 
-/** Get all tasks for a product, optionally filtered by type */
+/** Get all tasks for a product, optionally filtered by type. AI tasks are appended to every product. */
 export function getTasksForProduct(
     productKey: ProductKey,
-    taskType?: 'setup' | 'onboarding' | 'explore' | 'all'
+    taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all'
 ): SetupTask[] {
     const config = getProductSetupConfig(productKey)
     if (!config) {
         return []
     }
+
+    const tasks = [...config.tasks, ...AI_TASKS]
     if (!taskType || taskType === 'all') {
-        return config.tasks
+        return tasks
     }
-    return config.tasks.filter((t) => t.taskType === taskType)
+
+    return tasks.filter((t) => t.taskType === taskType)
 }
 
 /** List of products that have setup flows configured */

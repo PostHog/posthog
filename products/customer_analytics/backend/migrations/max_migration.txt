@@ -1,1 +1,1 @@
-0006_migrate_product_analytics_models
+0012_custompropertydefinition_options_and_more

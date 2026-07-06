@@ -1,3 +1,4 @@
+import sys
 import time
 import types
 import logging
@@ -8,7 +9,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
-from typing import Any, Optional, Union
+from typing import Any, Optional, TypedDict, Union
 
 from django.conf import settings as app_settings
 
@@ -27,7 +28,6 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
-    AccessMethod,
     Feature,
     Product,
     QueryTags,
@@ -35,10 +35,10 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -245,6 +245,16 @@ logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
 
+class ClickHouseExternalTable(TypedDict):
+    """A query-scoped external data table sent to ClickHouse alongside the query (the
+    clickhouse_driver `external_tables` format). `structure` is `(column, ClickHouse type)` pairs and
+    `data` is row dicts keyed by column name."""
+
+    name: str
+    structure: list[tuple[str, str]]
+    data: list[dict[str, Any]]
+
+
 @patchable
 @trace_clickhouse_query_decorator
 def sync_execute(
@@ -259,6 +269,7 @@ def sync_execute(
     readonly=False,
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    external_tables: Optional[list[ClickHouseExternalTable]] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -294,6 +305,8 @@ def sync_execute(
     sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
     ch_user (ClickHouseUser): The user context for the query execution. Defaults to
         ClickHouseUser.DEFAULT.
+    external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
+        sent alongside the query instead of inlined.
 
     Returns:
     Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
@@ -314,18 +327,21 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
     tags = get_query_tags()
-    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+    # Any programmatic key auth — personal API key, project secret API key, or legacy team secret
+    # token — routes to the offline cluster as the API ClickHouse user. User-facing session/OAuth
+    # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
+    is_api_key_auth = is_api_key_access_method(tags.access_method)
 
     # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
+    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
     # Make sure we always have process_query_task on the online cluster
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -355,7 +371,7 @@ def sync_execute(
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_personal_api_key:
+        if is_api_key_auth:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
@@ -363,8 +379,13 @@ def sync_execute(
         elif tags.feature == Feature.CACHE_WARMUP:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
-    # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
+    # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
+    # and being in one implies temporalio is imported — so the gate keeps the helper's module
+    # (aiohttp + pyarrow at module scope) off every other process's startup path.
+    if "temporalio" in sys.modules:
+        from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info  # noqa: PLC0415
+
+        update_query_tags_with_temporal_info()
 
     add_fallback_query_tags(tags)
 
@@ -447,6 +468,7 @@ def sync_execute(
                 settings=settings,
                 with_column_types=with_column_types,
                 query_id=query_id,
+                external_tables=external_tables,
             )
             if (
                 "INSERT INTO" in prepared_sql

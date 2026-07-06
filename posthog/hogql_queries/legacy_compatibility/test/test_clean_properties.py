@@ -136,7 +136,7 @@ class TestCleanEntityProperties(BaseTest):
 
     def test_handles_property_filter_lists(self):
         properties = [
-            {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
+            {"key": "$current_url", "type": "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
         ]
 
         result = clean_entity_properties(properties)
@@ -144,7 +144,7 @@ class TestCleanEntityProperties(BaseTest):
         self.assertEqual(
             result,
             [
-                {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
+                {"key": "$current_url", "type": "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
             ],
         )
 

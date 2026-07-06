@@ -44,7 +44,7 @@ class TestHandleProjectSetWorkspace:
             workspace_candidates=[self.integration],
         )
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_admin_sets_workspace_default(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=True)
 
@@ -54,7 +54,7 @@ class TestHandleProjectSetWorkspace:
         assert row.default_integration_id == self.integration.id
         self.slack.client.chat_postEphemeral.assert_called_once()
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_owner_sets_workspace_default(self, mock_info):
         mock_info.return_value = _slack_user_info(is_owner=True)
 
@@ -62,7 +62,7 @@ class TestHandleProjectSetWorkspace:
 
         assert SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id__isnull=True).exists()
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_non_admin_is_refused(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
 
@@ -72,7 +72,7 @@ class TestHandleProjectSetWorkspace:
         text = self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
         assert "admins or owners" in text
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_admin_without_team_access_is_refused(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=True)
 
@@ -82,7 +82,7 @@ class TestHandleProjectSetWorkspace:
         text = self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
         assert "don't have access" in text
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_workspace_default_replaces_existing(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=True)
         second_team = Team.objects.create(organization=self.organization, name="Team C")
@@ -122,17 +122,17 @@ class TestHandleHelp:
         _handle_help(self.slack, self.integration, "C1", "111.1", "U1")
         return self.slack.client.chat_postMessage.call_args.kwargs["text"]
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_admin_sees_workspace_line(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=True)
         assert WORKSPACE_HELP_LINE in self._help_text()
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_owner_sees_workspace_line(self, mock_info):
         mock_info.return_value = _slack_user_info(is_owner=True)
         assert WORKSPACE_HELP_LINE in self._help_text()
 
-    @patch("products.slack_app.backend.api._get_slack_user_info")
+    @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_non_admin_does_not_see_workspace_line(self, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
         text = self._help_text()

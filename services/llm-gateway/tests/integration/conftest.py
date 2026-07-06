@@ -17,12 +17,25 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
+CLOUDFLARE_API_KEY = os.environ.get("CLOUDFLARE_API_KEY")
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
 BEDROCK_REGION = (
     os.environ.get("LLM_GATEWAY_BEDROCK_REGION_NAME")
     or os.environ.get("AWS_REGION")
     or os.environ.get("AWS_DEFAULT_REGION")
 )
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
+
+# Cloudflare Workers AI runs serverless and is slow + high-variance (cold starts on a large model
+# can push a single completion past 3 minutes). Bound each CF call and disable SDK-level retries so
+# a slow response can't blow the integration suite's CI time budget. The clients that talk to other
+# providers keep the SDK defaults.
+CLOUDFLARE_REQUEST_TIMEOUT = 120.0
+CLOUDFLARE_MAX_RETRIES = 0
+
+# The CF-hosted models the gateway prices and allowlists (see COST_ALIASES). Smoke-tested end-to-end
+# so a routing/pricing regression for any one model fails CI rather than surfacing only in prod.
+CLOUDFLARE_SMOKE_MODELS = ["@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-5.2"]
 
 MOCK_MODEL_COSTS = {
     "gpt-4o": {
@@ -81,6 +94,23 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.0000002,
         "output_cost_per_token": 0.0000002,
     },
+    "openai/@cf/moonshotai/kimi-k2.6": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 262144,
+        "supports_vision": True,
+        "supports_function_calling": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.00000095,
+        "output_cost_per_token": 0.000004,
+    },
+    "openai/@cf/zai-org/glm-5.2": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 262144,
+        "supports_function_calling": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.0000014,
+        "output_cost_per_token": 0.0000044,
+    },
 }
 
 
@@ -100,6 +130,7 @@ def create_mock_db_pool():
             "current_team_id": 456,
             "scopes": ["llm_gateway:read"],
             "distinct_id": "test-distinct-id",
+            "is_staff": False,
         }
     )
     pool.acquire = AsyncMock(return_value=conn)
@@ -131,6 +162,13 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
         env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["OPENROUTER_API_KEY"] = "or-test-fake-key"
         env_patches["FIREWORKS_API_KEY"] = "fw-test-fake-key"
+    # Only LLM_GATEWAY_-prefixed vars are needed — Pydantic Settings reads them into
+    # `settings.cloudflare_*`. Raw CLOUDFLARE_* vars aren't exported: the CF path injects creds
+    # per-call, and exporting them would let litellm's native `cloudflare/...` provider pick them up.
+    if CLOUDFLARE_API_KEY:
+        env_patches["LLM_GATEWAY_CLOUDFLARE_API_KEY"] = CLOUDFLARE_API_KEY
+    if CLOUDFLARE_ACCOUNT_ID:
+        env_patches["LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID"] = CLOUDFLARE_ACCOUNT_ID
 
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()
@@ -217,4 +255,31 @@ def bedrock_anthropic_client(bedrock_gateway_url):
         api_key=TEST_POSTHOG_API_KEY,
         base_url=bedrock_gateway_url,
         default_headers={"X-PostHog-Provider": "bedrock"},
+    )
+
+
+@pytest.fixture
+def cloudflare_gateway_url():
+    with run_gateway_server() as url:
+        yield url
+
+
+@pytest.fixture
+def cloudflare_anthropic_client(cloudflare_gateway_url):
+    return Anthropic(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=cloudflare_gateway_url,
+        default_headers={"X-PostHog-Provider": "cloudflare"},
+        timeout=CLOUDFLARE_REQUEST_TIMEOUT,
+        max_retries=CLOUDFLARE_MAX_RETRIES,
+    )
+
+
+@pytest.fixture
+def cloudflare_openai_client(cloudflare_gateway_url):
+    return OpenAI(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=f"{cloudflare_gateway_url}/v1",
+        timeout=CLOUDFLARE_REQUEST_TIMEOUT,
+        max_retries=CLOUDFLARE_MAX_RETRIES,
     )

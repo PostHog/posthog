@@ -1,0 +1,281 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Error tracking alerts
+feature: error_tracking
+url_prefix: /error_tracking
+ui_apps: {}
+tools:
+    error-tracking-alerts-create:
+        operation: hog_functions_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking alert
+        description: >
+            Create an error tracking alert that fires when an issue is created, reopened, or starts spiking. An alert is
+            a HogFunction with `type=internal_destination` whose `filters.events` references one of the three
+            error-tracking lifecycle events. The events themselves are the trigger — there is no threshold or evaluation
+            window to configure.
+
+
+            Trigger events:
+
+            - `$error_tracking_issue_created`  — fires once when a new issue first appears.
+
+            - `$error_tracking_issue_reopened` — fires when a previously resolved issue starts emitting again.
+
+            - `$error_tracking_issue_spiking`  — fires when the spike detector flags abnormal volume on an
+              issue. The spike threshold is configured separately via the spike detection config endpoint
+              and applies to all issues in the project.
+
+
+            Recipe — deliver an error tracking alert to Slack or a webhook:
+
+
+            1. Confirm the trigger and channel with the user. Picking `created` for a noisy project will
+               flood the channel; `spiking` is usually the safer default. Do not assume.
+
+
+            2. Pick the integration. For Slack, call `integrations-list` with `kind=slack` to find the
+               integration id, then `integrations-channels-retrieve` for that integration to list channels.
+               For a webhook, the user provides the destination URL directly. Confirm the channel name or
+               webhook URL with the user before creating the alert — never wire a new alert to a production
+               channel without explicit confirmation.
+
+
+            3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger
+               event already exists. Skip creation if one is present and enabled — call
+               `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a
+               duplicate. Several alerts on the same event for the same channel produce duplicate
+               notifications.
+
+
+            4. Create. Use `type=internal_destination`, the integration's `template_id`
+               (`template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`,
+               `template-linear`, `template-github`, or `template-gitlab`), and:
+
+                 filters = {
+                   "events": [{"id": "$error_tracking_issue_created", "type": "events"}]
+                 }
+
+               Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause
+               on `$exception_issue_id` — for example
+               `[{"key": "$exception_issue_id", "value": "<issue_uuid>", "operator": "exact", "type": "event"}]`
+               to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry
+               no exception properties, so spiking alerts cannot be scoped per issue. PostHog's "alerts
+               configured" recommendation only checks `filters.events`, so adding property filters does
+               not affect it.
+
+
+            5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created
+               and UI-created alerts look identical. The canonical payloads for every integration are in
+               the `authoring-error-tracking-alerts` skill references.
+
+               For `$error_tracking_issue_created` (Slack):
+
+                 inputs = {
+                   "slack_workspace": {"value": <slack_integration_id_int>},
+                   "channel": {"value": "<channel_id>"},
+                   "text": {"value": "New issue created: {event.properties.name}"},
+                   "blocks": {"value": [
+                     {"type": "header", "text": {"type": "plain_text",
+                       "text": "🔴 {event.properties.name}"}},
+                     {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
+                     {"type": "section", "text": {"type": "mrkdwn",
+                       "text": "```{substring(event.properties.description, 1, 150)}```"}},
+                     {"type": "context", "elements": [
+                       {"type": "plain_text", "text": "Status: {event.properties.status}"},
+                       {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                       {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"}
+                     ]},
+                     {"type": "divider"},
+                     {"type": "actions", "elements": [
+                       {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
+                        "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
+                     ]}
+                   ]}
+                 }
+
+               For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to
+               `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to
+               `Issue reopened: {event.properties.name}`.
+
+               For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
+               `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking
+               events do not carry them), and add a context line referencing
+               `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The
+               exact block layout is in the `authoring-error-tracking-alerts` skill references.
+
+
+            6. Webhook body. The webhook template only requires `url`:
+
+                 inputs = {"url": {"value": "<destination_url>"}}
+
+               Webhooks must be `https://` URLs.
+
+
+            Event property reference — common across all three events: `event.properties.name` (issue title),
+            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link).
+            `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`,
+            `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`,
+            `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and
+            `event.properties.computed_baseline` — no status, fingerprint, or exception properties. Project context is
+            available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own
+            metadata as `{source.url}` and `{source.name}`.
+        exclude_params:
+            - _create_in_folder
+            - batch_export_id
+            - bytecode
+            - deleted
+            - status
+            - transpiled
+            - filters.bytecode
+            - filters.bytecode_error
+            - filters.transpiled
+            - inputs.*.bytecode
+            - inputs.*.order
+            - inputs.*.templating
+            - inputs.*.transpiled
+            - masking.bytecode
+            - mappings.*.filters.bytecode
+            - mappings.*.filters.bytecode_error
+            - mappings.*.filters.transpiled
+            - mappings.*.inputs.*.bytecode
+            - mappings.*.inputs.*.order
+            - mappings.*.inputs.*.templating
+            - mappings.*.inputs.*.transpiled
+            - inputs_schema.*.integration
+            - inputs_schema.*.integration_field
+            - inputs_schema.*.integration_key
+            - inputs_schema.*.requiredScopes
+            - inputs_schema.*.requires_field
+            - mappings.*.inputs_schema.*.integration
+            - mappings.*.inputs_schema.*.integration_field
+            - mappings.*.inputs_schema.*.integration_key
+            - mappings.*.inputs_schema.*.requiredScopes
+            - mappings.*.inputs_schema.*.requires_field
+        param_overrides:
+            type:
+                description: >
+                    Must be `internal_destination` for an error tracking alert. Other values create non-alert
+                    HogFunctions and should be created via `cdp-functions-create` instead.
+            template_id:
+                description: >
+                    Integration template — one of `template-slack`, `template-webhook`, `template-discord`,
+                    `template-microsoft-teams`, `template-linear`, `template-github`, `template-gitlab`.
+            enabled:
+                description: Whether the alert is active. Defaults to true.
+    error-tracking-alerts-delete:
+        operation: hog_functions_destroy
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete error tracking alert
+        description: >
+            Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction
+            row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it;
+            partial-update with `enabled=true` will not resurrect a soft-deleted alert.
+
+
+            This wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it
+            soft-deletes whatever function the ID points to, including unrelated destinations or transformations.
+            Confirm the target with `error-tracking-alerts-list` before deleting.
+        soft_delete: true
+    error-tracking-alerts-list:
+        operation: hog_functions_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List error tracking alerts
+        description: >
+            List error tracking alerts in the project. Pass `type=internal_destination` and inspect each entry's
+            `filters.events` for one of `$error_tracking_issue_created`, `$error_tracking_issue_reopened`, or
+            `$error_tracking_issue_spiking` to identify alerts. The same endpoint backs `cdp-functions-list`, so
+            non-error-tracking destinations are also returned — filter client-side by event id. Pagination defaults to
+            100 per page; pass a higher `limit` (e.g. 1000) when scanning for an existing alert by trigger and channel.
+        response:
+            include:
+                - id
+                - type
+                - name
+                - description
+                - enabled
+                - icon_url
+                - template.id
+                - status
+                - created_at
+                - updated_at
+                - created_by
+                - filters
+    error-tracking-alerts-partial-update:
+        operation: hog_functions_partial_update
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update error tracking alert
+        description: >
+            Partially update an error tracking alert. Use to enable or disable an alert, rename it, change the
+            destination channel/URL, or adjust the Slack message body. The `type` field cannot be changed after
+            creation. To delete an alert, use `error-tracking-alerts-delete`. To change the trigger event, set
+            `filters.events` to a list with the new event id — but consider creating a new alert instead so the old
+            one's history is preserved.
+
+
+            Like delete, this addresses the function by ID without verifying it is an error tracking alert; an unrelated
+            function ID is updated instead. Confirm the target with `error-tracking-alerts-list` first.
+        exclude_params:
+            - _create_in_folder
+            - batch_export_id
+            - bytecode
+            - deleted
+            - status
+            - transpiled
+            - filters.bytecode
+            - filters.bytecode_error
+            - filters.transpiled
+            - inputs.*.bytecode
+            - inputs.*.order
+            - inputs.*.templating
+            - inputs.*.transpiled
+            - masking.bytecode
+            - mappings.*.filters.bytecode
+            - mappings.*.filters.bytecode_error
+            - mappings.*.filters.transpiled
+            - mappings.*.inputs.*.bytecode
+            - mappings.*.inputs.*.order
+            - mappings.*.inputs.*.templating
+            - mappings.*.inputs.*.transpiled
+            - inputs_schema.*.integration
+            - inputs_schema.*.integration_field
+            - inputs_schema.*.integration_key
+            - inputs_schema.*.requiredScopes
+            - inputs_schema.*.requires_field
+            - mappings.*.inputs_schema.*.integration
+            - mappings.*.inputs_schema.*.integration_field
+            - mappings.*.inputs_schema.*.integration_key
+            - mappings.*.inputs_schema.*.requiredScopes
+            - mappings.*.inputs_schema.*.requires_field
+        param_overrides:
+            enabled:
+                description: Set to true to activate the alert or false to silence it without deleting.

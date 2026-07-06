@@ -14,6 +14,8 @@ from products.business_knowledge.backend.constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    EMBEDDING_STABLE_TS_MAX_AGE,
+    EMBEDDING_TTL_REFRESH_WINDOW,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeDocument,
@@ -52,9 +54,32 @@ class TestPendingEmbeddingSelection(BaseTest):
         ids = {d.document_id for d in pending}
         assert doc.id in ids
         entry = next(d for d in pending if d.document_id == doc.id)
+        # Young doc: uses the stable created_at timestamp for sort-key dedup.
         assert entry.timestamp == doc.created_at
         assert len(entry.chunks) >= 1
         assert all(c.content for c in entry.chunks)
+
+    def test_old_doc_uses_fresh_timestamp(self) -> None:
+        _source, doc = self._safe_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        # Past the stable-timestamp max age (TTL - refresh window): the row
+        # would expire before the refresh cron re-emits, so now() must be used.
+        old_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE - datetime.timedelta(days=10)
+        self._set(doc, created_at=old_created)
+
+        before = timezone.now()
+        pending = logic.list_documents_pending_embedding()
+        entry = next(d for d in pending if d.document_id == doc.id)
+        assert entry.timestamp >= before
+
+    def test_doc_within_max_age_keeps_created_at(self) -> None:
+        _source, doc = self._safe_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        # Just inside the max age: stable created_at is still safe (the row
+        # outlives the refresh cron's next pass) and keeps sort-key dedup.
+        recent_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE + datetime.timedelta(days=1)
+        self._set(doc, created_at=recent_created)
+
+        entry = next(d for d in logic.list_documents_pending_embedding() if d.document_id == doc.id)
+        assert entry.timestamp == recent_created
 
     @parameterized.expand(
         [
@@ -200,6 +225,20 @@ class TestEmitOneDocument(BaseTest):
             doc.refresh_from_db()
         assert doc.embeddings_emitted_at is not None
 
+    def test_emits_old_doc_with_fresh_timestamp(self) -> None:
+        doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
+        old_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE - datetime.timedelta(days=10)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=doc.id).update(created_at=old_created, embeddings_emitted_at=None)
+        before = timezone.now()
+        entry = next(d for d in logic.list_documents_pending_embedding() if d.document_id == doc.id)
+
+        with patch.object(coordinator, "emit_embedding_request") as emit:
+            coordinator._emit_one_document(entry)
+
+        kwargs = emit.call_args_list[0].kwargs
+        assert kwargs["timestamp"] >= before
+
     def test_emit_failure_propagates_and_leaves_doc_unstamped(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
 
@@ -254,3 +293,151 @@ class TestReconciliationSelection(BaseTest):
         newer = self._emitted_doc(emitted_minutes_ago=60 * 24)
         order = [d.document_id for d in logic.list_documents_for_embedding_reconciliation()]
         assert order.index(older.id) < order.index(newer.id)
+
+
+class TestTtlRefreshSelection(BaseTest):
+    def _emitted_doc(self, *, emitted_days_ago: float, verdict: str = SafetyVerdict.SAFE) -> KnowledgeDocument:
+        source = logic.create_text_source(
+            team_id=self.team.id, created_by_id=self.user.id, name="A", text="alpha content about refunds"
+        )
+        emitted_at = timezone.now() - datetime.timedelta(days=emitted_days_ago)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(
+                safety_verdict=verdict, embeddings_emitted_at=emitted_at
+            )
+            return KnowledgeDocument.objects.get(source_id=source.id)
+
+    def test_selects_only_docs_past_the_window(self) -> None:
+        window_days = EMBEDDING_TTL_REFRESH_WINDOW.days
+        aging = self._emitted_doc(emitted_days_ago=window_days + 5)
+        fresh = self._emitted_doc(emitted_days_ago=window_days - 5)
+
+        ids = {d.document_id for d in logic.list_documents_for_embedding_refresh()}
+        assert aging.id in ids
+        assert fresh.id not in ids
+
+    def test_never_emitted_doc_is_not_refreshed(self) -> None:
+        # embeddings_emitted_at IS NULL belongs to the pending-emit path, not the
+        # refresh path — refresh only re-emits docs that were already stamped.
+        source = logic.create_text_source(
+            team_id=self.team.id, created_by_id=self.user.id, name="A", text="alpha content about refunds"
+        )
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+            doc = KnowledgeDocument.objects.get(source_id=source.id)
+        assert doc.id not in {d.document_id for d in logic.list_documents_for_embedding_refresh()}
+
+    @parameterized.expand(
+        [
+            ("unknown", SafetyVerdict.UNKNOWN),
+            ("unsafe", SafetyVerdict.UNSAFE),
+        ]
+    )
+    def test_excludes_non_safe(self, _name: str, verdict: str) -> None:
+        doc = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5, verdict=verdict)
+        assert doc.id not in {d.document_id for d in logic.list_documents_for_embedding_refresh()}
+
+    def test_uses_now_not_created_at_as_timestamp(self) -> None:
+        # The TTL is on the embedding row timestamp, so the refresh must pass a
+        # FRESH timestamp (now) — created_at would not reset the clock.
+        doc = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
+        entry = next(d for d in logic.list_documents_for_embedding_refresh() if d.document_id == doc.id)
+        assert entry.timestamp != doc.created_at
+        assert entry.timestamp > doc.created_at
+        assert len(entry.chunks) >= 1
+
+    def test_respects_cap(self) -> None:
+        for _ in range(3):
+            self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
+        assert len(logic.list_documents_for_embedding_refresh(limit=2)) == 2
+
+    def test_orders_oldest_emitted_first(self) -> None:
+        older = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 30)
+        newer = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
+        order = [d.document_id for d in logic.list_documents_for_embedding_refresh()]
+        assert order.index(older.id) < order.index(newer.id)
+
+
+class TestRestampAndReemit(BaseTest):
+    def _safe_emitted_doc(self) -> KnowledgeDocument:
+        source = logic.create_text_source(
+            team_id=self.team.id, created_by_id=self.user.id, name="A", text="alpha content about refunds"
+        )
+        old_stamp = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=5)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(
+                safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at=old_stamp
+            )
+            return KnowledgeDocument.objects.get(source_id=source.id)
+
+    def test_restamp_moves_stamp_forward(self) -> None:
+        doc = self._safe_emitted_doc()
+        with team_scope(self.team.id, canonical=True):
+            before = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+        logic.restamp_document_embeddings_emitted(team_id=self.team.id, document_id=doc.id)
+        with team_scope(self.team.id, canonical=True):
+            after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+        assert after is not None and before is not None
+        assert after > before
+
+    @parameterized.expand(
+        [
+            ("unknown", SafetyVerdict.UNKNOWN),
+            ("unsafe", SafetyVerdict.UNSAFE),
+        ]
+    )
+    def test_restamp_skips_non_safe(self, _name: str, verdict: str) -> None:
+        doc = self._safe_emitted_doc()
+        with team_scope(self.team.id, canonical=True):
+            before = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+            KnowledgeDocument.objects.filter(id=doc.id).update(safety_verdict=verdict)
+        logic.restamp_document_embeddings_emitted(team_id=self.team.id, document_id=doc.id)
+        with team_scope(self.team.id, canonical=True):
+            after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+        assert after == before
+
+    def test_restamp_skips_renulled_doc(self) -> None:
+        # A content change mid-pass NULLs the stamp; that new content must flow
+        # through the pending-emit path, not be re-stamped by the refresh.
+        doc = self._safe_emitted_doc()
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=doc.id).update(embeddings_emitted_at=None)
+        logic.restamp_document_embeddings_emitted(team_id=self.team.id, document_id=doc.id)
+        with team_scope(self.team.id, canonical=True):
+            assert KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at is None
+
+    def test_reemit_produces_chunks_with_fresh_timestamp_and_restamps(self) -> None:
+        doc = self._safe_emitted_doc()
+        entry = next(d for d in logic.list_documents_for_embedding_refresh() if d.document_id == doc.id)
+        with team_scope(self.team.id, canonical=True):
+            before = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+
+        with patch.object(coordinator, "emit_embedding_request") as emit:
+            written = coordinator._reemit_one_document(entry)
+
+        assert written == len(entry.chunks)
+        assert emit.call_count == len(entry.chunks)
+        kwargs = emit.call_args_list[0].kwargs
+        assert kwargs["timestamp"] == entry.timestamp  # fresh now(), not created_at
+        assert kwargs["timestamp"] != doc.created_at
+        assert kwargs["metadata"]["document_id"] == str(doc.id)
+
+        with team_scope(self.team.id, canonical=True):
+            after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+        assert after is not None and before is not None
+        assert after > before
+
+    def test_reemit_failure_leaves_old_stamp(self) -> None:
+        doc = self._safe_emitted_doc()
+        entry = next(d for d in logic.list_documents_for_embedding_refresh() if d.document_id == doc.id)
+        with team_scope(self.team.id, canonical=True):
+            before = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+
+        with patch.object(coordinator, "emit_embedding_request", side_effect=RuntimeError("kafka down")):
+            with self.assertRaises(RuntimeError):
+                coordinator._reemit_one_document(entry)
+
+        with team_scope(self.team.id, canonical=True):
+            after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
+        # Stamp unchanged (no re-stamp), so the doc is retried on a later pass.
+        assert after == before

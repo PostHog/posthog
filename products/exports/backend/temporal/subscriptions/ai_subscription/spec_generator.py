@@ -1,4 +1,4 @@
-import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Optional, Union
 
@@ -10,16 +10,23 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPrompt
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import EventDefinition, PropertyDefinition, Team, User
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
+    EVENT_SELECTION_PROMPT,
+    EVENT_SELECTION_PROMPT_NAME,
     PLAN_GENERATION_PROMPT,
     PLANNER_PROMPT_NAME,
+    render_prompt,
     resolve_prompt,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import EnrichedPromptSpec, QueryPlan
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    EnrichedPromptSpec,
+    QueryPlan,
+    RelevantEvents,
+)
 
 from ee.hogai.llm import MaxChatOpenAI
 
@@ -36,10 +43,22 @@ EVENT_NAMES_SAMPLE_LIMIT = 20
 NO_DATA_EVENT_NAMES_LIMIT = 25
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
+# The top-events list is volume-ranked, so a targeted request ("how are exports doing?") never surfaces
+# the niche, low-volume events it needs. A first LLM pass picks the events relevant to the prompt from the
+# project's vocabulary (capped); their property schema is then injected — the planner otherwise can't
+# reference events, or their properties, it can't see.
+CANDIDATE_EVENTS_LIMIT = 500
+# Ceiling on events whose schema is injected into the planner. Scaled up alongside the 25-step query-plan
+# cap: a metric-heavy prompt can legitimately span many distinct events, and starving the planner of an
+# event the prompt names forces it to guess. Bounded by EVENT_PROPERTIES_PER_EVENT_LIMIT so the injected
+# schema stays a few thousand property names at most.
+RELEVANT_EVENTS_LIMIT = 100
+EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
+_EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 
 
 class PromptRejectedError(ValueError):
@@ -113,7 +132,94 @@ def _group_type_labels(team: Team) -> list[str]:
     return labels
 
 
-def build_context_blob(team: Team, window_days: int) -> str:
+def _candidate_event_names(team: Team, limit: int) -> dict[str, str]:
+    # {sanitized_name: raw_name} for the team's events, most-recently-seen first. Sanitized keys are what
+    # the selection LLM sees (event names are user-controlled); raw values feed the EventProperty lookup,
+    # which is keyed on the stored name. First raw wins if two names sanitize to the same string.
+    raw_names = (
+        EventDefinition.objects.filter(team_id=team.pk)
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[:limit]
+    )
+    candidates: dict[str, str] = {}
+    for raw in raw_names:
+        clean = sanitize_user_text(raw, EVENT_NAME_MAX_LENGTH)
+        if clean and clean not in candidates:
+            candidates[clean] = raw
+    return candidates
+
+
+def _select_relevant_events(
+    team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
+) -> list[str]:
+    # Pass 1: the model picks relevant events from the project's vocabulary (vs lexical matching). Returns
+    # RAW event names (the EventProperty lookup is keyed on them); any failure degrades to no relevant-events
+    # section rather than breaking generation.
+    candidates = _candidate_event_names(team, CANDIDATE_EVENTS_LIMIT)
+    if not candidates:
+        return []
+
+    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
+    if trace_correlation_id is not None:
+        posthog_properties["subscription_id"] = trace_correlation_id
+    llm = MaxChatOpenAI(
+        model=DEFAULT_PLANNER_MODEL,
+        timeout=_EVENT_SELECTION_LLM_TIMEOUT_SECONDS,
+        user=user,
+        team=team,
+        billable=True,
+        posthog_properties=posthog_properties,
+    ).with_structured_output(RelevantEvents, method="json_schema", include_raw=False)
+
+    rendered_prompt = render_prompt(
+        resolve_prompt(team, EVENT_SELECTION_PROMPT_NAME, EVENT_SELECTION_PROMPT),
+        {"event_names": "\n".join(candidates), "cleaned_prompt": prompt},
+    )
+
+    try:
+        result = llm.invoke([("system", rendered_prompt)])
+    except Exception:
+        logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
+        return []
+    if not isinstance(result, RelevantEvents):
+        logger.warning("ai_subscription.event_selection_malformed", team_id=team.id)
+        return []
+
+    # candidates.get maps the model's sanitized picks back to raw names and drops hallucinations in one step.
+    selected: list[str] = []
+    seen: set[str] = set()
+    for name in result.events:
+        raw = candidates.get(name)
+        if raw is not None and raw not in seen:
+            seen.add(raw)
+            selected.append(raw)
+            if len(selected) >= RELEVANT_EVENTS_LIMIT:
+                break
+    return selected
+
+
+def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
+    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
+    # property names — the top cause of InternalHogQLError.
+    if not events:
+        return {}
+    by_event: dict[str, list[str]] = {}
+    rows = (
+        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        .order_by("event", "property")
+        # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
+        # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,
+        # so when the budget is hit it favours alphabetically-earlier events (not relevance order).
+        .values_list("event", "property")[: len(events) * per_event_limit]
+    )
+    for event, prop in rows:
+        props = by_event.setdefault(event, [])
+        if len(props) < per_event_limit:
+            props.append(prop)
+    return by_event
+
+
+def build_context_blob(team: Team, window_days: int, relevant_events: Sequence[str] = ()) -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
     now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
@@ -133,6 +239,30 @@ def build_context_blob(team: Team, window_days: int) -> str:
         lines.append("- Top events: " + ", ".join(event_names))
     else:
         lines.append("- Top events: (none recorded yet)")
+
+    if relevant_events:
+        props_by_event = _event_property_names(team, list(relevant_events), EVENT_PROPERTIES_PER_EVENT_LIMIT)
+        top_set = set(event_names)
+        seen: set[str] = set()
+        matched: list[tuple[str, str]] = []  # (raw, clean), deduped on the sanitized name
+        for raw in relevant_events:
+            clean = sanitize_user_text(raw, EVENT_NAME_MAX_LENGTH)
+            if clean and clean not in seen:
+                seen.add(clean)
+                matched.append((raw, clean))
+        # Name only the matches not already shown under "Top events" (avoid repeating them)...
+        new_names = [clean for _, clean in matched if clean not in top_set]
+        if new_names:
+            lines.append("- Events matching your request: " + ", ".join(new_names))
+        # ...but inject the property schema for EVERY match, including high-volume events already in
+        # "Top events" — that line lists names only, so without this the planner still can't see their
+        # properties (e.g. $browser on a matched $pageview).
+        for raw, clean in matched:
+            clean_props = [
+                p for p in (sanitize_user_text(pr, EVENT_NAME_MAX_LENGTH) for pr in props_by_event.get(raw, [])) if p
+            ]
+            if clean_props:
+                lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
     no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
@@ -178,12 +308,9 @@ def generate_query_plan(
         posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
-    # single-pass substitution so a value containing {{{...}}} can't be re-expanded
-    substitutions = {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt}
-    rendered_prompt = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered_prompt = render_prompt(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
+        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
     )
 
     result = llm.invoke([("system", rendered_prompt)])
@@ -201,7 +328,8 @@ def build_enriched_prompt(
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
-    context_blob = build_context_blob(team, window_days)
+    relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
+    context_blob = build_context_blob(team, window_days, relevant_events=relevant_events)
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,

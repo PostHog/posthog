@@ -13,6 +13,7 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
@@ -23,7 +24,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isOptOutEligibleAction } from '../steps/types'
+import { isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -79,6 +80,42 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
+                <div className="flex flex-col gap-1">
+                    <EditableField
+                        name="step-name"
+                        value={action.name}
+                        onSave={(value) => {
+                            const trimmed = value.trim()
+                            if (trimmed) {
+                                setWorkflowAction(action.id, { ...action, name: trimmed })
+                            }
+                        }}
+                        placeholder="Step name"
+                        minLength={1}
+                        saveOnBlur
+                        clickToEdit
+                        compactButtons
+                        compactIcon
+                        className="font-semibold text-base"
+                        data-attr="workflow-step-name"
+                    />
+                    {!isScheduleTrigger(action) && (
+                        <EditableField
+                            name="step-description"
+                            value={action.description || ''}
+                            onSave={(value) => setWorkflowAction(action.id, { ...action, description: value.trim() })}
+                            placeholder="Add a description (optional)"
+                            multiline
+                            saveOnBlur
+                            clickToEdit
+                            compactButtons
+                            compactIcon
+                            className="text-sm text-secondary"
+                            data-attr="workflow-step-description"
+                        />
+                    )}
+                </div>
+                <LemonDivider className="my-2" />
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 

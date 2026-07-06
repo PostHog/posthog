@@ -14,16 +14,20 @@ from posthog.schema import (
     PropertyOperator,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
+
+from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
 # assert parity on. VIEWPORT is exercised separately — the raw query compares
@@ -38,6 +42,8 @@ PARITY_BREAKDOWNS = [
     ("channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE),
     ("initial_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
     ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
+    ("language", WebStatsBreakdown.LANGUAGE),
+    ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
 
 
@@ -66,6 +72,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "$browser": "Chrome",
             "$os": "Linux",
             "$device_type": "Desktop",
+            "$browser_language": "en-US",
             "$geoip_country_code": "US",
             "$geoip_subdivision_1_code": "US-CA",
             "$geoip_subdivision_1_name": "California",
@@ -114,6 +121,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$browser": "Firefox",
                     "$os": "Windows",
                     "$device_type": "Mobile",
+                    "$browser_language": "en-GB",
                     "$geoip_country_code": "GB",
                     "$geoip_subdivision_1_code": "GB-ENG",
                     "$geoip_subdivision_1_name": "England",
@@ -199,7 +207,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, f"expected a READY precompute job for {breakdown_by}"
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
     @parameterized.expand(PARITY_BREAKDOWNS)
@@ -230,6 +238,55 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy == raw, f"lazy/raw compare mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
+    @parameterized.expand(
+        [
+            ("browser", WebStatsBreakdown.BROWSER, "$browser"),
+            ("os", WebStatsBreakdown.OS, "$os"),
+            ("device_type", WebStatsBreakdown.DEVICE_TYPE, "$device_type"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_lazy_keeps_null_breakdown_rows(self, _name: str, breakdown_by: WebStatsBreakdown, null_prop: str):
+        self._seed()
+        # One extra session whose breakdown property is absent -> a genuine NULL that
+        # both paths must surface as a "(none)" row rather than silently drop.
+        s = str(uuid7("2024-01-05"))
+        props = self._props(
+            **{"$session_id": s, "$host": "example.com", "$current_url": "https://example.com/n", "$pathname": "/n"}
+        )
+        props.pop(null_prop)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u1",
+            timestamp="2024-01-05T08:00:00Z",
+            properties=props,
+        )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=breakdown_by)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=breakdown_by))
+        lazy = self._metrics(lazy_response)
+
+        # Guard against a silent fallback to raw making lazy==raw trivially true.
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert any(row[0] is None for row in raw), f"raw should surface a null {breakdown_by} row, got {raw}"
+        assert lazy == raw, f"lazy dropped/altered the null row for {breakdown_by}: raw={raw}, lazy={lazy}"
+
+    @parameterized.expand([(b.value, b) for b in WebStatsBreakdown])
+    def test_breakdown_having_matches_live_null_handling(self, _name: str, breakdown_by: WebStatsBreakdown):
+        # The lazy read's HAVING must keep/drop NULL breakdown rows exactly as the raw
+        # runner's outer_where_breakdown does, or precompute tiles gain/lose a "(none)"
+        # row relative to raw. `outer_where_breakdown() is None` means "keep nulls"; the
+        # lazy side encodes that as a bare `True` HAVING.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(breakdown_by=breakdown_by))
+        live_keeps_null = runner.outer_where_breakdown() is None
+        having = _breakdown_having_expr(breakdown_by)
+        lazy_keeps_null = isinstance(having, ast.Constant) and having.value is True
+        assert lazy_keeps_null == live_keeps_null, (
+            f"{breakdown_by}: lazy keeps_null={lazy_keeps_null} but raw keeps_null={live_keeps_null}"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_viewport_breakdown_lazy_runs(self):
         # The raw VIEWPORT query compares viewport tuple elements against 0,
@@ -239,7 +296,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.VIEWPORT))
 
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert len(response.results) > 0
         assert all(isinstance(row[0], tuple) and len(row[0]) == 2 for row in response.results)
 
@@ -316,14 +373,83 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_language_breakdown_falls_through(self):
-        # LANGUAGE needs an extra topK aggregation column that can't be rebuilt
-        # from hourly states — it must fall through to the raw path.
+    def test_language_breakdown_precomputes_and_groups_by_prefix(self):
+        # LANGUAGE precomputes: the INSERT stores the full `$browser_language`
+        # ("en-US"/"en-GB"); the read groups by the "en" prefix and labels it with
+        # the most-common region (US wins on views), reproducing the raw two-level
+        # query entirely on read. en-US (u1, 3 views) + en-GB (u2, 1 view) collapse
+        # to one "en-US" row with 2 visitors / 4 views.
         self._seed()
         with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+            response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert self._job_count() == 0
+        assert self._job_count() > 0
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_keeps_missing_value(self):
+        # The raw LANGUAGE query keeps rows with no `$browser_language`
+        # (outer_where_breakdown is None for LANGUAGE) so the tile total stays
+        # consistent with the overview. The lazy read must do the same — assert
+        # parity rather than a hardcoded label so it tracks whatever the raw path
+        # renders for the missing bucket.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u3"], properties={"name": "u3"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u3",
+            timestamp="2024-01-05T08:00:00Z",
+            properties=self._props(
+                **{
+                    "$session_id": str(uuid7("2024-01-05")),
+                    "$host": "example.com",
+                    "$current_url": "https://example.com/a",
+                    "$pathname": "/a",
+                    "$browser_language": None,
+                }
+            ),
+        )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert self._metrics(lazy_response) == raw
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_three_part_tag_matches_raw(self):
+        # 3-component BCP-47 tags (e.g. `zh-Hans-CN`) must split the same way as the
+        # raw query, which uses `splitByChar('-', ..., 2)`. Assert parity against the
+        # raw path rather than a hardcoded label so it holds under any cluster's
+        # `splitby_max_substrings_includes_remaining_string` setting.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u4"], properties={"name": "u4"})
+        for path, ts in (("/a", "2024-01-05T08:00:00Z"), ("/b", "2024-01-05T08:05:00Z")):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="u4",
+                timestamp=ts,
+                properties=self._props(
+                    **{
+                        "$session_id": str(uuid7("2024-01-05")),
+                        "$host": "example.com",
+                        "$current_url": f"https://example.com{path}",
+                        "$pathname": path,
+                        "$browser_language": "zh-Hans-CN",
+                    }
+                ),
+            )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_conversion_goal_falls_through(self):
@@ -512,9 +638,9 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(query)
 
         assert self._job_count() == 0
-        # Raw path leaves `usedLazyPrecompute` unset; the failure mode we're
-        # guarding against is the lazy path silently serving with a rewritten sort.
-        assert response.usedLazyPrecompute is not True
+        # Raw path leaves `preComputeStrategy` off the lazy strategy; the failure mode
+        # we're guarding against is the lazy path silently serving with a rewritten sort.
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_pagination_page_two_lazy_matches_raw(self):
@@ -578,7 +704,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(query)
 
         lazy_metrics = self._metrics(lazy_response)
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy_response.hasMore is True, "should report more rows past the requested page"
         assert len(lazy_metrics) == 3
         # Visitors are monotonically non-increasing on the returned page.

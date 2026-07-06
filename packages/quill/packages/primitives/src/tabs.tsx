@@ -1,10 +1,11 @@
+import './tabs.css'
+
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { Button } from './button'
 import { cn } from './lib/utils'
-import './tabs.css'
 
 function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive.Root.Props): React.ReactElement {
     return (
@@ -17,17 +18,20 @@ function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive
     )
 }
 
-const tabsListVariants = cva('quill-tabs__list group/tabs-list inline-flex w-fit items-center justify-center relative', {
-    variants: {
-        variant: {
-            default: 'quill-tabs__list--variant-default',
-            line: 'quill-tabs__list--variant-line',
+const tabsListVariants = cva(
+    'quill-tabs__list group/tabs-list inline-flex w-fit items-center justify-center relative',
+    {
+        variants: {
+            variant: {
+                default: 'quill-tabs__list--variant-default',
+                line: 'quill-tabs__list--variant-line',
+            },
         },
-    },
-    defaultVariants: {
-        variant: 'default',
-    },
-})
+        defaultVariants: {
+            variant: 'default',
+        },
+    }
+)
 
 const tabsIndicatorVariants = cva('quill-tabs__indicator', {
     variants: {
@@ -75,9 +79,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props): React.Re
 }
 
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props): React.ReactElement {
-    return (
-        <TabsPrimitive.Panel data-slot="tabs-content" className={cn('quill-tabs__panel', className)} {...props} />
-    )
+    return <TabsPrimitive.Panel data-slot="tabs-content" className={cn('quill-tabs__panel', className)} {...props} />
 }
 
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }

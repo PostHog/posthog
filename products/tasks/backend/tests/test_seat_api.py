@@ -70,44 +70,44 @@ class BaseSeatAPITest(TestCase):
         self.client.force_authenticate(self.user)
 
 
-@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIAdminPermissions(BaseSeatAPITest):
     """Non-admin users should be blocked from list and non-me operations."""
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_list_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.get("/api/seats/?product_key=posthog_code")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_list_allowed_for_admin(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seats": [MOCK_SEAT]})
         self._auth_as_admin()
         response = self.client.get("/api/seats/?product_key=posthog_code")
         assert response.status_code == status.HTTP_200_OK
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_retrieve_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.get(f"/api/seats/{self.admin_user.distinct_id}/?product_key=posthog_code")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_retrieve_me_allowed_for_member(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
         response = self.client.get("/api/seats/me/?product_key=posthog_code")
         assert response.status_code == status.HTTP_200_OK
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_delete_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.delete(f"/api/seats/{self.admin_user.distinct_id}/?product_key=posthog_code")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_patch_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.patch(
@@ -117,7 +117,7 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_create_without_user_distinct_id_returns_400(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.post(
@@ -128,7 +128,7 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "user_distinct_id is required"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_create_for_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.post(
@@ -138,7 +138,7 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_create_for_self_allowed_for_member(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
@@ -153,19 +153,19 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_reactivate_other_user_requires_admin(self, mock_request, _mock_license, _mock_token):
         self._auth_as_member()
         response = self.client.post(f"/api/seats/{self.admin_user.distinct_id}/reactivate/", format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_retrieve_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
         response = self.client.get(f"/api/seats/{self.external_user.distinct_id}/?product_key=posthog_code")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_patch_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
         response = self.client.patch(
@@ -175,13 +175,13 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_delete_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
         response = self.client.delete(f"/api/seats/{self.external_user.distinct_id}/?product_key=posthog_code")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_create_for_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
         response = self.client.post(
@@ -195,19 +195,19 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_reactivate_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
         response = self.client.post(f"/api/seats/{self.external_user.distinct_id}/reactivate/", format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIMeResolution(BaseSeatAPITest):
     """``me`` in the URL should resolve to the authenticated user's distinct_id."""
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_retrieve_me_resolves_distinct_id(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
@@ -215,7 +215,7 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
         _, kwargs = mock_request.call_args
         assert str(self.user.distinct_id) in kwargs["url"]
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_delete_me_resolves_distinct_id(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response(status_code=204)
         self._auth_as_member()
@@ -223,7 +223,7 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
         _, kwargs = mock_request.call_args
         assert str(self.user.distinct_id) in kwargs["url"]
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_patch_me_resolves_distinct_id(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
@@ -235,7 +235,7 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
         _, kwargs = mock_request.call_args
         assert str(self.user.distinct_id) in kwargs["url"]
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_reactivate_me_resolves_distinct_id(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
@@ -244,8 +244,8 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
         assert str(self.user.distinct_id) in kwargs["url"]
 
 
-@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-@patch("products.tasks.backend.seat_api.get_cached_instance_license")
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license")
 class TestSeatAPIBillingUnavailability(BaseSeatAPITest):
     """Graceful handling when the billing service is unreachable or misconfigured."""
 
@@ -256,7 +256,10 @@ class TestSeatAPIBillingUnavailability(BaseSeatAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "No organization or license found"
 
-    @patch("products.tasks.backend.seat_api.requests.request", side_effect=Exception("connection refused"))
+    @patch(
+        "products.tasks.backend.presentation.views.seat_api.requests.request",
+        side_effect=Exception("connection refused"),
+    )
     def test_billing_request_exception_returns_502(self, mock_request, mock_license, _mock_token):
         import requests as req
 
@@ -266,7 +269,7 @@ class TestSeatAPIBillingUnavailability(BaseSeatAPITest):
         response = self.client.get("/api/seats/me/?product_key=posthog_code")
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_billing_invalid_json_returns_502(self, mock_request, mock_license, _mock_token):
         mock_license.return_value = MagicMock()
         billing_resp = MagicMock()
@@ -280,12 +283,12 @@ class TestSeatAPIBillingUnavailability(BaseSeatAPITest):
         assert response.json()["detail"] == "Invalid response from billing service"
 
 
-@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
     """Successful responses with a ``seat`` key are unwrapped; errors pass through."""
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_retrieve_unwraps_seat_envelope(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT, "extra": "ignored"})
         self._auth_as_member()
@@ -294,7 +297,7 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         assert response.json()["id"] == "seat_123"
         assert "extra" not in response.json()
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_list_does_not_unwrap(self, mock_request, _mock_license, _mock_token):
         payload = {"seats": [MOCK_SEAT]}
         mock_request.return_value = _billing_response(payload)
@@ -303,7 +306,7 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert "seats" in response.json()
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_error_response_passes_through(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"error": "seat not found"}, status_code=404, ok=False)
         self._auth_as_member()
@@ -311,7 +314,7 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         assert response.status_code == 404
         assert response.json()["error"] == "seat not found"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_204_returns_no_content(self, mock_request, _mock_license, _mock_token):
         billing_resp = MagicMock()
         billing_resp.status_code = 204
@@ -320,7 +323,7 @@ class TestSeatAPIResponseUnwrapping(BaseSeatAPITest):
         response = self.client.delete("/api/seats/me/?product_key=posthog_code")
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_response_without_seat_key_passes_through(self, mock_request, _mock_license, _mock_token):
         payload = {"message": "ok", "some_data": 123}
         mock_request.return_value = _billing_response(payload)
@@ -367,7 +370,7 @@ MOCK_PRO_V2_SEAT = {
 }
 
 
-@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIBestPlan(BaseSeatAPITest):
     """``best=true`` returns the highest-tier seat across all orgs."""
 
@@ -379,8 +382,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         cls.org2 = Organization.objects.create(name="Second Org")
         cls.org2.members.add(cls.user)
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_single_org_returns_that_seat(self, _mock_token, mock_request, _mock_license):
         mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
         self._auth_as_admin()
@@ -390,8 +393,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.json()["organization_id"] == str(self.organization.id)
         assert response.json()["organization_name"] == "Test Org"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_multi_org_returns_pro_over_free(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             _billing_response({"seat": MOCK_FREE_SEAT}),
@@ -403,8 +406,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.json()["plan_key"] == "posthog-code-200-20260301"
         assert "organization_id" in response.json()
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_multi_org_returns_pro_regardless_of_order(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             _billing_response({"seat": MOCK_PRO_SEAT}),
@@ -415,16 +418,16 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-200-20260301"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_all_billing_failures_returns_404(self, _mock_token, mock_request, _mock_license):
         mock_request.return_value = _billing_response({"error": "fail"}, status_code=500, ok=False)
         self._auth_as_member()
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_partial_failure_returns_best_available(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             _billing_response({"error": "fail"}, status_code=500, ok=False),
@@ -435,8 +438,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-200-20260301"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_best_ignored_for_non_me_pk(self, _mock_token, mock_request, _mock_license):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_admin()
@@ -444,8 +447,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert mock_request.call_count == 1
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_without_best_param_does_single_call(self, _mock_token, mock_request, _mock_license):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
@@ -453,14 +456,14 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert mock_request.call_count == 1
 
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_no_orgs_returns_400(self, _mock_token, _mock_license):
         self.client.force_authenticate(self.external_user)
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_pro_v2_prefix_recognized(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             _billing_response({"seat": MOCK_FREE_SEAT}),
@@ -471,8 +474,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-pro-200-20260422"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_no_plan_key_loses_to_free(self, _mock_token, mock_request, _mock_license):
         no_plan_seat = {**MOCK_FREE_SEAT, "plan_key": None, "id": "seat_none"}
         mock_request.side_effect = [
@@ -484,8 +487,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_active_free_beats_canceled_pro(self, _mock_token, mock_request, _mock_license):
         canceled_pro = {**MOCK_PRO_SEAT, "status": "canceled", "id": "seat_canceled_pro"}
         mock_request.side_effect = [
@@ -498,8 +501,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
         assert response.json()["status"] == "active"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_canceling_pro_beats_active_free(self, _mock_token, mock_request, _mock_license):
         canceling_pro = {
             **MOCK_PRO_SEAT,
@@ -517,8 +520,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.json()["plan_key"] == MOCK_PRO_SEAT["plan_key"]
         assert response.json()["status"] == "canceling"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_future_exception_handled_gracefully(self, _mock_token, mock_request, _mock_license):
         mock_request.side_effect = [
             RuntimeError("connection reset"),
@@ -529,8 +532,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-200-20260301"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token")
     def test_partial_header_failure_returns_available_seat(self, mock_token, mock_request, _mock_license):
         mock_token.side_effect = [NotAuthenticated("no member"), MOCK_BILLING_TOKEN]
         mock_request.return_value = _billing_response({"seat": MOCK_FREE_SEAT})
@@ -539,8 +542,8 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["plan_key"] == "posthog-code-free-20260301"
 
-    @patch("products.tasks.backend.seat_api.requests.request")
-    @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
     def test_same_tier_picks_oldest_seat(self, _mock_token, mock_request, _mock_license):
         newer_pro = {**MOCK_PRO_SEAT, "id": "seat_newer", "created_at": "2026-06-01T00:00:00Z"}
         older_pro = {**MOCK_PRO_SEAT, "id": "seat_older", "created_at": "2026-03-01T00:00:00Z"}
@@ -554,12 +557,12 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         assert response.json()["id"] == "seat_older"
 
 
-@patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-@patch("products.tasks.backend.seat_api.get_cached_instance_license", return_value=MagicMock())
+@patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+@patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license", return_value=MagicMock())
 class TestSeatAPIKeyAccess(BaseSeatAPITest):
     """Personal API keys are allowed so the LLM gateway can resolve seats."""
 
-    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_personal_api_key_allowed(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         token = generate_random_token_personal()

@@ -472,8 +472,8 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-INSERT_EVENT_SQL = (
-    lambda: f"""
+INSERT_EVENT_SQL = lambda: (
+    f"""
 INSERT INTO {EVENTS_DATA_TABLE()}
 (
     uuid,
@@ -531,8 +531,8 @@ VALUES
 """
 )
 
-BULK_INSERT_EVENT_SQL = (
-    lambda: f"""
+BULK_INSERT_EVENT_SQL = lambda: (
+    f"""
 INSERT INTO {EVENTS_DATA_TABLE()}
 (
     uuid,
@@ -564,70 +564,6 @@ VALUES
 """
 )
 
-
-SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    events
-WHERE
-    team_id = %(team_id)s
-    {property_exists_filter}
-    {parsed_date_from}
-    {parsed_date_to}
-    {event_filter}
-    {value_filter}
-{order_by_clause}
-LIMIT 10
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM
-    events
-where team_id = %(team_id)s
-{conditions}
-ORDER BY timestamp {order} {limit}
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events
-WHERE
-team_id = %(team_id)s
-{conditions}
-{filters}
-ORDER BY timestamp {order} {limit}
-"""
-
-SELECT_ONE_EVENT_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
-"""
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range

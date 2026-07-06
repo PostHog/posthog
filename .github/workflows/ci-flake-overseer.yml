@@ -1,0 +1,66 @@
+name: CI Flake Overseer
+
+on:
+    workflow_run:
+        workflows:
+            - 'Backend CI'
+            - 'Dagster CI'
+            - 'E2E CI Playwright'
+        types: [completed]
+    workflow_dispatch:
+        inputs:
+            run_id:
+                description: 'GitHub Actions run ID to inspect'
+                required: true
+                type: string
+
+# Observe-only: reads job state and emits telemetry, never reruns — so read-only actions scope.
+permissions:
+    actions: read
+    contents: read
+
+env:
+    # Master on/off switch. Defaults to off: set the repo/org variable CI_FLAKE_OVERSEER_ENABLED=true
+    # to record observations to the DevEx project.
+    CI_FLAKE_OVERSEER_ENABLED: ${{ vars.CI_FLAKE_OVERSEER_ENABLED || 'false' }}
+
+jobs:
+    oversee:
+        name: Classify failed jobs
+        # Spin up a runner only for actionable runs: failures/timeouts to classify, or any re-run
+        # attempt (run_attempt > 1, including successes) so we can record rerun outcomes. Manual dispatch always runs.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            github.event.workflow_run.conclusion == 'failure' ||
+            github.event.workflow_run.conclusion == 'timed_out' ||
+            github.event.workflow_run.run_attempt > 1
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GITHUB_TOKEN: ${{ github.token }}
+            # Emits ci_flake_overseer_decision / ci_flake_overseer_rerun_outcome events to the DevEx project.
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
+              continue-on-error: true
+              with:
+                  clean: false
+
+            - name: Classify failed jobs and record rerun outcomes
+              if: steps.checkout.outcome == 'success'
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  INPUT_RUN_ID: ${{ inputs.run_id }}
+              run: |
+                  set -euo pipefail
+                  args=()
+                  if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                    args+=(--run-id "$INPUT_RUN_ID")
+                  fi
+                  python .github/scripts/ci_flake_overseer.py "${args[@]}"
+
+            - name: Report skipped overseer
+              if: steps.checkout.outcome != 'success'
+              run: echo "::notice title=CI flake overseer skipped::Could not checkout the overseer script; leaving the source CI run unchanged."

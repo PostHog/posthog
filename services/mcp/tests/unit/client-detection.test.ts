@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
+    ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
+    ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
+    isClaudeUiHostClient,
     isCliModeEnabledClient,
     isPostHogCodeConsumer,
     isVibeCodingClient,
+    resolveEffectiveClientName,
 } from '@/lib/client-detection'
 
 describe('isCliModeEnabledClient', () => {
@@ -29,6 +33,11 @@ describe('isCliModeEnabledClient', () => {
             ['devin'],
             ['librechat'],
             ['notion'],
+            ['opencode'],
+            ['amp-mcp-client'],
+            ['poke'],
+            ['grok'],
+            ['ando-mcp-gateway'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -52,6 +61,13 @@ describe('isCliModeEnabledClient', () => {
             ['notion-mcp-client'],
             ['Notion'],
             ['Devin'],
+            ['OpenCode'],
+            ['opencode/1.2.3'],
+            ['Amp MCP Client'],
+            ['Poke'],
+            ['Grok'],
+            ['grok-build'],
+            ['Grok/1.2.3'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -114,14 +130,46 @@ describe('isCliModeEnabledClient', () => {
     })
 })
 
+describe('resolveEffectiveClientName', () => {
+    it('prefers the self-reported clientName when present', () => {
+        expect(resolveEffectiveClientName('Cursor', 'ClaudeCode')).toBe('Cursor')
+        expect(resolveEffectiveClientName('claude-code', undefined)).toBe('claude-code')
+    })
+
+    it.each([
+        ['ClaudeCode', 'claude-code'],
+        ['ClaudeAI', 'claude-ai'],
+        ['Cowork', 'cowork'],
+        ['ClaudeDesign', 'claude-design'],
+        // Case- and separator-insensitive, matching normalizeClientName.
+        ['claudecode', 'claude-code'],
+        ['CLAUDE-CODE', 'claude-code'],
+    ])('maps vendor header %s to %s when clientName is absent', (vendorClient, expected) => {
+        expect(resolveEffectiveClientName(undefined, vendorClient)).toBe(expected)
+    })
+
+    it('keeps an unrecognized vendor value rather than dropping it', () => {
+        expect(resolveEffectiveClientName(undefined, 'SomeFutureAnthropicProduct')).toBe('SomeFutureAnthropicProduct')
+    })
+
+    it('returns undefined when neither clientName nor vendorClient is set', () => {
+        expect(resolveEffectiveClientName(undefined, undefined)).toBeUndefined()
+        expect(resolveEffectiveClientName('', undefined)).toBeUndefined()
+    })
+
+    it('falls back to the vendor header when clientName is empty', () => {
+        expect(resolveEffectiveClientName('', 'ClaudeCode')).toBe('claude-code')
+    })
+})
+
 describe('isPostHogCodeConsumer', () => {
     it('matches the exact PostHog Code consumer value', () => {
         expect(isPostHogCodeConsumer(POSTHOG_CODE_CONSUMER)).toBe(true)
         expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
 
-    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
-        'returns false for %s (must be exact match)',
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['posthog_ai'], ['']])(
+        'returns false for %s (must be exact match — posthog_ai is not a UI-apps host)',
         (consumer) => {
             expect(isPostHogCodeConsumer(consumer)).toBe(false)
         }
@@ -165,6 +213,38 @@ describe('isVibeCodingClient', () => {
         for (const fragment of VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS) {
             expect(fragment).toBe(fragment.toLowerCase())
             expect(fragment.length).toBeGreaterThan(0)
+        }
+    })
+})
+
+describe('isClaudeUiHostClient', () => {
+    it.each([['ClaudeAI'], ['claudeai'], ['CLAUDEAI'], ['Anthropic/ClaudeAI']])(
+        'returns true for vendor client %s',
+        (vendorClient) => {
+            expect(isClaudeUiHostClient({ vendorClient })).toBe(true)
+        }
+    )
+
+    it.each([['Claude-User'], ['claude-user'], ['Claude_User']])('returns true for user agent %s', (userAgent) => {
+        expect(isClaudeUiHostClient({ userAgent })).toBe(true)
+    })
+
+    it.each([['ClaudeCode'], ['some-random-tool'], ['']])('returns false for vendor client %s', (vendorClient) => {
+        expect(isClaudeUiHostClient({ vendorClient })).toBe(false)
+    })
+
+    it('returns false when nothing matches', () => {
+        expect(isClaudeUiHostClient({})).toBe(false)
+        expect(isClaudeUiHostClient({ vendorClient: 'ClaudeCode', userAgent: 'node-fetch' })).toBe(false)
+    })
+
+    it('keeps the fragment lists non-empty and lowercased', () => {
+        for (const fragments of [ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS]) {
+            expect(fragments.length).toBeGreaterThan(0)
+            for (const fragment of fragments) {
+                expect(fragment).toBe(fragment.toLowerCase())
+                expect(fragment.length).toBeGreaterThan(0)
+            }
         }
     })
 })
@@ -245,6 +325,29 @@ describe('MCPClientProfile', () => {
             it('uses clientName for non-Anthropic clients (no vendorClient)', () => {
                 expect(new MCPClientProfile({ clientName: 'Claude Desktop' }).isCliModeEnabled()).toBe(false)
             })
+
+            it('enables CLI mode for the ClaudeDesign vendor header', () => {
+                expect(new MCPClientProfile({ vendorClient: 'ClaudeDesign' }).isCliModeEnabled()).toBe(true)
+            })
+
+            it.each([['Claude-User'], ['claude-user'], ['Claude_User']])(
+                'enables CLI mode via the %s user-agent when the vendor header is absent',
+                (userAgent) => {
+                    // Claude.ai web/desktop and some internal Anthropic tools connect
+                    // without x-anthropic-client, identifying only via this user-agent.
+                    expect(new MCPClientProfile({ userAgent }).isCliModeEnabled()).toBe(true)
+                }
+            )
+
+            it.each([['Anthropic/ClaudeAI'], ['Anthropic/Toolbox'], ['anthropic/claudeai']])(
+                'enables CLI mode via the pooled %s clientInfo.name when the vendor header is absent',
+                (clientName) => {
+                    // Header-less Anthropic sessions report only the pooled Anthropic/*
+                    // pool-owner name. Matching it for CLI mode is safe (unlike UI-host
+                    // detection) because every Anthropic product belongs in CLI mode.
+                    expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
+                }
+            )
         })
     })
 
@@ -253,9 +356,12 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ consumer: POSTHOG_CODE_CONSUMER }).isPostHogCodeConsumer()).toBe(true)
         })
 
-        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['']])('returns false for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
-        })
+        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['posthog_ai'], ['']])(
+            'returns false for %s',
+            (consumer) => {
+                expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
+            }
+        )
 
         it('returns false when consumer is undefined', () => {
             expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)
@@ -291,6 +397,54 @@ describe('MCPClientProfile', () => {
             expect(
                 new MCPClientProfile({ clientName: 'mcp-inspector', oauthClientName: 'Lovable' }).isVibeCodingClient()
             ).toBe(true)
+        })
+    })
+
+    describe('isClaudeUiHost()', () => {
+        it('returns true for Claude web/desktop vendor client (x-anthropic-client: ClaudeAI)', () => {
+            expect(new MCPClientProfile({ vendorClient: 'ClaudeAI' }).isClaudeUiHost()).toBe(true)
+        })
+
+        it('returns true via User-Agent (Claude-User) when the vendor header is absent', () => {
+            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isClaudeUiHost()).toBe(true)
+        })
+
+        it('returns false for Claude Code (vendorClient: ClaudeCode)', () => {
+            expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isClaudeUiHost()).toBe(false)
+        })
+
+        it('returns false for Cowork (vendorClient: Cowork)', () => {
+            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(false)
+        })
+
+        it('vendor client wins over a shared Claude-User user-agent', () => {
+            // Cowork and Claude Code can share the `Claude-User` user-agent with
+            // web/desktop, but their vendor client is authoritative and excludes them.
+            expect(new MCPClientProfile({ vendorClient: 'Cowork', userAgent: 'Claude-User' }).isClaudeUiHost()).toBe(
+                false
+            )
+            expect(
+                new MCPClientProfile({ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }).isClaudeUiHost()
+            ).toBe(false)
+        })
+
+        it('does not match the pooled clientName alone — avoids misclassifying Claude Code', () => {
+            // Claude Code's pooled initialize body also says `Anthropic/ClaudeAI`;
+            // only the per-request vendor client / user-agent identify a UI host.
+            expect(new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI' }).isClaudeUiHost()).toBe(false)
+            expect(
+                new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' }).isClaudeUiHost()
+            ).toBe(false)
+        })
+
+        it('returns false when nothing is set', () => {
+            expect(new MCPClientProfile({}).isClaudeUiHost()).toBe(false)
+        })
+
+        it('Claude Code stays a coding agent and is not a UI host', () => {
+            const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
+            expect(profile.isCliModeEnabled()).toBe(true)
+            expect(profile.isClaudeUiHost()).toBe(false)
         })
     })
 
@@ -332,12 +486,14 @@ describe('MCPClientProfile', () => {
             consumer: POSTHOG_CODE_CONSUMER,
             oauthClientName: 'Lovable',
             vendorClient: 'ClaudeCode',
+            userAgent: 'Claude-User',
         })
         expect(profile.clientName).toBe('claude-code')
         expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
         expect(profile.oauthClientName).toBe('Lovable')
         expect(profile.vendorClient).toBe('ClaudeCode')
+        expect(profile.userAgent).toBe('Claude-User')
     })
 })
 

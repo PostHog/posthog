@@ -75,11 +75,10 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
     """Execute a HogQL query against `events` and return results.
 
-    Used by every query in this module that does NOT read the six stripped
-    heavy columns (`input`, `output`, `output_choices`, `input_state`,
-    `output_state`, `tools`). Sweeping these through the resolver too would
-    only buy uniform `ai_query_source` tagging — a deliberate scope choice,
-    not load-bearing for the strip-heavy migration.
+    Used by every query in this module that does NOT read the six heavy columns
+    (`input`, `output`, `output_choices`, `input_state`, `output_state`, `tools`).
+    Sweeping these through the resolver too would only buy uniform
+    `ai_query_source` tagging — a deliberate scope choice.
     """
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
@@ -105,27 +104,27 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     """Execute a HogQL query written against `posthog.ai_events` with the events-table fallback.
 
     Use this only for queries that read heavy columns (`input`, `output`,
-    `output_choices`, `input_state`, `output_state`, `tools`) — those are
-    stripped from `events.properties` post-cutover and only survive in the
-    dedicated `ai_events` table. Other queries should keep using
-    `_execute_hogql` against `events`.
+    `output_choices`, `input_state`, `output_state`, `tools`) — those live only
+    on the dedicated `ai_events` table, not in `events.properties`. Other queries
+    should keep using `_execute_hogql` against `events`.
     """
     from posthog.hogql.parser import parse_select
 
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+    from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 
     query = parse_select(query_str)
 
-    # `execute_with_ai_events_fallback` sets `product=Product.LLM_ANALYTICS`
+    # `query_ai_events` sets `product=Product.LLM_ANALYTICS`
     # internally but not `feature`, so supply it here to keep these eval-report
     # agent reads attributed to background enrichment.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders=placeholders or {},
             team=team,
             query_type="EvalReportAgent",
+            fall_back_to_events=True,
         )
 
     return result.results or []
@@ -461,8 +460,8 @@ def sample_generation_details(
     # $ai_output is empty for chat-format SDK calls (most OpenAI/Anthropic).
     # The actual content lives in $ai_output_choices. Use COALESCE to fall back.
     # Reads heavy `input` / `output` / `output_choices` / `input_state` /
-    # `output_state` — must go through ai_events (post-strip those are NULL on
-    # events). On the events fallback the column rewriter rewrites these
+    # `output_state` — must go through ai_events (those live only there as
+    # native columns). On the events fallback the column rewriter rewrites these
     # native columns back to `properties.$ai_*`, so the coalesce semantics are
     # preserved on both branches.
     from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
@@ -504,12 +503,12 @@ def sample_generation_details(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """,
         placeholders={
-            "ids": ast.Array(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
-            "trace_ids": ast.Array(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+            "ids": ast.Tuple(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
+            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
             "limit": ast.Constant(value=len(ids_to_fetch)),
         },
     )
@@ -620,7 +619,7 @@ def get_generation_detail(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
-            AND toString(uuid) = {generation_id}
+            AND uuid = {generation_id}
         LIMIT 1
         """,
         placeholders=gen_placeholders,
@@ -747,7 +746,7 @@ def get_generation_text_repr(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
-            AND toString(uuid) = {generation_id}
+            AND uuid = {generation_id}
         LIMIT 1
         """,
         placeholders={

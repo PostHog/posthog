@@ -8,7 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { slugify } from 'lib/utils'
+import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'

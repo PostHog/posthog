@@ -7,7 +7,8 @@ import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } fr
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
-import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import {
     ExperimentExposureCriteria,

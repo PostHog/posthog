@@ -7,13 +7,21 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
+import {
+    type DurationHistogramRow,
+    pivotDurationHistogram,
+    type TracingDurationHistogramData,
+    type VisibleDurationRange,
+    visibleDurationRange,
+} from './durationBuckets'
+import { traceLookupDateRange } from './traceLinks'
 import type { tracingDataLogicType } from './tracingDataLogicType'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { type TracingFilters, type TracingOrderBy, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
@@ -47,6 +55,23 @@ function isUserInitiatedError(error: unknown): boolean {
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
+// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
+// scene's current date range — the table is time-keyed, so this is what keeps an id lookup from
+// scanning the whole window. Guard validity: a hand-edited/corrupted ts would otherwise make dayjs
+// throw on toISOString().
+function resolveTraceLookupRange(
+    ts: string | null | undefined,
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+): { date_from?: string | null; date_to?: string | null } {
+    if (ts && dayjs(ts).isValid()) {
+        return traceLookupDateRange(ts)
+    }
+    return {
+        date_from: utcDateRange.date_from ?? '-24h',
+        date_to: utcDateRange.date_to ?? undefined,
+    }
+}
+
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
         posthog.capture('tracing no results returned', { query_type: queryType })
@@ -59,19 +84,25 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
     connect(() => ({
-        values: [tracingFiltersLogic(), ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
+        values: [tracingFiltersLogic(), ['filters', 'orderBy', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
     })),
 
     actions({
         runQuery: true,
         fetchNextPage: true,
+        loadMoreTraceSpans: true,
+        setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressMatchingCounts: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressDurationHistogram: (controller: AbortController | null) => ({ controller }),
         cancelInProgressAggregation: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSpanTree: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
         setSparklineAbortController: (controller: AbortController | null) => ({ controller }),
+        setMatchingCountsAbortController: (controller: AbortController | null) => ({ controller }),
+        setDurationHistogramAbortController: (controller: AbortController | null) => ({ controller }),
         setAggregationAbortController: (controller: AbortController | null) => ({ controller }),
         setSpanTreeAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
@@ -99,6 +130,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         sparklineAbortController: [
             null as AbortController | null,
             { setSparklineAbortController: (_, { controller }) => controller },
+        ],
+        matchingCountsAbortController: [
+            null as AbortController | null,
+            { setMatchingCountsAbortController: (_, { controller }) => controller },
+        ],
+        durationHistogramAbortController: [
+            null as AbortController | null,
+            { setDurationHistogramAbortController: (_, { controller }) => controller },
         ],
         aggregationAbortController: [
             null as AbortController | null,
@@ -143,6 +182,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSparklineFailure: () => false,
             },
         ],
+        durationHistogramLoading: [
+            false as boolean,
+            {
+                fetchDurationHistogram: () => true,
+                fetchDurationHistogramSuccess: () => false,
+                fetchDurationHistogramFailure: () => false,
+            },
+        ],
         aggregationLoading: [
             false as boolean,
             {
@@ -180,9 +227,49 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 clearSpans: () => null,
             },
         ],
+        // Whether the open trace has more spans than the loaded pages (drives the waterfall's
+        // infinite scroll). Reset on every fresh trace open so a small trace can't inherit a
+        // previous trace's "load more" affordance.
+        traceSpansHasMore: [
+            false as boolean,
+            {
+                setTracePagination: (_, { hasMore }) => hasMore,
+                loadTraceSpans: () => false,
+            },
+        ],
+        // Offset to request for the next waterfall page (count of spans already loaded for the trace).
+        traceSpansNextOffset: [
+            0 as number,
+            {
+                setTracePagination: (_, { nextOffset }) => nextOffset ?? 0,
+                loadTraceSpans: () => 0,
+            },
+        ],
+        // The trace + ts the loaded spans belong to, so `loadMoreTraceSpans` can refetch the next
+        // page with the same lookup window without re-deriving it from a since-shifted date range.
+        traceLoadContext: [
+            null as { traceId: string; ts?: string | null } | null,
+            {
+                loadTraceSpans: (_, { traceId, ts }) => ({ traceId, ts }),
+                clearSpans: () => null,
+            },
+        ],
+        // Separate from the loader's own `traceSpansLoading` so paging in more spans shows a small
+        // bottom spinner rather than the drawer's full-trace overlay (see `isLoadingFullTrace`).
+        traceSpansLoadingMore: [
+            false as boolean,
+            {
+                loadMoreTraceSpans: () => true,
+                loadMoreTraceSpansSuccess: () => false,
+                loadMoreTraceSpansFailure: () => false,
+                // A fresh trace fetch must show the full-trace overlay even if a stale load-more is
+                // still in flight.
+                loadTraceSpans: () => false,
+            },
+        ],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         spans: [
             [] as Span[],
             {
@@ -195,10 +282,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
+                            orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
+                            flatSpans: values.filters.viewMode === 'spans',
                             limit: DEFAULT_PAGE_SIZE,
                         },
                         controller.signal
@@ -210,23 +299,32 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     return response.results as Span[]
                 },
                 fetchNextPage: async () => {
-                    if (!values.nextCursor) {
+                    if (!values.hasMoreToLoad) {
                         return values.spans
                     }
 
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
+                    // Duration ordering paginates by offset (it has no keyset cursor); timestamp
+                    // ordering uses the `after` cursor. Offset is the count of rows already shown.
+                    const pagination =
+                        values.filters.orderBy === 'duration'
+                            ? { offset: values.listRows.length }
+                            : { after: values.nextCursor ?? undefined }
+
                     const response = await api.tracing.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
+                            orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
+                            flatSpans: values.filters.viewMode === 'spans',
                             limit: DEFAULT_PAGE_SIZE,
-                            after: values.nextCursor,
+                            ...pagination,
                         },
                         controller.signal
                     )
@@ -241,16 +339,45 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async (traceId: string): Promise<Span[]> => {
+                loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: {
-                            date_from: values.utcDateRange.date_from ?? '-24h',
-                            date_to: values.utcDateRange.date_to ?? undefined,
-                        },
+                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
+                    actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
+                },
+                // Infinite scroll: page in the next batch of the open trace's spans (earliest first)
+                // and append. Guarded so a trailing scroll event after the last page is a no-op.
+                loadMoreTraceSpans: async (): Promise<Span[]> => {
+                    if (!values.traceSpansHasMore || !values.traceLoadContext) {
+                        return values.traceSpans
+                    }
+                    const { traceId, ts } = values.traceLoadContext
+                    const response = await api.tracing.getTrace(traceId, {
+                        dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        offset: values.traceSpansNextOffset,
+                    })
+                    // Bail if a new trace was opened mid-fetch — appending this stale page to the new
+                    // trace's spans would corrupt the waterfall.
+                    if (values.traceLoadContext?.traceId !== traceId) {
+                        return values.traceSpans
+                    }
+                    // Dedupe against what's already loaded: the waterfall keys its tree by span_id,
+                    // so a page that overlaps prior pages wouldn't grow the rendered rows but would
+                    // still balloon this array (and pin the infinite-scroll trigger at the bottom,
+                    // spinning the CPU). If a page adds nothing new, stop paging.
+                    const seen = new Set(values.traceSpans.map((s) => s.span_id))
+                    const newSpans = (response.results as Span[]).filter((s) => !seen.has(s.span_id))
+                    if (newSpans.length === 0) {
+                        actions.setTracePagination(false, null)
+                        return values.traceSpans
+                    }
+                    actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
+                    return [...values.traceSpans, ...newSpans]
                 },
             },
         ],
@@ -354,6 +481,21 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as SparklineRow[],
             {
                 fetchSparkline: async () => {
+                    // The sparkline counts root spans in 'traces' mode and every span in 'spans' mode
+                    // (via rootSpans below), so it depends on the data scope (date range, services,
+                    // filters) AND the view mode — but not on sort or compare. Skip the re-fetch (and
+                    // its spinner overlay) only when a sort/compare toggle re-runs the query without
+                    // changing scope or view mode.
+                    const scopeKey = JSON.stringify([
+                        values.utcDateRange,
+                        values.filters.serviceNames,
+                        values.filters.filterGroup,
+                        values.filters.viewMode,
+                    ])
+                    if (scopeKey === cache.sparklineScope) {
+                        return values.rawSparklineData
+                    }
+
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
@@ -363,11 +505,73 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
                     )
 
                     actions.setSparklineAbortController(null)
+                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                    cache.sparklineScope = scopeKey
+                    return response.results
+                },
+            },
+        ],
+        matchingCounts: [
+            { count: 0, traceCount: 0 } as { count: number; traceCount: number },
+            {
+                fetchMatchingCounts: async () => {
+                    // The count is view-mode-independent — it returns both span and trace counts in one
+                    // response, and the label selects which to show. So a Traces/Spans (or sort/compare)
+                    // toggle that re-runs the query must not re-hit the endpoint; only the data scope
+                    // (date range, services, filters) changes the result. Skip the fetch when unchanged.
+                    const scopeKey = JSON.stringify([
+                        values.utcDateRange,
+                        values.filters.serviceNames,
+                        values.filters.filterGroup,
+                    ])
+                    if (scopeKey === cache.matchingCountsScope) {
+                        return values.matchingCounts
+                    }
+
+                    const controller = new AbortController()
+                    actions.cancelInProgressMatchingCounts(controller)
+
+                    const response = await api.tracing.count(
+                        {
+                            dateRange: values.utcDateRange,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        },
+                        controller.signal
+                    )
+
+                    actions.setMatchingCountsAbortController(null)
+                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                    cache.matchingCountsScope = scopeKey
+                    return response
+                },
+            },
+        ],
+        rawDurationHistogram: [
+            [] as DurationHistogramRow[],
+            {
+                fetchDurationHistogram: async () => {
+                    const controller = new AbortController()
+                    actions.cancelInProgressDurationHistogram(controller)
+
+                    const response = await api.tracing.durationHistogram(
+                        {
+                            dateRange: values.utcDateRange,
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        },
+                        controller.signal
+                    )
+
+                    actions.setDurationHistogramAbortController(null)
                     return response.results
                 },
             },
@@ -426,30 +630,78 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 return { data, labels, dates }
             },
         ],
-        totalSpansMatchingFilters: [
-            (s) => [s.rawSparklineData],
-            (rows: SparklineRow[]): number => rows.reduce((sum, item) => sum + item.count, 0),
+        // Total matching the filters, in the unit the list is showing: distinct traces in 'traces'
+        // mode, individual spans in 'spans' mode. Fed by the count endpoint, which returns both.
+        totalMatchingFilters: [
+            (s) => [s.matchingCounts, s.filters],
+            (matchingCounts: { count: number; traceCount: number }, filters: TracingFilters): number =>
+                filters.viewMode === 'spans' ? matchingCounts.count : matchingCounts.traceCount,
         ],
-        rootSpans: [
-            (s) => [s.spans],
-            (spans: Span[]): Span[] => {
-                return spans.filter((s) => s.is_root_span)
+        durationHistogramData: [
+            (s) => [s.rawDurationHistogram],
+            (rows: DurationHistogramRow[]): TracingDurationHistogramData => pivotDurationHistogram(rows, dataColorVars),
+        ],
+        // The rows the list renders. 'traces' mode shows root spans only (one row per trace);
+        // 'spans' mode shows every matching span (root and child) flat. The fetch passes flatSpans
+        // to match, so in 'spans' mode the loaded spans are already the flat set.
+        listRows: [
+            (s) => [s.spans, s.filters],
+            (spans: Span[], filters: TracingFilters): Span[] => {
+                return filters.viewMode === 'spans' ? spans : spans.filter((s) => s.is_root_span)
+            },
+        ],
+        // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't
+        // re-allocate the durations array — this only changes when the loaded rows do.
+        listRowDurations: [
+            (s) => [s.listRows],
+            (listRows: Span[]): number[] => listRows.map((span) => span.duration_nano),
+        ],
+        // Single owner of the "show the duration histogram?" rule — the fetch decision, the
+        // highlight selector, and the scene's rendering all derive from this one place.
+        // Compare mode replaces the span list with the aggregate table, so the histogram
+        // (which mirrors the duration-sorted list) only applies outside it.
+        isDurationMode: [
+            (s) => [s.filters],
+            (filters: TracingFilters): boolean => filters.orderBy === 'duration' && !filters.compareMode,
+        ],
+
+        // Duration range covered by the currently-visible rows — the duration-space sibling of
+        // visibleRowDateRange below. When sorted by duration the visible rows are contiguous in
+        // duration space, so the histogram can sweep a highlight across the distribution as the
+        // user scrolls (the same interaction the time sparkline has under timestamp sort).
+        visibleRowDurationRange: [
+            (s) => [s.visibleRowRange, s.listRowDurations, s.isDurationMode],
+            (
+                visibleRowRange: VisibleRowRange | null,
+                listRowDurations: number[],
+                isDurationMode: boolean
+            ): VisibleDurationRange | null => {
+                if (!isDurationMode) {
+                    return null
+                }
+                return visibleDurationRange(visibleRowRange, listRowDurations)
             },
         ],
 
-        // Date range covered by the currently-visible (scrolled-into-view) rows. Mirrors the
-        // logs viewer so the sparkline can highlight the window the list is showing. Values are
-        // always ordered date_from <= date_to regardless of the list's sort order.
+        // Date range covered by the currently-visible (scrolled-into-view) rows, so the sparkline can
+        // highlight the window the list is showing (mirrors the logs viewer). Only meaningful when the
+        // list is time-ordered — under duration (or any non-timestamp) sort, consecutive rows aren't
+        // contiguous in time, so the highlight would be meaningless. Suppress it then; the duration
+        // histogram (visibleRowDurationRange above) covers the duration-sorted case.
         visibleRowDateRange: [
-            (s) => [s.visibleRowRange, s.rootSpans],
-            (visibleRowRange: VisibleRowRange | null, rootSpans: Span[]): VisibleSpanTimeRange | null => {
-                if (!visibleRowRange || rootSpans.length === 0) {
+            (s) => [s.visibleRowRange, s.listRows, s.orderBy],
+            (
+                visibleRowRange: VisibleRowRange | null,
+                listRows: Span[],
+                orderBy: TracingOrderBy
+            ): VisibleSpanTimeRange | null => {
+                if (orderBy !== 'timestamp' || !visibleRowRange || listRows.length === 0) {
                     return null
                 }
-                const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, rootSpans.length - 1))
-                const stopIndex = Math.max(0, Math.min(visibleRowRange.stopIndex, rootSpans.length - 1))
-                const a = rootSpans[startIndex]?.timestamp
-                const b = rootSpans[stopIndex]?.timestamp
+                const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, listRows.length - 1))
+                const stopIndex = Math.max(0, Math.min(visibleRowRange.stopIndex, listRows.length - 1))
+                const a = listRows[startIndex]?.timestamp
+                const b = listRows[stopIndex]?.timestamp
                 if (!a || !b) {
                     return null
                 }
@@ -467,7 +719,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     listeners(({ actions, values }) => ({
         runQuery: () => {
             actions.clearSpans()
+            // The time sparkline is always fetched — it keeps the chart warm when the user flips back
+            // to timestamp sort. Duration sort additionally fetches the histogram that replaces it
+            // visually. The count endpoint feeds the "N traces/spans matching filters" label.
             actions.fetchSparkline()
+            actions.fetchMatchingCounts()
+            if (values.isDurationMode) {
+                actions.fetchDurationHistogram()
+            }
             if (values.filters.compareMode) {
                 actions.fetchAggregation()
             } else {
@@ -486,6 +745,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSparklineAbortController(controller)
         },
+        cancelInProgressMatchingCounts: ({ controller }) => {
+            if (values.matchingCountsAbortController !== null) {
+                values.matchingCountsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setMatchingCountsAbortController(controller)
+        },
+        cancelInProgressDurationHistogram: ({ controller }) => {
+            if (values.durationHistogramAbortController !== null) {
+                values.durationHistogramAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+            }
+            actions.setDurationHistogramAbortController(controller)
+        },
         cancelInProgressAggregation: ({ controller }) => {
             if (values.aggregationAbortController !== null) {
                 values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
@@ -499,7 +770,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             actions.setSpanTreeAbortController(controller)
         },
         fetchSpansSuccess: () => {
-            captureTracingResults(values.rootSpans.length, 'spans')
+            captureTracingResults(values.listRows.length, 'spans')
         },
         fetchAggregationSuccess: ({ aggregation }) => {
             captureTracingResults(aggregation.current.length, 'aggregation')
@@ -510,9 +781,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
-        fetchSparklineFailure: ({ error }) => {
+        fetchMatchingCountsFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
-                // Sparkline failures are non-critical, don't show toast
+                lemonToast.error(`Failed to load the matching count: ${error}`)
             }
         },
         fetchAggregationFailure: ({ error }) => {
@@ -525,6 +796,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 lemonToast.error(`Failed to load call tree: ${error}`)
             }
         },
+        loadMoreTraceSpansFailure: ({ error }) => {
+            if (!isUserInitiatedError(error)) {
+                lemonToast.error(`Failed to load more spans: ${error}`)
+            }
+        },
     })),
 
     events(({ values }) => ({
@@ -534,6 +810,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             if (values.sparklineAbortController) {
                 values.sparklineAbortController.abort('unmounting component')
+            }
+            if (values.matchingCountsAbortController) {
+                values.matchingCountsAbortController.abort('unmounting component')
+            }
+            if (values.durationHistogramAbortController) {
+                values.durationHistogramAbortController.abort('unmounting component')
             }
             if (values.spanTreeAbortController) {
                 values.spanTreeAbortController.abort('unmounting component')

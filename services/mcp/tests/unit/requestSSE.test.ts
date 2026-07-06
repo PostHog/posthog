@@ -2,12 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 
-vi.mock('@/api/rate-limiter', () => ({
-    globalRateLimiter: {
-        throttle: vi.fn().mockResolvedValue(undefined),
-    },
-}))
-
 function createMockStream(chunks: string[]): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder()
     let index = 0

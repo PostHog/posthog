@@ -156,6 +156,17 @@ export type WizardSessionsListParams = {
     workflow_id?: string
 }
 
+export type WizardSessionsLatestRetrieveParams = {
+    /**
+     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     */
+    skill_id?: string
+    /**
+     * Filter to a single workflow (e.g. 'posthog-integration').
+     */
+    workflow_id: string
+}
+
 export type WizardSessionsStreamRetrieveParams = {
     skill_id?: string
     workflow_id: string

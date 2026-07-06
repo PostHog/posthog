@@ -3,6 +3,10 @@ use serde::ser::{Serialize, Serializer};
 
 pub trait IngestableEvent: serde::de::DeserializeOwned + Send + Sync + 'static {
     fn team_id(&self) -> i64;
+
+    fn decode(payload: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(payload)
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -100,5 +104,14 @@ pub struct PropertyValueMessage {
 impl IngestableEvent for PropertyValueMessage {
     fn team_id(&self) -> i64 {
         self.team_id
+    }
+
+    // Intermediate-topic records may be compact binary (magic-prefixed) or
+    // JSON, depending on the producer's configured wire format.
+    fn decode(payload: &[u8]) -> Result<Self, serde_json::Error> {
+        if payload.starts_with(&crate::wire::MAGIC) {
+            return crate::wire::decode(payload).map_err(de::Error::custom);
+        }
+        serde_json::from_slice(payload)
     }
 }

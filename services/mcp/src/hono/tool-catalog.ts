@@ -25,6 +25,25 @@ export type { PreBuiltTool }
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
+/**
+ * Convert a tool's zod schema to the MCP `inputSchema` wire shape. Single source
+ * for every advertised schema (catalog entries and the `render-ui` umbrella entry)
+ * so what `tools/list` advertises cannot drift from what the executor validates.
+ */
+export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
+    let jsonSchema = toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>
+    delete jsonSchema['$schema']
+    delete jsonSchema['additionalProperties']
+    // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
+    // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
+    // Add it so the schema satisfies the MCP tool contract; the union constraint
+    // still applies via the nested anyOf/oneOf.
+    if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
+        jsonSchema = { type: 'object', ...jsonSchema }
+    }
+    return jsonSchema as McpTool['inputSchema']
+}
+
 export class ToolCatalog {
     private _preBuilt: Map<string, PreBuiltTool> = new Map()
     private _entries: McpTool[] = []
@@ -80,18 +99,9 @@ export class ToolCatalog {
                 continue
             }
 
-            let jsonSchema: Record<string, unknown>
+            let jsonSchema: McpTool['inputSchema']
             try {
-                jsonSchema = toJsonSchemaCompat(preBuilt.base.schema, { strictUnions: true }) as Record<string, unknown>
-                delete jsonSchema['$schema']
-                delete jsonSchema['additionalProperties']
-                // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
-                // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
-                // Add it so the schema satisfies the MCP tool contract; the union constraint
-                // still applies via the nested anyOf/oneOf.
-                if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
-                    jsonSchema = { type: 'object', ...jsonSchema }
-                }
+                jsonSchema = toMcpInputSchema(preBuilt.base.schema)
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }
@@ -108,7 +118,7 @@ export class ToolCatalog {
                 name,
                 title: def.title,
                 description: def.description,
-                inputSchema: jsonSchema as McpTool['inputSchema'],
+                inputSchema: jsonSchema,
                 annotations: def.annotations as McpTool['annotations'],
                 ...(meta ? { _meta: meta } : {}),
             }

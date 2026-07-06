@@ -19,12 +19,13 @@ Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_v
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
 join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
 is not on that view). The `SignalsScoutSignalExtra`
-shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
-in `products/signals/backend/api.py` validates against.
+shape (defined in `products/signals/backend/contracts.py`) is what `SIGNAL_VARIANT_LOOKUP`
+validates against.
 """
 
 from __future__ import annotations
 
+import re
 import uuid
 import logging
 from dataclasses import asdict, dataclass
@@ -36,6 +37,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,16 @@ MAX_EVIDENCE_ENTRIES = 20
 # judgment. Pinned to 1.0 so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD`
 # (default 1.0) immediately. See products/signals/backend/scout_harness/AGENTS.md.
 SCOUT_SIGNAL_WEIGHT = 1.0
+
+# Tags are slugs: lowercase kebab-case so the per-scout vocabulary converges instead of
+# fragmenting on casing/punctuation (`cost_spike` vs `Cost Spike` vs `cost-spike`). The
+# harness normalizes rather than rejects near-misses — agents shouldn't burn a turn on a
+# formatting 400 — but an unsalvageable tag (empty after normalization, or overlong) is a
+# hard error so the vocabulary never accretes junk entries.
+MAX_TAGS_PER_FINDING = 10
+MAX_TAG_LENGTH = 50
+_TAG_INVALID_CHARS = re.compile(r"[^a-z0-9-]+")
+_TAG_HYPHEN_RUNS = re.compile(r"-{2,}")
 
 # Cap on a caller-supplied `finding_id`. The deterministic `source_id` is
 # `run:<uuid>:finding:<finding_id>` (~49 fixed chars), and both `finding_id` and `source_id`
@@ -90,11 +102,17 @@ class EmitResult:
       - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
+
+    `remediation` carries a one-line, scout-actionable next step whenever the skip is one the
+    scout can act on (see `EMIT_SKIP_REMEDIATION`); None when emitted normally or nothing is
+    actionable. It exists so a gate-skipped emit isn't a dead end — the scout learns why its
+    finding was dropped and how to unblock it instead of burning the run producing a lost finding.
     """
 
     finding_id: str
     emitted: bool
     skipped_reason: str | None
+    remediation: str | None = None
 
 
 async def emit_finding(
@@ -110,6 +128,7 @@ async def emit_finding(
     time_range: tuple[str, str] | None = None,
     mcp_trace_id: str | None = None,
     finding_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> EmitResult:
     """Async entry: route DB calls through `database_sync_to_async` so async callers
     (the harness runner inside Temporal) don't block the event loop.
@@ -119,9 +138,12 @@ async def emit_finding(
     _assert_team_owns_run(team, run)
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
+    tags = normalize_tags(tags)
+    task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
+        task_id=task_id,
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -132,6 +154,7 @@ async def emit_finding(
         dedupe_keys=dedupe_keys,
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
+        tags=tags,
     )
     attempt_extra = _log_extra(
         team_id=team.id,
@@ -152,7 +175,9 @@ async def emit_finding(
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
-        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
+        return EmitResult(
+            finding_id=finding_id, emitted=False, skipped_reason=preflight, remediation=remediation_for_skip(preflight)
+        )
 
     # Deferred to keep the harness module import lightweight — emitting is an opt-in path here.
     from products.signals.backend.facade.api import emit_signal
@@ -175,6 +200,7 @@ async def emit_finding(
         confidence=confidence,
         severity=severity,
         source_id=source_id,
+        tags=tags,
     )
     logger.info(
         "signals_scout.emit: emitted",
@@ -196,6 +222,7 @@ def emit_finding_sync(
     time_range: tuple[str, str] | None = None,
     mcp_trace_id: str | None = None,
     finding_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> EmitResult:
     """Sync entry used by the DRF view path.
 
@@ -207,9 +234,12 @@ def emit_finding_sync(
     _assert_team_owns_run(team, run)
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
+    tags = normalize_tags(tags)
+    task_id = _resolve_task_id(run)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
+        task_id=task_id,
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -220,6 +250,7 @@ def emit_finding_sync(
         dedupe_keys=dedupe_keys,
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
+        tags=tags,
     )
     attempt_extra = _log_extra(
         team_id=team.id,
@@ -240,7 +271,9 @@ def emit_finding_sync(
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
-        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
+        return EmitResult(
+            finding_id=finding_id, emitted=False, skipped_reason=preflight, remediation=remediation_for_skip(preflight)
+        )
 
     from products.signals.backend.facade.api import emit_signal
 
@@ -262,6 +295,7 @@ def emit_finding_sync(
         confidence=confidence,
         severity=severity,
         source_id=source_id,
+        tags=tags,
     )
     logger.info(
         "signals_scout.emit: emitted",
@@ -287,6 +321,34 @@ def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
         raise RuntimeError(f"emit_finding: team {team.id} does not own run {run.id} (team {run.team_id})")
 
 
+def normalize_tags(tags: list[str] | None) -> list[str] | None:
+    """Normalize agent-supplied tags to deduped lowercase kebab-case slugs.
+
+    Whitespace/underscores become hyphens, anything outside `[a-z0-9-]` is stripped,
+    hyphen runs collapse, and duplicates (post-normalization) are dropped preserving
+    first-seen order. A tag that normalizes to nothing or exceeds `MAX_TAG_LENGTH`
+    raises `InvalidEmitError` — silently dropping it would make the agent believe a
+    tag stuck when it didn't. Returns None for None/empty input so `_build_extra`
+    omits the field entirely.
+    """
+    if not tags:
+        return None
+    if len(tags) > MAX_TAGS_PER_FINDING:
+        raise InvalidEmitError(f"tags has {len(tags)} entries, max is {MAX_TAGS_PER_FINDING}")
+    normalized: list[str] = []
+    for raw in tags:
+        slug = re.sub(r"[\s_]+", "-", raw.strip().lower())
+        slug = _TAG_INVALID_CHARS.sub("", slug)
+        slug = _TAG_HYPHEN_RUNS.sub("-", slug).strip("-")
+        if not slug:
+            raise InvalidEmitError(f"tag {raw!r} is empty after slug normalization")
+        if len(slug) > MAX_TAG_LENGTH:
+            raise InvalidEmitError(f"tag {raw!r} exceeds {MAX_TAG_LENGTH} chars after normalization ({len(slug)})")
+        if slug not in normalized:
+            normalized.append(slug)
+    return normalized
+
+
 def _validate_inputs(
     description: str,
     confidence: float,
@@ -305,10 +367,22 @@ def _validate_inputs(
         raise InvalidEmitError(f"finding_id exceeds {MAX_FINDING_ID_LENGTH} chars ({len(finding_id)})")
 
 
+def _resolve_task_id(run: SignalScoutRun) -> str | None:
+    """The parent `tasks.Task` id for this run's `TaskRun`, used to deep-link the inbox card to the
+    run. None when the run isn't bridged to a TaskRun yet. Sync-only — wrap callers in async paths."""
+    if not run.task_run_id:
+        return None
+    # Team-scope the lookup: the bridge run is already team-owned, but scoping the TaskRun query keeps
+    # the resolution fail-closed against cross-team ids.
+    task_id = tasks_facade.get_task_id_for_run(run.task_run_id, run.team_id)
+    return str(task_id) if task_id else None
+
+
 def _build_extra(
     *,
     run_id: str,
     task_run_id: str,
+    task_id: str | None,
     finding_id: str,
     skill_name: str,
     skill_version: int,
@@ -319,10 +393,11 @@ def _build_extra(
     dedupe_keys: list[str] | None,
     time_range: tuple[str, str] | None,
     mcp_trace_id: str | None,
+    tags: list[str] | None,
 ) -> dict[str, Any]:
     """Shape the extra payload to match `SignalsScoutSignalExtra` (extra='forbid'),
     omitting optional fields when not provided so pydantic doesn't see a `None` for
-    fields that don't accept it."""
+    fields that don't accept it. `tags` must already be normalized via `normalize_tags`."""
     extra: dict[str, Any] = {
         "scout_run_id": run_id,
         "task_run_id": task_run_id,
@@ -332,12 +407,16 @@ def _build_extra(
         "confidence": confidence,
         "evidence": [asdict(e) for e in evidence],
     }
+    if task_id is not None:
+        extra["task_id"] = task_id
     if hypothesis is not None:
         extra["hypothesis"] = hypothesis
     if severity is not None:
         extra["severity"] = severity
     if dedupe_keys is not None:
         extra["dedupe_keys"] = list(dedupe_keys)
+    if tags is not None:
+        extra["tags"] = list(tags)
     if time_range is not None:
         extra["time_range"] = {"date_from": time_range[0], "date_to": time_range[1]}
     if mcp_trace_id is not None:
@@ -358,6 +437,7 @@ def _record_emit(
     confidence: float,
     severity: str | None,
     source_id: str,
+    tags: list[str] | None,
 ) -> None:
     """Persist the emit: bump the run's tally (`emitted_finding_ids` + `emitted_count`) and
     write a `SignalScoutEmission` row carrying the finding's content, in one transaction.
@@ -391,6 +471,7 @@ def _record_emit(
                 confidence=confidence,
                 severity=severity,
                 source_id=source_id,
+                tags=tags or [],
             )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
@@ -456,3 +537,35 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     if not SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE):
         return "source_disabled"
     return None
+
+
+# One-line, scout-actionable next step for each preflight skip reason. A gate-skipped emit
+# otherwise hands back a bare reason code with no remediation — the scout can't tell whether the
+# block is fixable (an org-level consent gate) or terminal, so it burns a full run producing a
+# finding that is silently dropped before the inbox with no way to know why or how to fix it.
+# `None` for reasons the scout itself can't act on (e.g. a config deleted mid-run).
+EMIT_SKIP_REMEDIATION: dict[str, str | None] = {
+    "scout_config_missing": None,
+    "scout_emit_disabled": (
+        "This scout is in dry-run: its config has emit disabled. Enable emit on the scout's config "
+        "(scout/config `emit=true`) for its findings to reach the inbox."
+    ),
+    "ai_processing_not_approved": (
+        "This organization has not approved AI data processing, so no scout finding can reach the "
+        "inbox. An org admin must turn on the 'Enable PostHog features that use third-party AI "
+        "services' toggle in Organization settings → AI service providers."
+    ),
+    "source_disabled": (
+        "The signals_scout source is disabled for this team, so findings are dropped before the "
+        "inbox. Re-enable it in the Signals source configuration."
+    ),
+}
+
+
+def remediation_for_skip(skipped_reason: str | None) -> str | None:
+    """One-line next step for a preflight skip reason, or None when emitted normally / nothing the
+    scout can act on. Keeps the pointer authoritative in one place so the emit skip response and the
+    project-profile eligibility section never drift."""
+    if skipped_reason is None:
+        return None
+    return EMIT_SKIP_REMEDIATION.get(skipped_reason)

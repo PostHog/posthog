@@ -117,21 +117,6 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
-        AIObservabilitySkills: {
-            import: () => import('./frontend/skills/LLMSkillsScene'),
-            projectBased: true,
-            name: 'Skills',
-            description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
-            layout: 'app-container',
-            iconType: 'llm_prompts',
-        },
-        AIObservabilitySkill: {
-            import: () => import('./frontend/skills/LLMSkillScene'),
-            projectBased: true,
-            name: 'Skill',
-            layout: 'app-container',
-            iconType: 'llm_prompts',
-        },
         AIObservabilityClusters: {
             import: () => import('./frontend/clusters/AIObservabilityClustersScene'),
             projectBased: true,
@@ -159,7 +144,7 @@ export const manifest: ProductManifest = {
         '/ai-observability/tools': ['AIObservability', 'aiObservabilityTools'],
         '/ai-observability/sentiment': ['AIObservability', 'aiObservabilitySentiment'],
         '/ai-observability/sessions': ['AIObservability', 'aiObservabilitySessions'],
-        '/ai-observability/sessions/:id': ['AIObservabilitySession', 'aiObservability'],
+        '/ai-observability/sessions/:id': ['AIObservability', 'aiObservabilitySessions'],
         '/ai-observability/playground': ['AIObservabilityPlayground', 'aiObservabilityPlayground'],
         '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
@@ -181,8 +166,6 @@ export const manifest: ProductManifest = {
         '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
         '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
         '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
-        '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
-        '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     },
     redirects: {
         '/ai-observability': (_params, searchParams, hashParams) =>
@@ -286,10 +269,6 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
         '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityPrompt(params.name), searchParams, hashParams).url,
-        '/llm-analytics/skills': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
-        '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
         '/llm-observability': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
         '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -356,9 +335,6 @@ export const manifest: ProductManifest = {
         aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
         aiObservabilityPrompts: (): string => '/prompt-management/prompts',
         aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
-        aiObservabilitySkills: (): string => '/prompt-management/skills',
-        aiObservabilitySkill: (name: string, params?: { file?: string; version?: number }): string =>
-            combineUrl(`/prompt-management/skills/${name}`, params).url,
         aiObservabilityClusters: (runId?: string): string =>
             runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
         aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
@@ -425,7 +401,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityEvaluations(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
             sceneKey: 'AIObservabilityEvaluations',
         },
         {
@@ -448,21 +423,8 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityPrompts(),
-            flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
             tags: ['beta'],
             sceneKey: 'AIObservabilityPrompts',
-        },
-        {
-            path: 'Skills',
-            intents: [ProductKey.LLM_PROMPTS],
-            category: ProductItemCategory.AI_ENGINEERING,
-            type: 'llm_skills',
-            iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
-            href: urls.aiObservabilitySkills(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-            tags: ['beta'],
-            sceneKey: 'AIObservabilitySkills',
         },
     ],
 }

@@ -162,9 +162,9 @@ describe('experimentActivityDescriber', () => {
                 expected: 'excluded variant test-3 from analysis and re-included variant test-2 in analysis',
             },
             {
-                name: 'falls back to updated parameters when excluded_variants is unchanged',
-                before: { excluded_variants: ['test-2'] },
-                after: { excluded_variants: ['test-2'] },
+                name: 'falls back to updated parameters for other parameter changes',
+                before: { excluded_variants: ['test-2'], rollout_percentage: 50 },
+                after: { excluded_variants: ['test-2'], rollout_percentage: 75 },
                 expected: 'updated parameters',
             },
             {
@@ -194,6 +194,54 @@ describe('experimentActivityDescriber', () => {
                 })
             )
             expect(textOf(result)).toContain(expected)
+        })
+    })
+
+    describe('running_time_calculation rows', () => {
+        it('describes a running_time_calculation change', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'running_time_calculation',
+                                before: { minimum_detectable_effect: 20 },
+                                after: { minimum_detectable_effect: 30 },
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain('updated the running time calculation')
+        })
+
+        it('omits the parameters entry when only calculator keys changed', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'parameters',
+                                before: { excluded_variants: ['test-2'], minimum_detectable_effect: 20 },
+                                after: { excluded_variants: ['test-2'], minimum_detectable_effect: 30 },
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).not.toContain('updated parameters')
         })
     })
 })

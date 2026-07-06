@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, safeFetch, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -95,5 +95,44 @@ describe('utils', () => {
                 expect(result).toBe(expected)
             })
         })
+    })
+
+    describe('safeFetch', () => {
+        const originalFetch = global.fetch
+
+        afterEach(() => {
+            global.fetch = originalFetch
+        })
+
+        it('passes a real Response through unchanged', async () => {
+            const realResponse = new Response('{}', { status: 200 })
+            global.fetch = jest.fn(() => Promise.resolve(realResponse)) as jest.Mock
+
+            const result = await safeFetch('https://example.com/api')
+
+            expect(result).toBe(realResponse)
+        })
+
+        it('passes a response-like object through unchanged', async () => {
+            const responseLike = { status: 200, ok: true, json: () => Promise.resolve({}) }
+            global.fetch = jest.fn(() => Promise.resolve(responseLike)) as jest.Mock
+
+            const result = await safeFetch('https://example.com/api')
+
+            expect(result).toBe(responseLike)
+        })
+
+        it.each([undefined, null, 'not-a-response'])(
+            'normalizes a non-object value (%p) into a synthetic failed response',
+            async (resolved) => {
+                global.fetch = jest.fn(() => Promise.resolve(resolved)) as jest.Mock
+
+                const result = await safeFetch('https://example.com/api')
+
+                expect(result).toBeInstanceOf(Response)
+                expect(result.ok).toBe(false)
+                expect(result.status).toBe(502)
+            }
+        )
     })
 })

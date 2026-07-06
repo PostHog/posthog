@@ -24,7 +24,7 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const realisticMetadata =
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 
@@ -34,7 +34,8 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true },
+    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    renderUiEnabled: true,
 }
 
 describe('InstructionsFormatter', () => {
@@ -84,11 +85,11 @@ describe('InstructionsFormatter', () => {
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
             const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+            expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
             for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
                 const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on this MCP server')
+                expect(result).not.toContain('### Sharing feedback on PostHog')
             }
         })
     })
@@ -193,13 +194,29 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+                expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
                 const withoutFeedback = formatter.buildExecCommandReference(
                     { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
                     { stripEnvContext }
                 )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
+            }
+        })
+
+        it('includes the rendering section only when render-ui is available for the client', () => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const withRendering = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(withRendering).toContain('### Rendering visualizations')
+
+                // The raw flag being on isn't enough — a non-UI-host client (e.g. Claude Code)
+                // resolves `renderUiEnabled` to false and must not see the rendering section.
+                const withoutRendering = formatter.buildExecCommandReference(
+                    { ...fullCtx, renderUiEnabled: false },
+                    { stripEnvContext }
+                )
+                expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
         })
     })

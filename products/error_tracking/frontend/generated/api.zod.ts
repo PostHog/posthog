@@ -9,6 +9,8 @@
  */
 import * as zod from 'zod'
 
+export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
+
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
@@ -27,6 +29,12 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                 .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
         })
         .describe('User or role to assign matching issues to.'),
+    order_key: zod
+        .number()
+        .default(errorTrackingAssignmentRulesCreateBodyOrderKeyDefault)
+        .describe(
+            'Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order.'
+        ),
 })
 
 export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod.object({
@@ -87,23 +95,70 @@ export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
         .describe('User or role to assign matching issues to.'),
 })
 
-export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
-
 export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
-    order_key: zod
-        .number()
-        .min(errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax)
-        .optional(),
+    order_key: zod.number().optional(),
     disabled_data: zod.unknown().optional(),
 })
 
+export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .unknown()
+        .optional()
+        .describe('Property-group filters that define which incoming error events bypass rate limiting.'),
+    order_key: zod
+        .number()
+        .optional()
+        .describe("Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order."),
+    disabled_data: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.'
+        ),
+})
+
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
-    integration_id: zod.number(),
-    config: zod.unknown(),
-    issue: zod.uuid(),
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    config: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+        ),
+    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
 })
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -162,177 +217,142 @@ export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
 })
 
-export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
-
 export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
     description: zod.string().nullish(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax)
-        .optional(),
+    order_key: zod.number().optional(),
     disabled_data: zod.unknown().optional(),
-})
-
-export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
 })
 
 export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
+    name: zod.string().nullish().describe('Optional issue display name.'),
+    description: zod.string().nullish().describe('Optional issue description.'),
 })
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
+    name: zod.string().nullish().describe('Optional issue display name.'),
+    description: zod.string().nullish().describe('Optional issue description.'),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
+export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid().optional(),
+        status: zod.string().optional(),
+        name: zod.string().nullish(),
+        description: zod.string().nullish(),
+        first_seen: zod.iso.datetime({ offset: true }).nullish(),
+        assignee: zod
+            .union([
+                zod.object({
+                    id: zod.union([zod.number(), zod.string(), zod.null()]),
+                    type: zod.string(),
                 }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
-})
+                zod.null(),
+            ])
+            .optional(),
+        external_issues: zod
+            .array(
+                zod.object({
+                    id: zod.uuid().describe('Unique ID of the external reference.'),
+                    integration: zod
+                        .object({
+                            id: zod.number().describe('ID of the integration backing this external reference.'),
+                            kind: zod
+                                .string()
+                                .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                            display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                        })
+                        .describe('The connected integration this reference was created through.'),
+                    integration_id: zod
+                        .number()
+                        .describe(
+                            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                        ),
+                    config: zod
+                        .record(zod.string(), zod.string())
+                        .describe(
+                            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                        ),
+                    issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                    external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+                })
+            )
+            .optional(),
+        cohort: zod
+            .union([
+                zod.object({
+                    id: zod.number(),
+                    name: zod.string(),
+                }),
+                zod.null(),
+            ])
+            .optional(),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
-export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
+export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        status: zod.string(),
+        name: zod.string().nullable(),
+        description: zod.string().nullable(),
+        first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        assignee: zod.union([
+            zod.object({
+                id: zod.union([zod.number(), zod.string(), zod.null()]),
+                type: zod.string(),
             }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
-})
+            zod.null(),
+        ]),
+        external_issues: zod.array(
+            zod.object({
+                id: zod.uuid().describe('Unique ID of the external reference.'),
+                integration: zod
+                    .object({
+                        id: zod.number().describe('ID of the integration backing this external reference.'),
+                        kind: zod
+                            .string()
+                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                    })
+                    .describe('The connected integration this reference was created through.'),
+                integration_id: zod
+                    .number()
+                    .describe(
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                    ),
+                config: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                    ),
+                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+            })
+        ),
+        cohort: zod.union([
+            zod.object({
+                id: zod.number(),
+                name: zod.string(),
+            }),
+            zod.null(),
+        ]),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
 export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('IDs of the issues to merge into the current issue.'),
@@ -357,35 +377,55 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
-export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
+export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        status: zod.string(),
+        name: zod.string().nullable(),
+        description: zod.string().nullable(),
+        first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        assignee: zod.union([
+            zod.object({
+                id: zod.union([zod.number(), zod.string(), zod.null()]),
+                type: zod.string(),
             }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
-})
+            zod.null(),
+        ]),
+        external_issues: zod.array(
+            zod.object({
+                id: zod.uuid().describe('Unique ID of the external reference.'),
+                integration: zod
+                    .object({
+                        id: zod.number().describe('ID of the integration backing this external reference.'),
+                        kind: zod
+                            .string()
+                            .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
+                        display_name: zod.string().describe('Human-readable name of the connected integration.'),
+                    })
+                    .describe('The connected integration this reference was created through.'),
+                integration_id: zod
+                    .number()
+                    .describe(
+                        "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+                    ),
+                config: zod
+                    .record(zod.string(), zod.string())
+                    .describe(
+                        'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                    ),
+                issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
+                external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
+            })
+        ),
+        cohort: zod.union([
+            zod.object({
+                id: zod.number(),
+                name: zod.string(),
+            }),
+            zod.null(),
+        ]),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
 /**
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
@@ -520,6 +560,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -545,7 +586,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -716,6 +757,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -741,7 +783,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -814,25 +856,52 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source\/file path text.'),
 })
 
+export const errorTrackingReleasesCreateBodyHashIdMax = 128
+
 export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().optional(),
-    version: zod.string(),
-    project: zod.string(),
+    version: zod.string().describe('Human-readable release version, e.g. a semver string or build number.'),
+    project: zod.string().describe('Identifier of the project this release belongs to.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesCreateBodyHashIdMax)
+        .nullish()
+        .describe('Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Optional free-form metadata object stored alongside the release.'),
 })
+
+export const errorTrackingReleasesUpdateBodyHashIdMax = 128
 
 export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().optional(),
-    version: zod.string(),
-    project: zod.string(),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesUpdateBodyHashIdMax)
+        .nullish()
+        .describe('Release hash (e.g. a git commit SHA). Omit to preserve the current value.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
+export const errorTrackingReleasesPartialUpdateBodyHashIdMax = 128
+
 export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string().optional(),
-    metadata: zod.unknown().optional(),
-    version: zod.string().optional(),
-    project: zod.string().optional(),
+    version: zod.string().nullish().describe('Human-readable release version. Omit to preserve the current value.'),
+    project: zod.string().nullish().describe('Project identifier. Omit to preserve the current value.'),
+    hash_id: zod
+        .string()
+        .max(errorTrackingReleasesPartialUpdateBodyHashIdMax)
+        .nullish()
+        .describe('Release hash (e.g. a git commit SHA). Omit to preserve the current value.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -881,10 +950,11 @@ export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /*
 })
 
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
-    contents: zod.unknown(),
-    resolved: zod.boolean(),
-    context: zod.unknown().optional(),
-    symbol_set_ref: zod.string().optional(),
+    raw_ids: zod.array(zod.string()).describe("Raw frame IDs in 'hash\/part' format to resolve in a single request."),
+    symbol_set: zod
+        .string()
+        .nullish()
+        .describe('Optional symbol set reference to scope the lookup to a single symbol set.'),
 })
 
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
@@ -951,16 +1021,9 @@ export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zo
         ),
 })
 
-export const errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
-
 export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod.unknown().optional(),
-    order_key: zod
-        .number()
-        .min(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMax)
-        .optional(),
+    order_key: zod.number().optional(),
     disabled_data: zod.unknown().optional(),
     sampling_rate: zod.number().optional(),
 })

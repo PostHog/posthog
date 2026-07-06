@@ -1,7 +1,7 @@
-import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
-import geminiImage from 'scenes/onboarding/sdks/logos/gemini.svg'
-import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
-import { OpenRouterLogo } from 'scenes/onboarding/sdks/logos/OpenRouterLogo'
+import { AnthropicLogo } from 'scenes/onboarding/legacy/sdks/logos/AnthropicLogo'
+import geminiImage from 'scenes/onboarding/legacy/sdks/logos/gemini.svg'
+import { OpenAILogo } from 'scenes/onboarding/legacy/sdks/logos/OpenAILogo'
+import { OpenRouterLogo } from 'scenes/onboarding/legacy/sdks/logos/OpenRouterLogo'
 
 import azureImage from 'public/services/azure.png'
 
@@ -11,6 +11,7 @@ const PROVIDER_IMAGES: Partial<Record<LLMProvider, string>> = {
     gemini: geminiImage,
     together_ai: 'https://res.cloudinary.com/dmukukwp6/image/upload/together_ai_49ac1a57fb.svg',
     fireworks: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
+    minimax: 'https://res.cloudinary.com/dmukukwp6/image/upload/minimax_8fc73dbf8b.svg',
     azure_openai: azureImage,
 }
 

@@ -1,5 +1,6 @@
+from typing import TypeIs
+
 from rest_framework.exceptions import ValidationError
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     ActionsNode,

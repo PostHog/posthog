@@ -273,6 +273,99 @@ describe('utils', () => {
             omitResponseFields(obj, ['extra'])
             expect(obj).toEqual({ id: 1, name: 'test', extra: { nested: true } })
         })
+
+        it('strips compiled HogQL artifacts from cohort filter conditions (cohorts-retrieve)', () => {
+            const cohort = {
+                id: 350280,
+                name: 'sibling cohort',
+                filters: {
+                    properties: {
+                        type: 'OR',
+                        values: [
+                            {
+                                type: 'OR',
+                                values: [
+                                    {
+                                        type: 'person',
+                                        key: 'organization_id',
+                                        operator: 'exact',
+                                        value: ['uuid-a', 'uuid-b'],
+                                        bytecode: ['_H', 1, 32, 'organization_id'],
+                                        bytecode_error: null,
+                                        conditionHash: '3fb4902b4bac10d2',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+            const paths = [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+            ]
+            expect(omitResponseFields(cohort, paths)).toEqual({
+                id: 350280,
+                name: 'sibling cohort',
+                filters: {
+                    properties: {
+                        type: 'OR',
+                        values: [
+                            {
+                                type: 'OR',
+                                values: [
+                                    {
+                                        type: 'person',
+                                        key: 'organization_id',
+                                        operator: 'exact',
+                                        value: ['uuid-a', 'uuid-b'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+        })
+
+        it('strips compiled artifacts from a single-level (flattened) cohort filter group', () => {
+            const cohort = {
+                filters: {
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'behavioral',
+                                key: 'signed up',
+                                value: 'performed_event',
+                                bytecode: ['_H', 1],
+                                conditionHash: 'abc123',
+                            },
+                        ],
+                    },
+                },
+            }
+            const paths = [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+            ]
+            expect(omitResponseFields(cohort, paths)).toEqual({
+                filters: {
+                    properties: {
+                        type: 'AND',
+                        values: [{ type: 'behavioral', key: 'signed up', value: 'performed_event' }],
+                    },
+                },
+            })
+        })
     })
 
     describe('withPostHogUrl', () => {

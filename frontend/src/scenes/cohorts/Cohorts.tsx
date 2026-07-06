@@ -3,13 +3,13 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { HedgehogGreek } from '@posthog/brand/hoggies'
+import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ListHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,6 +19,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -28,7 +29,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    CohortType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -37,10 +45,24 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
-        useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
+    const {
+        cohorts,
+        cohortsLoading,
+        pagination,
+        cohortFilters,
+        shouldShowEmptyState,
+        cohortSorting,
+        cohortsLoadError,
+    } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
+        useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -134,6 +156,7 @@ export function Cohorts(): JSX.Element {
                                         ])
                                     }
                                     tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     fullWidth
                                 >
                                     Export important columns for users
@@ -141,6 +164,7 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     fullWidth
                                 >
                                     Export all columns for users
@@ -180,7 +204,7 @@ export function Cohorts(): JSX.Element {
 
     const filtersSection = (
         <div className="flex justify-between gap-2 flex-wrap">
-            <AppShortcut
+            <Shortcut
                 name="SearchCohorts"
                 keybind={[keyBinds.filter]}
                 intent="Search cohorts"
@@ -196,7 +220,7 @@ export function Cohorts(): JSX.Element {
                     }}
                     value={cohortFilters.search}
                 />
-            </AppShortcut>
+            </Shortcut>
 
             <div className="flex items-center gap-2">
                 <span>
@@ -255,7 +279,7 @@ export function Cohorts(): JSX.Element {
                     type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewCohort"
                         keybind={[keyBinds.new]}
                         intent="New cohort"
@@ -271,7 +295,7 @@ export function Cohorts(): JSX.Element {
                         >
                             New cohort
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
 
@@ -283,7 +307,7 @@ export function Cohorts(): JSX.Element {
                 isEmpty={shouldShowEmptyState}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
-                customHog={ListHog}
+                customHog={HedgehogGreek}
                 mcpSurfaceKey="cohorts.create"
             />
 
@@ -295,6 +319,13 @@ export function Cohorts(): JSX.Element {
                 pagination={pagination}
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
+                emptyState={
+                    cohortsLoadError ? (
+                        <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadCohorts() }}>
+                            There was an error loading cohorts: {cohortsLoadError}
+                        </LemonBanner>
+                    ) : undefined
+                }
                 data-attr="cohorts-table"
                 sorting={cohortSorting}
                 onSort={(sorting) => {

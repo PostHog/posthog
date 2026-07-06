@@ -2,7 +2,7 @@ import { IconPlay } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 

@@ -19,13 +19,13 @@ import {
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
-import { fullName } from 'lib/utils'
 import {
     getAccessControlTooltip,
     getMaximumAccessLevel,
     getMinimumAccessLevel,
     pluralizeResource,
 } from 'lib/utils/accessControlUtils'
+import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 

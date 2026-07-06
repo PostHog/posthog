@@ -11,6 +11,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
+    WebAnalyticsPreComputeStrategy,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -413,7 +414,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         ]
 
         assert response.results == expected_results
-        assert response.usedPreAggregatedTables
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
     def test_breakdown_consistency_preagg_vs_regular(self):
         # Note: PAGE and VIEWPORT breakdowns are excluded. I will add them back in later.
@@ -430,8 +431,8 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
                 regular_response = self._calculate_breakdown_query(breakdown, use_preagg=False)
 
                 # Verify both queries used their respective query engines
-                assert preagg_response.usedPreAggregatedTables
-                assert not regular_response.usedPreAggregatedTables
+                assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+                assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
                 assert self._sort_results(preagg_response.results) == self._sort_results(regular_response.results)
 
@@ -619,7 +620,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
             assert "subdomain.example.com/pricing" in breakdown_values
             assert "example.com/pricing" in breakdown_values
 
-        assert response.usedPreAggregatedTables
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
     @parameterized.expand(
         [
@@ -684,7 +685,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         assert "/landing" in breakdown_values
         assert "example.com/landing" not in breakdown_values
         assert "subdomain.example.com/landing" not in breakdown_values
-        assert response.usedPreAggregatedTables
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
     def test_include_host_page_breakdown_groups_same_paths_separately(self):
         self._truncate_preaggregated_tables()
@@ -764,8 +765,8 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         assert with_host_dict["example.com/landing"][0] == 2
         assert with_host_dict["subdomain.example.com/landing"][0] == 1
         assert without_host_dict["/landing"][0] == 3
-        assert with_host.usedPreAggregatedTables
-        assert without_host.usedPreAggregatedTables
+        assert with_host.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert without_host.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
     # NOTE: test_include_host_consistency_between_preagg_and_regular is not included because
     # pre-aggregated tables have a known limitation where PAGE breakdown doesn't return mid-session pages.

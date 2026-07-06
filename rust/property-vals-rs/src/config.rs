@@ -7,6 +7,8 @@ use std::{num::ParseIntError, str::FromStr};
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_kafka::kafka_producer::EnvelopeEncoding;
+
+use crate::producer::WireFormat;
 use envconfig::Envconfig;
 use siphasher::sip::SipHasher13;
 
@@ -32,6 +34,9 @@ pub struct Config {
     // incrementally. `none` by default.
     #[envconfig(default = "none")]
     pub intermediate_topic_encoding: EnvelopeEncoding,
+
+    #[envconfig(default = "json")]
+    pub intermediate_topic_format: WireFormat,
 
     #[envconfig(default = "clickhouse-property-vals-rs-merger")]
     pub merger_consumer_group: String,

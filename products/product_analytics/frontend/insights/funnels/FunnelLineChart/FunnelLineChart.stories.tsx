@@ -103,6 +103,22 @@ export const ValueLabels: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture, { showValuesOnSeries: true }),
 }
 
+const funnelHistoricalTrendsBreakdownFixture = {
+    ...funnelHistoricalTrendsFixture,
+    result: [
+        { ...funnelHistoricalTrendsFixture.result[0], breakdown_value: ['Chrome'] },
+        {
+            ...funnelHistoricalTrendsFixture.result[0],
+            data: funnelHistoricalTrendsFixture.result[0].data.map((value: number) => value * 0.5),
+            breakdown_value: ['Firefox'],
+        },
+    ],
+}
+
+export const WithLegend: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsBreakdownFixture, { showLegend: true }),
+}
+
 export const GoalLine: Story = {
     render: () =>
         renderFunnelLineChart(funnelHistoricalTrendsFixture, {

@@ -14,11 +14,12 @@ export const azureBlobDefinition: DestinationDefinition = {
         compression: 'zstd',
     }),
     requiredFields: ({ isNew }) => ['integration_id', 'container_name', ...(isNew ? ['file_format'] : [])],
+    configKeys: ['container_name', 'prefix', 'compression', 'file_format', 'max_file_size_mb'],
     validate: (formValues) => ({
         container_name: validateAzureContainerName(formValues.container_name),
     }),
     eventTableOverrides: { teamIdHogql: 'team_id' },
-    Fields: function AzureBlobFields({ isNew, formValues, configurationChanged }) {
+    Fields: function AzureBlobFields({ formValues }) {
         return (
             <>
                 <LemonField name="integration_id" label="Azure connection">
@@ -59,11 +60,7 @@ export const azureBlobDefinition: DestinationDefinition = {
                     <MaxFileSizeField />
                 </div>
 
-                <CompressionField
-                    fileFormat={formValues.file_format}
-                    isNew={isNew}
-                    configurationChanged={configurationChanged}
-                />
+                <CompressionField fileFormat={formValues.file_format} />
             </>
         )
     },

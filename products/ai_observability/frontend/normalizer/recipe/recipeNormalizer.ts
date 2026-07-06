@@ -1,7 +1,7 @@
 import { CompatMessage } from '../../types'
 import { AVAILABLE_TOOLS_ROLE } from '../../utils'
 import { loadRecipes } from './registry'
-import { NO_MATCH, RecipePipeline } from './runtime/pipeline'
+import { RecipePipeline, RunOutcome } from './runtime/pipeline'
 import { Recipe } from './spec/recipe'
 
 export class RecipeNormalizer {
@@ -15,30 +15,27 @@ export class RecipeNormalizer {
         this.pipeline = new RecipePipeline(recipes)
     }
 
-    normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {
-        // `undefined` carries no message (a missing field, a sparse array slot). cajole
-        // intentionally doesn't match it, so handle it here rather than dispatch a miss.
+    normalizeMessage(input: unknown, defaultRole: string): RunOutcome {
+        // `undefined` carries no message (a missing field, a sparse array slot) and
+        // nothing to recognize — treat as an empty, recognized result.
         if (input === undefined) {
-            return []
+            return { messages: [], recognized: true }
         }
-        const result = this.pipeline.run(input, defaultRole)
-        if (result === NO_MATCH) {
-            // cajole.yaml matches anything, so NO_MATCH means a coverage gap, not a normal miss.
-            throw new Error(`RecipeNormalizer: no recipe matched — cajole.yaml should be the final catch-all`)
-        }
-        return result
+        return this.pipeline.run(input, defaultRole)
     }
 
-    normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
+    normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): RunOutcome {
         const messages: CompatMessage[] = []
         if (tools) {
             // `tools` is a function parameter, not a message shape, so it has no recipe.
             messages.push({ role: AVAILABLE_TOOLS_ROLE, content: '', tools })
         }
         if (carriesMessages(input)) {
-            messages.push(...this.normalizeMessage(input, defaultRole))
+            const outcome = this.normalizeMessage(input, defaultRole)
+            messages.push(...outcome.messages)
+            return { messages, recognized: outcome.recognized }
         }
-        return messages
+        return { messages, recognized: true }
     }
 }
 

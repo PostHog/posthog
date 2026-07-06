@@ -8,6 +8,7 @@ import structlog
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
     AssignAndEmitSignalOutput,
@@ -277,7 +278,7 @@ async def _process_signal_safe(
             augmented_results=augmented_results,
             report_contexts=report_contexts,
         )
-    except Exception:
+    except Exception as e:
         logger.exception(
             "Failed to process signal in parallel batch",
             team_id=team_id,
@@ -285,6 +286,7 @@ async def _process_signal_safe(
             source_type=signal.source_type,
             source_id=signal.source_id,
         )
+        await capture_signal_dropped(signal, e, stage="grouping_parallel")
         return None
 
 

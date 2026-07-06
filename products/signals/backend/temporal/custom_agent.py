@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.custom_agent.base import AIDataProcessingNotApprovedError, CustomSignalAgent
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
@@ -155,6 +156,7 @@ def run_agent(
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def run_custom_signal_agent_activity(inputs: CustomAgentWorkflowInput) -> CustomAgentWorkflowOutput:
     log = logger.bind(
         team_id=inputs.team_id,

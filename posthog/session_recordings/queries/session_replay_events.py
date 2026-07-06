@@ -1,3 +1,5 @@
+import re
+import json
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -22,6 +24,123 @@ DEFAULT_EVENT_FIELDS = [
     "properties.$current_url",
     "properties.$event_type",
 ]
+
+_UUIDV7_SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+# The session id's embedded timestamp comes from the client clock while
+# min_first_timestamp is ingestion-derived, so allow generous slack either side.
+SESSION_ID_CLOCK_SKEW_SLACK = timedelta(days=3)
+
+_EARLIEST_PLAUSIBLE_SESSION_START = datetime(2020, 1, 1, tzinfo=pytz.UTC)
+
+
+def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> datetime | None:
+    """A safe ``min_first_timestamp`` lower bound derived from a UUIDv7 session id.
+
+    The session_replay_events sort key is (toDate(min_first_timestamp), team_id, session_id),
+    so a session lookup without a date lower bound walks index granules across the table's
+    entire retained date range. SDK session ids are UUIDv7 — their first 48 bits encode the
+    session start in ms — which lets us bound the scan without callers having to know the
+    recording's start time. Returns None (no bound, today's behavior) for ids that don't
+    parse or whose embedded timestamp is implausible (badly skewed client clocks exist).
+    """
+    if not _UUIDV7_SESSION_ID.match(session_id):
+        return None
+    embedded_ms = int(session_id.replace("-", "")[:12], 16)
+    now = now or datetime.now(pytz.UTC)
+    # ms-level precheck: fromtimestamp raises OverflowError/ValueError on
+    # far-future values (48 bits reach the year 10889).
+    if embedded_ms > (now + timedelta(days=1)).timestamp() * 1000:
+        return None
+    embedded_start = datetime.fromtimestamp(embedded_ms / 1000, tz=pytz.UTC)
+    if embedded_start < _EARLIEST_PLAUSIBLE_SESSION_START:
+        return None
+    return embedded_start - SESSION_ID_CLOCK_SKEW_SLACK
+
+
+# Wide window for capture diagnostics when the session id carries no usable
+# timestamp (or the bounded window missed): covers the longest replay retention
+# plan plus slack, so any recording that can still be played can be diagnosed.
+CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK = timedelta(days=370)
+
+
+# The capture diagnostics panel only interprets recording-diagnostic properties
+# (see frontend replayCaptureDiagnostics.ts); the response is filtered to these
+# so replay viewers don't receive arbitrary event properties through this endpoint.
+_DIAGNOSTIC_PROPERTY_PREFIX = "$sdk_debug_"
+_DIAGNOSTIC_PROPERTIES = frozenset(
+    {
+        "$has_recording",
+        "$recording_status",
+        "$replay_minimum_duration",
+        "$replay_sample_rate",
+        "$session_recording_remote_config",
+        "$session_recording_start_reason",
+        "$session_recording_url_trigger_activated_session",
+        "$session_recording_url_trigger_status",
+    }
+)
+
+
+def _filter_to_diagnostic_properties(properties: dict) -> dict:
+    return {
+        key: value
+        for key, value in properties.items()
+        if key in _DIAGNOSTIC_PROPERTIES or key.startswith(_DIAGNOSTIC_PROPERTY_PREFIX)
+    }
+
+
+def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
+    """The most recent event's recording-diagnostic properties for a session, for the capture diagnostics panel.
+
+    Bounded by a window derived from the UUIDv7 session id so the events sort key
+    can prune the scan; misses (or ids that don't parse) fall back to a
+    retention-wide window so a skewed client clock degrades to a slower lookup
+    rather than missing diagnostics. Deliberate trade-off: when a session has
+    events both inside and outside the bounded window, the in-window latest wins
+    without consulting the fallback.
+    """
+    lower_bound = uuidv7_session_lower_bound(session_id)
+    if lower_bound is not None:
+        # lower_bound is embedded_start - slack; sessions last at most a day,
+        # so embedded_start + 1d + slack closes the window symmetrically.
+        upper_bound = lower_bound + 2 * SESSION_ID_CLOCK_SKEW_SLACK + timedelta(days=1)
+        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound)
+        if properties is not None:
+            return properties
+    now = datetime.now(pytz.UTC)
+    return _latest_session_event_properties_between(
+        session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
+    )
+
+
+def _latest_session_event_properties_between(
+    session_id: str, team: Team, date_from: datetime, date_to: datetime
+) -> Optional[dict]:
+    from posthog.hogql_queries.hogql_query_runner import (
+        HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
+    )
+
+    query = HogQLQuery(
+        query="""
+            SELECT properties
+            FROM events
+            WHERE $session_id = {session_id}
+                AND timestamp >= {date_from}
+                AND timestamp <= {date_to}
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """,
+        values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
+    )
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+    result = HogQLQueryRunner(team=team, query=query).calculate()
+    if not result.results:
+        return None
+    row = result.results[0][0]
+    if not row:
+        return None
+    return _filter_to_diagnostic_properties(json.loads(row) if isinstance(row, str) else row)
 
 
 def seconds_until_midnight():
@@ -94,9 +213,18 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            """
+        date_from = uuidv7_session_lower_bound(session_id)
+        if SessionReplayEvents._check_exists_from(session_id, team, date_from):
+            return True
+        # The bound is a perf optimization, not a correctness gate: a clock
+        # skewed past the slack would make a real recording un-findable, so
+        # fall back to the unbounded scan before reporting not-found.
+        return date_from is not None and SessionReplayEvents._check_exists_from(session_id, team, None)
+
+    @staticmethod
+    def _check_exists_from(session_id: str, team: Team, date_from: Optional[datetime]) -> bool:
+        optional_lower_bound_clause = "AND min_first_timestamp >= %(date_from)s" if date_from else ""
+        query = f"""
             SELECT
                 count(),
                 min(min_first_timestamp) as start_time,
@@ -108,19 +236,24 @@ class SessionReplayEvents:
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
+                {optional_lower_bound_clause}
             GROUP BY
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
                 AND max(is_deleted) = 0
-            """,
+            """
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+        result = sync_execute(
+            query,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
+                "date_from": date_from,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
-        return result and result[0][0] > 0
+        return bool(result and result[0][0] > 0)
 
     def sessions_found_with_timestamps(
         self, session_ids: list[str], team: Team
@@ -161,11 +294,33 @@ class SessionReplayEvents:
         Returns a list of tuples of (session_id, min_timestamp, max_timestamp, expiry_time).
         Timestamps are per session, not for the entire list of sessions.
         """
+        now = datetime.now(pytz.timezone("UTC"))
+        # Only bound the scan when every id parses — a single unparseable id must
+        # still be findable anywhere in the retained range.
+        lower_bounds = [uuidv7_session_lower_bound(session_id, now) for session_id in session_ids]
+        parsed_bounds = [bound for bound in lower_bounds if bound is not None]
+        date_from = min(parsed_bounds) if parsed_bounds and len(parsed_bounds) == len(lower_bounds) else None
+
+        sessions_found = SessionReplayEvents._find_with_timestamps_from(session_ids, team, now, date_from)
+        if date_from is not None:
+            # The bound is a perf optimization, not a correctness gate: ids the
+            # bounded scan missed (clock skewed past the slack) get one unbounded
+            # retry before being reported as not-found.
+            found_ids = {session_id for session_id, _, _, _ in sessions_found}
+            missing = [session_id for session_id in session_ids if session_id not in found_ids]
+            if missing:
+                sessions_found += SessionReplayEvents._find_with_timestamps_from(missing, team, now, None)
+        return sessions_found
+
+    @staticmethod
+    def _find_with_timestamps_from(
+        session_ids: list[str], team: Team, now: datetime, date_from: Optional[datetime]
+    ) -> list[tuple[str, datetime, datetime, datetime]]:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        now = datetime.now(pytz.timezone("UTC"))
+        optional_lower_bound_clause = "AND min_first_timestamp >= {date_from}" if date_from else ""
         query = HogQLQuery(
-            query="""
+            query=f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as min_timestamp,
@@ -175,17 +330,19 @@ class SessionReplayEvents:
                 FROM
                     raw_session_replay_events
                 WHERE
-                    session_id IN {session_ids}
-                    AND min_first_timestamp <= {now}
+                    session_id IN {{session_ids}}
+                    AND min_first_timestamp <= {{now}}
+                    {optional_lower_bound_clause}
                 GROUP BY
                     session_id
                 HAVING
-                    expiry_time >= {now}
+                    expiry_time >= {{now}}
                     AND max(is_deleted) = 0
             """,
             values={
                 "session_ids": session_ids,
                 "now": now,
+                "date_from": date_from,
             },
         )
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
@@ -317,14 +474,33 @@ class SessionReplayEvents:
         team: Team,
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
-        query = self.get_metadata_query(recording_start_time)
+        if recording_start_time is not None:
+            return self._get_metadata_from(session_id, team, recording_start_time)
+
+        # Most callers don't know the recording's start time (it is only persisted
+        # for pinned recordings); derive a lower bound from the session id instead.
+        # Unlike a real start time it carries clock-skew slack, so on a miss fall
+        # back to the unbounded scan rather than reporting not-found.
+        derived_lower_bound = uuidv7_session_lower_bound(session_id)
+        metadata = self._get_metadata_from(session_id, team, derived_lower_bound)
+        if metadata is None and derived_lower_bound is not None:
+            metadata = self._get_metadata_from(session_id, team, None)
+        return metadata
+
+    def _get_metadata_from(
+        self,
+        session_id: str,
+        team: Team,
+        lower_bound: Optional[datetime],
+    ) -> Optional[RecordingMetadata]:
+        query = self.get_metadata_query(lower_bound)
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
-                "recording_start_time": recording_start_time,
+                "recording_start_time": lower_bound,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )

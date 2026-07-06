@@ -13,8 +13,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { groupBy, pluralize } from 'lib/utils'
+import { groupBy } from 'lib/utils/arrays'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 

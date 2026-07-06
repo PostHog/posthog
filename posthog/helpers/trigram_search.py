@@ -78,6 +78,7 @@ def apply_trigram_search(
     span_prefix: str,
     fields: tuple[TrigramSearchField, ...],
     include_tag_search: bool = False,
+    extra_exact_q: Q | None = None,
     tiebreakers: tuple[str, ...] = (),
 ) -> QuerySet:
     """Apply trigram + literal-substring search across `fields`, then order exact-first.
@@ -91,6 +92,10 @@ def apply_trigram_search(
     Within each exactness tier, `_search_score` ranks rows by each field's weighted word
     similarity (plus full-string similarity where `include_full` is set). `tiebreakers` are
     appended after the score (e.g. `-pinned`, `name`).
+
+    `extra_exact_q` OR's caller-supplied predicates into the exact tier — for structured
+    fields that don't fit trigram (a commit-SHA prefix, an exact numeric id). Rows matched
+    this way are flagged `_is_exact=1` and sort with the literal-substring matches.
 
     When `include_tag_search=True`, rows whose tag names contain the term also match (as
     `exact`), and `.distinct()` dedups the tag-join fan-out.
@@ -117,6 +122,8 @@ def apply_trigram_search(
         if f.literal:
             # nosemgrep: orm-field-injection — f.field is a developer-defined TrigramSearchField path, not user input; only `search` is user-controlled and it is the bound value
             exact_q |= Q(**{f"{f.field}__icontains": search})
+    if extra_exact_q is not None:
+        exact_q |= extra_exact_q
     if include_tag_search:
         matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
         exact_q |= Q(id__in=matching_tag_ids)

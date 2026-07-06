@@ -66,6 +66,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -97,6 +98,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -232,9 +234,36 @@ export interface PersonDeletePropertyRequestApi {
     $unset: string
 }
 
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Asset kind. Currently always 'email'. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** The recipient email address. */
+    recipient: string
+    /** The email subject line. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent'. */
+    status: string
+    /** When the email was sent. */
+    sent_at: string
+}
+
 export interface PersonSplitRequestApi {
     /**
-     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+     * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
      * @nullable
      */
     main_distinct_id?: string | null
@@ -452,6 +481,38 @@ export type PersonsDeletePropertyCreateFormat =
     (typeof PersonsDeletePropertyCreateFormat)[keyof typeof PersonsDeletePropertyCreateFormat]
 
 export const PersonsDeletePropertyCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsEmailsListFormat
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsEmailsListFormat = (typeof PersonsEmailsListFormat)[keyof typeof PersonsEmailsListFormat]
+
+export const PersonsEmailsListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

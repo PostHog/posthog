@@ -11,13 +11,6 @@ import {
     FingerprintRecordPart,
 } from './types'
 
-export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['stacktrace']): boolean {
-    if (!stacktrace?.frames || !Array.isArray(stacktrace.frames)) {
-        return false
-    }
-    return stacktrace.frames.some(({ in_app }) => in_app)
-}
-
 export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
     switch (lib?.toLowerCase()) {
         case 'posthog-python':
@@ -255,13 +248,4 @@ export function formatExceptionDisplay(
     exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace' | 'value'>
 ): string {
     return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
-}
-
-export function createFrameFilter(showAllFrames: boolean) {
-    return (frame: ErrorTrackingStackFrame) => {
-        if (showAllFrames) {
-            return true
-        }
-        return frame.in_app
-    }
 }

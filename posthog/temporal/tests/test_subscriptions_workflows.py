@@ -50,6 +50,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
@@ -78,8 +79,8 @@ from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscr
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
-_GENERATE_MARKDOWN = (
-    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_ai_subscription_markdown"
+_GENERATE_REPORT = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report"
 )
 _IS_OVER_BUDGET = (
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
@@ -913,6 +914,9 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.team_id == team.id
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
+    # The exporter renders the insight as the asset's creator — without it the render is userless
+    # and warehouse access control fails closed, breaking deliveries of warehouse-backed insights.
+    assert asset.created_by_id == user.id
 
     # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
     # calls during snapshot build emit query_service SLO events — those are unrelated.
@@ -2084,7 +2088,7 @@ async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team,
     delivery = await _create_ai_delivery(sub)
 
     with (
-        patch(_GENERATE_MARKDOWN, side_effect=PromptRejectedError("Prompt is empty.")),
+        patch(_GENERATE_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await ActivityEnvironment().run(
@@ -2105,7 +2109,7 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
 
-    with patch(_GENERATE_MARKDOWN, return_value="# Report"):
+    with patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Report", diagnostics=())):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
@@ -2179,7 +2183,7 @@ async def test_generate_ai_report_skips_regeneration_when_already_persisted(team
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub, report="# Already here")
 
-    with patch(_GENERATE_MARKDOWN) as mock_generate:
+    with patch(_GENERATE_REPORT) as mock_generate:
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
@@ -2198,7 +2202,7 @@ async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
 
     with (
         patch(_IS_OVER_BUDGET, return_value=True),
-        patch(_GENERATE_MARKDOWN) as mock_generate,
+        patch(_GENERATE_REPORT) as mock_generate,
         patch(_CREDIT_LIMITED_EMAIL) as mock_email,
     ):
         result = await ActivityEnvironment().run(
@@ -2222,7 +2226,7 @@ async def test_generate_ai_report_credit_check_fails_open(team, user):
 
     with (
         patch(_IS_OVER_BUDGET, side_effect=RuntimeError("quota cache unavailable")),
-        patch(_GENERATE_MARKDOWN, return_value="# Report") as mock_generate,
+        patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Report", diagnostics=())) as mock_generate,
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
@@ -2243,7 +2247,7 @@ async def test_generate_ai_report_already_generated_bypasses_credit_gate(team, u
 
     with (
         patch(_IS_OVER_BUDGET, return_value=True) as mock_over_budget,
-        patch(_GENERATE_MARKDOWN) as mock_generate,
+        patch(_GENERATE_REPORT) as mock_generate,
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
@@ -2370,7 +2374,7 @@ async def test_skip_helper_falls_back_when_billing_period_unsynced(team, user):
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch(_CREDIT_LIMITED_EMAIL)
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
-@patch(_GENERATE_MARKDOWN)
+@patch(_GENERATE_REPORT)
 @patch(_IS_OVER_BUDGET, return_value=True)
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
@@ -2425,8 +2429,8 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
 @patch(
-    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_ai_subscription_markdown",
-    return_value="# AI Report",
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
+    return_value=AiReportResult(markdown="# AI Report", diagnostics=()),
 )
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio

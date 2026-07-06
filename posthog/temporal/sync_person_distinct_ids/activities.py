@@ -1,43 +1,16 @@
-import os
 import json
 import dataclasses
-from urllib.parse import quote_plus
 
-from django.conf import settings
-
-import psycopg
 import temporalio.activity
 from psycopg import sql
 from structlog import get_logger
 
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.persons_db import persons_db_aconnection
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
-
-
-def get_persons_database_url() -> str:
-    """Get the connection URL for the persons database reader.
-
-    Falls back to DATABASE_URL for hobby deployments without separate persons DB.
-    """
-    url = os.getenv("PERSONS_DB_READER_URL")
-    if url:
-        return url
-
-    if "persons_db_reader" in settings.DATABASES:
-        db = settings.DATABASES["persons_db_reader"]
-        user = db.get("USER", "")
-        password = db.get("PASSWORD", "")
-        host = db.get("HOST", "localhost")
-        port = db.get("PORT", "5432")
-        name = db.get("NAME", "")
-        if password:
-            return f"postgres://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{name}"
-        return f"postgres://{quote_plus(user)}@{host}:{port}/{name}"
-
-    return settings.DATABASE_URL
 
 
 @dataclasses.dataclass
@@ -197,9 +170,7 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
         """
         params = [inputs.team_id, inputs.person_uuids]
 
-        persons_db_url = get_persons_database_url()
-        conn = await psycopg.AsyncConnection.connect(persons_db_url)
-        async with conn:
+        async with persons_db_aconnection(writer=False) as conn:
             # Set statement timeout to avoid long-running queries
             timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
                 sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
@@ -246,8 +217,7 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
             """
             params = [inputs.team_id, persons_not_found]
 
-            conn = await psycopg.AsyncConnection.connect(persons_db_url)
-            async with conn:
+            async with persons_db_aconnection(writer=False) as conn:
                 timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
                     sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
                 )

@@ -82,6 +82,8 @@ class OpenAIConfig:
         "o4-mini",
     ]
 
+    DEFAULT_MODEL: str = "gpt-5-mini"
+
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
         "gpt-5.2",
@@ -259,7 +261,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         effective_base_url = base_url or settings.OPENAI_BASE_URL
@@ -445,7 +447,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             cache_read_tokens=cache_read,
         )
 
-    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk, None, None]:
+    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk]:
         input_tokens = usage.prompt_tokens or 0
         output_tokens = usage.completion_tokens or 0
         cache_read_tokens = (

@@ -163,7 +163,7 @@ const cdpFunctionsList = (): ToolBase<
                 id: params.id,
                 limit: params.limit,
                 offset: params.offset,
-                type: params.type,
+                type: Array.isArray(params.type) ? params.type.join(',') || undefined : params.type,
                 updated_at: params.updated_at,
             },
         })

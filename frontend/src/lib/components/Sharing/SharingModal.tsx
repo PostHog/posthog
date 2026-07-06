@@ -29,14 +29,15 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -45,6 +46,7 @@ import {
     InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+import { InsightType } from '~/types'
 
 import { AccessControlAction } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
@@ -733,4 +735,41 @@ SharingModal.open = (props: SharingModalBaseProps) => {
             type: 'secondary',
         },
     })
+}
+
+/**
+ * Build a canonical definition-based insight link ("template link").
+ * The link always points to `/insights/new` on the provided baseUrl and includes:
+ *   #insight=<InsightType>&q=<URL-encoded JSON definition>
+ *
+ * It works for both saved insights (where `query` is persisted on the model)
+ * and unsaved/draft insights (pass the raw query object).
+ */
+export function getInsightDefinitionUrl(
+    insight: Pick<QueryBasedInsightModel, 'query'> | { query: Node<Record<string, any>> },
+    baseUrl: string
+): string {
+    if (!insight?.query) {
+        throw new Error('getInsightDefinitionUrl: insight.query is required')
+    }
+
+    // Derive InsightType from the query where possible so the #insight=<TYPE> hash param is present
+    let insightType: InsightType | undefined
+    type InsightVizNode = { kind: NodeKind.InsightVizNode; source?: { kind?: string } }
+    const kind = (
+        insight.query.kind === NodeKind.InsightVizNode
+            ? (insight.query as InsightVizNode).source?.kind
+            : insight.query.kind
+    ) as keyof typeof nodeKindToInsightType | undefined
+
+    if (kind && kind in nodeKindToInsightType) {
+        insightType = nodeKindToInsightType[kind as keyof typeof nodeKindToInsightType]
+    }
+
+    const relativeUrl = urls.insightNew({ query: insight.query, type: insightType })
+
+    // Ensure the link is project-agnostic (`/project/<id>` may get injected elsewhere)
+    const cleanedPath = relativeUrl.replace(/^\/project\/[^/]+/, '')
+
+    return `${baseUrl}${cleanedPath}`
 }

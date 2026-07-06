@@ -1,7 +1,7 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -60,11 +60,22 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setTestError: (error: string | null) => ({ error }),
         setDatePickerOpen: (open: boolean) => ({ open }),
         setDatePickerValue: (value: Dayjs | null) => ({ value }),
-        setSelectedPerson: (person: Partial<PersonType> | null) => ({ person }),
+        setSelectedPerson: (person: Partial<PersonType> | null, distinctId?: string) => ({ person, distinctId }),
         setIncludeTime: (includeTime: boolean) => ({ includeTime }),
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
+        resolvedPersonDistinctIds: [
+            null as string[] | null,
+            {
+                resolvePersonDistinctIds: async (distinctId: string) => {
+                    const response = await api.persons.list({ distinct_id: distinctId })
+                    return response.results[0]?.distinct_ids ?? []
+                },
+                setSelectedPerson: () => null,
+                clearTestForm: () => null,
+            },
+        ],
         testEvaluation: [
             null as TestResult | null,
             {
@@ -159,7 +170,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         selectedPerson: [
             null as Partial<PersonType> | null,
             {
-                setSelectedPerson: (_, { person }) => person,
+                setSelectedPerson: (_, { person }) => person ?? null,
                 clearTestForm: () => null,
             },
         ],
@@ -170,6 +181,18 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        setSelectedPerson: ({ person, distinctId }) => {
+            // Persons from the recent tab arrive without distinct_ids. Fetch the full
+            // person so hasMultipleDistinctIds and the bucketing picker work correctly.
+            if (person && !person.distinct_ids?.length) {
+                const id = distinctId ?? values.testFormData.distinct_id
+                if (id) {
+                    actions.resolvePersonDistinctIds(id)
+                }
+            }
+        },
+    })),
     selectors({
         // Get the set of properties used in any condition
         usedProperties: [
@@ -233,6 +256,30 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         hasValidPerson: [
             (s) => [s.testFormData],
             (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim()),
+        ],
+        // The distinct IDs known for the selected person. For persons from the Persons
+        // tab distinct_ids comes directly from the picker. For partial persons (e.g. the
+        // recent tab, which carries name + distinct_id only) we fall back to the async
+        // lookup in resolvedPersonDistinctIds, which is null while loading and [] when the
+        // person turns out to have only one ID.
+        personDistinctIds: [
+            (s) => [s.selectedPerson, s.resolvedPersonDistinctIds],
+            (person: Partial<PersonType> | null, resolved: string[] | null): string[] =>
+                person?.distinct_ids ?? resolved ?? [],
+        ],
+        // A person merged from multiple distinct IDs can bucket into a different
+        // rollout/variant depending on which ID is hashed, so the test result may not
+        // match what runtime evaluation produces for the same person.
+        hasMultipleDistinctIds: [
+            (s) => [s.personDistinctIds],
+            (distinctIds: string[]): boolean => distinctIds.length > 1,
+        ],
+        // The distinct ID the backend reports it bucketed against. Null when the API
+        // withholds it to avoid leaking distinct IDs to feature_flag:read-only tokens —
+        // we must not fall back to the requested ID, which would mislabel the result.
+        bucketingDistinctId: [
+            (s) => [s.testResult],
+            (result: TestResult | null): string | null => result?.evaluation_distinct_id ?? null,
         ],
         // Get formatted error display information
         errorDisplay: [

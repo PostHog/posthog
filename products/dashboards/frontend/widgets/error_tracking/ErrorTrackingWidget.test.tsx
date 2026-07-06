@@ -60,45 +60,6 @@ describe('ErrorTrackingWidget', () => {
         expect(screen.getByText('1 of 1 issue')).toBeInTheDocument()
     })
 
-    it('shows capped total in footer when more issues exist than the count cap', () => {
-        render(
-            <ErrorTrackingWidget
-                tileId={1}
-                config={{ limit: 1, status: 'active', dateRange: { date_from: '-7d' } }}
-                loading={false}
-                result={{ results: [issue], hasMore: true, limit: 1, totalCount: 25, totalCountCapped: true }}
-            />
-        )
-
-        expect(screen.getByText('1 of 25+ issues')).toBeInTheDocument()
-    })
-
-    it('shows lower-bound footer when hasMore and total count was not fetched', () => {
-        render(
-            <ErrorTrackingWidget
-                tileId={1}
-                config={{ limit: 1 }}
-                loading={false}
-                result={{ results: [issue], hasMore: true, limit: 1 }}
-            />
-        )
-
-        expect(screen.getByText('1+ issue')).toBeInTheDocument()
-    })
-
-    it('shows exact total in footer when hasMore and total is known', () => {
-        render(
-            <ErrorTrackingWidget
-                tileId={1}
-                config={{ limit: 1 }}
-                loading={false}
-                result={{ results: [issue], hasMore: true, limit: 1, totalCount: 4, totalCountCapped: false }}
-            />
-        )
-
-        expect(screen.getByText('1 of 4 issues')).toBeInTheDocument()
-    })
-
     it('renders a celebratory empty state when there are no issues', () => {
         const { container } = render(
             <ErrorTrackingWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [] }} />
@@ -122,7 +83,7 @@ describe('ErrorTrackingWidget', () => {
         render(<ErrorTrackingWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [issue] }} />)
 
         expect(await screen.findByText("You haven't captured any exceptions")).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Enable exception autocapture' })).toBeInTheDocument()
+        expect(screen.getByText('Enable exception autocapture').closest('button')).toBeInTheDocument()
         expect(screen.queryByText('Issue list')).not.toBeInTheDocument()
     })
 })

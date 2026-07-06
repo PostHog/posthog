@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -29,7 +30,10 @@ from posthog.rate_limit import (
     get_route_from_path,
 )
 
-from products.feature_flags.backend.api.feature_flag import RemoteConfigThrottle
+from products.feature_flags.backend.api.feature_flag import (
+    RemoteConfigProjectSecretApiKeyTeamThrottle,
+    RemoteConfigThrottle,
+)
 
 
 class TestUserAPI(APIBaseTest):
@@ -715,6 +719,26 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(throttle.num_requests, 1200)
             self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
 
+    def test_remote_config_team_throttle_uses_custom_rate_for_team(self):
+        throttle = RemoteConfigProjectSecretApiKeyTeamThrottle()
+
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # The per-team throttle must apply the team's REMOTE_CONFIG_RATE_LIMITS override too, not
+            # just the per-key throttle, otherwise a configured per-team cap silently has no effect.
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)
+
     @parameterized.expand(
         [
             # Test Django route pattern normalization
@@ -802,3 +826,61 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(num_requests, 5)
         self.assertEqual(duration, 3600)
+
+
+class _PSAKThrottleForTest(rate_limit.PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "test_psak"
+    rate = "100/minute"
+
+
+class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
+    def _psak_request(self, key_id=1):
+        auth = ProjectSecretAPIKeyAuthentication()
+        auth.project_secret_api_key = Mock(id=key_id)
+        return Mock(successful_authenticator=auth)
+
+    def test_psak_requests_do_not_bypass_throttle(self):
+        # PSAK carries no personal API key; the throttle must not let it through the
+        # personal_api_key_only gate that PersonalApiKeyRateThrottle uses.
+        throttle = _PSAKThrottleForTest()
+        request = self._psak_request()
+        with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
+            throttle.allow_request(request, Mock())
+        spy.assert_called_once_with(request, ANY, personal_api_key_only=False)
+
+    def test_non_psak_request_uses_personal_api_key_only_gate(self):
+        throttle = _PSAKThrottleForTest()
+        request = Mock(successful_authenticator=Mock())
+        with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
+            throttle.allow_request(request, Mock())
+        spy.assert_called_once_with(ANY, ANY, personal_api_key_only=True)
+
+    def test_psak_requests_use_per_key_cache_bucket(self):
+        self.assertTrue(_PSAKThrottleForTest().get_cache_key(self._psak_request(key_id=42), Mock()).endswith("psak:42"))
+
+
+class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
+    scope = "test_psak_team"
+    rate = "100/minute"
+
+
+class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
+    def _psak_request(self, team_id=7):
+        auth = ProjectSecretAPIKeyAuthentication()
+        auth.project_secret_api_key = Mock(team_id=team_id)
+        return Mock(successful_authenticator=auth)
+
+    def test_psak_request_is_throttled(self):
+        throttle = _PSAKTeamThrottleForTest()
+        with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
+            throttle.allow_request(self._psak_request(), Mock())
+        spy.assert_called_once_with(ANY, ANY, personal_api_key_only=False)
+
+    def test_non_psak_request_bypasses(self):
+        throttle = _PSAKTeamThrottleForTest()
+        with patch.object(throttle, "_allow_request_internal") as spy:
+            self.assertTrue(throttle.allow_request(Mock(successful_authenticator=Mock()), Mock()))
+        spy.assert_not_called()
+
+    def test_cache_key_is_keyed_per_team(self):
+        self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))

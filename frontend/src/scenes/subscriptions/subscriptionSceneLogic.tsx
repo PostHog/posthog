@@ -1,6 +1,7 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import {
     subscriptionsDeliveriesList,
@@ -15,9 +16,7 @@ import type {
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,6 +30,11 @@ import type { subscriptionSceneLogicType } from './subscriptionSceneLogicType'
 export type SubscriptionSceneLogicProps = {
     id: string
 }
+
+export type DeliveryFeedback = 'positive' | 'negative'
+export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
+
+export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
@@ -49,14 +53,17 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
     props({} as SubscriptionSceneLogicProps),
     key(({ id }) => id),
     path((key) => ['scenes', 'subscriptions', 'subscriptionSceneLogic', key]),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
     actions({
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
         setDeliveryStatusFilter: (status: SubscriptionsDeliveriesListStatus | null) => ({ status }),
+        submitDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback, source: DeliveryFeedbackSource) => ({
+            deliveryId,
+            feedback,
+            source,
+        }),
+        expireDeliveryThanks: (deliveryId: string) => ({ deliveryId }),
     }),
     reducers({
         deliveringSubscriptionId: [
@@ -71,6 +78,27 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as SubscriptionsDeliveriesListStatus | null,
             {
                 setDeliveryStatusFilter: (_, { status }) => status,
+            },
+        ],
+        deliveryFeedback: [
+            {} as Record<string, DeliveryFeedback>,
+            // localStorage on purpose: feedback is an analytics event, not a DB row — this only keeps
+            // the UI honest (and the capture deduped) across reloads on this browser.
+            { persist: true },
+            {
+                submitDeliveryFeedback: (state, { deliveryId, feedback }) => ({ ...state, [deliveryId]: feedback }),
+            },
+        ],
+        // Transient (not persisted): drives the brief "Thanks!" flash before the row settles
+        // into showing the recorded option.
+        recentlyThankedDeliveries: [
+            {} as Record<string, true>,
+            {
+                submitDeliveryFeedback: (state, { deliveryId }) => ({ ...state, [deliveryId]: true as const }),
+                expireDeliveryThanks: (state, { deliveryId }) => {
+                    const { [deliveryId]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -101,9 +129,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as PaginatedSubscriptionDeliveryListApi | null,
             {
                 loadDeliveriesPage: async (targetUrl: string | null) => {
-                    if (!values.deliveriesEnabled) {
-                        return null
-                    }
                     const numericId = parseInt(props.id, 10)
                     if (!Number.isFinite(numericId)) {
                         return null
@@ -123,10 +148,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         ],
     })),
     selectors({
-        deliveriesEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => Boolean(featureFlags[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]),
-        ],
         breadcrumbs: [
             (s) => [s.subscription],
             (subscription): Breadcrumb[] => {
@@ -150,28 +171,34 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             },
         ],
     }),
-    subscriptions(({ actions, values }) => ({
-        featureFlags: (featureFlags, oldFeatureFlags) => {
-            const enabled = Boolean(featureFlags[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS])
-            const wasEnabled = Boolean(oldFeatureFlags?.[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS])
-            if (enabled === wasEnabled) {
-                return
+    listeners(({ actions, values, props, cache, selectors }) => ({
+        submitDeliveryFeedback: ({ deliveryId, feedback, source }, _breakpoint, _action, previousState) => {
+            posthog.capture('ai_report_feedback', {
+                subscription_id: parseInt(props.id, 10),
+                delivery_id: deliveryId,
+                feedback,
+                source,
+                // Lets analysis distinguish first votes from switches; consumers take the latest
+                // event per person + delivery, so a switched vote simply wins.
+                previous_feedback: selectors.deliveryFeedback(previousState)[deliveryId] ?? null,
+            })
+            // In-app thumbs show a per-row "Thanks" state instead of a toast.
+            if (source !== 'in_app') {
+                lemonToast.success('Thanks for your feedback')
             }
-            if (!enabled) {
-                actions.loadDeliveriesPageSuccess(null, null)
-            } else if (values.subscription) {
-                void actions.loadDeliveriesPage(null)
-            }
+            // Per-delivery key so spamming replaces the previous timer instead of stacking.
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.expireDeliveryThanks(deliveryId), FEEDBACK_THANKS_DISPLAY_MS)
+                return () => clearTimeout(timerId)
+            }, `deliveryThanks-${deliveryId}`)
         },
-    })),
-    listeners(({ actions, values }) => ({
         setDeliveryStatusFilter: () => {
-            if (values.deliveriesEnabled && values.subscription) {
+            if (values.subscription) {
                 void actions.loadDeliveriesPage(null)
             }
         },
         loadSubscriptionSuccess: () => {
-            if (values.deliveriesEnabled && values.subscription) {
+            if (values.subscription) {
                 void actions.loadDeliveriesPage(null)
             }
         },
@@ -188,9 +215,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         // Test delivery returns 202 before Temporal persists the delivery row. Refetch now (fast path) and
         // again after a short delay so the list usually shows the new row without manual refresh.
         deliverSubscriptionSuccess: async (_, breakpoint) => {
-            if (!values.deliveriesEnabled) {
-                return
-            }
             void actions.loadDeliveriesPage(null)
             await breakpoint(2000)
             void actions.loadDeliveriesPage(null)
@@ -217,6 +241,27 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             // sub with no integration) — backend already validates this.
             const detail = errorObject?.detail
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
+        },
+    })),
+    urlToAction(({ actions, props, values }) => ({
+        // Feedback links in delivered emails/Slack messages land here with these params;
+        // capture once, then strip them so a refresh doesn't double-capture.
+        [urls.subscription(':id')]: ({ id }, searchParams) => {
+            if (id !== props.id) {
+                return
+            }
+            const { feedback_delivery, feedback, feedback_source, ...restSearchParams } = searchParams
+            if (!feedback_delivery || (feedback !== 'positive' && feedback !== 'negative')) {
+                return
+            }
+            const deliveryId = String(feedback_delivery)
+            if (values.deliveryFeedback[deliveryId]) {
+                // Persisted state remembers this delivery — don't re-capture from a re-clicked link.
+                lemonToast.info('Your feedback for this report was already recorded')
+            } else {
+                actions.submitDeliveryFeedback(deliveryId, feedback, feedback_source === 'slack' ? 'slack' : 'email')
+            }
+            router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
         },
     })),
     afterMount(({ actions }) => {

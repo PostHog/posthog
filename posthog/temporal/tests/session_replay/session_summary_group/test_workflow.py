@@ -922,7 +922,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_patterns_assignment_yaml_response: str,
         mock_cached_session_batch_events_query_response_factory: Callable,
         custom_content: str | None = None,  # noqa: ARG002
-    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
+    ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker]]:
         """Test environment for Temporal workflow"""
         with self.execute_test_environment(
             session_ids,

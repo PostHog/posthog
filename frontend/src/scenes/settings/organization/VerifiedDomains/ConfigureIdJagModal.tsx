@@ -1,22 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureIdJagModal(): JSX.Element {
     const { configureIdJagModalId, isIdJagConfigSubmitting, idJagConfig } = useValues(verifiedDomainsLogic)
     const { setConfigureIdJagModalId } = useActions(verifiedDomainsLogic)
-    const { preflight } = useValues(preflightLogic)
-    const siteUrl = (preflight?.site_url ?? window.location.origin).replace(/\/$/, '')
 
     const idJagReady = Boolean(idJagConfig.id_jag_issuer_url)
 
@@ -31,9 +27,6 @@ export function ConfigureIdJagModal(): JSX.Element {
                     <h3>Configure XAA (ID-JAG)</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="deprecated-space-y-2">
-                    <LemonField label="Token endpoint" name="_tokenEndpoint">
-                        <CopyToClipboardInline>{`${siteUrl}/id-jag/token`}</CopyToClipboardInline>
-                    </LemonField>
                     <LemonField
                         name="id_jag_issuer_url"
                         label="IdP issuer URL"
@@ -78,6 +71,11 @@ export function ConfigureIdJagModal(): JSX.Element {
                             a draft.
                         </LemonBanner>
                     )}
+                    <LemonBanner type="info">
+                        Configure your IdP to grant <code>user:read</code> plus the scopes each integration needs (for
+                        project-scoped APIs, also <code>organization:read</code> and <code>project:read</code>). Tokens
+                        issued without the required scopes are rejected with an insufficient-scope error.
+                    </LemonBanner>
                 </LemonModal.Content>
                 <LemonModal.Footer>
                     <LemonButton loading={isIdJagConfigSubmitting} type="primary" htmlType="submit">

@@ -1,0 +1,679 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Agent stack
+feature: agent_platform
+url_prefix: /agent_applications
+feature_flag: agent-platform
+ui_apps: {}
+tools:
+    agent-applications-approvals-decide:
+        operation: agent_applications_approvals_decide
+        enabled: false
+    agent-applications-approvals-list:
+        operation: agent_applications_approvals_list
+        enabled: false
+    agent-applications-approvals-retrieve:
+        operation: agent_applications_approvals_retrieve
+        enabled: false
+    agent-applications-create:
+        operation: agent_applications_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create an agent application
+        description: >
+            Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no
+            revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze +
+            promote. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end
+            authoring flow.
+    agent-applications-destroy:
+        operation: agent_applications_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Archive an agent application
+        description: >
+            Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further
+            CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped
+            to `archived=false`).
+    agent-applications-env-keys-clear:
+        operation: agent_revisions_env_keys_clear
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Clear one secret
+        description: >
+            Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer
+            required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts —
+            in-flight sessions keep the value they resolved at start. Playbook: read the `secrets-and-integrations`
+            playbook via `agent-resolve-resource` for the credential punch-out flow.
+    agent-applications-env-keys-get:
+        operation: agent_revisions_env_keys_get
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check whether one secret is set
+        description: >
+            Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the
+            user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write
+            landed. Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the
+            credential punch-out flow.
+    agent-applications-env-keys-list:
+        operation: agent_revisions_env_keys_list
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List the names of secrets currently set
+        description: >
+            Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already
+            populated so you don't ask the user to set something that's already set. Pair with
+            `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.
+            Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential
+            punch-out flow.
+    agent-applications-env-keys-set:
+        operation: agent_revisions_env_keys_set
+        enabled: false
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set or rotate one secret (raw value — disabled by default)
+        description: >
+            Body `{ value: "…" }`. Merges into the encrypted env without touching siblings. **Disabled for the standard
+            MCP surface** — agents should never see raw secret values in their tool-call history. The standard path is
+            to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
+            URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
+            out-of-band.
+    agent-applications-list:
+        operation: agent_applications_list
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List agent applications
+        description: >
+            List every agent application in the project. Returns id, slug, name, description, live_revision, archived
+            state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the
+            `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-models:
+        operation: agent_applications_models
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List models + what each auto level resolves to
+        description: >
+            Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display
+            name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto`
+            level (`low` / `medium` / `high`) currently resolves to. Use this to answer "what will auto/medium actually
+            run?" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live
+            against the catalog, so it reflects what the runner picks today, not a hardcoded list.
+    agent-applications-partial-update:
+        operation: agent_applications_partial_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update an agent application
+        description: >
+            Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent
+            console's secret editor, not MCP), and `live_revision` is set by promoting a revision.
+    agent-applications-preview-proxy:
+        operation: agent_applications_preview_proxy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Invoke a draft revision via the Django preview-proxy
+        description: >
+            Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public
+            ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to
+            (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
+            `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
+            `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
+            application.
+    agent-applications-preview-proxy-get:
+        operation: agent_applications_preview_proxy_get
+        enabled: false
+    agent-applications-preview-token:
+        operation: agent_applications_preview_token
+        enabled: false
+    agent-applications-preview-token-mint:
+        operation: agent_applications_preview_token_mint
+        enabled: false
+    agent-applications-retrieve:
+        operation: agent_applications_retrieve
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an agent application
+        description: >
+            Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the
+            running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call
+            `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`. Playbook: read
+            the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-agent-md-update:
+        operation: agent_applications_revisions_agent_md_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace agent.md
+        description: >
+            Body `{ content: "…" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves
+            skills, tools, and spec untouched. Draft-only. Playbook: read the `editing-agents-safely` playbook via
+            `agent-resolve-resource` for the branch → validate → freeze → promote workflow.
+    agent-applications-revisions-archive-create:
+        operation: agent_applications_revisions_archive_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Archive a revision
+        description: >
+            Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the
+            app has no deployable version until another revision is promoted). Idempotent. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-revisions-bundle-retrieve:
+        operation: agent_applications_revisions_bundle_retrieve
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the typed bundle
+        description: >
+            Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit
+            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`
+            and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source`
+            (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze). Playbook: read
+            the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-bundle-update:
+        operation: agent_applications_revisions_bundle_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Full-replace the typed bundle
+        description: >
+            Body shape is `{ agent_md, tools, spec }` — **full replace**, anything not in the payload is deleted. Skills
+            are NOT authored here: they come from the llma-skill store via `skill_refs` and are materialized at freeze
+            (set them with `agent-applications-revisions-skill-refs-update`). For incremental edits use the
+            single-resource PUTs (`agent-applications-revisions-agent-md-update`,
+            `agent-applications-revisions-tools-update`). Each tool source is AST-checked + esbuild-compiled
+            synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.
+            Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate →
+            freeze → promote workflow.
+    agent-applications-revisions-clone-from-create:
+        operation: agent_applications_revisions_clone_from_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Clone bundle from another revision
+        description: >
+            Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after
+            `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions
+            must belong to the same team. Playbook: read the `editing-agents-safely` playbook via
+            `agent-resolve-resource` for the branch → validate → freeze → promote workflow.
+    agent-applications-revisions-create:
+        operation: agent_applications_revisions_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a draft revision
+        description: >
+            Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields
+            you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what
+            you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or
+            `agent-applications-revisions-new-draft-create` to seed it from an existing revision. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-revisions-cron-fire-create:
+        operation: agent_applications_revisions_cron_fire_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Manually fire one cron job
+        description: >
+            Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron
+            agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real
+            firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional:
+            `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of
+            stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via
+            `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without
+            this, "did my prompt do the right thing?" is unanswerable until the cron actually fires. Playbook: read the
+            `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the
+            logs.
+    agent-applications-revisions-destroy:
+        operation: agent_applications_revisions_destroy
+        enabled: false
+    agent-applications-revisions-freeze-create:
+        operation: agent_applications_revisions_freeze_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Freeze a draft revision
+        description: >
+            Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this
+            the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing
+            sha256. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch →
+            validate → freeze → promote workflow.
+    agent-applications-revisions-list:
+        operation: agent_applications_revisions_list
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List revisions of an application
+        description: >
+            List every revision (draft, ready, live, archived) for one application, newest first. Use to find the
+            current live revision id or pick a known-good revision to clone for an edit. Playbook: read the
+            `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-manifest-retrieve:
+        operation: agent_applications_revisions_manifest_retrieve
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List files in a revision's bundle
+        description: >
+            Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's
+            in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last
+            looked. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and
+            summarize an agent.
+    agent-applications-revisions-new-draft-create:
+        operation: agent_applications_revisions_new_draft_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Branch a new draft from an existing revision
+        description: >
+            One-shot helper: creates a draft revision under `application_id` and clones every file from
+            `source_revision_id` into the new bundle in a single round-trip. Use this for the common "edit live"
+            workflow — branch from the current live revision, mutate files, freeze, promote. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-revisions-partial-update:
+        operation: agent_applications_revisions_partial_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a revision's spec
+        description: >
+            Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the
+            revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner
+            side; an invalid spec will surface when the next session starts, not here. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-revisions-promote-create:
+        operation: agent_applications_revisions_promote_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Promote a revision to live
+        description: >
+            Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live
+            revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first).
+            Idempotent: promoting an already-live revision is a no-op. Playbook: read the `editing-agents-safely`
+            playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.
+    agent-applications-revisions-retrieve:
+        operation: agent_applications_revisions_retrieve
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a revision
+        description: >
+            Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision
+            id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
+            `agent-applications-revisions-bundle-retrieve`. Playbook: read the `reading-an-agent` playbook via
+            `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-set-env-create:
+        operation: agent_applications_revisions_set_env_create
+        enabled: false
+    agent-applications-revisions-skill-refs-update:
+        operation: agent_applications_revisions_skill_refs_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set a draft's store-skill references
+        description: >
+            Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is `{ from_template,
+            alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's
+            materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/underscores, unique
+            within the revision), and optional `version` pins a published version (omit to pin the latest at freeze). At
+            freeze each referenced skill is resolved and baked into the immutable bundle, so a frozen agent never
+            re-resolves a changed skill. Find skills with `skill-list`; author a new one with `skill-create`. Not
+            destructive — it only changes which skills the draft pins, never deletes skill content. Draft-only.
+            Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource`.
+    agent-applications-revisions-slack-manifest:
+        operation: agent_applications_revisions_slack_manifest
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Generate the Slack app manifest for a revision
+        description: >
+            Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack
+            trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 →
+            "From an app manifest" — its OAuth scopes and bot event subscriptions are derived from the agent's slack
+            trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to
+            exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface
+            `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.
+    agent-applications-revisions-spec-update:
+        operation: agent_applications_revisions_spec_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace the author-facing spec
+        description: >
+            Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations,
+            secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're
+            derived at freeze from the typed resources. Draft-only. Playbook: read the `editing-agents-safely` playbook
+            via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.
+    agent-applications-revisions-system-prompt:
+        operation: agent_applications_revisions_system_prompt
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview the assembled system prompt for a revision
+        description: >
+            Returns the fully-assembled system prompt the runner would pass to the model at session start — framework
+            preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before
+            promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for
+            debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell
+            whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state. Playbook:
+            read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-tools-destroy:
+        operation: agent_applications_revisions_tools_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one custom tool
+        description: >
+            Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
+            Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch
+            → validate → freeze → promote workflow.
+    agent-applications-revisions-tools-update:
+        operation: agent_applications_revisions_tools_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Upsert one custom tool
+        description: >
+            Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an
+            AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the
+            422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do
+            NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-revisions-update:
+        operation: agent_applications_revisions_update
+        enabled: false
+    agent-applications-revisions-validate-create:
+        operation: agent_applications_revisions_validate_create
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate a revision's bundle + spec
+        description: >
+            Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file,
+            unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in
+            the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this
+            on a draft before calling `agent-applications-revisions-freeze-create`. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
+            workflow.
+    agent-applications-session-logs:
+        operation: agent_applications_session_logs
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a session's structured event log
+        description: >
+            The append-only event log for one session — the runner's own record of what happened, separate from the
+            conversation transcript. Entries carry a level (info / warn / error), a message, and structured metadata:
+            tool executions + results, MCP open successes / failures (with a coarse failure category), identity
+            resolution decisions (`identity.resolved` — which credential source acted as whom, never the token),
+            approval gates, and errors. Use this to debug WHY a session behaved as it did when the transcript alone
+            isn't enough (e.g. a tool degraded, an MCP failed to open, or an asker's identity resolved unexpectedly).
+            Pair with `agent-applications-sessions-retrieve` for the transcript. Playbook: read the `debugging-sessions`
+            playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-sessions-list:
+        operation: agent_applications_sessions_list
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List sessions for an agent
+        description: >
+            Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued /
+            running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count,
+            timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated
+            over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve`
+            for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID),
+            `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) +
+            `offset`. Filters AND together. Playbook: read the `debugging-sessions` playbook via
+            `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-sessions-retrieve:
+        operation: agent_applications_sessions_retrieve
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one session
+        description: >
+            Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages),
+            pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated
+            over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for
+            long sessions where you only care about the tail; `conversation_trimmed: true` plus
+            `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
+            untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
+            via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-spec-schema:
+        operation: agent_applications_spec_schema
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the agent spec JSON schema
+        description: >
+            The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated
+            unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same
+            source the runner validates against, so fields with a default are optional on write. Read this BEFORE
+            composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape.
+            Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.
+    agent-applications-stats:
+        operation: agent_applications_stats
+        enabled: false
+    agent-applications-update:
+        operation: agent_applications_update
+        enabled: false
+    agent-applications-users-connection-delete:
+        operation: agent_applications_users_connection_delete
+        enabled: false
+    agent-applications-users-list:
+        operation: agent_applications_users_list
+        enabled: false
+    agent-fleet-approvals-list:
+        operation: agent_fleet_approvals_list
+        enabled: false
+    agent-fleet-live-sessions:
+        operation: agent_fleet_live_sessions
+        enabled: false
+    agent-fleet-stats:
+        operation: agent_fleet_stats
+        enabled: false
+    agent-memory-create-file:
+        operation: agent_memory_create_file
+        enabled: false
+    agent-memory-delete-file:
+        operation: agent_memory_delete_file
+        enabled: false
+    agent-memory-get-file:
+        operation: agent_memory_get_file
+        enabled: false
+    agent-memory-list-files:
+        operation: agent_memory_list_files
+        enabled: false
+    agent-memory-list-tables:
+        operation: agent_memory_list_tables
+        enabled: false
+    agent-memory-read-table:
+        operation: agent_memory_read_table
+        enabled: false
+    agent-memory-search:
+        operation: agent_memory_search
+        enabled: false
+    agent-memory-tree:
+        operation: agent_memory_tree
+        enabled: false
+    agent-memory-update-file:
+        operation: agent_memory_update_file
+        enabled: false
+    agent-native-tools-list:
+        operation: agent_native_tools_list
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List native tools the runner knows
+        description: >
+            Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes
+            the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap`
+            / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a
+            revision's spec. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the
+            end-to-end authoring flow.

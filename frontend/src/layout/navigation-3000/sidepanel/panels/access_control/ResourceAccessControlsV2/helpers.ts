@@ -1,4 +1,4 @@
-import { toSentenceCase } from 'lib/utils'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 

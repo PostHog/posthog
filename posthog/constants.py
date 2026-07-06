@@ -40,6 +40,7 @@ class AvailableFeature(StrEnum):
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
     HIGH_FREQUENCY_ALERTS = "high_frequency_alerts"
+    REAL_TIME_ALERTS = "real_time_alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
@@ -47,8 +48,10 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
+    PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
+    XAA_AUTHENTICATION = "xaa_authentication"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -65,6 +68,7 @@ TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
+TRENDS_METRIC = "Metric"
 TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
 TRENDS_BOX_PLOT = "BoxPlot"
 
@@ -78,7 +82,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_METRIC, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -108,6 +112,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
+    "Metric",
     "CalendarHeatmap",
 ]
 
@@ -315,10 +320,8 @@ SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
-HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY = "hackathons_subscriptions"
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
-ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY = "alerts-15-minute-interval"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 

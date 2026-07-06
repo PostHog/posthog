@@ -237,17 +237,17 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_start') as window_start,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_start as window_start,
+                                properties.$ai_window_end as window_end,
+                                properties.$ai_clusters as clusters,
                                 timestamp,
-                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
+                                properties.$ai_clustering_level as clustering_level
                             FROM events
                             WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
-                                AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
+                                AND properties.$ai_clustering_run_id = ${props.runId}
                             LIMIT 1
                         `,
                         { productKey: 'llm_analytics', scene: 'AIObservabilityCluster' },

@@ -24,7 +24,7 @@ import { LemonButton, LemonTag, LemonTagType, lemonToast } from '@posthog/lemon-
 
 import api from 'lib/api'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { LineageNode as LineageNodeType } from '~/types'

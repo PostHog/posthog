@@ -6,13 +6,16 @@ import { BarChart, TooltipSurface, type TooltipContext } from '@posthog/quill-ch
 
 import {
     buildFunnelStepsBarConfig,
-    buildFunnelStepsBars,
+    buildSingleSeriesFunnelStepsBars,
     type FunnelStepsBarRow,
 } from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
-import { CHART_THEME, FUNNEL_COLOR } from './charts/theme'
+import { ChartHeader } from './ChartHeader'
+import { FUNNEL_COLOR, useMcpChartTheme } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
+
+const TITLE = 'Funnel'
 
 const NOOP = (): void => {}
 
@@ -41,28 +44,40 @@ function renderTooltip(rows: FunnelStepsBarRow[]) {
 }
 
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
+    const theme = useMcpChartTheme()
     const steps = normalizeFunnelSteps(results)
-    const { series, labels, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+    const { series, labels, rows, overall } = buildSingleSeriesFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+
+    // Labels are 1-based step indices (the shared builder keys the band by index so duplicate step names
+    // don't collapse onto one slot); map each tick back to its step name for the compact axis.
+    const config: typeof CHART_CONFIG = {
+        ...CHART_CONFIG,
+        xTickFormatter: (_value, index) => rows[index]?.name ?? '',
+    }
 
     if (steps.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
-                    <EmptyDescription>No funnel data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title={TITLE} />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
+                        <EmptyDescription>No funnel data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
     return (
         <div data-attr="funnel-steps-bar" className="w-full">
+            <ChartHeader title={TITLE} />
             <div className="flex flex-col h-72 w-full">
                 <BarChart
                     series={series}
                     labels={labels}
-                    theme={CHART_THEME}
-                    config={CHART_CONFIG}
+                    theme={theme}
+                    config={config}
                     tooltip={renderTooltip(rows)}
                     onError={NOOP}
                 />

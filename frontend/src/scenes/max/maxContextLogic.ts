@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -14,12 +15,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import {
-    REVENUE_ANALYTICS_QUERY_TO_NAME,
-    REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
-    RevenueAnalyticsQuery,
-    revenueAnalyticsLogic,
-} from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+import type { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -37,6 +33,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
+    EvaluationRuntime,
 } from './maxTypes'
 import {
     actionToMaxContextPayload,
@@ -68,6 +65,30 @@ const addOrUpdateEntity = <TContext extends EntityWithIdAndType>(state: TContext
 const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], id: string | number): TContext[] =>
     state.filter((item) => item.id !== id)
 
+// A throw while building scene context blanks out ALL of PostHog AI's auto-collected context
+// (e.g. PostHog AI reporting it has no dashboard and falling back to search). The selector that
+// catches it runs on every read, so dedupe by message to avoid spamming when it keeps
+// throwing — but never let the failure stay silent.
+const reportedSceneContextErrors = new Set<string>()
+const reportSceneContextError = (error: unknown): void => {
+    const err = error instanceof Error ? error : new Error(String(error))
+    const key = `${err.name}: ${err.message}`
+    if (reportedSceneContextErrors.has(key)) {
+        return
+    }
+    // Bound growth in case messages embed dynamic content.
+    if (reportedSceneContextErrors.size > 50) {
+        reportedSceneContextErrors.clear()
+    }
+    reportedSceneContextErrors.add(key)
+    // eslint-disable-next-line no-console
+    console.error(
+        '[PostHog AI] Failed to build scene context — it will have no auto-collected context for this scene:',
+        err
+    )
+    posthog.captureException(err, { feature: 'max_scene_context' })
+}
+
 export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 
 export const maxContextLogic = kea<maxContextLogicType>([
@@ -91,7 +112,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             id: string
             name?: string | null
             description?: string | null
-            evaluation_type: 'hog' | 'llm_judge'
+            evaluation_type: EvaluationRuntime
             hog_source?: string | null
         }) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
@@ -207,7 +228,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             id: string
                             name?: string | null
                             description?: string | null
-                            evaluation_type: 'hog' | 'llm_judge'
+                            evaluation_type: EvaluationRuntime
                             hog_source?: string | null
                         }
                     }
@@ -317,6 +338,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
             if (!insight || !insight.query) {
                 // Decide between revenue analytics query and querying the insight logic
                 if (revenueAnalyticsQuery) {
+                    const {
+                        revenueAnalyticsLogic,
+                        REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
+                        REVENUE_ANALYTICS_QUERY_TO_NAME,
+                    } = await import('products/revenue_analytics/frontend/revenueAnalyticsLogic')
                     const logic = revenueAnalyticsLogic.findMounted()!
                     const query = logic.values.queries[revenueAnalyticsQuery]
                     insight = {
@@ -456,6 +482,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
                         // The revenue analytics insights have some fixed short ids that don't overlap with the insight short ids
                         // Let's check them first, and then fallback to looking for an insight logic
+                        const { REVENUE_ANALYTICS_QUERY_TO_SHORT_ID } =
+                            await import('products/revenue_analytics/frontend/revenueAnalyticsLogic')
                         const revenueAnalyticsShortIds = Object.values(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID)
                         if (revenueAnalyticsShortIds.includes(itemInfo.id as InsightShortId)) {
                             revenueAnalyticsQuery = Object.entries(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID).find(
@@ -504,8 +532,9 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
                             )
-                        } catch {
-                            // If the maxContext selector fails, return empty array
+                        } catch (error) {
+                            // Surface the failure instead of silently returning empty context.
+                            reportSceneContextError(error)
                         }
                     }
                     return []

@@ -43,6 +43,12 @@ tools:
             `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to
             have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
             create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.
+
+            IMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the
+            AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled:
+            true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the
+            summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt
+            subscriptions are themselves AI-generated, so this does not apply to them.)
         exclude_params:
             - deleted
             - next_delivery_date

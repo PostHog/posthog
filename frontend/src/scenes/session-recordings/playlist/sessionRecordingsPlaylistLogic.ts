@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -19,13 +18,14 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isString, objectClean, objectsEqual, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isString } from 'lib/utils/guards'
+import { objectClean, objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { groupsModel } from '~/models/groupsModel'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -170,13 +170,25 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
-    pinnedFilters?: UniversalFiltersGroup
+    pinnedFilters?: UniversalFiltersGroup,
+    urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
+    // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
+    // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
+    // where recency is the better default than relevance
+    const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
+        // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
+        order:
+            !hasSpecificIntent &&
+            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
+                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
+                ? 'surfacing_score'
+                : DEFAULT_RECORDING_FILTERS.order,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
@@ -374,8 +386,10 @@ function sortRecordings(
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
-        const orderA = a[orderKey]
-        const orderB = b[orderKey]
+        // `surfacing_score` is ordered server-side and isn't carried on the recording object, so any
+        // key not present resolves to undefined here and the pair is treated as incomparable (order preserved).
+        const orderA = (a as Record<string, any>)[orderKey]
+        const orderB = (b as Record<string, any>)[orderKey]
         const incomparable = orderA === undefined || orderB === undefined
         const left_greater = order_direction === 'DESC' ? -1 : 1
         const right_greater = order_direction === 'DESC' ? 1 : -1
@@ -425,8 +439,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['featureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
-            groupsModel,
-            ['groupsTaxonomicTypes'],
             deletedRecordingsLogic,
             ['deletedRecordingIds'],
         ],
@@ -1277,6 +1289,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        selectedRecordingOutsideFilters: [
+            (s) => [s.selectedRecordingId, s.recordings],
+            (selectedRecordingId, recordings): boolean => {
+                if (!selectedRecordingId) {
+                    return false
+                }
+                return recordings.find((rec) => rec.id === selectedRecordingId)?.matches_filters === false
+            },
+        ],
+
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
@@ -1433,28 +1455,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
-
-        taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters, s.groupsTaxonomicTypes],
-            (allowHogQLFilters, groupsTaxonomicTypes) => {
-                const taxonomicGroupTypes = [
-                    TaxonomicFilterGroupType.Replay,
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    ...groupsTaxonomicTypes,
-                ]
-
-                if (allowHogQLFilters) {
-                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-                }
-
-                return taxonomicGroupTypes
-            },
-        ],
     }),
 
     actionToUrl(({ props, values }) => {
@@ -1551,11 +1551,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                const updatedFilters = {
+                const updatedFilters: Partial<RecordingUniversalFilters> = {
                     // layer URL filters onto defaults, not the persisted state, so fields the URL
                     // omits don't inherit stale values
                     ...(params.filters && !equal(params.filters, values.filters)
-                        ? { ...getDefaultFilters(props.personUUID, props.pinnedFilters), ...params.filters }
+                        ? {
+                              ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
+                              ...params.filters,
+                          }
                         : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)

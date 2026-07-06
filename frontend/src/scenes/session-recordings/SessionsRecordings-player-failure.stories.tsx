@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -24,8 +25,8 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const version = req.url.searchParams.get('version')
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const version = new URL(request.url).searchParams.get('version')
                     return [
                         200,
                         {
@@ -36,8 +37,8 @@ const meta: Meta = {
                     ]
                 },
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
-                    const playlistId = req.params.playlist_id
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': ({ params }) => {
+                    const playlistId = params.playlist_id
 
                     return [
                         200,
@@ -84,15 +85,15 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
-                    const playlistId = req.params.playlist_id
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': ({ params }) => {
+                    const playlistId = params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     // with no source requested should return sources
                     return [
@@ -121,6 +122,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
             },
         }),
     ],

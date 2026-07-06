@@ -3,6 +3,9 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
+from django.conf import settings
+
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -13,7 +16,6 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -28,7 +30,7 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 @pytest.mark.parametrize(
@@ -80,9 +82,10 @@ def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     return texts
 
 
-def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> None:
+def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() -> None:
     report = SignalReport(
         id="report-uuid",
+        team_id=42,
         title="Checkout errors spiked",
         summary="Error rate rose after deploy.\nIgnored second line.",
         signal_count=12,
@@ -106,8 +109,8 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert "👤 Suggested reviewers: <@U123>" in context_text
     assert "Inbox" not in context_text
     button = blocks[3]["elements"][0]
-    assert button["text"]["text"] == "Open in PostHog Code"
-    assert button["url"] == "posthog-code://inbox/report-uuid"
+    assert button["text"]["text"] == "Open in PostHog"
+    assert button["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
     assert text == "Inbox item (P1): Checkout errors spiked"
 
 
@@ -164,6 +167,7 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
+        team_id=42,
         title="Checkout errors spiked",
         summary="Error rate rose after deploy.",
         signal_count=12,
@@ -181,7 +185,8 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
     assert len(buttons) == 2
     assert buttons[0]["text"]["text"] == "Review PR"
     assert buttons[0]["url"] == pr_url
-    assert buttons[1]["text"]["text"] == "Open in PostHog Code"
+    assert buttons[1]["text"]["text"] == "Open in PostHog"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
 
 
 def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
@@ -212,7 +217,7 @@ def test_build_message_blocks_appends_dismiss_button_last_with_action_id() -> No
     )
 
     buttons = blocks[3]["elements"]
-    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog", "Dismiss"]
     dismiss = buttons[-1]
     assert dismiss["action_id"] == "signals_dismiss_report"
     assert dismiss["value"] == dismiss_value
@@ -348,17 +353,18 @@ def _create_implementation_task_with_run(
     *,
     pr_url: str | None = None,
 ) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="Implementation task",
         description="Fix the bug",
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
     )
-    SignalReportTask.objects.create(
-        team=team,
-        report=report,
-        task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+    record_implementation_task(
+        team_id=team.id,
+        report_id=str(report.id),
+        task_id=str(task.id),
     )
     TaskRun.objects.create(
         team=team,
@@ -415,7 +421,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")
     assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
 
 
 @pytest.mark.django_db
@@ -456,9 +462,66 @@ def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    # No reviewers to route → the team channel is not posted to.
+    # No suggested reviewer → nothing sent, even with a team channel configured (no fallback).
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_posts_nothing_without_reviewers_or_team_channel(org_and_team):
+    org, team = org_and_team
+    _make_reviewer_user(org, "creator@example.com", "creator-bot")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2)  # no reviewers, no team channel
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    # No destination at all → nothing sent.
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_non_actionable_report(org_and_team):
+    org, team = org_and_team
+    creator = _make_reviewer_user(org, "creator@example.com", "creator-bot")
+    _make_slack_integration(team, creator)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    # Not in the inbox Reports tab → must not notify, even with a team channel.
+    report = _make_ready_report(team, actionability=ActionabilityChoice.NOT_ACTIONABLE)
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_notifies_requires_human_input_report_without_priority(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "rhi@example.com", "rhi-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    # Actionable (requires_human_input) with no priority but a resolvable reviewer → still notifies.
+    report = _make_ready_report(
+        team, actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT, priority=None, suggested_logins=["rhi-bot"]
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
 
 
 @pytest.mark.django_db
@@ -594,8 +657,9 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
 
     assert sent == 1
     buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
-    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog", "Dismiss"]
     assert buttons[0]["url"] == "https://github.com/org/repo/pull/99"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
     assert buttons[-1]["action_id"] == "signals_dismiss_report"
 
 
@@ -802,6 +866,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         ("session_replay", "session_problem", "Session replay · Session problem"),
         ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
         ("llm_analytics", "evaluation", "AI observability · Evaluation"),
+        ("llm_analytics", "evaluation_report", "AI observability · Evaluation report"),
         ("github", "issue", "GitHub · Issue"),
         ("zendesk", "ticket", "Zendesk · Ticket"),
         ("linear", "issue", "Linear · Issue"),
@@ -848,7 +913,7 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     }
     blocks, fallback = _build_signal_thread_blocks(signal)
 
-    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*  ·  Weight: 2.5"
+    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*"
     assert blocks[1]["text"]["text"] == "Users report the export button does nothing"
     detail = blocks[2]["elements"][0]["text"]
     assert "#42" in detail
@@ -906,6 +971,68 @@ def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:
     assert "Priority: high" in detail
     assert "Status: open" in detail
     assert "javascript:" not in detail
+
+
+def test_build_signal_thread_blocks_renders_markdown_content_as_mrkdwn() -> None:
+    # Markdown in the description (headings, bullets, emphasis, links) renders as Slack mrkdwn
+    # rather than showing literal `##`, `**`, and `[text](url)` noise.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "## Bug\n**Export** is broken, see [issue](https://example.com/i?a=1&b=2)\n- step one\n- step two",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Bug*" in content_text
+    assert "*Export*" in content_text
+    assert "<https://example.com/i?a=1&amp;b=2|issue>" in content_text
+    assert "• step one" in content_text
+    # No raw markdown syntax should survive the conversion.
+    assert "##" not in content_text
+    assert "**" not in content_text
+    assert "[issue]" not in content_text
+
+
+def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() -> None:
+    # Even when converting markdown, raw mention/link syntax in untrusted content stays inert.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "**Heads up** <!here> and <@U999> and a fake <https://evil.com|click here>",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Heads up*" in content_text  # markdown still rendered
+    assert "<!here>" not in content_text
+    assert "<@U999>" not in content_text
+    assert "<https://evil.com|click here>" not in content_text
+    assert "&lt;!here&gt;" in content_text
+    assert "&lt;@U999&gt;" in content_text
+
+
+def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links() -> None:
+    # `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form; an untrusted
+    # description could smuggle a broadcast/ping by pointing the link at `!channel` / `@U123`.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "[ping everyone](!channel) and [dm me](@U12345678) but [real](https://example.com) is fine",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    # No live mention/broadcast token survives.
+    assert "<!channel|" not in content_text
+    assert "<@U12345678|" not in content_text
+    assert "&lt;!channel|ping everyone&gt;" in content_text
+    assert "&lt;@U12345678|dm me&gt;" in content_text
+    # A genuine http(s) link is still rendered as a clickable Slack link.
+    assert "<https://example.com|real>" in content_text
 
 
 @pytest.mark.django_db

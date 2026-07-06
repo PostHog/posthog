@@ -63,7 +63,6 @@ export function compileRecipe(raw: unknown, fallbackId?: string): Recipe {
     }
     return {
         id,
-        capture: stringField(raw, 'capture'),
         rules: rulesRaw.map((r, i) => {
             try {
                 return compileRule(r)

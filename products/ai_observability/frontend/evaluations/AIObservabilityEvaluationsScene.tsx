@@ -5,6 +5,7 @@ import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } fr
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonSwitch,
     LemonTab,
@@ -22,7 +23,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -46,6 +47,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -78,11 +80,41 @@ function getActiveTab(
 }
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (evaluation.evaluation_type === 'hog') {
+    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
         return null
     }
 
     return getUnhealthyProviderKey(providerKeys, evaluation.model_configuration?.provider_key_id)
+}
+
+function getEvaluationMethodLabel(evaluation: EvaluationConfig): string {
+    if (evaluation.evaluation_type === 'hog') {
+        return 'Hog'
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'Sentiment'
+    }
+    return 'LLM judge'
+}
+
+function getEvaluationMethodTagType(evaluation: EvaluationConfig): 'option' | 'highlight' | 'caution' {
+    if (evaluation.evaluation_type === 'hog') {
+        return 'option'
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'highlight'
+    }
+    return 'caution'
+}
+
+function getEvaluationConfigPreview(evaluation: EvaluationConfig): string {
+    if (evaluation.evaluation_type === 'hog') {
+        return evaluation.evaluation_config.source
+    }
+    if (evaluation.evaluation_type === 'sentiment') {
+        return 'User messages'
+    }
+    return evaluation.evaluation_config.prompt
 }
 
 function AIObservabilityEvaluationsContent(): JSX.Element {
@@ -102,6 +134,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
@@ -159,21 +192,19 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </Tooltip>
                     )
                 }
-                const canEnable = canEnableEvaluation(evaluation)
+                const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
+                const canEnable = canEnableEvaluation(evaluation) && (evaluation.enabled || canUseEvaluationType)
                 const isBlocked = !canEnable && !evaluation.enabled
+                const blockedReason = !canUseEvaluationType
+                    ? 'Sentiment evaluations are not available for this project.'
+                    : 'Trial evaluation limit reached. Add a provider API key to re-enable.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <Tooltip
-                                title={
-                                    isBlocked
-                                        ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
-                                        : undefined
-                                }
-                            >
+                            <Tooltip title={isBlocked ? blockedReason : undefined}>
                                 <span>
                                     <LemonSwitch
                                         checked={evaluation.enabled}
@@ -201,8 +232,8 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             title: 'Method',
             key: 'method',
             render: (_, evaluation) => (
-                <LemonTag type={evaluation.evaluation_type === 'hog' ? 'option' : 'caution'}>
-                    {evaluation.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
+                <LemonTag type={getEvaluationMethodTagType(evaluation)}>
+                    {getEvaluationMethodLabel(evaluation)}
                 </LemonTag>
             ),
         },
@@ -210,10 +241,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             title: 'Config',
             key: 'config',
             render: (_, evaluation) => {
-                const preview =
-                    evaluation.evaluation_type === 'hog'
-                        ? evaluation.evaluation_config.source
-                        : evaluation.evaluation_config.prompt
+                const preview = getEvaluationConfigPreview(evaluation)
                 return (
                     <div className="max-w-md">
                         <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
@@ -249,6 +277,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 const stats = evaluation.stats
                 if (!stats || stats.runs_count === 0) {
                     return <span className="text-muted text-sm">No runs</span>
+                }
+
+                // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
+                if (evaluation.evaluation_type === 'sentiment') {
+                    return (
+                        <div className="text-sm">
+                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                        </div>
+                    )
                 }
 
                 const passRateColor =
@@ -307,10 +344,26 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() => {
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/evaluations`,
-                                    object: evaluation,
-                                    callback: () => loadEvaluations(),
+                                LemonDialog.open({
+                                    title: `Delete ${evaluation.name}?`,
+                                    description: 'Are you sure you want to delete this evaluation?',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-evaluation',
+                                        onClick: () => {
+                                            deleteWithUndo({
+                                                endpoint: `environments/${currentTeamId}/evaluations`,
+                                                object: evaluation,
+                                                callback: () => loadEvaluations(),
+                                            })
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'secondary',
+                                    },
                                 })
                             }}
                         />

@@ -56,6 +56,7 @@ class CookiePoemAgent(CustomSignalAgent):
             PriorityAssessment(
                 priority=Priority.P0,
                 explanation="Cookies are top priority.",
+                dollar_value=1000000.0,
             )
         )
         self.register_assignees([])

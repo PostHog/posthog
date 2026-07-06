@@ -18,16 +18,21 @@ import type {
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
+    ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
+    PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
-    SuggestReplyResponseApi,
+    SandboxMessageResponseApi,
+    SandboxOpenApi,
     TicketApi,
+    TicketMessageApi,
+    TicketReplyRequestApi,
     TicketViewApi,
 } from './api.schemas'
 
@@ -60,8 +65,8 @@ export const getConversationsListUrl = (projectId: string, params?: Conversation
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/conversations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/conversations/`
+        ? `/api/projects/${projectId}/conversations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/`
 }
 
 export const conversationsList = async (
@@ -76,7 +81,7 @@ export const conversationsList = async (
 }
 
 export const getConversationsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/conversations/`
+    return `/api/projects/${projectId}/conversations/`
 }
 
 /**
@@ -99,7 +104,7 @@ export const conversationsCreate = async (
 }
 
 export const getConversationsRetrieveUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/`
+    return `/api/projects/${projectId}/conversations/${conversation}/`
 }
 
 export const conversationsRetrieve = async (
@@ -114,7 +119,7 @@ export const conversationsRetrieve = async (
 }
 
 export const getConversationsDestroyUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/`
+    return `/api/projects/${projectId}/conversations/${conversation}/`
 }
 
 /**
@@ -132,7 +137,7 @@ export const conversationsDestroy = async (
 }
 
 export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
+    return `/api/projects/${projectId}/conversations/${conversation}/append_message/`
 }
 
 /**
@@ -155,16 +160,19 @@ export const conversationsAppendMessageCreate = async (
 }
 
 export const getConversationsCancelPartialUpdateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/cancel/`
+    return `/api/projects/${projectId}/conversations/${conversation}/cancel/`
 }
 
+/**
+ * Cancel the conversation's in-progress LangGraph run.
+ */
 export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi?: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
-): Promise<ConversationApi> => {
-    return apiMutator<ConversationApi>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
+): Promise<void> => {
+    return apiMutator<void>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -172,8 +180,29 @@ export const conversationsCancelPartialUpdate = async (
     })
 }
 
+export const getConversationsOpenCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/projects/${projectId}/conversations/${conversation}/open/`
+}
+
+/**
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ */
+export const conversationsOpenCreate = async (
+    projectId: string,
+    conversation: string,
+    sandboxOpenApi?: SandboxOpenApi,
+    options?: RequestInit
+): Promise<SandboxMessageResponseApi | void> => {
+    return apiMutator<SandboxMessageResponseApi | void>(getConversationsOpenCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxOpenApi),
+    })
+}
+
 export const getConversationsQueueRetrieveUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/queue/`
+    return `/api/projects/${projectId}/conversations/${conversation}/queue/`
 }
 
 export const conversationsQueueRetrieve = async (
@@ -188,7 +217,7 @@ export const conversationsQueueRetrieve = async (
 }
 
 export const getConversationsQueueCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/queue/`
+    return `/api/projects/${projectId}/conversations/${conversation}/queue/`
 }
 
 export const conversationsQueueCreate = async (
@@ -206,7 +235,7 @@ export const conversationsQueueCreate = async (
 }
 
 export const getConversationsQueuePartialUpdateUrl = (projectId: string, conversation: string, queueId: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/queue/${queueId}/`
+    return `/api/projects/${projectId}/conversations/${conversation}/queue/${queueId}/`
 }
 
 export const conversationsQueuePartialUpdate = async (
@@ -225,7 +254,7 @@ export const conversationsQueuePartialUpdate = async (
 }
 
 export const getConversationsQueueDestroyUrl = (projectId: string, conversation: string, queueId: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/queue/${queueId}/`
+    return `/api/projects/${projectId}/conversations/${conversation}/queue/${queueId}/`
 }
 
 export const conversationsQueueDestroy = async (
@@ -241,7 +270,7 @@ export const conversationsQueueDestroy = async (
 }
 
 export const getConversationsQueueClearCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/queue/clear/`
+    return `/api/projects/${projectId}/conversations/${conversation}/queue/clear/`
 }
 
 export const conversationsQueueClearCreate = async (
@@ -377,18 +406,63 @@ export const conversationsTicketsDestroy = async (
     })
 }
 
-export const getConversationsTicketsSuggestReplyCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/${id}/suggest_reply/`
-}
-
-export const conversationsTicketsSuggestReplyCreate = async (
+export const getConversationsTicketsMessagesListUrl = (
     projectId: string,
     id: string,
+    params?: ConversationsTicketsMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/tickets/${id}/messages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/tickets/${id}/messages/`
+}
+
+/**
+ * Return the message thread for a ticket, ordered chronologically (paginated).
+ */
+export const conversationsTicketsMessagesList = async (
+    projectId: string,
+    id: string,
+    params?: ConversationsTicketsMessagesListParams,
     options?: RequestInit
-): Promise<SuggestReplyResponseApi> => {
-    return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
+): Promise<PaginatedTicketMessageListApi> => {
+    return apiMutator<PaginatedTicketMessageListApi>(getConversationsTicketsMessagesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/reply/`
+}
+
+/**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreate = async (
+    projectId: string,
+    id: string,
+    ticketReplyRequestApi: TicketReplyRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsReplyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketReplyRequestApi),
     })
 }
 

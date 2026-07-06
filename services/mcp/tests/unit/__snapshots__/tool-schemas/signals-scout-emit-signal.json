@@ -73,10 +73,6 @@
             ],
             "description": "Optional one-line hypothesis the finding tests."
         },
-        "id": {
-            "description": "A UUID string identifying this Signal scout run.",
-            "type": "string"
-        },
         "mcp_trace_id": {
             "anyOf": [
                 {
@@ -87,6 +83,10 @@
                 }
             ],
             "description": "Optional MCP trace id for cross-system debugging."
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
         },
         "severity": {
             "anyOf": [
@@ -100,6 +100,15 @@
                 }
             ],
             "description": "Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4"
+        },
+        "tags": {
+            "description": "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.",
+            "items": {
+                "maxLength": 50,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "time_range": {
             "anyOf": [
@@ -124,6 +133,6 @@
             "description": "Optional time window the finding refers to."
         }
     },
-    "required": ["id", "description", "confidence", "evidence"],
+    "required": ["run_id", "description", "confidence", "evidence"],
     "type": "object"
 }

@@ -132,11 +132,36 @@ fi
 if [ -f .env ]; then
     echo "Existing .env found, preserving configuration"
 else
+    # Optional AI provider keys. PostHog's AI features (the Max assistant, SQL/regex assist)
+    # run on your own LLM provider key. These are safe to leave blank now — you can add them
+    # to .env later and apply with bin/upgrade-hobby. An env var set before running this
+    # script (e.g. ANTHROPIC_API_KEY=... ./deploy-hobby) is used as-is without prompting.
+    # Only prompt on an interactive terminal — a piped/non-interactive install
+    # (CI, `curl | bash`) skips the prompts and relies on the env vars instead.
+    # Read silently (-s) — these are secrets and shouldn't echo to the terminal/scrollback.
+    if [ -t 0 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+        echo ""
+        echo "PostHog AI runs on an Anthropic API key."
+        echo "Enter one to enable PostHog AI now, or leave blank to skip (you can add it later):"
+        read -rs ANTHROPIC_API_KEY
+        echo
+    fi
+    if [ -t 0 ] && [ -z "$OPENAI_API_KEY" ]; then
+        echo "Optionally enter an OpenAI API key to enable SQL and regex AI assist, or leave blank to skip:"
+        read -rs OPENAI_API_KEY
+        echo
+    fi
+
     POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
     ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
+    # Dedicated browserless token so a compromise of the rendering container can't yield
+    # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
+    # installs whose .env predates this variable).
+    BROWSERLESS_SECRET=$(openssl rand -hex 32)
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
+BROWSERLESS_SECRET=$BROWSERLESS_SECRET
 DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL
@@ -144,6 +169,13 @@ CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 EOF
+    # Only persist AI keys that were actually provided — skip writing a blank
+    # ANTHROPIC_API_KEY= line that would just clutter .env with an empty assignment.
+    # (A blank value is harmless either way: bin/upgrade-hobby greps for
+    # ^ANTHROPIC_API_KEY=.+, so an empty value counts as missing and the user is
+    # still offered the key on the next upgrade.)
+    [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
+    [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
 fi
 
 # Download GeoLite2-City.mmdb if it doesn't exist

@@ -7,7 +7,7 @@ from typing import Any, Literal
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import WebAnalyticsAssistantFilters
+from posthog.schema import PropertyType, PropertyValuesQuery, WebAnalyticsAssistantFilters
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
@@ -18,9 +18,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.dags.common.owners import JobOwners
+from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
-from posthog.queries.property_values import get_person_property_values_for_key, get_property_values_for_key
+from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
@@ -118,13 +120,22 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
                 )
         elif property_type in ("event", "session"):
             with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-                values = await database_sync_to_async(get_property_values_for_key)(
-                    property_name, self._team, event_names=None, value=None
-                )
+                values = await database_sync_to_async(self._retrieve_event_property_values)(property_name)
         else:
             return TaxonomyErrorMessages.property_not_found(property_name, property_type)
 
         return self._format_property_values(property_name, values, sample_count=len(values))
+
+    def _retrieve_event_property_values(self, property_name: str) -> list:
+        # Web analytics event and session property values both live on events.properties, so they
+        # share the EVENT path of PropertyValuesQueryRunner (there is no SESSION property type).
+        runner = PropertyValuesQueryRunner(
+            team=self._team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_name),
+            user=self._user,
+        )
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        return [item.name for item in getattr(response, "results", []) or []]
 
 
 class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]):
@@ -441,6 +452,7 @@ class AssessHeatmapTool(MaxTool):
     ) -> tuple[str, dict[str, Any]]:
         data = await database_sync_to_async(_gather_heatmap_data)(
             self._team,
+            self._user,
             page_url=page_url,
             date_from=date_from,
             date_to=date_to,
@@ -479,6 +491,7 @@ _TOP_ELEMENTS = 15
 
 def _gather_heatmap_data(
     team: Team,
+    user: User,
     *,
     page_url: str,
     date_from: str,
@@ -519,12 +532,12 @@ def _gather_heatmap_data(
         "date_to": resolved_to.isoformat(),
         "viewport_width_min": viewport_width_min,
         "viewport_width_max": viewport_width_max,
-        "clicks": _coordinate_points(team, click_exprs),
-        "fold": _fold_summary(team, click_exprs),
-        "rageclicks": _coordinate_points(team, rage_exprs),
-        "scrolldepth": _scroll_buckets(team, scroll_exprs),
+        "clicks": _coordinate_points(team, user, click_exprs),
+        "fold": _fold_summary(team, user, click_exprs),
+        "rageclicks": _coordinate_points(team, user, rage_exprs),
+        "scrolldepth": _scroll_buckets(team, user, scroll_exprs),
         "elements": _autocapture_elements(
-            team, page_url, resolved_from, resolved_to, viewport_width_min, viewport_width_max
+            team, user, page_url, resolved_from, resolved_to, viewport_width_min, viewport_width_max
         ),
     }
 
@@ -566,19 +579,26 @@ def _heatmap_predicates(
     return validated, exprs
 
 
-def _execute(team: Team, stmt: ast.SelectQuery | ast.SelectSetQuery) -> Any:
+def _execute(team: Team, user: User, stmt: ast.SelectQuery | ast.SelectSetQuery) -> Any:
     context = HogQLContext(team_id=team.pk, limit_top_select=False)
     with tags_context(product=Product.MAX_AI, team_id=team.pk, org_id=team.organization_id):
-        return execute_hogql_query(query=stmt, team=team, limit_context=LimitContext.HEATMAPS, context=context)
+        return execute_hogql_query(
+            query=stmt, team=team, user=user, limit_context=LimitContext.HEATMAPS, context=context
+        )
 
 
-def _coordinate_points(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
+def _coordinate_points(team: Team, user: User, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
     stmt = parse_select(
         DEFAULT_QUERY,
-        {"aggregation_count": parse_expr("count(*) as cnt"), "predicates": ast.And(exprs=exprs)},
+        {
+            "aggregation_count": parse_expr("count(*) as cnt"),
+            "predicates": ast.And(exprs=exprs),
+            "limit": ast.Constant(value=_TOP_POINTS),
+            "offset": ast.Constant(value=0),
+        },
     )
-    result = _execute(team, stmt)
-    points = [
+    result = _execute(team, user, stmt)
+    return [
         {
             "pointer_target_fixed": bool(item[0]),
             "pointer_relative_x": item[1],
@@ -587,23 +607,21 @@ def _coordinate_points(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]
         }
         for item in result.results or []
     ]
-    points.sort(key=lambda p: p["count"], reverse=True)
-    return points[:_TOP_POINTS]
 
 
-def _fold_summary(team: Team, exprs: list[ast.Expr]) -> dict[str, Any]:
+def _fold_summary(team: Team, user: User, exprs: list[ast.Expr]) -> dict[str, Any]:
     stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
-    result = _execute(team, stmt)
+    result = _execute(team, user, stmt)
     row = result.results[0] if result.results else None
     return parse_fold_summary_row(row)
 
 
-def _scroll_buckets(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
+def _scroll_buckets(team: Team, user: User, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
     stmt = parse_select(
         SCROLL_DEPTH_QUERY,
         {"aggregation_count": parse_expr("count(*)"), "predicates": ast.And(exprs=exprs)},
     )
-    result = _execute(team, stmt)
+    result = _execute(team, user, stmt)
     return [
         {"scroll_depth_bucket": int(item[0]), "bucket_count": int(item[1]), "cumulative_count": int(item[2])}
         for item in result.results or []
@@ -612,6 +630,7 @@ def _scroll_buckets(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
 
 def _autocapture_elements(
     team: Team,
+    user: User,
     page_url: str,
     date_from: date,
     date_to: date,
@@ -640,7 +659,7 @@ def _autocapture_elements(
             "viewport_filter": viewport_filter,
         },
     )
-    result = _execute(team, stmt)
+    result = _execute(team, user, stmt)
     return [{"text": item[0], "elements_chain": item[1], "clicks": int(item[2])} for item in result.results or []]
 
 

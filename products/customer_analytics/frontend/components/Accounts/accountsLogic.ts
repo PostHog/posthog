@@ -3,9 +3,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual } from 'lib/utils'
+import { isUUIDLike } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -17,15 +19,25 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import {
+    ACCOUNTS_HOGQL_DATA_NODE_KEY,
+    ACCOUNTS_METRICS_DATA_NODE_KEY,
+    CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+} from '../../constants'
 import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
-import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
+import {
+    ACCOUNT_EXPANSION_TABS,
+    AccountExpansionTab,
+    accountsExpansionLogic,
+    DEFAULT_ACCOUNT_TAB,
+} from './accountsExpansionLogic'
 import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -59,20 +71,9 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-// Shared URLs persisted a single role id (e.g. `csm: 7`) before the filters
-// became multi-select. Coerce any scalar (or malformed value) from the view
-// hash into a `number[]` so restoring a legacy link can't poison the array
-// (a stray number breaks the `.length`/`.map` the filters now rely on).
-function normalizeRoleFilter(value: unknown): RoleFilterValue {
-    if (Array.isArray(value)) {
-        return value.filter((entry): entry is number => typeof entry === 'number')
-    }
-    return typeof value === 'number' ? [value] : []
-}
-
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
-export type AccountFilterType = 'tag' | 'csm' | 'account_executive' | 'account_owner' | 'unassigned_only'
+export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -98,6 +99,46 @@ export function deriveAccountsOrderByExpr(column: string): string {
     return column
 }
 
+interface AccountQueryFilters {
+    searchQuery: string
+    tagsFilter: string[]
+    allRolesUnassigned: boolean
+    assignedToFilter: RoleFilterValue
+    accountIdFilter: string | null
+    tileFilter: TileFilter | null
+}
+
+// Shared filter clauses for the list-rows query and the overview-metrics query,
+// so both always aggregate/list over the exact same set of accounts.
+function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters): void {
+    const trimmed = filters.searchQuery.trim()
+    if (trimmed) {
+        source.search = trimmed
+    }
+    if (filters.tagsFilter.length > 0) {
+        source.tagNames = filters.tagsFilter
+    }
+    if (filters.allRolesUnassigned) {
+        source.allRolesUnassigned = true
+    }
+    if (filters.assignedToFilter.length > 0) {
+        source.assignedToUserIds = filters.assignedToFilter
+    }
+    // Combine the overview-tile filter with the single-account filter (path route). The
+    // id is the account PK; compare it stringified, matching how the name-cell id is built.
+    // accountIdFilter is only ever a validated UUID (set from the route), so it's injection-safe.
+    const filterExpressions: string[] = []
+    if (filters.tileFilter) {
+        filterExpressions.push(filters.tileFilter.expression)
+    }
+    if (filters.accountIdFilter) {
+        filterExpressions.push(`toString(id) = '${filters.accountIdFilter}'`)
+    }
+    if (filterExpressions.length > 0) {
+        source.filterExpression = filterExpressions.map((expr) => `(${expr})`).join(' AND ')
+    }
+}
+
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
     csm: 'CSM',
     account_executive: 'Account executive',
@@ -113,9 +154,12 @@ export interface AccountsViewUrlState {
     search?: string
     tags?: string[]
     unassigned?: boolean
-    csm?: number[]
-    accountExecutive?: number[]
-    accountOwner?: number[]
+    /** Concrete user ids for the "Assigned to" / "My accounts" filter — explicit
+     * (not viewer-relative) so a shared link resolves identically for everyone. */
+    assignedTo?: number[]
+    /** @deprecated Legacy viewer-relative flag; still read so old shared links
+     * resolve to the opener's own id. Never written. */
+    mine?: boolean
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
     tileFilter?: TileFilter
@@ -127,6 +171,8 @@ export const accountsLogic = kea<accountsLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            userLogic,
+            ['user'],
             accountsColumnConfigLogic,
             ['selectColumns', 'visibleColumnNames'],
             accountsOverviewTilesLogic,
@@ -146,9 +192,10 @@ export const accountsLogic = kea<accountsLogicType>([
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
-        setCsmFilter: (value: RoleFilterValue) => ({ value }),
-        setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
-        setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
+        setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
+        // Shortcut for the "My accounts" checkbox — resolves to the current
+        // user's id and routes through setAssignedToFilter.
+        setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
@@ -170,6 +217,9 @@ export const accountsLogic = kea<accountsLogicType>([
             name,
             tab,
         }),
+        // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
+        // path route. null clears it (back to the full list).
+        setAccountIdFilter: (accountId: string | null) => ({ accountId }),
     }),
     reducers({
         searchInput: [
@@ -197,22 +247,16 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAllRolesUnassigned: (_, { value }) => value,
             },
         ],
-        csmFilter: [
+        assignedToFilter: [
             [] as RoleFilterValue,
             {
-                setCsmFilter: (_, { value }) => value,
+                setAssignedToFilter: (_, { value }) => value,
             },
         ],
-        accountExecutiveFilter: [
-            [] as RoleFilterValue,
+        accountIdFilter: [
+            null as string | null,
             {
-                setAccountExecutiveFilter: (_, { value }) => value,
-            },
-        ],
-        accountOwnerFilter: [
-            [] as RoleFilterValue,
-            {
-                setAccountOwnerFilter: (_, { value }) => value,
+                setAccountIdFilter: (_, { accountId }) => accountId,
             },
         ],
         sortOrder: [
@@ -243,6 +287,15 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     selectors({
+        currentUserId: [(s) => [s.user], (user): number | null => user?.id ?? null],
+        // The "My accounts" checkbox is checked exactly when the assigned-to
+        // filter is just the current user — i.e. the user-agnostic id filter
+        // happens to point at you.
+        assignedToCurrentUser: [
+            (s) => [s.assignedToFilter, s.currentUserId],
+            (assignedToFilter: RoleFilterValue, currentUserId: number | null): boolean =>
+                currentUserId !== null && assignedToFilter.length === 1 && assignedToFilter[0] === currentUserId,
+        ],
         isRoleSaving: [
             (s) => [s.savingRoles],
             (savingRoles: Record<string, true>) =>
@@ -250,39 +303,23 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
         activeFilterCount: [
-            (s) => [
-                s.searchQuery,
-                s.tagsFilter,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
-                s.allRolesUnassigned,
-            ],
+            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter],
             (
                 searchQuery: string,
                 tagsFilter: string[],
-                csmFilter: RoleFilterValue,
-                accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue,
-                allRolesUnassigned: boolean
+                allRolesUnassigned: boolean,
+                assignedToFilter: RoleFilterValue
             ): number =>
-                [
-                    !!searchQuery.trim(),
-                    tagsFilter.length > 0,
-                    csmFilter.length > 0,
-                    accountExecutiveFilter.length > 0,
-                    accountOwnerFilter.length > 0,
-                    allRolesUnassigned,
-                ].filter(Boolean).length,
+                [!!searchQuery.trim(), tagsFilter.length > 0, allRolesUnassigned, assignedToFilter.length > 0].filter(
+                    Boolean
+                ).length,
         ],
         viewUrlState: [
             (s) => [
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
+                s.assignedToFilter,
                 s.sortOrder,
                 s.selectColumns,
                 s.tileFilter,
@@ -291,9 +328,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
-                csmFilter: RoleFilterValue,
-                accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue,
+                assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
                 tileFilter: TileFilter | null
@@ -309,14 +344,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (allRolesUnassigned) {
                     state.unassigned = true
                 }
-                if (csmFilter.length > 0) {
-                    state.csm = csmFilter
-                }
-                if (accountExecutiveFilter.length > 0) {
-                    state.accountExecutive = accountExecutiveFilter
-                }
-                if (accountOwnerFilter.length > 0) {
-                    state.accountOwner = accountOwnerFilter
+                if (assignedToFilter.length > 0) {
+                    state.assignedTo = assignedToFilter
                 }
                 if (sortOrder) {
                     state.sort = sortOrder
@@ -335,11 +364,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
+                s.assignedToFilter,
+                s.accountIdFilter,
                 s.tileFilter,
-                s.overviewMetrics,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -347,11 +374,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
-                csmFilter: RoleFilterValue,
-                accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue,
+                assignedToFilter: RoleFilterValue,
+                accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
-                overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -360,31 +385,14 @@ export const accountsLogic = kea<accountsLogicType>([
                     select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
                 }
-                if (overviewMetrics.length > 0) {
-                    source.metrics = overviewMetrics
-                }
-                const trimmed = searchQuery.trim()
-                if (trimmed) {
-                    source.search = trimmed
-                }
-                if (tagsFilter.length > 0) {
-                    source.tagNames = tagsFilter
-                }
-                if (allRolesUnassigned) {
-                    source.allRolesUnassigned = true
-                }
-                if (csmFilter.length > 0) {
-                    source.csm = csmFilter
-                }
-                if (accountExecutiveFilter.length > 0) {
-                    source.accountExecutive = accountExecutiveFilter
-                }
-                if (accountOwnerFilter.length > 0) {
-                    source.accountOwner = accountOwnerFilter
-                }
-                if (tileFilter) {
-                    source.filterExpression = tileFilter.expression
-                }
+                applyAccountFilters(source, {
+                    searchQuery,
+                    tagsFilter,
+                    allRolesUnassigned,
+                    assignedToFilter,
+                    accountIdFilter,
+                    tileFilter,
+                })
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
                     source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
@@ -399,6 +407,49 @@ export const accountsLogic = kea<accountsLogicType>([
                     // differs from the column name, e.g. `tupleElement(csm, 2)`).
                     allowSorting: true,
                 }
+            },
+        ],
+        // The overview-tile aggregations run as their own metrics-only query (no
+        // `select`), keyed to ACCOUNTS_METRICS_DATA_NODE_KEY, so they load
+        // independently of the list rows. Null when there are no tiles — the
+        // data node then stays idle. Shares the list's filters so tiles
+        // aggregate over the same set the table shows.
+        metricsQuery: [
+            (s) => [
+                s.overviewMetrics,
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.assignedToFilter,
+                s.accountIdFilter,
+                s.tileFilter,
+            ],
+            (
+                overviewMetrics: string[],
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                assignedToFilter: RoleFilterValue,
+                accountIdFilter: string | null,
+                tileFilter: TileFilter | null
+            ): AccountsQuery | null => {
+                if (overviewMetrics.length === 0) {
+                    return null
+                }
+                const source: AccountsQuery = {
+                    kind: NodeKind.AccountsQuery,
+                    metrics: overviewMetrics,
+                    tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_overview' },
+                }
+                applyAccountFilters(source, {
+                    searchQuery,
+                    tagsFilter,
+                    allRolesUnassigned,
+                    assignedToFilter,
+                    accountIdFilter,
+                    tileFilter,
+                })
+                return source
             },
         ],
     }),
@@ -424,52 +475,36 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.tag_count = values.tagsFilter.length
                     properties.is_cleared = values.tagsFilter.length === 0
                     break
-                case 'csm':
-                    properties.value = values.csmFilter
-                    properties.role_count = values.csmFilter.length
-                    properties.is_cleared = values.csmFilter.length === 0
-                    break
-                case 'account_executive':
-                    properties.value = values.accountExecutiveFilter
-                    properties.role_count = values.accountExecutiveFilter.length
-                    properties.is_cleared = values.accountExecutiveFilter.length === 0
-                    break
-                case 'account_owner':
-                    properties.value = values.accountOwnerFilter
-                    properties.role_count = values.accountOwnerFilter.length
-                    properties.is_cleared = values.accountOwnerFilter.length === 0
-                    break
                 case 'unassigned_only':
                     properties.value = values.allRolesUnassigned
                     properties.is_cleared = !values.allRolesUnassigned
+                    break
+                case 'my_accounts':
+                    properties.value = values.assignedToCurrentUser
+                    properties.is_cleared = !values.assignedToCurrentUser
+                    break
+                case 'assigned_to':
+                    properties.value = values.assignedToFilter
+                    properties.role_count = values.assignedToFilter.length
+                    properties.is_cleared = values.assignedToFilter.length === 0
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
         },
         setAllRolesUnassigned: ({ value }) => {
-            if (value) {
-                if (values.csmFilter.length > 0) {
-                    actions.setCsmFilter([])
-                }
-                if (values.accountExecutiveFilter.length > 0) {
-                    actions.setAccountExecutiveFilter([])
-                }
-                if (values.accountOwnerFilter.length > 0) {
-                    actions.setAccountOwnerFilter([])
-                }
+            if (value && values.assignedToFilter.length > 0) {
+                actions.setAssignedToFilter([])
             }
         },
-        setCsmFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
-            }
+        // "My accounts" is a shortcut: filter by the current user's own id. The
+        // user-agnostic id then rides in the URL, so a shared link shows the
+        // sharer's accounts to whoever opens it (not the opener's own).
+        setAssignedToCurrentUser: ({ value }) => {
+            actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
         },
-        setAccountExecutiveFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
-            }
-        },
-        setAccountOwnerFilter: ({ value }) => {
+        // "Assigned to" (an account's CSM or AE is one of these users) clears the
+        // unassigned flag — the two are a genuine contradiction.
+        setAssignedToFilter: ({ value }) => {
             if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
@@ -506,6 +541,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 sort_column: values.sortOrder?.column ?? null,
             })
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+            dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
             if (values.isRoleSaving(accountId, role)) {
@@ -528,6 +564,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     source: 'list_row',
                 })
                 dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
@@ -554,14 +591,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.allRolesUnassigned) {
                     actions.setAllRolesUnassigned(false)
                 }
-                if (values.csmFilter.length > 0) {
-                    actions.setCsmFilter([])
-                }
-                if (values.accountExecutiveFilter.length > 0) {
-                    actions.setAccountExecutiveFilter([])
-                }
-                if (values.accountOwnerFilter.length > 0) {
-                    actions.setAccountOwnerFilter([])
+                if (values.assignedToFilter.length > 0) {
+                    actions.setAssignedToFilter([])
                 }
                 const term = externalId || name
                 if (term) {
@@ -610,9 +641,7 @@ export const accountsLogic = kea<accountsLogicType>([
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
             setAllRolesUnassigned: toUrl,
-            setCsmFilter: toUrl,
-            setAccountExecutiveFilter: toUrl,
-            setAccountOwnerFilter: toUrl,
+            setAssignedToFilter: toUrl,
             setSortOrder: toUrl,
             setSelectColumns: toUrl,
             selectColumn: toUrl,
@@ -622,57 +651,78 @@ export const accountsLogic = kea<accountsLogicType>([
             setTileFilter: toUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
-            const view: AccountsViewUrlState =
-                hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
-
-            const search = view.search ?? ''
-            if (search !== values.searchQuery) {
-                actions.setSearchQuery(search)
+    urlToAction(({ actions, values }) => {
+        // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
+        // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
+        const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
+            // Guard the path param before it's interpolated into the HogQL id filter.
+            if (!accountId || !isUUIDLike(accountId)) {
+                return
             }
-
-            const tags = view.tags ?? []
-            if (!objectsEqual(tags, values.tagsFilter)) {
-                actions.setTagsFilter(tags)
+            const tab =
+                rawTab && ACCOUNT_EXPANSION_TABS.includes(rawTab as AccountExpansionTab)
+                    ? (rawTab as AccountExpansionTab)
+                    : DEFAULT_ACCOUNT_TAB
+            if (values.accountIdFilter !== accountId) {
+                actions.setAccountIdFilter(accountId)
             }
+            actions.openAccountTab(accountId, tab)
+        }
+        return {
+            [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
+                const view: AccountsViewUrlState =
+                    hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
 
-            const unassigned = view.unassigned ?? false
-            if (unassigned !== values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(unassigned)
-            }
+                const search = view.search ?? ''
+                if (search !== values.searchQuery) {
+                    actions.setSearchQuery(search)
+                }
 
-            const csm = normalizeRoleFilter(view.csm)
-            if (!objectsEqual(csm, values.csmFilter)) {
-                actions.setCsmFilter(csm)
-            }
+                const tags = view.tags ?? []
+                if (!objectsEqual(tags, values.tagsFilter)) {
+                    actions.setTagsFilter(tags)
+                }
 
-            const accountExecutive = normalizeRoleFilter(view.accountExecutive)
-            if (!objectsEqual(accountExecutive, values.accountExecutiveFilter)) {
-                actions.setAccountExecutiveFilter(accountExecutive)
-            }
+                const unassigned = view.unassigned ?? false
+                if (unassigned !== values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(unassigned)
+                }
 
-            const accountOwner = normalizeRoleFilter(view.accountOwner)
-            if (!objectsEqual(accountOwner, values.accountOwnerFilter)) {
-                actions.setAccountOwnerFilter(accountOwner)
-            }
+                const assignedTo = normalizeRoleFilter(view.assignedTo)
+                // Back-compat: legacy links encoded the viewer-relative `mine: true`;
+                // resolve it to the opener's own id so old shared links still work.
+                const legacyMine =
+                    !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
+                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine
+                if (!objectsEqual(nextAssignedTo, values.assignedToFilter)) {
+                    actions.setAssignedToFilter(nextAssignedTo)
+                }
 
-            const sort = view.sort ?? null
-            if (!objectsEqual(sort, values.sortOrder)) {
-                actions.setSortOrder(sort)
-            }
+                const sort = view.sort ?? null
+                if (!objectsEqual(sort, values.sortOrder)) {
+                    actions.setSortOrder(sort)
+                }
 
-            // A shared link's columns win over the per-user saved column config;
-            // accountsColumnConfigLogic enforces this by reading the URL when its
-            // async saved-config load resolves.
-            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
-                actions.setSelectColumns(view.columns)
-            }
+                // A shared link's columns win over the per-user saved column config;
+                // accountsColumnConfigLogic enforces this by reading the URL when its
+                // async saved-config load resolves.
+                if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                    actions.setSelectColumns(view.columns)
+                }
 
-            const tileFilter = view.tileFilter ?? null
-            if (!objectsEqual(tileFilter, values.tileFilter)) {
-                actions.setTileFilter(tileFilter)
-            }
-        },
-    })),
+                const tileFilter = view.tileFilter ?? null
+                if (!objectsEqual(tileFilter, values.tileFilter)) {
+                    actions.setTileFilter(tileFilter)
+                }
+
+                // Back on the bare list — drop any single-account path filter.
+                if (values.accountIdFilter !== null) {
+                    actions.setAccountIdFilter(null)
+                }
+            },
+            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => openAccountByPath(accountId),
+            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }): void =>
+                openAccountByPath(accountId, tab),
+        }
+    }),
 ])

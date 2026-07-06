@@ -332,11 +332,11 @@ class TestRequestCountMetrics:
     async def test_streaming_mid_stream_error_records_request_count(self, mock_user: AuthenticatedUser) -> None:
         before = _get_request_count("500")
 
-        async def error_stream() -> AsyncGenerator[dict[str, Any], None]:
+        async def error_stream() -> AsyncGenerator[dict[str, Any]]:
             yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
             raise ValueError("mid-stream failure")
 
-        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
+        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any]]:
             return error_stream()
 
         response = await handle_llm_request(
@@ -363,11 +363,11 @@ class TestRequestCountMetrics:
             provider="anthropic", error_type="ValueError", product="llm_gateway"
         )._value.get()
 
-        async def error_stream() -> AsyncGenerator[dict[str, Any], None]:
+        async def error_stream() -> AsyncGenerator[dict[str, Any]]:
             yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
             raise ValueError("mid-stream failure")
 
-        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any], None]:
+        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any]]:
             return error_stream()
 
         response = await handle_llm_request(

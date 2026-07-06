@@ -20,6 +20,7 @@ import type { clustersLogicType } from './clustersLogicType'
 import {
     FILTER_QUERY_MAX_ROWS,
     AI_OBSERVABILITY_CLUSTERS_SCENE_TAG,
+    CLUSTERING_RUNS_LOOKBACK_DAYS,
     MAX_CLUSTERING_RUNS,
     NOISE_CLUSTER_ID,
     OUTLIER_COLOR,
@@ -319,15 +320,19 @@ export const clustersLogic = kea<clustersLogicType>([
                 loadClusteringRuns: async () => {
                     const eventName = eventNameForLevel(values.clusteringLevel)
 
+                    // Look back a wide window rather than a hard 7 days: scheduled runs are
+                    // emitted ~daily but a team can go several days without a fresh one, and a
+                    // narrow window made the page go empty the moment the last run aged out.
+                    // MAX_CLUSTERING_RUNS still bounds the result.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_end as window_end,
                                 timestamp
                             FROM events
                             WHERE event = ${eventName}
-                                AND timestamp >= now() - INTERVAL 7 DAY
+                                AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY
                             ORDER BY timestamp DESC
                             LIMIT ${MAX_CLUSTERING_RUNS}
                         `,
@@ -360,19 +365,19 @@ export const clustersLogic = kea<clustersLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_start') as window_start,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_start as window_start,
+                                properties.$ai_window_end as window_end,
+                                toInt(properties.$ai_total_items_analyzed) as total_items,
+                                properties.$ai_clusters as clusters,
                                 timestamp,
-                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params,
-                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
+                                properties.$ai_clustering_params as clustering_params,
+                                properties.$ai_clustering_level as clustering_level
                             FROM events
                             WHERE event = ${eventName}
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
-                                AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
+                                AND properties.$ai_clustering_run_id = ${runId}
                             LIMIT 1
                         `,
                         { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },

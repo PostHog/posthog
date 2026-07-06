@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        "noEmit": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true,
+        "verbatimModuleSyntax": false,
+        "types": ["node", "vitest/globals"]
+    },
+    "include": ["src"],
+    "exclude": ["node_modules"]
+}

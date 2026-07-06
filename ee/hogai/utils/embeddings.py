@@ -38,7 +38,7 @@ def get_async_azure_embeddings_client() -> EmbeddingsClientAsync:
     )
 
 
-async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> Generator[list[float], None, None]:
+async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> Generator[list[float]]:
     """Embed documents for storing in a vector database."""
     response = await client.embed(
         input=texts,

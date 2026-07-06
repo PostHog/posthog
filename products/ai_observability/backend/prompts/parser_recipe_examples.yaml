@@ -1,0 +1,306 @@
+# Parser recipe DSL — reference and worked examples.
+#
+# This file is the canonical teaching reference for custom parser recipes. It is embedded
+# verbatim in the prompt of the Max tool that writes recipes, and every example below is
+# executed against the real TypeScript compiler and runtime by
+# products/ai_observability/frontend/normalizer/recipe/dslExamples.test.ts — if the DSL
+# changes, that test fails and this file must be updated to match.
+#
+# A recipe is YAML: ordered `rules` (team recipes don't need an `id`). Each rule:
+#   on: <pattern>                          # when the rule fires
+#   emit | delegate | delegateEach: ...    # what it produces (exactly one of these)
+#   stamp: <emit slots>                    # delegateEach only: override role/toolCallId on results
+#   followups: [...]                       # extra messages appended after the rule's output
+#
+# Messages are the display target, but they need not form a chat: tool activity belongs in
+# toolCall/tool_result messages, and standalone data can be a single concise system or
+# assistant message built from its key fields — pick the representation that fits the data.
+#
+# Matching: rules are tried in order, first match wins. Team recipes run AFTER the built-in
+# provider recipes (OpenAI, Anthropic, LangChain, ...) — write rules for the shapes the
+# built-ins leave unrecognized; you cannot override what a built-in already matches.
+# A top-level array input is unwrapped by a built-in rule and each element is re-matched
+# against every recipe, including yours — so write rules for the element shapes.
+# Input that no rule matches anywhere is "salvaged" as a stringified JSON message and the
+# event keeps the raw JSON fallback rendering.
+#
+# Patterns (`on:`): a mapping of field → predicate. All entries must hold.
+#   field: <bare value>           # equality
+#   field: { exists: true }       # field presence (false: absence)
+#   field: { is: string }         # type check: string, array, object, null, number, boolean, any
+#   field: { is: [string, null] } # any of several types
+#   field: { in: [a, b] }         # membership
+#   field: { shape: {...} }       # nested pattern on an object field (implicit when you nest a mapping)
+#   field: { every: <predicate> } # all elements of an array field satisfy the predicate
+#   $: <predicate>                # `$` applies the predicate to the whole input
+#
+# Value expressions (used in emit slots and delegate sources):
+#   $                       # the whole input
+#   $.a.b                   # field path; evaluates to undefined when missing
+#   "text with $.field"     # string interpolation
+#   coalesce: [e1, e2, ...] # first non-null/undefined value
+#   select: { from: <arr>, where: <pattern>?, pluck: <field|expr>?, if_empty: <expr>? }
+#   reject: { from: <arr>, where: <pattern>, if_empty: <expr>? }   # inverse filter
+#   join: { from: <arr>, sep: <str>?, field: <str>? }              # default sep "\n"
+#   omit: { from: <obj>, keys: [k, ...] }                          # object minus keys
+#   stringify: <expr>       # JSON-encode non-string values for display
+#   try_parse_structured_content: <expr>  # parse stringified '[{"type": "text", ...}]' block arrays
+#   literal: <value>        # keep a value uncompiled (escapes one-key objects that look like operators)
+#   plain strings/numbers/arrays/objects  # literals; arrays and objects compile element-wise
+#   if_empty: ~             # on select/reject: drop the slot entirely instead of an empty array
+#
+# Emit slots: role, content, toolCall, toolCalls, toolCallId, spread.
+#   role: user|assistant|system|tool|thinking|tool_result  # or an expression. Omitted → the
+#       input's own role/type field (normalized: human→user; ai/model/bot→assistant; ...) or
+#       the side default (input side: user, output side: assistant).
+#   content: expression → string, or array of {type: ...} content blocks
+#   toolCall: { id: ..., name: ..., args: ... }  # one call; toolCalls: expression → array of calls
+#   toolCallId: links a tool_result message back to the call it answers
+#   spread: <expr>          # seed the message from an object's fields; explicit slots override
+
+examples:
+    - title: Map custom fields onto roles and content
+      teaches: bare equality, exists, field paths, explicit role tags
+      recipe:
+          rules:
+              - on:
+                    kind: question
+                    body: { exists: true }
+                emit:
+                    role: user
+                    content: $.body.text
+              - on:
+                    kind: answer
+                emit:
+                    role: assistant
+                    content: $.body.text
+      cases:
+          - input: { kind: question, body: { text: 'What is PostHog?' } }
+            expect:
+                - { role: user, content: 'What is PostHog?' }
+          - input: { kind: answer, body: { text: 'An analytics platform.' } }
+            expect:
+                - { role: assistant, content: 'An analytics platform.' }
+
+    - title: Summarize a state object with interpolation
+      teaches: $ whole-input matching, is type checks, string interpolation
+      recipe:
+          rules:
+              - on:
+                    $: { is: object }
+                    status: { is: string }
+                    attempt: { is: number }
+                emit:
+                    role: system
+                    content: 'Run $.run_id finished with status $.status (attempt $.attempt)'
+      cases:
+          - input: { run_id: run_42, status: complete, attempt: 2 }
+            expect:
+                - { role: system, content: 'Run run_42 finished with status complete (attempt 2)' }
+
+    - title: Unwrap an envelope and normalize each entry
+      teaches: delegateEach, in membership, first-match-wins rule order
+      recipe:
+          rules:
+              - on:
+                    transcript: { is: array }
+                delegateEach: $.transcript
+              - on:
+                    who: { in: [customer, visitor] }
+                emit:
+                    role: user
+                    content: $.text
+              - on:
+                    who: agent
+                emit:
+                    role: assistant
+                    content: $.text
+      cases:
+          - input:
+                transcript:
+                    - { who: customer, text: 'Hi!' }
+                    - { who: agent, text: 'Hello, how can I help?' }
+            expect:
+                - { role: user, content: 'Hi!' }
+                - { role: assistant, content: 'Hello, how can I help?' }
+
+    - title: Tool calls, tool results, and thinking
+      teaches: shape, toolCall, toolCallId, tool_result and thinking roles, stringify
+      recipe:
+          rules:
+              - on:
+                    action: { shape: { tool: { is: string } } }
+                emit:
+                    role: assistant
+                    toolCall:
+                        id: $.call_id
+                        name: $.action.tool
+                        args: $.action.params
+              - on:
+                    result_for: { exists: true }
+                emit:
+                    role: tool_result
+                    toolCallId: $.result_for
+                    content:
+                        stringify: $.output
+              - on:
+                    reasoning: { exists: true }
+                emit:
+                    role: thinking
+                    content: $.reasoning
+      cases:
+          - input: { action: { tool: search_docs, params: { query: pricing } }, call_id: c1 }
+            expect:
+                - role: assistant
+                  content: ''
+                  tool_calls:
+                      - { type: function, id: c1, function: { name: search_docs, arguments: { query: pricing } } }
+          - input: { result_for: c1, output: { hits: 3 } }
+            expect:
+                - { role: 'assistant (tool result)', content: '{"hits":3}', tool_call_id: c1 }
+          - input: { reasoning: 'I should check the docs first.' }
+            expect:
+                - { role: 'assistant (thinking)', content: 'I should check the docs first.' }
+
+    - title: Split content blocks into text and tool calls
+      teaches: every, select with where/pluck, reject, join with field, if_empty, inherited role normalization
+      recipe:
+          rules:
+              - on:
+                    role: { is: string }
+                    parts: { every: { shape: { type: { is: string } } } }
+                emit:
+                    # role omitted: taken from the input's own `role` field ('ai' → assistant)
+                    content:
+                        join:
+                            from:
+                                reject: { from: $.parts, where: { type: call } }
+                            sep: "\n"
+                            field: value
+                    toolCalls:
+                        select:
+                            from: $.parts
+                            where: { type: call }
+                            pluck: { id: $.id, name: $.tool, args: $.args }
+                            if_empty: ~
+      cases:
+          - input:
+                role: ai
+                parts:
+                    - { type: text, value: 'Let me check.' }
+                    - { type: call, id: t1, tool: lookup, args: { id: 7 } }
+            expect:
+                - role: assistant
+                  content: 'Let me check.'
+                  tool_calls:
+                      - { type: function, id: t1, function: { name: lookup, arguments: { id: 7 } } }
+          - input: { role: ai, parts: [{ type: text, value: 'Done.' }] }
+            expect:
+                - { role: assistant, content: 'Done.' }
+
+    - title: Preserve original fields while cleaning them up
+      teaches: spread, omit, coalesce
+      recipe:
+          rules:
+              - on:
+                    msg_id: { exists: true }
+                emit:
+                    spread:
+                        omit: { from: $, keys: [internal_trace] }
+                    role: user
+                    content:
+                        coalesce: [$.display_text, $.raw_text, '(empty)']
+      cases:
+          - input: { msg_id: m1, raw_text: 'fallback text', internal_trace: { spans: 99 } }
+            expect:
+                - { role: user, content: 'fallback text', msg_id: m1, raw_text: 'fallback text' }
+
+    - title: Delegate a nested payload and append a note
+      teaches: delegate, static followups, try_parse_structured_content
+      recipe:
+          rules:
+              - on:
+                    request: { shape: { prompt: { exists: true } } }
+                delegate: $.request
+                followups:
+                    - role: system
+                      content: 'Model: $.model'
+              - on:
+                    prompt: { exists: true }
+                emit:
+                    role: user
+                    content:
+                        try_parse_structured_content: $.prompt
+      cases:
+          - input:
+                model: gpt-4
+                request: { prompt: '[{"type": "text", "text": "Describe PostHog"}]' }
+            expect:
+                - role: user
+                  content:
+                      - { type: text, text: 'Describe PostHog' }
+                - { role: system, content: 'Model: gpt-4' }
+
+    - title: Stamp delegated results with the parent's call id
+      teaches: delegateEach with stamp
+      recipe:
+          rules:
+              - on:
+                    tool_outputs: { is: array }
+                delegateEach: $.tool_outputs
+                stamp:
+                    role: tool_result
+                    toolCallId: $.parent_call
+              - on:
+                    chunk: { exists: true }
+                emit:
+                    content: $.chunk
+      cases:
+          - input: { parent_call: c9, tool_outputs: [{ chunk: 'result A' }, { chunk: 'result B' }] }
+            expect:
+                - { role: 'assistant (tool result)', content: 'result A', tool_call_id: c9 }
+                - { role: 'assistant (tool result)', content: 'result B', tool_call_id: c9 }
+
+    - title: Expand an array into extra messages
+      teaches: expand followups (from/each)
+      recipe:
+          rules:
+              - on:
+                    summary: { exists: true }
+                    attachments: { is: array }
+                emit:
+                    role: assistant
+                    content: $.summary
+                followups:
+                    - from: $.attachments
+                      each:
+                          role: system
+                          content: 'Attached: $.name'
+      cases:
+          - input: { summary: 'Report ready', attachments: [{ name: q1.pdf }, { name: q2.pdf }] }
+            expect:
+                - { role: assistant, content: 'Report ready' }
+                - { role: system, content: 'Attached: q1.pdf' }
+                - { role: system, content: 'Attached: q2.pdf' }
+
+    - title: Escape data that looks like an operator
+      teaches: literal escape hatch
+      recipe:
+          rules:
+              - on:
+                    type: ping
+                emit:
+                    role: system
+                    content: 'Ping received'
+                    toolCall:
+                        name: record_ping
+                        # args is a one-key object whose key collides with the `join` operator;
+                        # `literal:` keeps it as plain data
+                        args: { literal: { join: session } }
+      cases:
+          - input: { type: ping }
+            expect:
+                - role: system
+                  content: 'Ping received'
+                  tool_calls:
+                      - { type: function, function: { name: record_ping, arguments: { join: session } } }

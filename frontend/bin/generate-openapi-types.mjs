@@ -6,7 +6,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { collectSchemaRefs, preprocessSchema, resolveNestedRefs, runOrvalParallel } from '@posthog/openapi-codegen'
+import {
+    annotatePureZodExports,
+    collectSchemaRefs,
+    fixNullDefaults,
+    preprocessSchema,
+    resolveNestedRefs,
+    runOrvalParallel,
+} from '@posthog/openapi-codegen'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
@@ -425,42 +432,6 @@ if (generateAll) {
 let generated = 0
 let failed = 0
 const entries = [...schemasByOutput.entries()]
-
-/**
- * Orval emits `export const fooDefault = null` + `.default(fooDefault)` for
- * serializer fields with `default=None`. Zod rejects `.default(null)` on typed
- * schemas (number, string, etc.). Replace with `.nullish().default(null)` to
- * preserve Django's default=None semantics (missing key → null, not undefined).
- */
-function fixNullDefaults(filePath) {
-    let content = fs.readFileSync(filePath, 'utf-8')
-
-    const nullConsts = new Set()
-    for (const m of content.matchAll(/export const (\w+Default)\s*=\s*null\s*;/g)) {
-        nullConsts.add(m[1])
-    }
-    if (nullConsts.size === 0) {
-        return
-    }
-
-    const namesPattern = [...nullConsts].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-    const defaultRe = new RegExp('\\.default\\(\\s*(?:' + namesPattern + ')\\s*[,)]', 'g')
-    const constRe = new RegExp('export const (?:' + namesPattern + ')\\s*=\\s*null\\s*;', 'g')
-    content = content.replace(defaultRe, '.nullish().default(null)')
-    content = content.replace(constRe, '')
-
-    fs.writeFileSync(filePath, content)
-}
-
-/**
- * Annotate top-level Zod exports with @__PURE__ so bundlers can tree-shake
- * unused schemas out of the bundle.
- */
-function annotatePureZodExports(filePath) {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const annotated = content.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
-    fs.writeFileSync(filePath, annotated)
-}
 
 // Prepare all jobs first (write temp files, log info)
 const fetchJobs = entries.map(([outputDir, groupedSchema]) => {

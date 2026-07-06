@@ -12,13 +12,11 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
-from django.dispatch import receiver
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -31,7 +29,6 @@ from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
-from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -67,6 +64,7 @@ from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
+from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
@@ -78,41 +76,11 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
-USER_AUTH_METHOD_MISMATCH = Counter(
-    "user_auth_method_mismatches_sso_enforcement",
-    "A user successfully authenticated with a different method than the one they're required to use",
-    labelnames=["login_method", "sso_enforced_method", "user_uuid"],
-)
-
 
 class WebauthnCredentialPrecheck(TypedDict):
     id: str
     type: str
     transports: list[str]
-
-
-@receiver(user_logged_in)
-def post_login(sender, user, request: HttpRequest, **kwargs):
-    """
-    Runs after every user login (including tests)
-    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
-    """
-
-    if hasattr(request, "backend"):
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
-        if sso_enforcement is not None and sso_enforcement != request.backend.name:
-            USER_AUTH_METHOD_MISMATCH.labels(
-                login_method=request.backend.name, sso_enforced_method=sso_enforcement, user_uuid=user.uuid
-            ).inc()
-
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
-
-    # Cache device info on signup to skip login notification for this device
-    if user.last_login is None:
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
-        check_and_cache_login_device(user.id, country, short_user_agent)
 
 
 @require_http_methods(["POST"])
@@ -196,7 +164,18 @@ class EmailMFARequired(APIException):
         super().__init__(detail=detail, code=self.default_code)
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
+    """Return next_url only when it's a safe same-origin/relative redirect target, else None.
+
+    The value is embedded into emailed verification links, so an unvalidated next
+    would be an open-redirect / phishing vector.
+    """
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return None
+
+
+def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
     """
     Send a verification email when the login policy requires it.
 
@@ -212,7 +191,7 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
-    EmailVerifier.create_token_and_send_email_verification(user)
+    EmailVerifier.create_token_and_send_email_verification(user, next_url)
     if user.is_email_verified is False:
         return False
 
@@ -223,6 +202,16 @@ def is_email_verified_for_login(user: User) -> bool:
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Relative path to resume after login (e.g. an /oauth/authorize URL). "
+            "Embedded into email verification / login-verification links so the flow "
+            "can continue after the email step. Ignored unless it is a safe same-origin path."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -281,6 +270,7 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        next_url = get_safe_next_url(validated_data.get("next"), request)
 
         existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
@@ -323,7 +313,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if not is_email_verified_for_login(user):
+        if not is_email_verified_for_login(user, next_url):
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",
@@ -348,7 +338,9 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Email MFA flow - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+                        request, user, next_url
+                    )
                     if email_mfa_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = EmailMFAResendThrottle()
@@ -891,7 +883,9 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+            request, user, request.session.get("email_mfa_next")
+        )
         if not email_mfa_sent:
             raise serializers.ValidationError(
                 {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"
@@ -991,6 +985,10 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         # (invite-accept, Vercel-provisioned), or True.
         user.is_email_verified = True
         user.save()
+
+        # The reset flow doesn't log the user in, and a reset is the canonical compromise-recovery
+        # action, so revoke every existing login session for this user.
+        revoke_other_sessions(user, keep_session_key=None)
 
         report_user_password_reset(user)
         return {"email": user.email}

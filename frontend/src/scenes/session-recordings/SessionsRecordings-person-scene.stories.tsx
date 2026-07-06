@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
+import { HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -129,8 +130,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/:kind/': (req) => {
-                    const query = (req.body as any)?.query
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const query = ((await request.json()) as any)?.query
                     if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
                         return [200, personQueryResponse]
                     }
@@ -151,8 +152,8 @@ export const PersonRecordingTabEmpty: Story = {
                 '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (req) => {
-                    const query = (req.body as any)?.query
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const query = ((await request.json()) as any)?.query
                     if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
                         return [200, personQueryResponse]
                     }
@@ -190,9 +191,9 @@ export const PersonRecordingTabMultipleAndFound: Story = {
                     200,
                     { ...recordingMetaJson, id: 'rec-002-banana' },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,
@@ -238,9 +239,9 @@ export const PersonRecordingTabWide: Story = {
                     200,
                     { ...recordingMetaJson, id: 'rec-001-apple' },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,
@@ -287,9 +288,9 @@ export const PersonRecordingTabNarrow: Story = {
                     200,
                     { ...recordingMetaJson, id: 'rec-001-apple' },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,
@@ -336,9 +337,9 @@ export const PersonEventsTabWithModal: Story = {
                     200,
                     { ...recordingMetaJson, id: 'rec-001-apple' },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,

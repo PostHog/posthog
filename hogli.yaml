@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: devex
+          title: Developer experience feedback
         - key: utilities
           title: Git worktrees and admin
         - key: devbox
@@ -144,6 +146,9 @@ devbox:
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
+    devbox:clone:
+        click: hogli_commands.devbox.cli:devbox_clone
+        description: Clone a running devbox into a new one (carries full disk state)
     devbox:stop:
         click: hogli_commands.devbox.cli:devbox_stop
         description: Stop your devbox (preserves disk, stops billing)
@@ -159,15 +164,21 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:exec:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
+        untracked: true
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
+        untracked: true
     devbox:logs:
         click: hogli_commands.devbox.cli:devbox_logs
         description: Tail devbox build and agent logs
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:destroy:
         click: hogli_commands.devbox.cli:devbox_destroy
         description: Destroy your devbox and its data
@@ -177,6 +188,8 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)
@@ -195,6 +208,8 @@ devbox:
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -246,6 +261,13 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:bootstrap-project:
+        cmd: python manage.py bootstrap_local_project
+        description: Bootstrap a local project from an S3 events/persons dump (batch-export format)
+        services:
+            - postgresql
+            - clickhouse
+            - django
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
@@ -283,7 +305,7 @@ core:
             - name: dev:demo-data
               cmd: python manage.py generate_demo_data --skip-flag-sync
             - dev:sync-flags
-            - dev:api-key
+            - ensure:local:setup
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
     dev:api-key:
@@ -352,6 +374,12 @@ start:
         services:
             - django
             - postgresql
+            - redis
+        hidden: true
+    start:agent-proxy:
+        cmd: pnpm --filter @posthog/agent-proxy dev
+        description: Run the agent-proxy Node service for task-run live streaming with auto-reload
+        services:
             - redis
         hidden: true
     start:celery:
@@ -431,6 +459,15 @@ deploy:
             \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
             \ exports -n     # Dry run exports only"
         prompt: true
+    deploy:upgrade-objectstorage:
+        bin_script: upgrade-objectstorage
+        description: "Dev: salvage objectstorage data from the old MinIO volume into the\
+            \ running SeaweedFS (interactive)\n\nExamples:\n  hogli deploy:upgrade-objectstorage\
+            \              # Detect and copy the orphaned MinIO volume\n  hogli deploy:upgrade-objectstorage\
+            \ --list       # List all MinIO volumes"
+        services:
+            - docker
+        prompt: true
 build:
     build:
         click: hogli_commands.build:build
@@ -477,6 +514,12 @@ build:
         cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
             schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
+    build:widget-types:
+        steps:
+            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: pnpm --filter=@posthog/frontend exec node
+                  ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
+        description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -493,18 +536,24 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:openapi-cli-agent-scopes:
+        cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
+        description: Generate the CLI `agent` login use-case scope list from the MCP
+            tool definitions (must run after build:openapi-mcp-tools)
     build:openapi:
         steps:
             - build:openapi-schema
+            - build:widget-types
             - build:openapi-types
             - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
+            - build:openapi-cli-agent-scopes
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
+        description: Generate HogQL grammar definitions (C++)
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
@@ -567,7 +616,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run NGINX Unit application server
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -595,6 +644,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+    migrations:clickhouse:
+        cmd: bin/migrate --scope=clickhouse
+        description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
+        env:
+            DEBUG: '1'
+        services:
+            - clickhouse
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
@@ -717,6 +773,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:quarantine:
+        click: hogli_commands.quarantine.cli:quarantine
+        description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -764,6 +823,9 @@ quality:
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
+    lint:migration-deletions:
+        click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
+        description: Block deleting historical Django migration files
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
@@ -774,13 +836,13 @@ auth:
     metabase:cookie:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
+tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
         description: List Metabase databases (id, name, engine) for a region
     metabase:query:
         click: hogli_commands.metabase:metabase_query
         description: Run a SQL query against Metabase /api/dataset; results to stdout
-tools:
     doctor:
         click: hogli_commands.doctor:doctor
         description: Quick health check for your dev environment
@@ -790,12 +852,21 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:report:
+        click: hogli_commands.doctor:doctor_report
+        description: Dump a paste-ready dev-environment diagnostics report for devex triage
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:isolate:scan:
+        click: hogli_commands.product.cli:cmd_isolate_scan
+        description: Read-only isolation recon for the facade migration skill
+    product:isolate:move:
+        click: hogli_commands.product.cli:cmd_isolate_move
+        description: Mechanical isolation moves with repo-wide path rewrites
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
@@ -870,6 +941,10 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -912,9 +987,20 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:frontend_exclude_filter:
+        bin_script: frontend-exclude-filter
+        description: Emit the dorny paths-filter excluding Node-only product workspaces (from pnpm-workspace.yaml) for frontend/storybook CI gating
+        hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
         description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+    ci:preflight:
+        click: hogli_commands.ci_preflight:ci_preflight
+        description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+devex:
+    devex:feedback:
+        click: hogli_commands.feedback:devex_feedback
+        description: Send feedback about the dev experience to the devex team (humans and agents)
 utilities:
     nuke:
         steps:
@@ -931,6 +1017,9 @@ utilities:
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
+    worktrees:clean:
+        click: hogli_commands.worktrees:worktrees_clean
+        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -967,15 +1056,6 @@ environment:
     setup:python:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
-    telemetry:on:
-        click: hogli_commands.telemetry_commands:telemetry_on
-        description: Enable anonymous usage telemetry
-    telemetry:off:
-        click: hogli_commands.telemetry_commands:telemetry_off
-        description: Disable anonymous usage telemetry
-    telemetry:status:
-        click: hogli_commands.telemetry_commands:telemetry_status
-        description: Show current telemetry settings
     sandbox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
@@ -995,15 +1075,69 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    run:agent:
+        bin_script: run-agent
+        description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
+    agent:tunnel:
+        bin_script: agent-tunnel
+        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
-        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
+        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate by default unless POSTHOG_DEV_SANDBOX=0)'
         hidden: true
     dev:sandbox:selftest:
         bin_script: dev-sandbox-selftest
         description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
+        hidden: true
+    build:dashboard:widget:types:
+        bin_script: build-dashboard-widget-types.py
+        description: Widget enum preflight, date options, and form-field manifest codegen
+        hidden: true
+    start:ai:gateway:
+        bin_script: start-ai-gateway
+        description: 'Bring up the local Go ai-gateway via docker compose and top up the anonymous-team ledger for AGENT_USE_AI_GATEWAY dev'
+        hidden: true
+    dockerignore:drop:check:
+        bin_script: dockerignore-drop-check
+        description: List files an .dockerignore change drops from the image build context
+        hidden: true
+    verify:metrics:pipe:
+        bin_script: verify-metrics-pipe
+        description: 'Verify the local metrics pipe reached ClickHouse metrics1'
+        hidden: true
+    send:dev:metrics:
+        bin_script: send-dev-metrics.sh
+        description: 'Send a synthetic OTLP counter/gauge/histogram through the metrics ingest chain'
+        hidden: true
+    inject_mcp_intents:
+        bin_script: inject_mcp_intents.py
+        description: 'Used when developing MCP Analytics locally and trying to load some intents'
+        hidden: true
+    dev:sandbox:shims:selftest:
+        bin_script: dev-sandbox-shims-selftest
+        description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
+        hidden: true
+    setup:gateway:e2e:
+        bin_script: setup-gateway-e2e
+        description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true
+    dev:open:when:ready:
+        bin_script: dev-open-when-ready
+        description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
+        hidden: true
+    migrate:agent:test:db:
+        bin_script: migrate-agent-test-db
+        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
+        hidden: true
+    docker:agent:proxy:
+        cmd: node dist/agent-proxy-server.mjs
+        description: 'Production entrypoint: run the agent-proxy Node service'
+        hidden: true
+    ensure:local:setup:
+        bin_script: ensure-local-setup
+        description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true

@@ -18,8 +18,9 @@ describe('propertyDefinitionsTableLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/property_definitions/': (req) => {
-                    if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
+                '/api/projects/:team/property_definitions/': ({ request }) => {
+                    const url = new URL(request.url)
+                    if (url.searchParams.get('limit') === '50' && !url.searchParams.get('offset')) {
                         return [
                             200,
                             {
@@ -27,8 +28,8 @@ describe('propertyDefinitionsTableLogic', () => {
                                 count: 50,
                                 previous: null,
                                 next: `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                                    combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
+                                    combineUrl(url.pathname, {
+                                        ...url.searchParams,
                                         limit: 50,
                                         offset: 50,
                                     }).search
@@ -36,15 +37,15 @@ describe('propertyDefinitionsTableLogic', () => {
                             },
                         ]
                     }
-                    if (req.url.searchParams.get('limit') === '50' && req.url.searchParams.get('offset') === '50') {
+                    if (url.searchParams.get('limit') === '50' && url.searchParams.get('offset') === '50') {
                         return [
                             200,
                             {
                                 results: mockEventPropertyDefinitions.slice(50, 56),
                                 count: 6,
                                 previous: `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                                    combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
+                                    combineUrl(url.pathname, {
+                                        ...url.searchParams,
                                         limit: 50,
                                         offset: undefined,
                                     }).search

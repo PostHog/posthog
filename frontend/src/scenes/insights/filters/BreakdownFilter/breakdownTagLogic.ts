@@ -83,7 +83,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             },
         ],
         localNormalizeBreakdownURL: [
-            true as boolean,
+            undefined as boolean | undefined,
             {
                 setNormalizeBreakdownURL: (_, { normalizeURL }) => normalizeURL,
             },

@@ -29,7 +29,7 @@ from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_a
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
-from posthog.health import is_clickhouse_connected
+from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -85,6 +85,10 @@ def login_required(view):
 
     @wraps(view)
     def handler(request, *args, **kwargs):
+        # Dev-only: in cloud-OAuth mode the session is client-side, so serve without a local login
+        # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
+        if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
+            return view(request, *args, **kwargs)
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
@@ -193,7 +197,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "clickhouse": in_cloud
         or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
         or settings.TEST,
-        "kafka": in_cloud or settings.TEST,
+        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,
@@ -216,6 +220,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         },
         "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
+        "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
     }
     auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
     if auth_brand:
@@ -242,9 +247,13 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             if not in_cloud
             else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            # Max runs on Anthropic, so it needs its own signal — otherwise self-hosted instances
+            # render the assistant but fail at call time with no key configured.
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
         }
 
     return JsonResponse(response)

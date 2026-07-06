@@ -4,7 +4,7 @@ import { IconClock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { PATH_NODE_CARD_WIDTH } from './constants'
 import { pathsDataLogicType } from './pathsDataLogicType'

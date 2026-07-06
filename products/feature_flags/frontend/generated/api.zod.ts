@@ -34,6 +34,40 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
+
+export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+})
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
+
+export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(environmentsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+})
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -327,6 +361,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -337,6 +377,34 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 
@@ -360,6 +428,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -714,6 +788,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -724,6 +804,34 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 
@@ -747,6 +855,12 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -829,6 +943,12 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -911,6 +1031,12 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -1045,10 +1171,18 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()
                 .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
         })
         .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
         .optional()

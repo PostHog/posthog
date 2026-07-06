@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError
+from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     GetPrContextOutput,

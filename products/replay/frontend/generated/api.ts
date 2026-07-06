@@ -15,6 +15,8 @@ import type {
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
+    SessionRecordingBulkDeleteRequestApi,
+    SessionRecordingBulkDeleteResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
@@ -40,26 +42,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
-}
-
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const createSessionSummariesIndividually = async (
-    projectId: string,
-    sessionSummariesApi: SessionSummariesApi,
-    options?: RequestInit
-): Promise<SessionSummariesApi> => {
-    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummariesApi),
-    })
-}
-
 export const getSessionRecordingPlaylistsListUrl = (
     projectId: string,
     params?: SessionRecordingPlaylistsListParams
@@ -80,7 +62,13 @@ export const getSessionRecordingPlaylistsListUrl = (
 }
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
+ *
+ * Synthetics have no DB row, so we compute each one's position in the merged
+ * sort and split the requested page between synthetics and a DB queryset slice.
+ * The merge/rank/sort is all in-memory, so each phase is wrapped in a span and
+ * the input sizes are recorded as span attributes — a slow response on a team
+ * with many playlists then shows up as a wide span against a large db_count.
  */
 export const sessionRecordingPlaylistsList = async (
     projectId: string,
@@ -326,6 +314,46 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSessionRecordingsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_recordings/bulk_delete/`
+}
+
+/**
+ * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
+ */
+export const sessionRecordingsBulkDeleteCreate = async (
+    projectId: string,
+    sessionRecordingBulkDeleteRequestApi: SessionRecordingBulkDeleteRequestApi,
+    options?: RequestInit
+): Promise<SessionRecordingBulkDeleteResponseApi> => {
+    return apiMutator<SessionRecordingBulkDeleteResponseApi>(getSessionRecordingsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingBulkDeleteRequestApi),
+    })
+}
+
+export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_summaries/create_session_summaries_individually/`
+}
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const createSessionSummariesIndividually = async (
+    projectId: string,
+    sessionSummariesApi: SessionSummariesApi,
+    options?: RequestInit
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummariesApi),
     })
 }
 

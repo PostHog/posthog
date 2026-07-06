@@ -1,7 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { isNotNil } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrencySymbol } from 'lib/utils/currency'
+import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
@@ -21,17 +23,26 @@ import {
     NodeKind,
     getEffectiveExcludedColumns,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehousePropertyFilter,
+    HogQLMathType,
+    InsightLogicProps,
+    IntervalType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import {
     getOrderBy,
-    rawColumnsForTiles,
     getSortedColumnsByArray,
     isDraftConversionGoalColumn,
     orderArrayByPreference,
+    rawColumnsForTiles,
     validColumnsForTiles,
 } from './utils'
 
@@ -39,6 +50,18 @@ export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 
 const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
     column !== 'roas' && column !== 'cost_per_reported_conversion'
+
+// Maps a chart column to a HogQL aggregate over the native cost precompute table. Costs are already
+// converted to the team's base currency at materialization time, so no convertCurrency() is needed.
+const PRECOMPUTE_METRIC_EXPR: Record<validColumnsForTiles, string> = {
+    cost: 'sum(cost)',
+    clicks: 'sum(clicks)',
+    impressions: 'sum(impressions)',
+    reported_conversion: 'sum(reported_conversions)',
+    reported_conversion_value: 'sum(reported_conversion_value)',
+    roas: 'sum(reported_conversion_value) / nullIf(sum(cost), 0)',
+    cost_per_reported_conversion: 'sum(cost) / nullIf(sum(reported_conversions), 0)',
+}
 
 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({
     dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -65,6 +88,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     selectors({
@@ -108,6 +133,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.chartDisplayType,
                 s.tileColumnSelection,
                 s.baseCurrency,
+                s.integrationFilter,
+                s.featureFlags,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -115,56 +142,107 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 createMarketingDataWarehouseNodes: DataWarehouseNode[],
                 chartDisplayType: ChartDisplayType,
                 tileColumnSelection: validColumnsForTiles,
-                baseCurrency: CurrencyCode
+                baseCurrency: CurrencyCode,
+                integrationFilter: IntegrationFilter,
+                featureFlags: FeatureFlagsSet
             ): QueryTile => {
+                const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
+                const hasSources = createMarketingDataWarehouseNodes.length > 0
+                const metricExpr = PRECOMPUTE_METRIC_EXPR[tileColumnSelection] ?? 'sum(cost)'
                 const isCurrency =
                     tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
                 const { symbol: currencySymbol, isPrefix: currencyIsPrefix } = getCurrencySymbol(baseCurrency)
-                const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
+
+                // Gated behind the same flag as the backend cost precompute read-side: when off, the tile
+                // keeps reading the S3-backed cost adapters (createMarketingDataWarehouseNodes) so the
+                // precompute table can roll out independently. When on, read the native precompute table
+                // via a single DataWarehouseNode — TrendsQuery then gives us compare, per-source breakdown
+                // and currency formatting for free while the read stays off S3. `grain = 'campaign'` avoids
+                // double-counting the ad-group/ad grains; `expires_at > today()` keeps only fresh rows. The
+                // table exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
+                const costsPrecomputeEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]
+                const selectedSourceIds = integrationFilter.integrationSourceIds || []
+                // Typed property filter, not raw HogQL interpolation: source IDs come from the
+                // integration_sources URL param, so embedding them in a HogQL string would allow
+                // injection. PropertyOperator.Exact over a list compiles to a parameterized `IN (...)`.
+                const sourceFilters: DataWarehousePropertyFilter[] =
+                    selectedSourceIds.length > 0
+                        ? [
+                              {
+                                  type: PropertyFilterType.DataWarehouse,
+                                  key: 'source_id',
+                                  operator: PropertyOperator.Exact,
+                                  value: selectedSourceIds,
+                              },
+                          ]
+                        : []
+                const costSeriesNode: DataWarehouseNode = {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'marketing_costs_preaggregated',
+                    name: tileColumnSelectionName,
+                    custom_name: tileColumnSelectionName,
+                    table_name: 'posthog.marketing_costs_preaggregated',
+                    id_field: 'campaign_id',
+                    distinct_id_field: 'campaign_id',
+                    timestamp_field: 'timestamp',
+                    math: HogQLMathType.HogQL,
+                    math_hogql: metricExpr,
+                    properties: [
+                        {
+                            type: PropertyFilterType.HogQL,
+                            key: `grain = 'campaign' AND expires_at > today()`,
+                        },
+                        ...sourceFilters,
+                    ],
+                }
+                const chartQuery: QueryTile['query'] = {
+                    kind: NodeKind.InsightVizNode,
+                    embedded: true,
+                    hidePersonsModal: true,
+                    hideTooltipOnScroll: true,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: !hasSources
+                            ? [
+                                  {
+                                      kind: NodeKind.EventsNode,
+                                      event: 'no_sources_configured',
+                                      custom_name: 'No marketing sources configured',
+                                      math: BaseMathType.TotalCount,
+                                  },
+                              ]
+                            : costsPrecomputeEnabled
+                              ? [costSeriesNode]
+                              : createMarketingDataWarehouseNodes,
+                        compareFilter: compareFilter || undefined,
+                        // The precompute path reads a single node, so split by source here; the S3 adapters
+                        // are already per-source series and need no breakdown.
+                        breakdownFilter:
+                            costsPrecomputeEnabled && hasSources
+                                ? { breakdowns: [{ type: 'data_warehouse', property: 'source_name' }] }
+                                : undefined,
+                        interval: dateFilter.interval,
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        trendsFilter: {
+                            display: chartDisplayType,
+                            aggregationAxisFormat: 'numeric',
+                            aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
+                            aggregationAxisPostfix: isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
+                        },
+                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    },
+                }
                 return {
                     kind: 'query',
                     tileId: TileId.MARKETING,
                     layout: {
-                        colSpanClassName: 'md:col-span-2',
+                        colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                         orderWhenLargeClassName: '2xl:order-1',
                     },
                     title: `Marketing ${tileColumnSelectionName}`,
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        embedded: true,
-                        hidePersonsModal: true,
-                        hideTooltipOnScroll: true,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            compareFilter: compareFilter || undefined,
-                            series:
-                                createMarketingDataWarehouseNodes.length > 0
-                                    ? createMarketingDataWarehouseNodes
-                                    : [
-                                          // Fallback when no sources are configured
-                                          {
-                                              kind: NodeKind.EventsNode,
-                                              event: 'no_sources_configured',
-                                              custom_name: 'No marketing sources configured',
-                                              math: BaseMathType.TotalCount,
-                                          },
-                                      ],
-                            interval: dateFilter.interval,
-                            dateRange: {
-                                date_from: dateFilter.dateFrom,
-                                date_to: dateFilter.dateTo,
-                            },
-                            trendsFilter: {
-                                display: chartDisplayType,
-                                aggregationAxisFormat: 'numeric',
-                                aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
-                                aggregationAxisPostfix:
-                                    isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
-                            },
-                        },
-                    },
+                    query: chartQuery,
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}-${tileColumnSelection}`),
                     canOpenInsight: true,
@@ -190,7 +268,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                           kind: 'query',
                           tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                           layout: {
-                              colSpanClassName: 'md:col-span-2',
+                              colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                               orderWhenLargeClassName: '2xl:order-2',
                           },
                           title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,

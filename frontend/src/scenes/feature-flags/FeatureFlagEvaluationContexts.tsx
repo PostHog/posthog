@@ -7,7 +7,7 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { colorForString } from 'lib/utils'
+import { colorForString } from 'lib/utils/colors'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { featureFlagEvaluationContextsLogic } from './featureFlagEvaluationContextsLogic'

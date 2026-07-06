@@ -52,7 +52,8 @@ def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = No
     qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
-    instance = qs.order_by("-started_at").first()
+    # created_at breaks ties on equal (client-supplied, second-granularity) started_at
+    instance = qs.order_by("-started_at", "-created_at").first()
     return _to_dto(instance) if instance else None
 
 
@@ -75,7 +76,8 @@ def list_sessions(
         qs = qs.filter(workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
-    qs = qs.order_by("-started_at")
+    # created_at breaks ties on equal (client-supplied, second-granularity) started_at
+    qs = qs.order_by("-started_at", "-created_at")
     if limit is not None:
         qs = qs[offset : offset + limit]
     elif offset:

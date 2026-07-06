@@ -60,7 +60,7 @@ class FunnelResultsFormatter:
     def __init__(
         self,
         query: AssistantFunnelsQuery | FunnelsQuery,
-        results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any],
+        results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any] | None,
         team: Team,
         utc_now_datetime: datetime,
     ):
@@ -79,7 +79,7 @@ class FunnelResultsFormatter:
 
     def _format_steps(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, list):
+        if not isinstance(results, list) or len(results) == 0:
             return "No data recorded for this time period."
 
         results = cast(list[dict[str, Any]] | list[list[dict[str, Any]]], results)
@@ -100,7 +100,7 @@ class FunnelResultsFormatter:
 
     def _format_time_to_convert(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, dict):
+        if not isinstance(results, dict) or len(results) == 0:
             return "No data recorded for this time period."
 
         matrix: list[list[Any]] = [
@@ -114,7 +114,7 @@ class FunnelResultsFormatter:
 
     def _format_trends(self) -> str:
         results = self._results
-        if len(results) == 0 or not isinstance(results, list):
+        if not isinstance(results, list) or len(results) == 0:
             return "No data recorded for this time period."
 
         results = cast(list[dict[str, Any]], results)

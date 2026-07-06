@@ -28,23 +28,26 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
 )
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
+from posthog.synthetic_user import SyntheticUser
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -66,9 +69,11 @@ tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
+SECRET_API_KEY_BODY_FIELD = "secret_api_key"
+
 SECRET_API_KEY_BODY_COUNTER = Counter(
     "api_auth_secret_api_key_body",
-    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+    "Requests where the team secret token is provided in the request body instead of the Authorization header",
 )
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
@@ -309,10 +314,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             assert personal_api_key_object.user is not None
 
             # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
-            tag_queries(
+            tag_authentication(
                 user_id=personal_api_key_object.user.pk,
                 team_id=personal_api_key_object.user.current_team_id,
-                access_method="personal_api_key",
+                access_method=AccessMethod.PERSONAL_API_KEY,
                 api_key_mask=personal_api_key_object.mask_value,
                 api_key_label=personal_api_key_object.label,
             )
@@ -327,55 +332,69 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: bool = False) -> Optional[str]:
     """
-    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
-    user and should only be used for local_evaluation and flags remote_config (not to be confused with the
-    other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
-    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
-    system for local_evaluation and flags remote_config requests.
+    Find a `phs_` secret token in the request. Checks the Authorization header first
+    (Bearer scheme), then the request body field `secret_api_key`. Used by both
+    TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
+    ProjectSecretAPIKeyAuthentication (PSAK model).
+    """
+    if "authorization" in request.headers:
+        authorization_match = re.match(r"^Bearer\s+(.+)$", request.headers["authorization"])
+        if authorization_match:
+            token = authorization_match.group(1).strip()
+            if _SECRET_API_KEY_RE.match(token):
+                return token
+
+    if allow_body_token:
+        # Wrap HttpRequest in a DRF Request only when we actually need to read the parsed body.
+        if not isinstance(request, Request):
+            request = Request(request)
+        data = request.data
+        if isinstance(data, dict):
+            candidate = data.get(SECRET_API_KEY_BODY_FIELD)
+            if isinstance(candidate, str) and _SECRET_API_KEY_RE.match(candidate):
+                SECRET_API_KEY_BODY_COUNTER.inc()
+                return candidate
+
+    return None
+
+
+class TeamSecretTokenUser(SyntheticUser):
+    """
+    Synthetic user returned by TeamSecretTokenAuthentication when authenticating
+    via the legacy team-level Team.secret_api_token field.
+    """
+
+    def __init__(self, team):
+        super().__init__(team, distinct_id=f"team-secret-token-{team.id}")
+
+
+class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates using the legacy team-level Team.secret_api_token field.
+
+    This is not a ProjectSecretAPIKey (PSAK) model authenticator — it validates the
+    `phs_*` token against the legacy per-team secret stored on the Team row. It's
+    intended for endpoints that were gated before PSAK existed.
+
+    When authenticated, returns a synthetic TeamSecretTokenUser with the team
+    attached, so downstream permission code can resolve team context without a
+    real User.
 
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
-    2. Request body.
+    2. Request body (`secret_api_key` field).
     """
 
     keyword = "Bearer"
 
-    @classmethod
-    def find_secret_api_token(
-        cls,
-        request: Union[HttpRequest, Request],
-    ) -> Optional[str]:
-        """Try to find project secret API key in request and return it"""
-        if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
-            if authorization_match:
-                token = authorization_match.group(1).strip()
-                if _SECRET_API_KEY_RE.match(token):
-                    return token
-
-        # Wrap HttpRequest in DRF Request if needed
-        if not isinstance(request, Request):
-            request = Request(request)
-
-        data = request.data
-
-        if data and "secret_api_key" in data:
-            secret_api_key = data["secret_api_key"]
-            if isinstance(secret_api_key, str) and _SECRET_API_KEY_RE.match(secret_api_key):
-                SECRET_API_KEY_BODY_COUNTER.inc()
-                return secret_api_key
-
-        return None
-
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token = self.find_secret_api_token(request)
+        secret_api_token = _extract_phs_token(request, allow_body_token=True)
 
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
@@ -383,9 +402,13 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             if team is None:
                 return None
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
-            # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            tag_authentication(
+                user_id=None,
+                team_id=team.id,
+                access_method=AccessMethod.TEAM_SECRET_TOKEN,
+            )
+
+            return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
             return None
 
@@ -394,22 +417,66 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class ProjectSecretAPIKeyUser(SyntheticUser):
     """
-    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    Synthetic user returned by ProjectSecretAPIKeyAuthentication. Carries the
+    backing ProjectSecretAPIKey so APIScopePermission can read its scopes.
     """
 
-    def __init__(self, team):
-        self.team = team
-        self.current_team_id = team.id
-        self.is_authenticated = True
-        self.pk = -1
+    def __init__(self, project_secret_api_key):
+        super().__init__(
+            project_secret_api_key.team,
+            distinct_id=f"psak-{project_secret_api_key.team_id}-{project_secret_api_key.id}",
+        )
+        self.project_secret_api_key = project_secret_api_key
 
-    def has_perm(self, perm, obj=None):
-        return False
+    def readable_system_table_access_scopes(self) -> set[str]:
+        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
 
-    def has_module_perms(self, app_label):
-        return False
+
+class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates a ProjectSecretAPIKey (PSAK) model record via its SHA256 hash.
+
+    Does NOT fall back to Team.secret_api_token — that's TeamSecretTokenAuthentication.
+    Intended for endpoints that enforce PSAK scopes via APIScopePermission.
+
+    PSAK scopes grant project-wide access within the scoped resource type. They do
+    not honor object-level access controls like per-resource RBAC restrictions.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        token = _extract_phs_token(request, allow_body_token=False)
+        if not token:
+            return None
+
+        psak = find_project_secret_api_key(token)
+        if psak is None:
+            return None
+
+        now = timezone.now()
+        if psak.last_used_at is None or (now - psak.last_used_at > timedelta(hours=1)):
+            # Use .update() to bypass ModelActivityMixin save hooks and avoid
+            # activity-log noise / Redis cache invalidation on every request.
+            ProjectSecretAPIKey.objects.filter(pk=psak.pk).update(last_used_at=now)
+
+        self.project_secret_api_key = psak
+
+        tag_authentication(
+            user_id=None,
+            team_id=psak.team_id,
+            access_method=AccessMethod.PROJECT_SECRET_API_KEY,
+            api_key_mask=psak.mask_value,
+            api_key_label=psak.label,
+        )
+
+        return (ProjectSecretAPIKeyUser(psak), None)
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
 
 
 class JwtAuthentication(authentication.BaseAuthentication):
@@ -448,8 +515,9 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
 class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     """
-    Authenticates inbound API requests using an access token minted by our
-    ID-JAG token endpoint (`posthog.api.id_jag`). Validates the JWT against the
+    Authenticates inbound API requests using an access token minted by the
+    ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
+    (`/oauth/token`, logic in `posthog.api.id_jag`). Validates the JWT against the
     RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
     to the User whose email matches the `userSub` half of the token's `sub`
     claim (`{provider}:{userSub}` per
@@ -523,6 +591,13 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
+            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+            allowed_resources = get_allowed_resources()
+
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -533,7 +608,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=site_url,
+                        audience=allowed_resources,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
@@ -582,30 +657,34 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             # a token from authenticating as another user that happens to share
             # the email, and re-validates membership at every request (the user
             # may have been removed from the org after the token was issued).
-            user_qs = User.objects.filter(
-                is_active=True,
-                email__iexact=token_email,
-                organization_membership__organization_id=organization_id,
-            ).distinct()
-            users = list(user_qs[:2])
-            if not users:
+            membership = (
+                OrganizationMembership.objects.filter(
+                    organization_id=organization_id,
+                    user__is_active=True,
+                    user__email__iexact=token_email,
+                )
+                .select_related("user", "organization")
+                .first()
+            )
+            if not membership:
                 raise AuthenticationFailed(
                     detail="No active PostHog user matches the ID-JAG access token subject for this organization."
                 )
-            if len(users) > 1:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token resolves to multiple users; refusing to authenticate."
-                )
-            user = users[0]
+
+            user = membership.user
+            organization = membership.organization
+
+            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+                raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
 
             self.id_jag_claims = claims
             self.scopes = str(claims.get("scope") or "").split()
             self.organization_id = organization_id
 
-            tag_queries(
+            tag_authentication(
                 user_id=user.pk,
                 team_id=user.current_team_id,
-                access_method="id_jag",
+                access_method=AccessMethod.ID_JAG,
             )
 
             return user, None
@@ -648,7 +727,9 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
     """
-    organization = sharing_configuration.team.organization
+    # Fetch the organization directly via the team FK rather than `sharing_configuration.team.organization`,
+    # which would lazy-load the entire wide `posthog_team` row just to hop to the organization.
+    organization = Organization.objects.get(team=sharing_configuration.team_id)
     return (
         organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
         and not organization.allow_publicly_shared_resources
@@ -789,10 +870,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
                 self.access_token = access_token
 
-                tag_queries(
+                tag_authentication(
                     user_id=access_token.user.pk,
                     team_id=access_token.user.current_team_id,
-                    access_method="oauth",
+                    access_method=AccessMethod.OAUTH,
                 )
 
                 return access_token.user, None
@@ -929,16 +1010,18 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             or request.headers.get(self.HEADER_NAME.lower())
             or request.headers.get(self.HEADER_NAME.upper())
         )
-        configured_secret = settings.INTERNAL_API_SECRET
+        # Trim the inbound header (e.g. a trailing newline from a mounted secret) so it can't cause
+        # a spurious mismatch. The configured secrets are normalized at load (see data_stores.py).
+        if provided_secret:
+            provided_secret = provided_secret.strip()
 
-        if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
-            logger.error(
-                "Internal API authentication attempted with default development secret in production environment",
-                extra={"path": request.path, "method": request.method},
-            )
-            raise AuthenticationFailed("Internal API authentication is not properly configured.")
+        # Primary secret plus any still-trusted fallbacks (zero-downtime rotation), dropping empties.
+        # This is the runtime guard: a deploy with no usable secret is rejected here (fail closed)
+        # rather than at startup — most Django/Temporal processes never get the secret injected and
+        # never serve these endpoints, so a startup check would wrongly crash them.
+        accepted_secrets = usable_internal_api_secrets()
 
-        if not configured_secret:
+        if not accepted_secrets:
             logger.error(
                 "Internal API authentication attempted without configured secret",
                 extra={"path": request.path, "method": request.method},
@@ -952,7 +1035,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Missing internal API authentication header.")
 
-        if not hmac.compare_digest(configured_secret, provided_secret):
+        if not any(hmac.compare_digest(secret, provided_secret) for secret in accepted_secrets):
             logger.warning(
                 "Internal API request with invalid secret",
                 extra={"path": request.path, "method": request.method},

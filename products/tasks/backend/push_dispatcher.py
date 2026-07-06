@@ -21,7 +21,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from django.db import transaction
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
@@ -30,6 +31,7 @@ import posthoganalytics
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
+from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
 from products.tasks.backend.models import TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -89,7 +91,8 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     """
     try:
         _enqueue_inner(task_run, kind=kind, body=body)
-    except Exception:
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()
         logger.warning(
             "push_dispatcher.enqueue_failed",
             run_id=str(task_run.id),
@@ -99,7 +102,14 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         )
 
 
+def _failure_reason(exc: BaseException) -> str:
+    return "db_connection" if isinstance(exc, OperationalError | InterfaceError) else "other"
+
+
 def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
     user = task_run.task.created_by
     if user is None:
         return

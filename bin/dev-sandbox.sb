@@ -60,18 +60,39 @@
     (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
+    ;; turbo global config — turbo reads auth.json on every run to check remote-cache
+    ;; login. A sandbox *deny* surfaces as EPERM, which turbo treats as a fatal "I/O
+    ;; error" (unlike a missing file, which it tolerates), killing the frontend pane /
+    ;; autorestart-looping the stack. Read-only; the remote-cache token is low-value.
+    (subpath (string-append (param "HOME") "/Library/Application Support/com.vercel.cli"))
+    (subpath (string-append (param "HOME") "/Library/Application Support/turborepo"))
+    (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
     (literal (string-append (param "HOME") "/.gitconfig"))
     (literal (string-append (param "HOME") "/.config/git/config"))
+    (literal (string-append (param "HOME") "/.gitconfig.local"))   ; common [include] target of ~/.gitconfig
     ;; cargo registry/git cache — the cyclotron-node native module is built with
     ;; cargo during the nodejs service prestart. (crates.io token re-denied below.)
     (subpath (string-append (param "HOME") "/.cargo")))
+
+;; Canonicalization (realpath) lstats every path component, so uv resolving its
+;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
+;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
+(allow file-read-metadata
+    (literal (string-append (param "HOME") "/.local"))
+    (literal (string-append (param "HOME") "/.local/share")))
 
 ;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
 (deny file-read*
     (literal (string-append (param "HOME") "/.cargo/credentials"))
     (literal (string-append (param "HOME") "/.cargo/credentials.toml")))
+
+;; Keep DuckDB persistent secrets (CREATE PERSISTENT SECRET — unencrypted cloud
+;; credentials) blocked even though ~/.duckdb is allowed above.
+(deny file-read*
+    (subpath (string-append (param "HOME") "/.duckdb/stored_secrets")))
 
 ;; ── Writes ────────────────────────────────────────────────────────────
 ;; Writes stay broadly allowed (the stack writes caches, build output, /tmp),
@@ -92,5 +113,6 @@
     (subpath (string-append (param "PROJECT") "/.git/hooks"))     ; git hooks run unsandboxed
     (subpath (string-append (param "MAINREPO") "/.git/hooks"))    ; worktree main-repo hooks
     (literal (string-append (param "HOME") "/.gitconfig"))        ; core.hooksPath / credential.helper = !cmd
+    (literal (string-append (param "HOME") "/.gitconfig.local"))  ; included by ~/.gitconfig — same escape if writable
     (subpath (string-append (param "HOME") "/.config/git"))       ; XDG git config — same hooksPath/helper escape
     (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH

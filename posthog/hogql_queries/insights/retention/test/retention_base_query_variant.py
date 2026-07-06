@@ -4,8 +4,6 @@ from typing import Any, TypeVar, cast
 
 from unittest.mock import patch
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
-
 RETENTION_BASE_QUERY_VARIANT_PATCH_PATH = (
     "posthog.hogql_queries.insights.retention.retention_base_query_fixed."
     "retention_fixed_interval_base_query_use_dwh_variant"
@@ -33,7 +31,7 @@ class RetentionBaseQueryVariantComparisonMixin:
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
             legacy_result = calculate(legacy_query)
 
-        if not self.should_compare_retention_base_query_variants(query):
+        if not self.should_compare_retention_base_query_variants():
             return legacy_result
 
         dwh_variant_query = deepcopy(query)
@@ -43,7 +41,7 @@ class RetentionBaseQueryVariantComparisonMixin:
         cast(Any, self).assertEqual(dwh_variant_result, legacy_result)
         return legacy_result
 
-    def should_compare_retention_base_query_variants(self, query: dict[str, Any]) -> bool:
+    def should_compare_retention_base_query_variants(self) -> bool:
         test_method_name = getattr(self, "_testMethodName", "")
         if test_method_name in self.retention_base_query_variant_comparison_excluded_tests:
             return False
@@ -52,25 +50,4 @@ class RetentionBaseQueryVariantComparisonMixin:
         if getattr(test_method, SKIP_RETENTION_BASE_QUERY_VARIANT_COMPARISON_ATTR, False):
             return False
 
-        return not self._query_uses_known_retention_base_query_variant_gap(query)
-
-    def _query_uses_known_retention_base_query_variant_gap(self, query: dict[str, Any]) -> bool:
-        retention_filter = cast(dict[str, Any], query.get("retentionFilter") or {})
-
-        minimum_occurrences = retention_filter.get("minimumOccurrences") or 1
-        if minimum_occurrences > 1:
-            return True
-
-        if retention_filter.get("retentionType") in {
-            RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-            RETENTION_FIRST_EVER_OCCURRENCE,
-        }:
-            return True
-
-        if query.get("breakdownFilter"):
-            return True
-
-        if query.get("samplingFactor") is not None:
-            return True
-
-        return False
+        return True

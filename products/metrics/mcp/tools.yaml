@@ -1,0 +1,62 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Metrics
+feature: metrics
+url_prefix: /metrics
+ui_apps: {}
+tools:
+    characterize-metric-anomaly:
+        operation: metrics_characterize_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Characterize metric anomaly
+        description_file: ./prompts/characterize-metric-anomaly.md
+        system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
+        feature_flag: metrics
+    metric-names-list:
+        operation: metrics_values_retrieve
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List metric names
+        description_file: ./prompts/metric-names-list.md
+        system_prompt_hint: Discover which server/infrastructure metrics exist before querying them
+        feature_flag: metrics
+        response:
+            include:
+                - results
+    metrics-has-metrics-retrieve:
+        operation: metrics_has_metrics_retrieve
+        enabled: false
+    metrics-samples-create:
+        operation: metrics_samples_create
+        enabled: false
+    query-metrics:
+        operation: metrics_query_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query metrics
+        description_file: ./prompts/query-metrics.md
+        system_prompt_hint: Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas
+        feature_flag: metrics
+        response:
+            include:
+                - results

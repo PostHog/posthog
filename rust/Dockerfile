@@ -17,7 +17,8 @@ FROM base AS builder
 WORKDIR /app
 ARG BIN
 ARG BUILD_FEATURES=""
-ENV PROTO_ROOT=../proto
+ARG SCCACHE_WEBDAV_KEY_PREFIX
+ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)

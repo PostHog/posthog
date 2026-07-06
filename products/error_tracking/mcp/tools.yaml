@@ -61,9 +61,88 @@ tools:
     error-tracking-assignment-rules-update:
         operation: error_tracking_assignment_rules_update
         enabled: false
+    error-tracking-bypass-rules-create:
+        operation: error_tracking_bypass_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Create error tracking bypass rule
+        description: >
+            Create a rate limit bypass rule for the current project. Exception events matching the rule skip both the
+            project-wide and per-issue exception rate limits and are always ingested. Provide `filters` with at least
+            one condition — empty match-all rules are rejected; to stop rate limiting entirely, update the rate limits
+            via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be
+            dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause
+            unbounded volume.
+    error-tracking-bypass-rules-destroy:
+        operation: error_tracking_bypass_rules_destroy
+        enabled: false
+    error-tracking-bypass-rules-list:
+        operation: error_tracking_bypass_rules_list
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking bypass rules
+        description: >
+            List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide
+            and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled
+            state. Supports pagination with `limit` and `offset`.
+    error-tracking-bypass-rules-partial-update:
+        operation: error_tracking_bypass_rules_partial_update
+        enabled: false
+    error-tracking-bypass-rules-reorder-partial-update:
+        operation: error_tracking_bypass_rules_reorder_partial_update
+        enabled: false
+    error-tracking-bypass-rules-retrieve:
+        operation: error_tracking_bypass_rules_retrieve
+        enabled: false
+    error-tracking-bypass-rules-update:
+        operation: error_tracking_bypass_rules_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking bypass rule
+        description: >
+            Update a rate limit bypass rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule
+            also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception
+            events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them
+            scoped to the specific errors that must never be dropped.
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking external reference
+        description: >
+            Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking
+            issue as an external reference. This tool does not link an existing external issue by URL or key. Provide
+            the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object
+            with provider-specific fields. Examples: Jira config {"project_key":"ENG","title":"Checkout
+            TypeError","description":"Stack trace and reproduction details"}; Linear config
+            {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace and reproduction details"};
+            GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace and reproduction
+            details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and reproduction details"}.
+            Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body};
+            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list
+            first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
+            integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
+            IDs.
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false
@@ -153,9 +232,6 @@ tools:
         enabled: false
     error-tracking-issues-cohort-update:
         operation: error_tracking_issues_cohort_update
-        enabled: false
-    error-tracking-issues-create:
-        operation: error_tracking_issues_create
         enabled: false
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
@@ -255,7 +331,16 @@ tools:
         enabled: false
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking recommendations
+        description_file: ./prompts/error-tracking-recommendations-list.md
+        system_prompt_hint: Error tracking setup recommendations and how to act on each (error-tracking category)
     error-tracking-recommendations-refresh-create:
         operation: error_tracking_recommendations_refresh_create
         enabled: false
@@ -283,12 +368,39 @@ tools:
     error-tracking-releases-update:
         operation: error_tracking_releases_update
         enabled: false
-    error-tracking-settings-retrieve-settings-retrieve:
+    error-tracking-settings-get:
         operation: error_tracking_settings_retrieve_settings_retrieve
-        enabled: false
-    error-tracking-settings-update-settings-partial-update:
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get error tracking settings
+        description: >
+            Get the error tracking ingestion settings for the current project. Returns the project-wide and per-issue
+            exception rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each
+            `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set.
+            Read these before updating so you can preserve the fields you don't intend to change.
+    error-tracking-settings-update:
         operation: error_tracking_settings_update_settings_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking settings
+        description: >
+            Update the error tracking ingestion settings for the current project. Only the fields you include are
+            applied; omitted fields keep their existing values. Use this to set the project-wide rate limit
+            (`project_rate_limit_value` events per `project_rate_limit_bucket_size_minutes`) and the per-issue rate
+            limit (`per_issue_rate_limit_value` events per `per_issue_rate_limit_bucket_size_minutes`). Set a
+            `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
+            at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
+            the user before reducing it.
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false

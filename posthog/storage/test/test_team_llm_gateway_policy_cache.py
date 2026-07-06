@@ -114,7 +114,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_team_save_enqueues_update(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -125,7 +125,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         mock_delay.assert_called_with(self.team.id)
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_team_save_noop_without_ai_gateway_redis_url(self, mock_delay, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = None
 
@@ -133,6 +133,29 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         mock_delay.assert_not_called()
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.HYPERCACHE_SIGNAL_UPDATE_COUNTER")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    def test_enqueue_failure_records_counter_and_does_not_propagate(
+        self, mock_delay, mock_settings, mock_counter, mock_transaction
+    ):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+        mock_delay.side_effect = Exception("broker down")
+
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
+        try:
+            self.team.save()
+        except Exception:
+            self.fail("enqueue failure should not propagate to the caller")
+
+        mock_counter.labels.assert_called_once_with(
+            namespace="team_metadata", cache_name="llm_gateway_policy", operation="enqueue", result="failure"
+        )
+        mock_counter.labels.return_value.inc.assert_called_once_with()
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
@@ -148,7 +171,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_api_token_rotation_clears_old_token_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
         """
         Rotating api_token must invalidate the cache keyed by the OLD token.
@@ -169,7 +192,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_unrelated_save_does_not_clear_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
         """A save that touches no tracked field (api_token, llm_gateway_enabled_at,
         llm_gateway_revoked_at) must not invalidate the cache; the async task still
@@ -187,7 +210,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_setting_revoked_at_clears_current_token_cache_on_commit(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -211,7 +234,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_setting_enabled_at_clears_current_token_cache_on_commit(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -234,7 +257,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_chained_token_rotation_clears_each_old_token(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -261,7 +284,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_deferred_api_token_load_still_clears_old_token_on_rotation(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -286,7 +309,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_simultaneous_enable_and_revoke_clears_cache_once(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -310,7 +333,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_deferred_enabled_at_load_still_clears_cache_on_flip(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -334,7 +357,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_chained_enabled_at_flips_invalidate_each_save(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):

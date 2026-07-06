@@ -88,7 +88,7 @@ describe('SnapshotStore', () => {
             expect(store.getEntry(2)?.state).toBe('unloaded')
             expect(store.getEntry(3)?.state).toBe('unloaded')
             expect(store.getEntry(4)?.state).toBe('unloaded')
-            expect(store.getEntry(0)?.fullSnapshotTimestamps).toEqual([1000])
+            expect(store.getEntry(0)?.fullSnapshots).toEqual([{ timestamp: 1000, windowId: 1 }])
         })
 
         it('preserves loaded snapshots through source growth', () => {
@@ -114,7 +114,7 @@ describe('SnapshotStore', () => {
 
             expect(store.getEntry(1)?.state).toBe('loaded')
             expect(store.getEntry(0)?.state).toBe('unloaded')
-            expect(store.getEntry(1)?.fullSnapshotTimestamps).toEqual([ts])
+            expect(store.getEntry(1)?.fullSnapshots).toEqual([{ timestamp: ts, windowId: 1 }])
         })
 
         it('extracts Meta timestamps', () => {
@@ -327,6 +327,60 @@ describe('SnapshotStore', () => {
             const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
             const result = store.findNearestFullSnapshot(target)
             expect(result).toEqual({ sourceIndex: 1, timestamp: fs2 })
+        })
+
+        it('only counts FullSnapshots of the given window when windowId is passed', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
+            const fs2 = new Date(Date.UTC(2023, 7, 11, 12, 1, 40)).getTime()
+
+            store.markLoaded(1, [makeFullSnapshot(fs1, 1), makeFullSnapshot(fs2, 2)])
+
+            const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
+            expect(store.findNearestFullSnapshot(target, 1)).toEqual({ sourceIndex: 1, timestamp: fs1 })
+            expect(store.findNearestFullSnapshot(target, 2)).toEqual({ sourceIndex: 1, timestamp: fs2 })
+            expect(store.findNearestFullSnapshot(target, 3)).toBeNull()
+        })
+    })
+
+    describe('fullSnapshotsAfter', () => {
+        it('returns empty array when no FullSnapshots exist', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            store.markLoaded(0, [makeSnapshot(1000)])
+
+            expect(store.fullSnapshotsAfter(0)).toEqual([])
+        })
+
+        it('returns FullSnapshots at or after the target, sorted by timestamp', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(5))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
+            const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
+
+            store.markLoaded(3, [makeFullSnapshot(fs3, 2)])
+            store.markLoaded(1, [makeFullSnapshot(fs1, 1)])
+
+            expect(store.fullSnapshotsAfter(fs1)).toEqual([
+                { timestamp: fs1, windowId: 1, sourceIndex: 1 },
+                { timestamp: fs3, windowId: 2, sourceIndex: 3 },
+            ])
+        })
+
+        it('excludes FullSnapshots before the target', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(5))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
+            const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
+
+            store.markLoaded(1, [makeFullSnapshot(fs1)])
+            store.markLoaded(3, [makeFullSnapshot(fs3)])
+
+            expect(store.fullSnapshotsAfter(fs1 + 1)).toEqual([{ timestamp: fs3, windowId: 1, sourceIndex: 3 }])
         })
     })
 

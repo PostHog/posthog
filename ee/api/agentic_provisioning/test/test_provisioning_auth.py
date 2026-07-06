@@ -5,19 +5,19 @@ import hashlib
 import secrets
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.cimd import _blocked_key, _cache_key
 from posthog.models.oauth import OAuthApplication
-from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY as _RSA_KEY
 
+from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.signature import compute_signature
 
 HMAC_SECRET = "test_hmac_secret"
@@ -32,13 +32,10 @@ def _pkce_pair():
     return verifier, challenge
 
 
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestProvisioningAuthentication(APIBaseTest):
     def setUp(self):
@@ -583,6 +580,49 @@ class TestProvisioningAuthentication(APIBaseTest):
 
         cimd_app.delete()
 
+    @parameterized.expand(
+        [
+            ("stale_cache_fires_refresh", False, 1),
+            ("fresh_cache_skips_refresh", True, 0),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+    def test_cimd_provisioning_partner_refreshes_metadata_only_when_stale(
+        self, _name, cache_is_fresh, expected_delay_calls, mock_refresh
+    ):
+        cimd_url = "https://example.com/api/oauth/wizard/refresh-on-auth"
+        cimd_app = OAuthApplication.objects.create(
+            name="CIMD Wizard Refresh",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8239/callback",
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url=cimd_url,
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="wizard",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+        )
+        self.addCleanup(cimd_app.delete)
+        self.addCleanup(real_cache.delete, _cache_key(cimd_url))
+        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
+        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
+
+        if cache_is_fresh:
+            real_cache.set(_cache_key(cimd_url), True, timeout=300)
+        else:
+            real_cache.delete(_cache_key(cimd_url))
+
+        partner = ProvisioningAuthentication()._identify_pkce_partner(cimd_url)
+
+        assert partner == cimd_app
+        assert mock_refresh.delay.call_count == expected_delay_calls
+        if expected_delay_calls:
+            mock_refresh.delay.assert_called_once_with(cimd_url)
+
     # --- PKCE code_challenge_method validation ---
 
     def test_plain_code_challenge_method_rejected(self):
@@ -630,14 +670,11 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@pytest.mark.requires_secrets
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 @override_settings(
     STRIPE_APP_SECRET_KEY=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestCimdProvisioningAutoRegistration(APIBaseTest):
     def setUp(self):
@@ -697,6 +734,44 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
         )
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
+        from posthog.api.oauth.cimd import _cache_key, register_cimd_provisioning_application_task
+
+        initial = _make_cimd_metadata()
+        initial["com.posthog"] = {"scopes": ["insight:read"]}
+        mock_get.return_value = _cimd_mock_response(initial)
+        register_cimd_provisioning_application_task(CIMD_PROV_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        assert app.scopes == ["insight:read"]
+
+        # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
+        real_cache.delete(_cache_key(CIMD_PROV_URL))
+        widened = _make_cimd_metadata()
+        widened["com.posthog"] = {"scopes": ["insight:read", "dashboard:read"]}
+        mock_get.return_value = _cimd_mock_response(widened)
+
+        # A later agentic provisioning auth request must propagate the edit — the bug was that
+        # this raw-lookup path never refreshed, so the ceiling stayed frozen at registration.
+        _, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_cimd_refresh_e2e",
+                "email": "cimd-refresh-e2e@example.com",
+                "client_id": CIMD_PROV_URL,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+        assert res.status_code == 200
+
+        app.refresh_from_db()
+        assert app.scopes == ["insight:read", "dashboard:read"]
 
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_existing_cimd_app_gets_provisioning_backfilled(self, mock_refresh, _url_mock):

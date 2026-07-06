@@ -4,7 +4,8 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, objectsEqual } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
@@ -95,7 +96,7 @@ export const loadAppMetricsTotals = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
     const res: AppMetricsTotalsResponse = {}
@@ -209,7 +210,7 @@ const loadAppMetricsTimeSeries = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
     const labels = response.results?.[0]?.[0].map((label: string) => {

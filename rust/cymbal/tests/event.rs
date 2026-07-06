@@ -6,7 +6,7 @@ use common_types::error_tracking::FrameId;
 use cymbal::{
     error::UnhandledError,
     frames::Frame,
-    symbol_store::saving::SymbolSetRecord,
+    symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, exception_properties::ExceptionProperties, Exception, ExceptionList,
         Mechanism, Stacktrace,
@@ -17,7 +17,7 @@ use mockall::predicate;
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -211,7 +211,7 @@ impl TestHarness {
                 config.remote_resolution_enabled = true;
                 config.remote_resolution_host = "127.0.0.1".to_string();
                 config.remote_resolution_port = addr.port();
-                config.internal_api_secret = "test-secret".to_string();
+                config.resolver.internal_api_secret = "test-secret".to_string();
                 // Snapshot-required routing: give the pool a small retry
                 // budget with fast backoff so the first Subscribe tick can
                 // populate the load snapshot before we give up.
@@ -638,4 +638,132 @@ async fn remote_resolution_http_process_streams_same_team_events_as_items(db: Pg
     assert!(payloads
         .iter()
         .any(|payload| payload.contains("\"chunk_id\":\"124\"")));
+}
+
+// ---- Versioned fingerprinting: used-fingerprint semantics ----
+
+fn resolved_stack_event(source: &str) -> AnyEvent {
+    make_event(vec![make_exception_with_stack(
+        "Error",
+        "boom",
+        vec![frame_at(make_frame_js("handleClick"), source, 42, 10)],
+    )])
+}
+
+fn grouping_rule_bytecode() -> JsonValue {
+    // return properties.test_value = 'test_value'
+    json!([
+        "_H",
+        1,
+        32,
+        "test_value",
+        32,
+        "test_value",
+        32,
+        "properties",
+        1,
+        2,
+        11,
+        38
+    ])
+}
+
+async fn insert_grouping_rule(db: &PgPool) -> Uuid {
+    let id = Uuid::now_v7();
+    let bytecode = grouping_rule_bytecode();
+    sqlx::query(
+        r#"
+            INSERT INTO posthog_errortrackinggroupingrule
+                (id, team_id, order_key, bytecode, created_at, updated_at)
+            VALUES ($1, 1, 0, $2, NOW(), NOW())
+        "#,
+    )
+    .bind(id)
+    .bind(&bytecode)
+    .execute(db)
+    .await
+    .unwrap();
+    id
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = resolved_stack_event("src/app.js");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+
+    let event = body.first_event().as_ref().unwrap();
+    assert!(event.properties.get("$exception_fingerprints").is_none());
+    assert!(event
+        .properties
+        .get("$exception_proposed_fingerprint")
+        .is_none());
+    assert_eq!(
+        event.properties["$exception_fingerprint_version"],
+        json!("v1")
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn manual_fingerprint_keeps_custom_value(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("custom-fingerprint"),
+        None,
+    );
+    input.properties["$exception_fingerprint_version"] = json!("v1");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+
+    assert_eq!(
+        event.properties["$exception_fingerprint"],
+        "custom-fingerprint"
+    );
+    assert_eq!(
+        event.properties["$exception_fingerprint_record"],
+        serde_json::json!([{ "type": "manual" }])
+    );
+
+    assert!(event.properties.get("$exception_fingerprints").is_none());
+    assert!(event
+        .properties
+        .get("$exception_proposed_fingerprint")
+        .is_none());
+    assert!(event
+        .properties
+        .get("$exception_fingerprint_version")
+        .is_none());
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn grouping_rule_sets_custom_fingerprint_without_proposed_fingerprint(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+    let rule_id = insert_grouping_rule(&db).await;
+    let mut input = make_event(vec![make_exception("TypeError", "cannot read property")]);
+    input.properties["test_value"] = json!("test_value");
+    input.properties["$exception_fingerprint_version"] = json!("v1");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+
+    assert_eq!(
+        event.properties["$exception_fingerprint"],
+        json!(format!("custom-rule:{rule_id}"))
+    );
+    assert!(event
+        .properties
+        .get("$exception_proposed_fingerprint")
+        .is_none());
+    assert!(event
+        .properties
+        .get("$exception_fingerprint_version")
+        .is_none());
+    assert_eq!(
+        event.properties["$exception_fingerprint_record"],
+        json!([{ "type": "custom", "rule_id": rule_id }])
+    );
 }

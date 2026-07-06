@@ -47,14 +47,18 @@ pub struct KafkaLogRow {
 /// is the raw HTTP body size for the whole batch.
 pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
     let mut total: usize = 0;
-    total = total.saturating_add(row.uuid.len());
-    total = total.saturating_add(row.trace_id.len());
-    total = total.saturating_add(row.span_id.len());
     total = total.saturating_add(row.body.len());
-    total = total.saturating_add(row.severity_text.len());
-    total = total.saturating_add(row.service_name.len());
-    total = total.saturating_add(row.instrumentation_scope.len());
-    total = total.saturating_add(row.event_name.len());
+
+    // by default exclude instrumentation_scope and event_name as they are
+    // low cardinality and highly compressible, but add them if they are large
+    // to prevent abuse
+    if row.instrumentation_scope.len() > 50 {
+        total = total.saturating_add(row.instrumentation_scope.len());
+    }
+    if row.event_name.len() > 50 {
+        total = total.saturating_add(row.event_name.len());
+    }
+
     for (k, v) in &row.resource_attributes {
         total = total.saturating_add(k.len()).saturating_add(v.len());
     }
@@ -62,6 +66,16 @@ pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
         total = total.saturating_add(k.len()).saturating_add(v.len());
     }
     i64::try_from(total).unwrap_or(i64::MAX)
+}
+
+/// Sum of per-row `bytes_uncompressed` across a batch; rows without the field count as zero.
+/// Feeds the `bytes_uncompressed_records` Kafka header — the records-based counterpart to the
+/// payload-sized `bytes_uncompressed` header — so the two can be compared before billing
+/// switches to the records-based value.
+pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
+    rows.iter()
+        .map(|row| row.bytes_uncompressed.unwrap_or(0).max(0) as u64)
+        .sum()
 }
 
 impl KafkaLogRow {
@@ -382,11 +396,41 @@ mod tests {
     #[test]
     fn test_compute_kafka_log_row_bytes_sums_string_and_map_lengths() {
         let row = sample_row();
-        // string fields: uuid(9) + trace_id(3) + span_id(3) + body(5) + severity_text(4)
-        // + service_name(3) + instrumentation_scope(7) + event_name(3) = 37
+        // string fields: body(5)
         // maps: resource_attributes "host.name"(9)+"localhost"(9)=18; attributes "k"(1)+"v"(1)=2
-        // total = 37 + 18 + 2 = 57
-        assert_eq!(compute_kafka_log_row_bytes(&row), 57);
+        // total = 5 + 18 + 2 = 25
+        assert_eq!(compute_kafka_log_row_bytes(&row), 25);
+    }
+
+    fn sample_row_bytes() -> u64 {
+        sample_row()
+            .with_computed_bytes()
+            .bytes_uncompressed
+            .unwrap() as u64
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_empty_slice_is_zero() {
+        assert_eq!(sum_kafka_log_row_bytes(&[]), 0);
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_treats_missing_field_as_zero() {
+        let with_bytes = sample_row().with_computed_bytes();
+        let without_bytes = sample_row(); // bytes_uncompressed: None
+        assert_eq!(
+            sum_kafka_log_row_bytes(&[with_bytes, without_bytes]),
+            sample_row_bytes()
+        );
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_sums_all_rows() {
+        let rows = [
+            sample_row().with_computed_bytes(),
+            sample_row().with_computed_bytes(),
+        ];
+        assert_eq!(sum_kafka_log_row_bytes(&rows), sample_row_bytes() * 2);
     }
 
     #[test]

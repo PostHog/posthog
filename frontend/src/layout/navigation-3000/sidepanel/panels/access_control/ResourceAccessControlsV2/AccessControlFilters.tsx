@@ -1,7 +1,7 @@
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { AccessControlLevel, APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 

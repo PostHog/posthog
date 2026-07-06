@@ -7,6 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsLastExecutionTimesCreateBody,
     EndpointsListQueryParams,
+    EndpointsLogsRetrieveParams,
+    EndpointsLogsRetrieveQueryParams,
     EndpointsMaterializationPreviewCreateBody,
     EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
@@ -92,6 +94,31 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+    },
+})
+
+const EndpointLogsSchema = EndpointsLogsRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsLogsRetrieveQueryParams.shape
+)
+
+const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
+    name: 'endpoint-logs',
+    schema: EndpointLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/endpoints')
     },
 })
 
@@ -331,6 +358,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-create': endpointCreate,
     'endpoint-delete': endpointDelete,
     'endpoint-get': endpointGet,
+    'endpoint-logs': endpointLogs,
     'endpoint-materialization-status': endpointMaterializationStatus,
     'endpoint-openapi-spec': endpointOpenapiSpec,
     'endpoint-run': endpointRun,

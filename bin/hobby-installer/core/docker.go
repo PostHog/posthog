@@ -74,11 +74,15 @@ func InstallDocker() error {
 
 	logger.WriteString("Installing Docker...\n")
 
+	// apt-key was removed in Ubuntu 25.10; use the modern signed-by keyring approach instead.
+	// See https://docs.docker.com/engine/install/ubuntu/ and issue #54406.
 	commands := [][]string{
 		{"apt", "update"},
-		{"apt", "install", "-y", "apt-transport-https", "ca-certificates", "curl", "software-properties-common"},
-		{"sh", "-c", "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -"},
-		{"add-apt-repository", "-y", "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"},
+		{"apt", "install", "-y", "apt-transport-https", "ca-certificates", "curl", "gnupg"},
+		{"install", "-d", "-m", "0755", "/etc/apt/keyrings"},
+		{"sh", "-c", "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg"},
+		{"chmod", "a+r", "/etc/apt/keyrings/docker.gpg"},
+		{"sh", "-c", "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable' > /etc/apt/sources.list.d/docker.list"},
 		{"apt", "update"},
 		{"apt", "install", "-y", "docker-ce"},
 	}

@@ -239,15 +239,19 @@ jobs:
                       });
 
                       fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
+            - name: Check out .github for local actions
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github
             - name: Wait for container image build to complete
-              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+              uses: ./.github/actions/wait-for-check
               id: wait-for-image
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   checkName: Build Docker image
                   ref: ${{ github.event.pull_request.head.sha }}
-                  timeoutSeconds: 3600
-                  intervalSeconds: 30
+                  timeoutSeconds: '3600'
+                  intervalSeconds: '30'
             - name: Update comment - Docker build failed
               if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -675,4 +679,7 @@ jobs:
             deployments: write
         with:
             pr_number: ${{ github.event.pull_request.number }}
-        secrets: inherit
+        secrets:
+            DIGITAL_OCEAN_HOBBY_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

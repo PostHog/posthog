@@ -1,7 +1,14 @@
+import { fireEvent } from '@testing-library/react'
+
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { dimensions as testDimensions, getHogChart, rawDrag, renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
+
+function legendButtons(container: HTMLElement): HTMLButtonElement[] {
+    const legend = container.querySelector('[data-attr="hog-chart-line-legend"]')
+    return legend ? Array.from(legend.querySelectorAll('button')) : []
+}
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
@@ -35,7 +42,12 @@ describe('LineChart', () => {
     it('skips excluded series', () => {
         const series: Series[] = [
             { key: 'a', label: 'A', data: [10, 20, 30] },
-            { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
+            {
+                key: 'b',
+                label: 'B',
+                data: [5, 15, 25],
+                visibility: { excluded: true },
+            },
             { key: 'c', label: 'C', data: [3, 6, 9] },
         ]
         const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
@@ -71,7 +83,13 @@ describe('LineChart', () => {
     })
 
     it('tolerates NaN data values without throwing', () => {
-        const broken: Series[] = [{ key: 'a', label: 'A', data: [Number.NaN, Number.NaN, Number.NaN] }]
+        const broken: Series[] = [
+            {
+                key: 'a',
+                label: 'A',
+                data: [Number.NaN, Number.NaN, Number.NaN],
+            },
+        ]
         const { chart } = renderHogChart(<LineChart series={broken} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
@@ -105,7 +123,10 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                    }}
                 />
             )
             expect(chart.xAxisLabel()).toBe('Signup date')
@@ -118,7 +139,10 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                    }}
                 />
             )
             expect(getByRole('img').getAttribute('aria-label')).toBe(
@@ -165,7 +189,11 @@ describe('LineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users', hideXAxis: true }}
+                    config={{
+                        xAxisLabel: 'Signup date',
+                        yAxisLabel: 'Unique users',
+                        hideXAxis: true,
+                    }}
                 />
             )
             expect(chart.xAxisLabel()).toBeNull()
@@ -175,11 +203,35 @@ describe('LineChart', () => {
         it('renders a right axis when a series sets yAxisId: right', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [1000, 2000, 3000], yAxisId: 'right' },
+                {
+                    key: 'b',
+                    label: 'B',
+                    data: [1000, 2000, 3000],
+                    yAxisId: 'right',
+                },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             expect(chart.hasRightAxis).toBe(true)
             expect(chart.yRightTicks().length).toBeGreaterThan(0)
+        })
+
+        it('stacks a third axis on the left for a 3-axis chart (alternating sides)', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, 20, 30] },
+                { key: 'b', label: 'B', data: [100, 200, 300], yAxisId: 'y1' },
+                {
+                    key: 'c',
+                    label: 'C',
+                    data: [3000, 4000, 5000],
+                    yAxisId: 'y2',
+                },
+            ]
+            const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
+            expect(chart.hasRightAxis).toBe(true)
+            const leftValues = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.]/g, '')))
+            // 30 is the default axis max, 5000 the third axis max — both gutters stack on the left.
+            expect(leftValues).toContain(30)
+            expect(leftValues).toContain(5000)
         })
 
         it('renders without crashing in yScaleType log with positive data', () => {
@@ -210,7 +262,11 @@ describe('LineChart', () => {
             )
             await chart.clickAtIndex(1)
             expect(onPointClick).toHaveBeenCalledWith(
-                expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 20 })
+                expect.objectContaining({
+                    dataIndex: 1,
+                    label: 'Tue',
+                    value: 20,
+                })
             )
         })
 
@@ -244,13 +300,196 @@ describe('LineChart', () => {
         it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
+                {
+                    key: 'b',
+                    label: 'B',
+                    data: [5, 15, 25],
+                    visibility: { tooltip: false },
+                },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const LONG_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const LONG_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the start and end labels of the dragged range', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('normalizes a right-to-left drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(3, 1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire onPointClick when a drag completes', () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('still fires onPointClick on a plain click when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('switches the wrapper cursor to crosshair when onDateRangeZoom is provided', () => {
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={jest.fn()} />
+            )
+            expect(chart.element.classList).toContain('cursor-crosshair')
+        })
+
+        it('a drag that releases outside the wrapper does not swallow the next unrelated click', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 10, y },
+                to: { x: testDimensions.plotLeft + 200, y },
+                release: { x: 9999, y: 9999 },
+            })
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+
+            await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+        })
+
+        it('click-without-drag still dismisses a pinned tooltip when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={[
+                        { key: 'a', label: 'A', data: [10, 20, 30, 40, 50] },
+                        { key: 'b', label: 'B', data: [5, 15, 25, 35, 45] },
+                    ]}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { pinnable: true } }}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            const pinned = await chart.waitForTooltip()
+            expect(pinned.isPinned).toBe(true)
+
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('treats a sub-threshold mousedown+move as a click, not a drag', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            // Move only 2px — below DRAG_THRESHOLD_PX, so the gesture must stay a click.
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 100, y },
+                to: { x: testDimensions.plotLeft + 102, y },
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('ignores a non-primary-button drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y },
+                to: { x: testDimensions.plotLeft + 300, y },
+                button: 2,
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('does not start a drag from outside the plot area', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const yAbovePlot = testDimensions.plotTop - 5
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y: yAbovePlot },
+                to: { x: testDimensions.plotLeft + 300, y: yAbovePlot },
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 
@@ -292,6 +531,50 @@ describe('LineChart', () => {
             } finally {
                 consoleErrorSpy.mockRestore()
             }
+        })
+    })
+
+    describe('interactive legend', () => {
+        it('renders no legend by default', () => {
+            const { container } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+            expect(container.querySelector('[data-attr="hog-chart-line-legend"]')).toBeNull()
+        })
+
+        it('renders a clickable legend item per series when legend.show is set', () => {
+            const { container } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(legendButtons(container).map((b) => b.textContent)).toEqual(['A', 'B'])
+        })
+
+        it('hides a series on legend click and shows it again on a second click', () => {
+            const { container, chart } = renderHogChart(
+                <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(getHogChart(container).seriesCount).toBe(1)
+            // The toggled-off row stays in the legend (dimmed) so it can be restored.
+            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            expect(dimmed.map((b) => b.textContent)).toEqual(['B'])
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('renders a static (non-clickable) legend when interactive is false', () => {
+            const { container } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ legend: { show: true, interactive: false } }}
+                />
+            )
+            const legend = container.querySelector('[data-attr="hog-chart-line-legend"]')!
+            expect(legend.querySelectorAll('button')).toHaveLength(0)
+            expect(legend.textContent).toBe('AB')
         })
     })
 })

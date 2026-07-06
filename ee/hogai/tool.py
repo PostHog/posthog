@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
 from pydantic import BaseModel, ValidationError
 
-from posthog.schema import ApprovalResumePayload, AssistantTool
+from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -52,6 +52,17 @@ class ApprovalRequest(BaseModel):
     tool_name: str
     preview: str
     payload: dict[str, Any]
+    original_tool_call_id: str | None = None
+
+
+class ClientToolCallRequest(BaseModel):
+    """Interrupt payload when a tool hands execution to its client-side handler.
+
+    Nothing is streamed: the frontend detects the pending call from the thread, runs the
+    registered handler, and resumes with a ClientToolResultPayload.
+    """
+
+    tool_name: str
     original_tool_call_id: str | None = None
 
 
@@ -402,6 +413,24 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
                 "Please acknowledge their decision and ask if they would like to proceed differently.",
                 None,
             )
+
+    def request_client_execution(self) -> dict[str, Any]:
+        """Pause the graph until this tool's frontend handler resumes the conversation.
+
+        The handler receives this tool call's arguments. Returns the handler's result dict;
+        validate its domain shape in the calling tool.
+        """
+        response = interrupt(
+            ClientToolCallRequest(tool_name=self.name, original_tool_call_id=self._original_tool_call_id)
+        )
+        try:
+            payload = ClientToolResultPayload.model_validate(response)
+        except ValidationError as e:
+            raise MaxToolRetryableError(f"Invalid client tool result: {e}")
+        # All interrupts pending in one superstep receive the same resume value — fail loudly on misdelivery
+        if payload.tool_call_id and self._original_tool_call_id and payload.tool_call_id != self._original_tool_call_id:
+            raise MaxToolRetryableError("The client tool result was addressed to a different tool call")
+        return payload.result
 
     def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
         """Reconstruct kwargs from stored payload (Pydantic deserialization)."""

@@ -8,7 +8,7 @@ import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 

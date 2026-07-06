@@ -15,10 +15,12 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
+import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -41,7 +43,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
-import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
+import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -78,6 +80,7 @@ import { ExperimentRecalculationTime } from './environment/ExperimentRecalculati
 import {
     DefaultEvaluationContexts,
     DefaultReleaseConditions,
+    EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -87,7 +90,6 @@ import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environmen
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
-import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
@@ -116,7 +118,6 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
-import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
@@ -153,18 +154,21 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { LoginSessions } from './user/LoginSessions'
 import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
+import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -495,7 +499,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
-                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -581,7 +585,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Default CUPED variance reduction',
                 description:
                     'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
             },
@@ -589,7 +592,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-experiment-cuped-lookback-days',
                 title: 'Default CUPED lookback window',
                 description: `Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.`,
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },
@@ -664,9 +666,29 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
             },
             {
+                id: 'feature-flag-evaluation-context-suggestions',
+                title: 'Evaluation context suggestions',
+                description:
+                    'Manage which evaluation context names are suggested when scoping a feature flag. Hide stale or mistyped names from the suggestion list without affecting flags that already use them.',
+                docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
+                flag: 'FLAG_EVALUATION_TAGS',
+                component: <EvaluationContextSuggestions />,
+                keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
+            },
+            {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description:
+                description: (
+                    <FlaggedFeature
+                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
+                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
+                    >
+                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
+                        settings, but new integrations should use a project secret API key with the feature_flag:read
+                        scope instead.
+                    </FlaggedFeature>
+                ),
+                searchDescription:
                     'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
@@ -1089,19 +1111,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'domain',
                     'identity',
                     'secret',
-                ],
-            },
-            {
-                id: 'conversations-channels',
-                title: 'Channels',
-                description: 'Choose where customers can reach you. Each channel can be configured independently.',
-                component: <ChannelsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: [
-                    'conversation',
-                    'ticket',
-                    'message',
-                    'support',
                     'channel',
                     'widget',
                     'email',
@@ -1127,6 +1136,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'email',
                     'browser',
                 ],
+            },
+            {
+                id: 'conversations-ai',
+                title: 'AI',
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
             },
         ],
     },
@@ -1422,7 +1441,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
                 docsUrl: 'https://posthog.com/docs/webhooks/slack',
-                component: <SlackIntegration />,
+                component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
             {
@@ -1430,7 +1449,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GithubIntegration />,
+                component: <GitHub.SettingsSection />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {
@@ -1438,7 +1457,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <LinearIntegration />,
+                component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
@@ -1638,7 +1657,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.legalDocuments(),
         settings: [],
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        flag: 'LEGAL_DOCUMENTS',
     },
     {
         level: 'organization',
@@ -1722,10 +1740,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-security',
                 title: 'Security',
-                description:
-                    'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
+                description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
-                keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
+                keywords: ['compliance', 'sharing', 'public'],
             },
             {
                 id: 'organization-personal-api-keys',
@@ -1794,6 +1811,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PasskeySettings />,
                 keywords: ['webauthn', 'fido', 'biometric', 'passwordless'],
             },
+            {
+                id: 'login-sessions',
+                title: 'Web sessions',
+                description: 'Devices and browsers currently signed in to your PostHog account.',
+                component: <LoginSessions />,
+                keywords: ['sessions', 'devices', 'logins', 'sign out', 'log out', 'security', 'revoke'],
+            },
         ],
     },
     {
@@ -1840,11 +1864,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new apps',
+                title: 'Automatically suggest new tools',
                 description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
+                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
+                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
                 id: 'mcp-hints',
@@ -1852,8 +1876,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
                 component: <MCPHintsSetting />,
-                flag: [['MCP_HINTS', 'test']],
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
+            },
+            {
+                id: 'web-analytics-achievements',
+                title: 'Web analytics achievements',
+                description:
+                    'Show playful achievement badges and streaks on the Web analytics dashboard. Applies to your current project.',
+                component: <WebAnalyticsAchievementsSetting />,
+                flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
+                keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
             },
             {
                 id: 'hedgehog-mode',
@@ -1943,12 +1975,35 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Personal integrations',
         settings: [
             {
-                id: 'personal-integrations',
-                title: 'Personal integrations',
+                id: 'personal-integrations-github',
+                title: 'GitHub',
                 description:
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
-                component: <PersonalIntegrations />,
+                component: <PersonalGitHubIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+            {
+                id: 'personal-integrations-slack',
+                title: 'Slack',
+                description:
+                    'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
+                component: <PersonalSlackIntegrations />,
+                keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
+                flag: 'SLACK_APP_OAUTH',
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-reminders',
+        title: 'Reminders',
+        settings: [
+            {
+                id: 'reminders',
+                title: 'Reminders',
+                description: 'Schedule one-off or recurring nudges that notify you in-app when they are due.',
+                component: <Reminders />,
+                keywords: ['reminder', 'notification', 'schedule', 'recurring', 'cron'],
             },
         ],
     },

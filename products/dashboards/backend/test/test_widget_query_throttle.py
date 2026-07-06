@@ -1,10 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.dashboards.backend.widget_query_throttle import (
-    DashboardWidgetQueryBurstRateThrottle,
-    get_dashboard_widget_query_throttle_error,
-)
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 
 
 class TestDashboardWidgetQueryThrottle(BaseTest):
@@ -33,9 +30,8 @@ class TestDashboardWidgetQueryThrottle(BaseTest):
 
         self.assertEqual(error, "Rate limit exceeded. Expected available in 12 seconds.")
 
-    def test_dashboard_widget_burst_throttle_applies_to_session_users(self) -> None:
+    def test_get_dashboard_widget_query_throttle_error_returns_none_when_allowed(self) -> None:
         request = MagicMock()
-        request.user.is_authenticated = True
         view = MagicMock()
         view.team_id = self.team.id
 
@@ -44,10 +40,13 @@ class TestDashboardWidgetQueryThrottle(BaseTest):
             return_value=True,
         ):
             with patch(
-                "products.dashboards.backend.widget_query_throttle.team_is_allowed_to_bypass_throttle",
-                return_value=False,
+                "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
+                return_value=True,
             ):
-                throttle = DashboardWidgetQueryBurstRateThrottle()
-                allow = throttle.allow_request(request, view)
+                with patch(
+                    "products.dashboards.backend.widget_query_throttle.DashboardWidgetQuerySustainedRateThrottle.allow_request",
+                    return_value=True,
+                ):
+                    error = get_dashboard_widget_query_throttle_error(request, view)
 
-        self.assertIsInstance(allow, bool)
+        self.assertIsNone(error)

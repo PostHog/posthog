@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
     buildScannerListParams,
     replayScannersLogic,
@@ -11,6 +13,13 @@ import {
     type ScannerOrderKey,
 } from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
+
+const quotaFixture = makeQuotaFixture({
+    monthly_quota: 1000,
+    usage_this_month: 100,
+    remaining: 900,
+    projected_monthly_observations: 500,
+})
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
@@ -59,6 +68,9 @@ describe('replayScannersLogic', () => {
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
+            },
+            delete: {
+                '/api/projects/:team/vision/scanners/:id/': () => [204, null],
             },
         })
         initKeaTests()
@@ -304,6 +316,61 @@ describe('replayScannersLogic', () => {
                 togglingIds: [],
             })
         })
+
+        it('toggle shifts the quota projection optimistically by the stored estimate', async () => {
+            const quotaLogic = visionQuotaLogic()
+            quotaLogic.mount()
+            quotaLogic.actions.loadQuotaSuccess(quotaFixture)
+            logic.actions.loadScannersSuccess(
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                1
+            )
+
+            logic.actions.toggleScannerEnabled('a') // disabling → subtract the stored estimate
+
+            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            quotaLogic.unmount()
+        })
+
+        it('delete shifts the quota projection optimistically for enabled scanners only', async () => {
+            const quotaLogic = visionQuotaLogic()
+            quotaLogic.mount()
+            quotaLogic.actions.loadQuotaSuccess(quotaFixture)
+            logic.actions.loadScannersSuccess(
+                [
+                    makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 }),
+                    makeScanner({ id: 'b', name: 'other', enabled: false, estimated_monthly_observations: 999 }),
+                ],
+                2
+            )
+
+            logic.actions.deleteScanner('b') // disabled — contributes nothing to the sum
+            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+
+            logic.actions.deleteScanner('a')
+            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
+            quotaLogic.unmount()
+        })
+
+        it('a failed delete reverts the optimistic projection shift', async () => {
+            useMocks({
+                // The quota GET must be mocked: `toFinishAllListeners` waits out the quota loader too.
+                get: { '/api/projects/:team/vision/quota/': quotaFixture },
+                delete: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
+            })
+            const quotaLogic = visionQuotaLogic()
+            quotaLogic.mount()
+            quotaLogic.actions.loadQuotaSuccess(quotaFixture)
+            logic.actions.loadScannersSuccess(
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                1
+            )
+
+            await expectLogic(logic, () => logic.actions.deleteScanner('a')).toFinishAllListeners()
+
+            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            quotaLogic.unmount()
+        })
     })
 
     it('setChartDateRange updates the chart date range', async () => {
@@ -311,5 +378,24 @@ describe('replayScannersLogic', () => {
             chartDateFrom: '-90d',
             chartDateTo: null,
         })
+    })
+
+    it('clamps back to the last valid page when the requested page is past the shrunken result set', async () => {
+        // e.g. the last scanner on page 2 was just deleted: offset=50 is now empty while count says one page.
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': ({ request }: { request: Request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return offset > 0
+                        ? [200, { results: [], count: 50 }]
+                        : [200, { results: [makeScanner({ id: 'a' })], count: 50 }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setScannersFilters({ page: 2 })).toFinishAllListeners()
+
+        expect(logic.values.filters.page).toBe(1)
+        expect(logic.values.scanners).toHaveLength(1)
     })
 })

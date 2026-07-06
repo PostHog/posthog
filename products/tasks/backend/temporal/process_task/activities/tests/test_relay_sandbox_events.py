@@ -10,12 +10,14 @@ from unittest.mock import AsyncMock
 import httpx
 import httpx_sse
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
@@ -112,6 +114,54 @@ class TestIsSessionUpdate:
     )
     def test_is_session_update(self, _name: str, event_data: dict, expected: bool):
         assert _is_session_update(event_data) == expected
+
+
+class TestIsActiveAgentUpdate:
+    @staticmethod
+    def _su(sub_type: str) -> dict:
+        return {
+            "type": "notification",
+            "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": sub_type}}},
+        }
+
+    @parameterized.expand(
+        [
+            # Generation updates -> active.
+            ("agent_message", "agent_message", True),
+            ("agent_message_chunk", "agent_message_chunk", True),
+            ("agent_thought_chunk", "agent_thought_chunk", True),
+            ("tool_call", "tool_call", True),
+            ("tool_call_update", "tool_call_update", True),
+            ("plan", "plan", True),
+            ("user_message_chunk", "user_message_chunk", True),
+            # Lifecycle updates -> not active.
+            ("available_commands_update", "available_commands_update", False),
+            ("current_mode_update", "current_mode_update", False),
+            ("config_option_update", "config_option_update", False),
+            ("usage_update", "usage_update", False),
+            # Allowlist fails safe: an unknown/future sub-type is not active.
+            ("unknown_future_subtype", "some_new_lifecycle_event", False),
+        ],
+    )
+    def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
+        assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    @parameterized.expand(
+        [
+            ("missing_session_update_key", {"update": {}}),
+            ("missing_update_key", {}),
+            ("null_params", None),
+        ],
+    )
+    def test_missing_session_update_is_not_active(self, _name: str, params: dict | None) -> None:
+        # A session/update with no sessionUpdate sub-type must not mark the agent active.
+        event = {"type": "notification", "notification": {"method": "session/update", "params": params}}
+        assert _is_active_agent_update(event) is False
+
+    def test_non_session_update_is_not_active(self) -> None:
+        assert (
+            _is_active_agent_update({"type": "notification", "notification": {"method": "_posthog/console"}}) is False
+        )
 
 
 class TestIsKeepaliveEvent:
@@ -213,7 +263,9 @@ class TestRelaySandboxEventsCancellation:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)), state={})
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise asyncio.CancelledError
@@ -527,7 +579,9 @@ class TestRelaySandboxEventsErrorHandling:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)), state={})
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise RuntimeError("relay error")
@@ -550,7 +604,7 @@ class TestRelaySandboxEventsErrorHandling:
             fake_mark_error_unless_run_is_terminal,
         )
 
-        with pytest.raises(RuntimeError, match="relay error"):
+        with pytest.raises(ApplicationError, match="relay error") as exc_info:
             await relay_sandbox_events(
                 RelaySandboxEventsInput(
                     run_id="run-id",
@@ -562,6 +616,10 @@ class TestRelaySandboxEventsErrorHandling:
                 )
             )
 
+        # An error sentinel was written to the stream, so the failure must be
+        # non-retryable — a retried attempt would append events past the
+        # sentinel that disconnected consumers never see.
+        assert exc_info.value.non_retryable is True
         redis_stream.mark_complete.assert_not_awaited()
         redis_stream.mark_error.assert_awaited_once_with("relay error")
 

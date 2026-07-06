@@ -37,16 +37,20 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         )
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
-        ts_str = dt.datetime(2026, 6, 2, 8, 0, 0).strftime("%Y-%m-%d %H:%M:%S.%f")
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
+        end_str = (base + dt.timedelta(milliseconds=5)).strftime("%Y-%m-%d %H:%M:%S.%f")
         # `attributes` is an ALIAS over attributes_map_str whose keys carry a `__str` type suffix
         # that left(k, -5) strips — so 'http.method__str' surfaces as 'http.method'.
+        # `resource_attributes` is a physical column, inserted as-is.
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
-            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str) VALUES "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
+            "resource_attributes) VALUES "
             "("
             f"'019e8754-0000-0000-0000-000000000001', {cls.team.id}, '{_b64((1).to_bytes(16, 'big'))}', "
-            f"'{_b64((1).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, 'web', "
-            "map('http.method__str', 'POST'))"
+            f"'{_b64((1).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{end_str}', '{ts_str}', 0, 'web', "
+            "map('http.method__str', 'POST'), map('service.version', '1.2.3', 'host.name', 'web-1'))"
         )
 
     @classmethod
@@ -60,7 +64,7 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
     def _run(self, *, exclude: bool) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            orderBy="latest",
+            orderBy="timestamp",
             limit=100,
             excludeAttributes=exclude,
         )
@@ -68,12 +72,16 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # excludeAttributes=False keeps the populated attribute map.
-            ("included_by_default", False, {"http.method": "POST"}),
-            # excludeAttributes=True: key stays present (positional mapping is stable) but the map is empty.
-            ("omitted_when_excluded", True, {}),
+            # excludeAttributes=False keeps both populated maps.
+            ("included_by_default", False, {"http.method": "POST"}, {"service.version": "1.2.3", "host.name": "web-1"}),
+            # excludeAttributes=True: keys stay present (positional mapping is stable) but the maps are empty.
+            ("omitted_when_excluded", True, {}, {}),
         ]
     )
-    def test_attributes(self, _name, exclude, expected_attributes):
+    def test_attributes(self, _name, exclude, expected_attributes, expected_resource_attributes):
         results = self._run(exclude=exclude)
         self.assertEqual(results[0]["attributes"], expected_attributes)
+        self.assertEqual(results[0]["resource_attributes"], expected_resource_attributes)
+        # Guards the positional-index shift from adding the resource column: the per-trace duration
+        # key (the last SELECT column) must still land on the right value.
+        self.assertEqual(results[0]["trace_duration"], 5_000_000)

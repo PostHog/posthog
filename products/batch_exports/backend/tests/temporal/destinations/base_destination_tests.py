@@ -413,7 +413,7 @@ class CommonWorkflowTests:
     @pytest.fixture
     async def batch_export_for_destination(
         self, ateam, temporal_client, interval, integration, destination_test, exclude_events
-    ) -> AsyncGenerator[BatchExport, None]:
+    ) -> AsyncGenerator[BatchExport]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
         destination_config = {**destination_test.get_destination_config(ateam.pk), "exclude_events": exclude_events}
         destination_data = {

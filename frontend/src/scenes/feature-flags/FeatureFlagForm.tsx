@@ -55,7 +55,7 @@ import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
-import { alphabet } from 'lib/utils'
+import { alphabet } from 'lib/utils/strings'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { urls } from 'scenes/urls'

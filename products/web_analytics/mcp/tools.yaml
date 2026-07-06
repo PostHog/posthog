@@ -51,7 +51,11 @@ tools:
             line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick`
             hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or
             buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the
-            same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot.
+            same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot. Click
+            results are returned hottest-first and capped at `limit` (default 500); busy pages have thousands of
+            distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise
+            `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is
+            truncated.
         feature_flag: heatmaps-mcp
     heatmaps-saved-create:
         operation: saved_create
@@ -137,6 +141,24 @@ tools:
     saved-destroy:
         operation: saved_destroy
         enabled: false
+    web-analytics-achievements-acknowledge-celebration:
+        operation: web_analytics_achievements_acknowledge_celebration
+        enabled: false
+    web-analytics-achievements-overview:
+        operation: web_analytics_achievements_overview
+        enabled: false
+    web-analytics-achievements-preferences:
+        operation: web_analytics_achievements_preferences
+        enabled: false
+    web-analytics-achievements-record-interaction:
+        operation: web_analytics_achievements_record_interaction
+        enabled: false
+    web-analytics-achievements-record-visit:
+        operation: web_analytics_achievements_record_visit
+        enabled: false
+    web-analytics-achievements-update-preferences:
+        operation: web_analytics_achievements_update_preferences
+        enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create
         enabled: false
@@ -154,6 +176,9 @@ tools:
         enabled: false
     web-analytics-filter-presets-update:
         operation: web_analytics_filter_presets_update
+        enabled: false
+    web-analytics-recap:
+        operation: web_analytics_recap
         enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest

@@ -96,11 +96,26 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
             canonicalizeApiHost(posthog.config?.api_host) ||
             canonicalizeApiHost(toolbarParams.apiURL) ||
             window.location.origin
-        await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
-            credentials: 'include',
-        })
-            .then((response) => response.json())
-            .then((data) => {
+        const flagsUrl = `${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`
+
+        // Only the network call is wrapped here: `fetch` rejects solely on transient
+        // network-level failures (aborted request, ad blocker / browser extension,
+        // connectivity loss, CORS). The flags preload is best-effort and the toolbar
+        // degrades cleanly without it, so these are logged rather than surfaced as
+        // error-tracking exceptions. Parsing/applying the response is handled separately
+        // below so genuine bugs there still get captured.
+        let response: Response | undefined
+        try {
+            response = await fetch(flagsUrl, { credentials: 'include' })
+        } catch (error) {
+            toolbarLogger.warn('flags', 'Error fetching toolbar feature flags', {
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
+
+        if (response) {
+            try {
+                const data = await response.json()
                 if (data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
                 } else {
@@ -110,11 +125,11 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                         'preloaded_flags'
                     )
                 }
-            })
-            .catch((error) => {
-                toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
+            } catch (error) {
+                toolbarLogger.error('flags', 'Error processing toolbar feature flags')
                 captureToolbarException(error, 'preloaded_flags_fetch')
-            })
+            }
+        }
     }
 
     initKeaInToolbar()

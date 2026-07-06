@@ -1,5 +1,6 @@
 export { SurveysFinalSteps } from './_snippets/surveys-final-steps'
 
+export { SurveysAndroidInstallation } from './android'
 export { SurveysAngularInstallation } from './angular'
 export { SurveysAstroInstallation } from './astro'
 export { SurveysBubbleInstallation } from './bubble'

@@ -2,7 +2,14 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -50,6 +57,22 @@ class NoLiveEventsCheck(HealthCheck):
             title="No live events",
             summary=issue.payload.get("reason", "No $pageview or $screen events received recently"),
             link="/web/health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        title = "No live events"
+        summary = issue.payload.get("reason", "No $pageview or $screen events received recently.")
+        return SignalContent(
+            description=(
+                f"This project hasn't received any `$pageview` or `$screen` events in the last "
+                f"{NO_LIVE_EVENTS_LOOKBACK_DAYS} days. That usually means the PostHog snippet/SDK "
+                "isn't installed, was removed, or is misconfigured — web and product analytics will "
+                "stay empty until capture is restored. Recommend verifying the SDK is initialized "
+                "and sending events."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

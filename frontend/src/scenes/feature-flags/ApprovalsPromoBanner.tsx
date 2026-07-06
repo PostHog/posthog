@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import { HedgehogJudge } from '@posthog/brand/hoggies'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
-import { JudgeHog } from 'lib/components/hedgehogs'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -45,7 +45,7 @@ export function ApprovalsPromoBanner(): JSX.Element | null {
         <LemonBanner type="info" hideIcon className="bg-transparent border-dashed border-2">
             <div className="flex items-center gap-8 w-full justify-center p-4">
                 <div className="w-30 shrink-0 hidden md:block">
-                    <JudgeHog className="w-full h-full" />
+                    <HedgehogJudge className="w-full h-full" />
                 </div>
                 <div className="flex-shrink max-w-140">
                     <h2>Stop YOLO-shipping flag changes</h2>

@@ -5,7 +5,10 @@ and condense them into a short natural-language summary via an LLM. Pure
 generation only — caching and persistence live in ``logic.generate_session_intent``.
 """
 
+from datetime import datetime, timedelta
+
 from django.conf import settings
+from django.utils import timezone
 
 import openai
 import posthoganalytics
@@ -18,11 +21,15 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
+# Fallback scan bound for the session-detail queries (tool calls + intents) — a single $session_id
+# isn't in the events sort key, so without a timestamp bound the scan covers the team's full
+# history. Callers normally pass the session's start; this covers ones that don't.
+SESSION_EVENTS_LOOKBACK = timedelta(days=7)
 # Persisted (and returned) when a session has no recorded intents, so callers
 # get a definitive answer and we don't re-query ClickHouse on the next request.
 NO_INTENT_MESSAGE = "No agent intent was recorded for this session."
@@ -43,19 +50,26 @@ _SESSION_INTENTS_SQL = """
 SELECT toString(properties.$mcp_intent) AS intent
 FROM events
 WHERE event = {event}
-    AND properties.$mcp_session_id = {session_id}
+    AND timestamp >= {date_from}
+    AND $session_id = {session_id}
     AND coalesce(properties.$mcp_intent, '') != ''
 ORDER BY timestamp ASC
 LIMIT {limit}
 """
 
 
-def fetch_session_intents(team: Team, session_id: str) -> list[str]:
-    """Return the session's recorded ``$mcp_intent``s in chronological order."""
+def fetch_session_intents(team: Team, session_id: str, date_from: datetime | None = None) -> list[str]:
+    """Return the session's recorded ``$mcp_intent``s in chronological order.
+
+    ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan,
+    mirroring ``logic.list_mcp_tool_calls``: callers pass the session's start so the whole session
+    resolves, and it falls back to ``SESSION_EVENTS_LOOKBACK`` for callers that don't.
+    """
     query = parse_select(
         _SESSION_INTENTS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=date_from or (timezone.now() - SESSION_EVENTS_LOOKBACK)),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=MAX_INTENTS),
         },

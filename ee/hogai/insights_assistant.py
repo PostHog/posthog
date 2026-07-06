@@ -97,7 +97,7 @@ class InsightsAssistant(BaseAgentRunner):
         stream_subgraphs: bool = True,
         stream_first_message: bool = False,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         last_ai_message: AssistantMessage | None = None
         last_artifact_content: VisualizationArtifactContent | None = None
 

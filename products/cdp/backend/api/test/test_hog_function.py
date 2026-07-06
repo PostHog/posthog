@@ -221,6 +221,68 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             return actual_data
 
+    def _create_hidden_template(self) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden-dest",
+            sha="1.0.0",
+            name="Hidden destination",
+            description="Internal building block",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+    @parameterized.expand([("non_staff", False), ("staff", True)])
+    def test_create_from_hidden_template_is_blocked(self, _name, is_staff):
+        # Hidden templates are internal building blocks, not standalone destinations — nobody can create
+        # a function from one via the API/MCP, staff included.
+        self._create_hidden_template()
+        if is_staff:
+            self.user.is_staff = True
+            self.user.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": "X", "template_id": "template-hidden-dest", "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
+
+    @parameterized.expand(
+        [
+            # An existing hidden-template function (created before the create-path block) can be disabled
+            # or deleted to clean it up, but must never be left enabled: enabling it or editing its config
+            # while it stays enabled is blocked; only disabling, deleting, or editing it while already
+            # disabled is allowed.
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_enabling_function_from_hidden_template_is_blocked(self, _name, initial_enabled, patch, expected):
+        self._create_hidden_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Existing email destination",
+            type="destination",
+            template_id="template-hidden-dest",
+            enabled=initial_enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data=patch,
+        )
+        assert response.status_code == expected, response.json()
+
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1740,7 +1802,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for name in function_names:
             HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -1777,7 +1839,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         a = HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
         b = HogFunction.objects.create(team=self.team, name="Beta", type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -1837,6 +1899,74 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing webhook", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name, function_name, search
+    ):
+        matching = HogFunction.objects.create(
+            team=self.team, name=function_name, type="destination", hog="return event"
+        )
+        HogFunction.objects.create(team=self.team, name="Totally unrelated", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+        for name in ("slack notification", "notification slack", "slcak metrics", "Engineering metrics"):
+            HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=slack")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "slack notification": "exact",
+            "notification slack": "exact",
+            "slcak metrics": "similar",
+        }
+
+        match_types = [r["search_match_type"] for r in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
+
+    def test_list_filter_by_search_surfaces_match_type_on_full_serializer(self):
+        matching = HogFunction.objects.create(
+            team=self.team, name="alerts+ops@example.com", type="destination", hog="return event"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            {"search": "alerts+ops@example.com", "full": "true"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in response.json()["results"]}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "the full (?full=true) serializer must also surface search_match_type — it redeclares Meta.fields"
+        )
 
     def test_can_update_with_null_filters(self):
         # First create a function with filters

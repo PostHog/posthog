@@ -6,6 +6,7 @@ from .github_comment_mapping import GithubCommentMapping
 from .restore_token import ConversationRestoreToken
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
+from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .ticket import Ticket
 from .ticket_view import TicketView
@@ -22,6 +23,7 @@ __all__ = [
     "RuleType",
     "Status",
     "TeamConversationsSlackConfig",
+    "TeamConversationsTeamsChannelSync",
     "TeamConversationsTeamsConfig",
     "Ticket",
     "TicketAssignment",

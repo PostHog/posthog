@@ -4,13 +4,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual, sortedKeys } from 'lib/utils'
+import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyDataNode,
     AnyResponseType,
@@ -206,6 +206,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
                 return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
             },
+            // A reload or poll reparses JSON, so unchanged results still arrive as new identities;
+            // keeping the previous array lets memoized rows skip re-rendering.
+            { resultEqualityCheck: objectsEqual },
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],

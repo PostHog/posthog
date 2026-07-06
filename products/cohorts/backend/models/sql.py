@@ -12,8 +12,7 @@ def COHORTPEOPLE_TABLE_ENGINE():
     return CollapsingMergeTree("cohortpeople", ver="sign")
 
 
-CREATE_COHORTPEOPLE_TABLE_SQL = (
-    lambda on_cluster=True: """
+CREATE_COHORTPEOPLE_TABLE_SQL = lambda on_cluster=True: """
 CREATE TABLE IF NOT EXISTS cohortpeople {on_cluster_clause}
 (
     person_id UUID,
@@ -25,10 +24,9 @@ CREATE TABLE IF NOT EXISTS cohortpeople {on_cluster_clause}
 Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=COHORTPEOPLE_TABLE_ENGINE(),
-        storage_policy="",
-    )
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    engine=COHORTPEOPLE_TABLE_ENGINE(),
+    storage_policy="",
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"

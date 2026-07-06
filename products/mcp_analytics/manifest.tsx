@@ -3,6 +3,8 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +41,10 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     },
-    redirects: {},
+    redirects: {
+        '/mcp-analytics': (_params, searchParams, hashParams) =>
+            combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+    },
     urls: {
         // Define URL helpers here
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
@@ -61,7 +66,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.mcpAnalyticsDashboard(),
             flag: FEATURE_FLAGS.MCP_ANALYTICS,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },
     ],

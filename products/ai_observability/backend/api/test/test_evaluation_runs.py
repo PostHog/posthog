@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,7 +11,25 @@ from rest_framework import status
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
+from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
+
+
+@pytest.mark.parametrize(
+    ("evaluation_type", "expected_prefix"),
+    [
+        ("llm_judge", "llma-llm-eval"),
+        ("hog", "llma-hog-eval"),
+        ("sentiment", "llma-sentiment-eval"),
+    ],
+)
+def test_evaluation_workflow_prefix_maps_every_supported_runtime(evaluation_type: str, expected_prefix: str):
+    assert _evaluation_workflow_prefix(evaluation_type) == expected_prefix
+
+
+def test_evaluation_workflow_prefix_rejects_unknown_runtime():
+    with pytest.raises(ValueError, match="Unsupported evaluation type for workflow prefix: unknown"):
+        _evaluation_workflow_prefix("unknown")
 
 
 class TestEvaluationRunViewSet(APIBaseTest):

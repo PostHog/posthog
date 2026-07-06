@@ -47,6 +47,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -63,7 +64,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             query_type="ExperimentFunnelsQuery",
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
-            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_feature_flag_key=self.feature_flag_key,
         )
 
         funnels_result = self.funnels_query_runner.calculate()
@@ -129,7 +130,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         # Configure the breakdown to use the feature flag key
         prepared_funnels_query.breakdownFilter = BreakdownFilter(
-            breakdown=f"$feature/{self.feature_flag.key}",
+            breakdown=f"$feature/{self.feature_flag_key}",
             breakdown_type="event",
         )
 

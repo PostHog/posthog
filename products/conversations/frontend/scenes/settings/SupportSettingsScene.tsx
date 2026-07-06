@@ -14,14 +14,17 @@ export const CONVERSATIONS_LOGIC_KEY = 'conversationsSettings'
 
 const VALID_SETTING_IDS = new Set<SettingId>([
     'conversations-general',
-    'conversations-channels',
     'conversations-notifications',
+    'conversations-ai',
 ])
 
 const DEFAULT_SETTING_ID: SettingId = 'conversations-general'
 
 function resolveSettingId(): SettingId {
     const candidate = router.values.hashParams.selectedSetting
+    if (candidate === 'conversations-channels') {
+        return DEFAULT_SETTING_ID
+    }
     if (typeof candidate === 'string' && VALID_SETTING_IDS.has(candidate as SettingId)) {
         return candidate as SettingId
     }

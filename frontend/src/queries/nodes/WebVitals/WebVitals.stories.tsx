@@ -23,10 +23,11 @@ const meta: Meta<QueryProps<Node>> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/:kind/': (req) => {
-                    if ((req.body as any).query.kind === 'WebVitalsQuery') {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
+                    if (body.query.kind === 'WebVitalsQuery') {
                         return [200, webVitals]
-                    } else if ((req.body as any).query.kind === 'TrendsQuery') {
+                    } else if (body.query.kind === 'TrendsQuery') {
                         return [200, webVitalsTrends]
                     }
                 },

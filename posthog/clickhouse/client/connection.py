@@ -4,16 +4,15 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
-from clickhouse_connect import get_client
-from clickhouse_connect.driver import (
-    Client as HttpClient,
-    httputil,
-)
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+
+if TYPE_CHECKING:
+    from clickhouse_connect.driver import Client as HttpClient
 
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
@@ -40,8 +39,10 @@ class NodeRole(StrEnum):
 
 
 # Roles that host replicated MergeTree data; valid ALTER TABLE targets.
+# LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
+# 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
 DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.LOGS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
@@ -81,6 +82,9 @@ class ClickHouseUser(StrEnum):
     OPS = "ops"
     # Only for migrations - do not normally use
     MIGRATIONS = "migrations"
+    # Low-privilege reader baked into dictionary SOURCE blocks, decoupling
+    # dictionary credentials from the default user.
+    DICT_READER = "dict_reader"
 
 
 __user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
@@ -129,7 +133,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
 
 
 class ProxyClient:
-    def __init__(self, client: HttpClient):
+    def __init__(self, client: "HttpClient"):
         self._client = client
 
     def execute(
@@ -166,17 +170,26 @@ class ProxyClient:
         pass
 
 
-_clickhouse_http_pool_mgr = httputil.get_pool_manager(
-    maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
-    block=True,  # makes the maxsize limit per pool, keeps connections
-    num_pools=12,  # number of pools
-    ca_cert=settings.CLICKHOUSE_CA,
-    verify=settings.QUERYSERVICE_VERIFY,
-)
+@cache
+def _clickhouse_http_pool_mgr():
+    # clickhouse_connect probes pandas/numpy availability when imported, dragging pandas and
+    # pyarrow (~400ms) onto the path of whoever imports it — and this module loads at
+    # django.setup(). Only the HTTP client paths need it, so build the pool manager on demand.
+    from clickhouse_connect.driver import httputil  # noqa: PLC0415
+
+    return httputil.get_pool_manager(
+        maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
+        block=True,  # makes the maxsize limit per pool, keeps connections
+        num_pools=12,  # number of pools
+        ca_cert=settings.CLICKHOUSE_CA,
+        verify=settings.QUERYSERVICE_VERIFY,
+    )
 
 
 @contextmanager
 def get_http_client(**overrides):
+    from clickhouse_connect import get_client  # noqa: PLC0415
+
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -188,7 +201,7 @@ def get_http_client(**overrides):
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         "autogenerate_session_id": True,
         # beware, this makes each query to run in a separate session - no temporary tables will work
-        "pool_mgr": _clickhouse_http_pool_mgr,
+        "pool_mgr": _clickhouse_http_pool_mgr(),
         **overrides,
     }
     yield ProxyClient(get_client(**kwargs))

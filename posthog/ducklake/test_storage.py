@@ -314,43 +314,6 @@ class TestCrossAccountDestination:
         assert dest.region is None
 
 
-class TestDuckLakeCatalogToCrossAccountDestination:
-    def test_converts_to_cross_account_destination(self):
-        from unittest.mock import MagicMock
-
-        from posthog.ducklake.models import DuckLakeCatalog
-
-        # Create a mock catalog with the required attributes
-        catalog = MagicMock(spec=DuckLakeCatalog)
-        catalog.cross_account_role_arn = "arn:aws:iam::222222222222:role/CustomerRole"
-        catalog.cross_account_external_id = "external-id-456"
-        catalog.bucket = "customer-bucket"
-        catalog.bucket_region = "eu-west-1"
-
-        # Call the real method on the mock
-        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
-
-        assert dest.role_arn == "arn:aws:iam::222222222222:role/CustomerRole"
-        assert dest.external_id == "external-id-456"
-        assert dest.bucket_name == "customer-bucket"
-        assert dest.region == "eu-west-1"
-
-    def test_none_region_handled(self):
-        from unittest.mock import MagicMock
-
-        from posthog.ducklake.models import DuckLakeCatalog
-
-        catalog = MagicMock(spec=DuckLakeCatalog)
-        catalog.cross_account_role_arn = "arn:aws:iam::111:role/Role"
-        catalog.cross_account_external_id = "ext-id"
-        catalog.bucket = "bucket"
-        catalog.bucket_region = ""  # Empty string should become None
-
-        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
-
-        assert dest.region is None
-
-
 def _make_s3_page(keys: list[str]) -> list[dict]:
     return [{"Contents": [{"Key": k} for k in keys]}]
 
@@ -508,10 +471,6 @@ class TestStageDeltaTable:
             )
         )
         monkeypatch.setattr("posthog.ducklake.storage._get_delta_snapshot_files", mock_get_snapshot_files)
-        monkeypatch.setattr(
-            "posthog.ducklake.storage._get_cross_account_credentials",
-            lambda role_arn, external_id=None: ("ak", "sk", "tok"),
-        )
 
         mock_s3 = MagicMock()
         mock_s3.get_paginator.return_value = _mock_paginator(
@@ -532,7 +491,6 @@ class TestStageDeltaTable:
         result = stage_delta_table(
             source_uri="s3://customer-bucket/data/table",
             catalog_bucket="catalog-bucket",
-            role_arn="arn:aws:iam::123:role/Role",
             organization_id="org-123",
         )
 

@@ -39,5 +39,7 @@ def prepare_widget_tile_create(
         )
         check_widget_tile_product_access(probe_widget, user_access_control)
 
-    validated_config = validate_widget_config(widget_type, config, team_id=team.id)
+    # team_id stays on probe_widget for RBAC; pydantic validation is shape-only — team
+    # defaults (e.g. filterTestAccounts) resolve at query time in widgets/config.py.
+    validated_config = validate_widget_config(widget_type, config)
     return widget_type, validated_config

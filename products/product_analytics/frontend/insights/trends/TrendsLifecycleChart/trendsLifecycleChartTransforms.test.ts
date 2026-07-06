@@ -1,4 +1,4 @@
-import type { TimeInterval } from '@posthog/quill-charts'
+import type { TimeInterval, ValueLabelContext } from '@posthog/quill-charts'
 
 import type { CurrencyCode, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
@@ -6,6 +6,7 @@ import type { IntervalType } from '~/types'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
     buildLifecycleChartModel,
+    buildLifecycleValueLabelFormatter,
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
     filterToggledLifecycleResults,
@@ -240,6 +241,66 @@ describe('buildTrendsLifecycleConfig', () => {
     ])('forwards valueLabels=$input to the config', ({ input, expected }) => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, valueLabels: input })
         expect(cfg.valueLabels).toEqual(expected)
+    })
+})
+
+describe('buildLifecycleValueLabelFormatter', () => {
+    const formatValue = (v: number): string => `${v}`
+    const band: ValueLabelContext = {
+        rawValue: 20,
+        bandValues: [20, 10, -10],
+        previousBandValues: [40, 10, -5],
+        isPercent: false,
+    }
+
+    it.each([
+        { name: 'values only', showValues: true, showPercentages: false, expected: '20' },
+        { name: 'values + percentages', showValues: true, showPercentages: true, expected: '20 (67%)' },
+        { name: 'percentages only', showValues: false, showPercentages: true, expected: '67%' },
+    ])('renders active $name as "$expected"', ({ showValues, showPercentages, expected }) => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues, showPercentages })
+        expect(formatter(20, 0, 0, band)).toBe(expected)
+    })
+
+    it('excludes dormant from the active denominator so active statuses sum to 100%', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(20, 0, 0, { ...band, rawValue: 20 })).toBe('67%')
+        expect(formatter(10, 1, 0, { ...band, rawValue: 10 })).toBe('33%')
+    })
+
+    it('measures dormant against the previous period active total', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(-10, 2, 1, { ...band, rawValue: -10 })).toBe('20%')
+    })
+
+    it('labels the first-period dormant bar with its value in both modes (no previous band)', () => {
+        const firstPeriodDormant: ValueLabelContext = {
+            rawValue: -10,
+            bandValues: [20, -10],
+            previousBandValues: [],
+            isPercent: false,
+        }
+        const withValues = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
+        expect(withValues(-10, 2, 0, firstPeriodDormant)).toBe('-10')
+        const percentagesOnly = buildLifecycleValueLabelFormatter(formatValue, {
+            showValues: false,
+            showPercentages: true,
+        })
+        expect(percentagesOnly(-10, 2, 0, firstPeriodDormant)).toBe('-10')
+    })
+
+    it('returns an empty string (skip) for percentages-only when the band has no active total', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: false, showPercentages: true })
+        expect(formatter(0, 0, 0, { rawValue: 0, bandValues: [0, 0], previousBandValues: [], isPercent: false })).toBe(
+            ''
+        )
+    })
+
+    it('does not append percentages in percent layout (labels already express fractions)', () => {
+        const formatter = buildLifecycleValueLabelFormatter(formatValue, { showValues: true, showPercentages: true })
+        expect(
+            formatter(0.2, 0, 0, { rawValue: 20, bandValues: [20, 80], previousBandValues: [], isPercent: true })
+        ).toBe('0.2')
     })
 })
 

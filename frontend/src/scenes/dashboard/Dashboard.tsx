@@ -17,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
@@ -69,7 +69,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         canEditDashboard,
         tiles,
         itemsLoading,
-        dashboardMode,
+        layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
     } = useValues(dashboardLogic)
@@ -119,7 +119,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
-                        {dashboardMode === DashboardMode.Edit &&
+                        {layoutEditMode &&
                             canEditDashboard &&
                             [
                                 DashboardPlacement.Dashboard,

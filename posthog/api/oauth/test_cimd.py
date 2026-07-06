@@ -8,13 +8,11 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
+from django.utils.html import escape
 
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -33,21 +31,12 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
     refresh_cimd_metadata_task,
+    register_cimd_provisioning_application_task,
     validate_cimd_url,
 )
+from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
 from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
-
-
-def generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -251,12 +240,6 @@ class TestFetchCimdMetadata(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
@@ -332,12 +315,6 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
 
@@ -387,6 +364,43 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         self.assertEqual(app.name, "Updated Name")
         self.assertEqual(app.logo_uri, "https://example.com/new-logo.png")
 
+    @parameterized.expand(
+        [
+            ("script_tag", "<script>alert(1)</script>"),
+            ("attribute_breakout", '"><img src=x onerror=alert(1)>'),
+            ("ampersand_preserved", "Acme & Co"),
+            ("over_length_after_escape", "<" * 300),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_client_name_from_metadata_is_html_escaped(self, _name, payload, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(client_name=payload), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        expected = sanitize_client_name(payload)
+        self.assertEqual(app.name, expected)
+        self.assertNotIn("<", app.name)
+        self.assertNotIn(">", app.name)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_escapes_client_name_idempotently(self, mock_get, _url_mock):
+        payload = "<script>alert(1)</script>"
+        mock_get.return_value = _mock_response(_make_metadata(client_name="Safe Name"), headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        # Refresh twice with the same script payload — each call needs its own response because
+        # _mock_response's iter_content is a one-shot iterator. Re-escaping the raw metadata each
+        # time must not compound (it escapes the metadata value, not the already-escaped app.name).
+        for _ in range(2):
+            mock_get.return_value = _mock_response(_make_metadata(client_name=payload), headers={})
+            refresh_cimd_metadata_task(VALID_CIMD_URL)
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertEqual(app.name, escape(payload))
+        self.assertNotIn("<", app.name)
+
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_refresh_task_handles_fetch_failure_gracefully(self, mock_get, _url_mock):
         metadata = _make_metadata(client_name="Original Name")
@@ -399,13 +413,37 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertEqual(app.name, "Original Name")
 
+    @parameterized.expand(
+        [
+            ("refresh", refresh_cimd_metadata_task),
+            ("registration", register_cimd_provisioning_application_task),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.capture_exception")
+    @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
+    def test_background_task_does_not_capture_expected_validation_error(
+        self, _name, task_fn, mock_fetch, mock_capture, _url_mock
+    ):
+        # Rejecting a non-compliant partner document is expected, so it must not surface as an error-tracking issue.
+        mock_fetch.side_effect = CIMDValidationError("document exceeds the 5120 byte limit")
+        task_fn(VALID_CIMD_URL)
+        mock_capture.assert_not_called()
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
+    @parameterized.expand(
+        [
+            ("refresh", refresh_cimd_metadata_task),
+            ("registration", register_cimd_provisioning_application_task),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.capture_exception")
+    @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
+    def test_background_task_captures_unexpected_fetch_error(self, _name, task_fn, mock_fetch, mock_capture, _url_mock):
+        error = CIMDFetchError("connection reset")
+        mock_fetch.side_effect = error
+        task_fn(VALID_CIMD_URL)
+        mock_capture.assert_called_once_with(error)
+
+
 class TestGetApplicationByClientId(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -447,12 +485,6 @@ class TestGetApplicationByClientId(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_creates_new_app_with_provisioning_defaults(self, mock_get, _url_mock):
@@ -557,12 +589,6 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
@@ -752,12 +778,6 @@ class TestCIMDVerificationToken(APIBaseTest):
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestAuthorizationServerMetadata(APIBaseTest):
     def test_advertises_cimd_support(self):
         client = APIClient()
@@ -767,12 +787,6 @@ class TestAuthorizationServerMetadata(APIBaseTest):
         self.assertTrue(data.get("client_id_metadata_document_supported"))
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 class TestCIMDAuthorizeIntegration(APIBaseTest):
     """Integration tests for the CIMD flow through /oauth/authorize/."""
@@ -878,12 +892,6 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDComPostHogNamespace(APIBaseTest):
     """Tests for the com.posthog namespace: scopes and nested verification_token."""
 
@@ -1025,6 +1033,42 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
 
         assert refreshed is not None
         self.assertEqual(refreshed.scopes, ["survey:read"])
+
+    # com.posthog.optional_scopes carries the required/optional split: required `scopes` and the
+    # declinable `optional_scopes` are written together on creation, capped to grantable scopes.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_optional_scopes_written_to_app_on_creation(self, mock_get, _url_mock):
+        metadata = _make_metadata(
+            com_posthog={"scopes": ["insight:read"], "optional_scopes": ["dashboard:read", "llm_gateway:read"]}
+        )
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, ["insight:read"])
+        # llm_gateway:read is privileged, stripped by the grantable filter.
+        self.assertEqual(app.optional_scopes, ["dashboard:read"])
+        self.assertEqual(app.required_scopes, ["insight:read"])
+
+    # Both fields refresh together so the split never drifts: a metadata refresh rewrites
+    # `optional_scopes` alongside `scopes`.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_optional_scopes_refresh_together_with_scopes(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(
+            _make_metadata(com_posthog={"scopes": ["insight:read"], "optional_scopes": ["dashboard:read"]}), headers={}
+        )
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(
+            _make_metadata(com_posthog={"scopes": ["survey:read"], "optional_scopes": ["experiment:read"]}), headers={}
+        )
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertEqual(refreshed.scopes, ["survey:read"])
+        self.assertEqual(refreshed.optional_scopes, ["experiment:read"])
 
     # Guard for the "scope ceiling bypass" review finding: a CIMD client controls its own
     # metadata document, but republishing it on refresh can never escalate the ceiling past

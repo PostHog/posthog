@@ -4,7 +4,6 @@ from datetime import datetime
 from numbers import Number
 from typing import Any, Literal, Optional, Union, cast
 
-import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -22,6 +21,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     InsightActorsQuery,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyGroupFilterValue,
@@ -38,7 +38,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
@@ -49,6 +49,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Filter, Property, Team
 from posthog.models.property import OperatorInterval, PropertyGroup
+from posthog.ph_client import feature_enabled_or_false
 from posthog.types import AnyPropertyFilter
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -530,6 +531,20 @@ class HogQLCohortQuery:
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
         return query_runner.to_query()
 
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # type = "person_metadata"
+        # key = "created_at" (a top-level column on the persons table, not properties JSON)
+        actors_query = ActorsQuery(
+            properties=[
+                PersonMetadataPropertyFilter(
+                    key=prop.key, value=prop.value, operator=prop.operator or PropertyOperator.EXACT
+                )
+            ],
+            select=["id"],
+        )
+        query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+        return query_runner.to_query()
+
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
         # prop.value is normally a cohort pk, but an internal cohort property smuggled through the
@@ -581,6 +596,8 @@ class HogQLCohortQuery:
                 raise ValueError(f"Invalid behavioral property value for Cohort: {prop.value}")
         elif prop.type == "person":
             return self.get_person_condition(prop)
+        elif prop.type == "person_metadata":
+            return self.get_person_metadata_condition(prop)
         elif prop.type == "static-cohort":  # static cohorts are handled by flattening during initialization
             return self.get_static_cohort_condition(prop)
         elif prop.type == "dynamic-cohort":
@@ -589,7 +606,7 @@ class HogQLCohortQuery:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
     def _should_combine_person_properties_and(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties",
             str(self.team.uuid),
             groups={
@@ -609,7 +626,7 @@ class HogQLCohortQuery:
         )
 
     def _should_combine_person_properties_or(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "hogql-cohort-combine-person-properties-or",
             str(self.team.uuid),
             groups={
@@ -1197,36 +1214,21 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ),
         )
 
-    def _build_or_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
-        """
-        Build query for OR semantics where at least ONE condition must match.
+    def _build_single_condition_query(self, condition_hash: str) -> ast.SelectQuery:
+        """One-pass query for a single condition: latest match per person via argMax.
 
-        For example: email contains X OR email contains Y
-        Uses HAVING matching_count >= 1
-
-        Args:
-            merged_hashes: List of condition hashes to match against
-
-        Returns:
-            SelectQuery AST that returns person_ids matching at least one condition
+        No outer aggregation is needed when there's only one condition, so this avoids the
+        second GROUP BY pass that the counting query below would otherwise do for N=1.
         """
         query_str = """
             SELECT
                 person_id as id
-            FROM
-            (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, (_timestamp, _offset)) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
+            FROM precalculated_person_properties
+            WHERE
+                team_id = {team_id}
+                AND condition = {condition_hash}
             GROUP BY person_id
-            HAVING countIf(latest_matches = 1) >= 1
+            HAVING argMax(matches, (_timestamp, _offset)) = 1
         """
 
         return cast(
@@ -1235,23 +1237,45 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 query_str,
                 {
                     "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
+                    "condition_hash": ast.Constant(value=condition_hash),
                 },
             ),
         )
 
-    def _build_and_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
+    def _build_count_match_query(self, hashes: list[str], operator: PropertyOperatorType) -> ast.SelectQuery:
+        """Build a single-scan query counting how many of `hashes` each person matches.
+
+        One pass over precalculated_person_properties: compute the latest match state per
+        (person, condition) with argMax, then count matching conditions per person. Peak group
+        count is still O(persons × conditions) (person_id isn't a prefix of the table's ORDER BY,
+        so the inner aggregation can't stream), but what fixes the OOM is the constant factor:
+        N full-table scans collapse into one, and each group holds a tiny argMax(Bool) state
+        instead of N materialized person-UUID sets joined by INTERSECT/UNION DISTINCT.
+
+            AND: every condition must match  → HAVING countIf(...) >= N
+            OR:  at least one must match     → HAVING countIf(...) >= 1
+
+        `>= N` is used for AND rather than `= N`: hashes are deduplicated and the inner
+        GROUP BY person_id, condition emits at most one row per condition, so countIf can never
+        exceed N. The two are equivalent, and a single operator keeps one query path.
         """
-        Build query for AND semantics where ALL conditions must match.
+        deduplicated = self._deduplicate_hashes(hashes)
+        # A single condition needs no cross-condition counting; use the cheaper one-pass query.
+        if len(deduplicated) == 1:
+            return self._build_single_condition_query(deduplicated[0])
 
-        For example: email contains X AND email contains Y
-        Uses HAVING matching_count = len(merged_hashes)
+        threshold = len(deduplicated) if operator == PropertyOperatorType.AND else 1
+        having = parse_expr("countIf(latest_matches = 1) >= {threshold}", {"threshold": ast.Constant(value=threshold)})
+        return self._single_scan_membership_query(deduplicated, having)
 
-        Args:
-            merged_hashes: List of condition hashes that all must match
+    def _single_scan_membership_query(self, hashes: list[str], having: ast.Expr) -> ast.SelectQuery:
+        """Assemble the single-scan SELECT over precalculated_person_properties for a given HAVING expr.
 
-        Returns:
-            SelectQuery AST that returns person_ids matching all conditions
+        Shared scaffold for both the flat-count path (_build_count_match_query) and the boolean-tree
+        path (_build_boolean_tree_query): one inner GROUP BY (person_id, condition) with argMax, one
+        outer GROUP BY person_id with HAVING. Keeping the scan template in one place ensures future
+        changes to the table access pattern (sort key, column renames, extra filters) are applied
+        consistently.
         """
         query_str = """
             SELECT
@@ -1269,7 +1293,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 GROUP BY person_id, condition
             )
             GROUP BY person_id
-            HAVING countIf(latest_matches = 1) = {num_conditions}
+            HAVING {having}
         """
 
         return cast(
@@ -1278,8 +1302,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 query_str,
                 {
                     "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                    "num_conditions": ast.Constant(value=len(merged_hashes)),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes]),
+                    "having": having,
                 },
             ),
         )
@@ -1305,11 +1329,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
             # Check if this is from an OR group (OR semantics) or AND group (AND semantics)
             is_or_group = getattr(prop, "_is_or_group", False)
-
-            if is_or_group:
-                return self._build_or_semantics_query(merged_hashes)
-            else:
-                return self._build_and_semantics_query(merged_hashes)
+            operator = PropertyOperatorType.OR if is_or_group else PropertyOperatorType.AND
+            return self._build_count_match_query(merged_hashes, operator)
         else:
             # Single condition - original logic
             condition_hash = getattr(prop, "conditionHash", None)
@@ -1320,27 +1341,160 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
                 )
 
-            query_str = """
-                SELECT
-                    person_id as id
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition = {condition_hash}
-                GROUP BY person_id
-                HAVING argMax(matches, (_timestamp, _offset)) = 1
-            """
+            return self._build_single_condition_query(condition_hash)
 
-            return cast(
-                ast.SelectQuery,
-                parse_select(
-                    query_str,
-                    {
-                        "team_id": ast.Constant(value=self.team.pk),
-                        "condition_hash": ast.Constant(value=condition_hash),
-                    },
-                ),
-            )
+    def _collect_person_property_hashes(
+        self, prop_group: PropertyGroup
+    ) -> Optional[tuple[list[str], PropertyOperatorType]]:
+        """Collect all condition hashes from a flat AND/OR of person properties.
+
+        Returns (hashes, operator) if every leaf is a non-negated person property with a
+        conditionHash, None otherwise (mixed/behavioral/negated conditions fall through to
+        the multi-subquery path).
+
+        Only inspects one level of nesting: a top-level AND/OR whose children are either
+        plain Properties or single-property PropertyGroups wrapping a plain Property.
+        """
+        operator = prop_group.type
+        hashes: list[str] = []
+        for value in prop_group.values:
+            if isinstance(value, Property):
+                prop = value
+            elif len(value.values) == 1 and isinstance(value.values[0], Property):
+                prop = value.values[0]
+            else:
+                # Nested group with multiple or non-Property children → not a flat person-property group.
+                return None
+
+            # Must be a non-negated person property with a conditionHash
+            condition_hash = getattr(prop, "conditionHash", None)
+            if prop.type != "person" or prop.negation or not condition_hash:
+                return None
+
+            # Merged properties carry multiple hashes
+            merged = getattr(prop, "_merged_condition_hashes", None)
+            if merged:
+                # A merged child encodes its own AND/OR across its hashes. Flattening them into
+                # the parent's single threshold only preserves semantics when the child's boolean
+                # type matches the top-level operator (e.g. an OR-merged child under a top-level
+                # AND would wrongly require ALL its hashes). Otherwise defer to the multi-subquery
+                # path, which expresses the nested boolean correctly.
+                if len(merged) > 1:
+                    child_is_or = getattr(prop, "_is_or_group", False)
+                    parent_is_or = operator == PropertyOperatorType.OR
+                    if child_is_or != parent_is_or:
+                        return None
+                hashes.extend(merged)
+            else:
+                hashes.append(condition_hash)
+
+        if not hashes:
+            return None
+        return hashes, operator
+
+    def _leaf_having_expr(self, prop: Property, all_hashes: list[str]) -> Optional[ast.Expr]:
+        """Build the HAVING predicate for one person-property leaf, over the single-scan rows.
+
+        The inner scan emits one row per (person, condition) with `latest_matches`, so in the
+        outer GROUP BY person_id a leaf is "did this person's latest row(s) for these hashes
+        match?":
+            - single hash / OR-merged → maxIf(latest_matches, condition IN hashes) = 1  (any matched)
+            - AND-merged             → countIf(latest_matches = 1 AND condition IN hashes) = N  (all matched)
+
+        Returns None for anything that isn't a non-negated person property with a conditionHash
+        (behavioral, dynamic-cohort, negated, …), so the caller falls through to the parent path.
+        """
+        if prop.type != "person" or prop.negation:
+            return None
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            return None
+
+        merged = getattr(prop, "_merged_condition_hashes", None)
+        hashes = self._deduplicate_hashes(merged) if merged else [condition_hash]
+        all_hashes.extend(hashes)
+        hashes_tuple = ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes])
+
+        # A single hash or an OR-merged leaf matches if ANY of its hashes is the person's latest 1.
+        if len(hashes) == 1 or getattr(prop, "_is_or_group", False):
+            return parse_expr("maxIf(latest_matches, condition IN {hashes}) = 1", {"hashes": hashes_tuple})
+        # An AND-merged leaf matches only if ALL of its hashes are the person's latest 1.
+        return parse_expr(
+            "countIf(latest_matches = 1 AND condition IN {hashes}) = {n}",
+            {"hashes": hashes_tuple, "n": ast.Constant(value=len(hashes))},
+        )
+
+    def _build_person_property_having(self, prop_group: PropertyGroup, all_hashes: list[str]) -> Optional[ast.Expr]:
+        """Recursively turn a nested AND/OR of person properties into one HAVING boolean expr.
+
+        Every leaf hash is appended to `all_hashes` so the caller can scope the scan's
+        `condition IN (...)` filter. Returns None if any leaf is unsupported, so the whole cohort
+        falls through to the parent's multi-subquery path.
+        """
+        operator = prop_group.type
+        if operator not in (PropertyOperatorType.AND, PropertyOperatorType.OR):
+            return None
+
+        child_exprs: list[ast.Expr] = []
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                child = self._build_person_property_having(value, all_hashes)
+            else:
+                child = self._leaf_having_expr(value, all_hashes)
+            if child is None:
+                return None
+            child_exprs.append(child)
+
+        if not child_exprs:
+            return None
+        if len(child_exprs) == 1:
+            return child_exprs[0]
+        return ast.And(exprs=child_exprs) if operator == PropertyOperatorType.AND else ast.Or(exprs=child_exprs)
+
+    def _build_boolean_tree_query(self, prop_group: PropertyGroup) -> Optional[ast.SelectQuery]:
+        """One scan for an arbitrarily nested AND/OR of person properties.
+
+        Generalises the flat single-scan: instead of INTERSECT/UNION DISTINCT-ing N person sets
+        (which materialises N intermediate sets and OOMs on large cohorts), it reads the table
+        once and evaluates the whole boolean expression per person in the HAVING.
+        """
+        all_hashes: list[str] = []
+        having = self._build_person_property_having(prop_group, all_hashes)
+        if having is None or not all_hashes:
+            return None
+
+        deduplicated = self._deduplicate_hashes(all_hashes)
+        return self._single_scan_membership_query(deduplicated, having)
+
+    def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Override to emit a single-scan query when all conditions are person properties.
+
+        For cohorts backed entirely by precalculated_person_properties, the parent would produce
+        N separate subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full
+        table and the set operations materialise large intermediate person sets — a common source
+        of OOMs for large cohorts. We instead read the table once.
+
+        Two shapes qualify, tried in order:
+          1. Flat AND/OR of leaves → count matched conditions per person (HAVING countIf >= N).
+          2. Arbitrarily nested AND/OR of leaves → evaluate the boolean tree per person in the
+             HAVING (maxIf/countIf leaves combined with AND/OR).
+
+        Shape 1 is a strict subset of shape 2 (the tree would produce an equivalent AND/OR of
+        per-leaf maxIf predicates), but it's kept as a faster path: one `countIf >= N` over the
+        whole group is cheaper than N separate `maxIf` leaves.
+
+        Cohorts with any non-person leaf (behavioral, dynamic-cohort, static-cohort) or a negated
+        person property fall through to the parent's multi-subquery path unchanged.
+        """
+        if self.property_groups is not None:
+            result = self._collect_person_property_hashes(self.property_groups)
+            if result is not None:
+                hashes, operator = result
+                return self._build_count_match_query(hashes, operator)
+            tree_query = self._build_boolean_tree_query(self.property_groups)
+            if tree_query is not None:
+                return tree_query
+        return super()._get_conditions()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         """
@@ -1350,6 +1504,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         raise ValueError(
             "Realtime cohorts do not support static cohort filters. "
             "Only dynamic cohorts and behavioral filters are supported for realtime calculation."
+        )
+
+    def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
+        # TODO: realtime cohorts read from precalculated_person_properties keyed by conditionHash, which only
+        # carries values from the persons properties JSON blob — top-level columns like created_at are not
+        # exposed. Extend the realtime backfill/consumer if/when there's demand.
+        raise ValueError(
+            "Realtime cohorts do not support 'person_metadata' filters. "
+            "Use a non-realtime cohort to filter on top-level person columns like created_at."
         )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:

@@ -1,4 +1,8 @@
-use regex::RegexBuilder;
+use std::sync::Arc;
+
+use once_cell::sync::Lazy;
+use quick_cache::sync::Cache;
+use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 
 use crate::{
@@ -6,6 +10,36 @@ use crate::{
     values::{HogValue, Num},
     vm::HogVM,
 };
+
+// Compiling a regex is orders of magnitude more expensive than matching against an already-compiled
+// one, and rule patterns are constant across the events they run on — so compile once and reuse.
+// The cache is bounded so dynamically constructed patterns can't grow it without limit, and global
+// (rather than per-VM) so a pattern is compiled at most once fleet-wide instead of once per worker.
+static REGEX_CACHE: Lazy<Cache<(String, bool), Arc<Regex>>> = Lazy::new(|| Cache::new(8192));
+
+// Patterns longer than this are compiled fresh on every call instead of being cached. A Hog program
+// can build a regex from event properties, so without this an attacker could ingest many unique
+// large patterns and retain them all in the process-wide cache (bounded by entry count, not bytes).
+// Real rule patterns are far shorter than this.
+const MAX_CACHEABLE_PATTERN_LEN: usize = 1024;
+
+fn compiled_regex(pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
+    let compile = || {
+        RegexBuilder::new(pattern)
+            .case_insensitive(case_insensitive)
+            .build()
+            .map(Arc::new)
+            .map_err(|e| VmError::InvalidRegex(pattern.to_string(), e.to_string()))
+    };
+
+    if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
+        return compile();
+    }
+
+    // `get_or_insert_with` computes at most once per key even under concurrent first access, so two
+    // threads racing the same cold pattern don't both compile, and a failed compile isn't cached.
+    REGEX_CACHE.get_or_insert_with(&(pattern.to_owned(), case_insensitive), compile)
+}
 
 pub fn like(
     val: impl AsRef<str>,
@@ -21,12 +55,7 @@ pub fn regex_match(
     pattern: impl AsRef<str>,
     case_sensitive: bool,
 ) -> Result<bool, VmError> {
-    let mut builder = RegexBuilder::new(pattern.as_ref());
-    // TODO - this is expensive, but I'm not keen on optimizing it right now
-    let regex = builder
-        .case_insensitive(!case_sensitive)
-        .build()
-        .map_err(|e| VmError::InvalidRegex(pattern.as_ref().to_string(), e.to_string()))?;
+    let regex = compiled_regex(pattern.as_ref(), !case_sensitive)?;
     Ok(regex.is_match(val.as_ref()))
 }
 
@@ -34,9 +63,7 @@ pub fn regex_extract(
     haystack: impl AsRef<str>,
     pattern: impl AsRef<str>,
 ) -> Result<String, VmError> {
-    let regex = RegexBuilder::new(pattern.as_ref())
-        .build()
-        .map_err(|e| VmError::InvalidRegex(pattern.as_ref().to_string(), e.to_string()))?;
+    let regex = compiled_regex(pattern.as_ref(), false)?;
     let Some(captures) = regex.captures(haystack.as_ref()) else {
         return Ok(String::new());
     };
@@ -86,17 +113,19 @@ fn like_to_regex(pattern: &str) -> String {
     result
 }
 
-pub fn get_json_nested(
-    haystack: &Value,
+/// Walk `chain` into `haystack`, returning a borrow tied to `haystack` (a caller needing an owned
+/// value clones only the final subtree). On the hot path of every `GET_GLOBAL`.
+pub fn get_json_nested<'h>(
+    haystack: &'h Value,
     mut chain: &[HogValue],
     vm: &HogVM,
-) -> Result<Option<Value>, VmError> {
+) -> Result<Option<&'h Value>, VmError> {
     let mut current = Some(haystack);
 
     while let Some(val) = current {
         if chain.is_empty() {
             // We found a value pointed to by the last element in the chain
-            return Ok(Some(val.clone()));
+            return Ok(Some(val));
         }
 
         let next_key = chain.first().unwrap().deref(&vm.heap)?;
@@ -104,11 +133,20 @@ pub fn get_json_nested(
         match val {
             Value::Array(values) => {
                 let key: &Num = next_key.try_as()?;
-                if key.is_float() || key.to_integer() < 1 {
+                if key.is_float() {
                     return Err(VmError::InvalidIndex);
                 }
-                let key = (key.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = values.get(key) else {
+                // Hog JSON-path indices are 1-based; the reference also allows negatives counting
+                // from the end. Index 0 and out-of-range yield "not found" (None), not an error.
+                let raw = key.to_integer();
+                let len = values.len() as i64;
+                let idx = match raw {
+                    0 => return Ok(None),
+                    r if r > 0 && r <= len => (r - 1) as usize,
+                    r if r < 0 && -r <= len => (len + r) as usize,
+                    _ => return Ok(None),
+                };
+                let Some(found) = values.get(idx) else {
                     return Ok(None);
                 };
                 current = Some(found);
@@ -200,5 +238,49 @@ mod tests {
         // Backslash loses special meaning if not escaping a metacharacter
         assert!(like("hello\\there", "hello\\there", true).unwrap());
         assert!(like("hello\\x", "hello\\x", true).unwrap());
+    }
+
+    #[test]
+    fn test_compiled_regex_is_cached() {
+        // Same (pattern, case) must hand back the same compiled regex instead of recompiling.
+        let a = compiled_regex("foo.*bar", false).unwrap();
+        let b = compiled_regex("foo.*bar", false).unwrap();
+        assert!(Arc::ptr_eq(&a, &b));
+
+        // Case variants are distinct cache entries, not aliases.
+        let insensitive = compiled_regex("foo.*bar", true).unwrap();
+        assert!(!Arc::ptr_eq(&a, &insensitive));
+    }
+
+    #[test]
+    fn test_oversized_patterns_are_not_cached() {
+        // Patterns past the length cap still compile and match correctly, but are recompiled each
+        // call rather than retained — so large attacker-controlled patterns can't accumulate.
+        let big = "x".repeat(MAX_CACHEABLE_PATTERN_LEN + 1);
+        let a = compiled_regex(&big, false).unwrap();
+        let b = compiled_regex(&big, false).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b), "oversized pattern must not be cached");
+        assert!(regex_match(&big, &big, true).unwrap()); // the literal still matches itself
+    }
+
+    #[test]
+    fn test_regex_match_case_sensitivity() {
+        assert!(regex_match("Hello", "hello", false).unwrap()); // case-insensitive matches
+        assert!(!regex_match("Hello", "hello", true).unwrap()); // case-sensitive does not
+    }
+
+    #[test]
+    fn test_invalid_regex_errors() {
+        assert!(matches!(
+            regex_match("anything", "(unclosed", true),
+            Err(VmError::InvalidRegex(..))
+        ));
+    }
+
+    #[test]
+    fn test_regex_extract_uses_cache() {
+        assert_eq!(regex_extract("id=42;", r"id=(\d+)").unwrap(), "42");
+        // Second call exercises the cached compilation path and stays correct.
+        assert_eq!(regex_extract("id=7;", r"id=(\d+)").unwrap(), "7");
     }
 }

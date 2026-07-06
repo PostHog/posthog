@@ -131,12 +131,6 @@ The explicit `LogicWrapper<fooLogicType>` annotation gives you the right overloa
 for calling `fooLogic(props)`. For singletons it's not needed; for keyed logics it
 makes the call-site types behave.
 
-## Scene root logics keyed by `tabId`
-
-Scene root logics use `tabId` as their key so each internal tab gets its own
-instance. This is its own concern — see
-[making-scenes-tab-aware](../../making-scenes-tab-aware/SKILL.md).
-
 ## Anti-patterns
 
 See [anti-patterns.md](anti-patterns.md) for the consolidated catalogue.

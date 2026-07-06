@@ -20,7 +20,6 @@ from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -244,14 +243,17 @@ def execute_process_query(
         from posthog.rbac.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
-        if (
-            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
-            or is_staff_user
-        ):
+        is_user_safe_error = isinstance(
+            err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
+        )
+        if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        if not is_user_safe_error:
+            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
+            # so don't report them to error tracking — only genuine server-side failures belong there.
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
@@ -337,6 +339,10 @@ def enqueue_process_query_task(
             manager.register_cache_key_mapping(cache_key)
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
+
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport), and this
+    # module loads at django.setup() via posthog.clickhouse.client — keep the task graph off it.
+    from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(

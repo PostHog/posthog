@@ -1,3 +1,5 @@
+import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -55,31 +57,30 @@ function buildBaseProperties(
 
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
-        getPostHogClient().capture({
+        // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
+        // and `sessionId` → `$session_id`; everything else rides on `properties`.
+        getPostHogClient().captureInitialize({
             distinctId: state.distinctId,
-            event: 'mcp_initialize',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            groups,
+            durationMs: initDurationMs ?? 0,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
             properties: {
                 ...properties,
-                $mcp_duration_ms: initDurationMs ?? 0,
                 $mcp_is_error: false,
                 tool_count: state.allTools.length,
                 has_organization_id: !!requestContext.organizationId,
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
             },
         })
     } catch {
@@ -87,44 +88,77 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
+export interface ToolCallIntentMeta {
+    /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
+    intent?: string
+    /** Where it came from → `$mcp_intent_source`. */
+    intentSource?: MCPAnalyticsIntentSource
+}
+
 export async function trackToolCall(
     toolName: string,
     durationMs: number,
     isError: boolean,
     state: ResolvedState,
-    extraProperties?: Record<string, unknown>
+    extraProperties?: Record<string, unknown>,
+    intentMeta?: ToolCallIntentMeta
 ): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
-        // `$mcp_tool_category` is the dashboard's grouping dimension (e.g. "Logs",
-        // "Tracing"). The contract is: the producer stamps the category onto every
-        // tool-call event; the MCP analytics dashboard reads it back verbatim and
-        // never maps tool names to categories itself. PostHog's server derives it
-        // from its own catalog here; external servers using the SDK declare it per
-        // tool. Omitted when unknown (e.g. the `exec` wrapper) so the dashboard
-        // buckets those as "Uncategorized".
+        // The producer stamps the tool's category so the dashboard groups by it verbatim
+        // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
+        // wrapper), which the dashboard buckets as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
 
-        getPostHogClient().capture({
+        // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
+        // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
+        // `$mcp_is_error`, `intent` → `$mcp_intent`, and `sessionId` →
+        // `$session_id`. `$exception` fan-out is disabled on the client, so an
+        // errored call stays a single event.
+        getPostHogClient().captureToolCall({
+            toolName,
+            durationMs,
+            isError,
             distinctId: state.distinctId,
-            event: 'mcp_tool_call',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
+            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
             properties: {
                 ...properties,
-                $mcp_tool_name: toolName,
-                $mcp_duration_ms: durationMs,
-                $mcp_is_error: isError,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
+
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        // The SDK maps `toolNames` → `$mcp_listed_tool_names`, which powers
+        // "advertised but never called" analysis.
+        getPostHogClient().captureToolsList({
+            toolNames,
+            distinctId: state.distinctId,
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            properties: {
+                ...properties,
+                tool_count: toolNames.length,
             },
         })
     } catch {

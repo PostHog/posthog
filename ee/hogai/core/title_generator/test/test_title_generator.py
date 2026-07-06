@@ -2,15 +2,20 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.runnables import RunnableLambda
 
 from posthog.schema import HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.core.title_generator.nodes import TitleAndTopic, TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ConversationTitleAction
+
+
+def _raise(_):
+    raise RuntimeError("boom")
 
 
 class TestTitleGenerator(BaseTest):
@@ -147,6 +152,76 @@ class TestTitleGenerator(BaseTest):
         self.assertIsNone(result)
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.title, "Some title")
+
+    def test_classifies_topic_when_flag_enabled(self):
+        fake = RunnableLambda(lambda _: TitleAndTopic(title="Traffic last week", topic="web_analytics"))
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=fake),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Traffic last week")
+        self.assertEqual(self.conversation.topic, "web_analytics")
+
+    def test_does_not_classify_topic_when_flag_disabled(self):
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=False),
+            patch.object(
+                TitleGeneratorNode,
+                "_model",
+                new=RunnableLambda(lambda _: LangchainAIMessage(content="Plain title")),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Plain title")
+        self.assertIsNone(self.conversation.topic)
+
+    def test_emits_topic_in_conversation_title_action(self):
+        written = []
+        mock_writer = Mock(side_effect=lambda action: written.append(action))
+        fake = RunnableLambda(lambda _: TitleAndTopic(title="Survey responses", topic="surveys"))
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=fake),
+            patch("ee.hogai.core.title_generator.nodes.get_stream_writer", return_value=mock_writer),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="Show me my NPS")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.assertEqual(len(written), 1)
+        self.assertIsInstance(written[0], ConversationTitleAction)
+        self.assertEqual(written[0].topic, "surveys")
+
+    def test_falls_back_to_title_only_when_topic_generation_fails(self):
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=RunnableLambda(_raise)),
+            patch.object(
+                TitleGeneratorNode,
+                "_model",
+                new=RunnableLambda(lambda _: LangchainAIMessage(content="Fallback title")),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Fallback title")
+        self.assertIsNone(self.conversation.topic)
 
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""

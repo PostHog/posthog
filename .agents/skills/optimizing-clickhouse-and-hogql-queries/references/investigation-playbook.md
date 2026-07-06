@@ -6,7 +6,7 @@ explain _why_ it is slow before you reach for a fix. Where Step 2 scans the SQL 
 this reference works the other way round, from the runtime cost back to the cause.
 
 It is written for a query you pulled from production (via `/query-clickhouse-via-metabase` against
-`posthog.query_log_archive` — the slowest real example beats a synthesized one), but the reasoning
+`posthog.query_log_archive`, since the slowest real example beats a synthesized one), but the reasoning
 applies to any slow query. You do not need certainty: a concrete, falsifiable hypothesis ("the sort key
 is function-wrapped, so the date filter can't prune granules") is what drives the next step. Always state
 one, then test it.
@@ -66,10 +66,10 @@ diagnosis, and stay open to a cause that is not listed here.
    full JSON blob per matching row. Confirm by searching the query text for `JSONExtract` / `JSONHas`.
    The fix depends on where the `JSONExtract` came from. If it's **hand-written in a printer-path query**
    (HogQL source that literally says `JSONExtractString(properties, 'X')`), the fix is to replace it with
-   property access `properties.X` for every such property and let the printer materialize — the column may
+   property access `properties.X` for every such property and let the printer materialize; the column may
    already be materialized in prod, so no migration is needed (see the JSON-operations smell in
    [`SKILL.md`](../SKILL.md)). If the **source already uses `properties.X`** (or it's raw SQL that bypasses
-   the printer) and prod still emits `JSONExtract`, the property genuinely isn't materialized — then the
+   the printer) and prod still emits `JSONExtract`, the property genuinely isn't materialized, so the
    fix is to materialize it (the migration layer in `SKILL.md` Step 5) or drop the property filter. This
    applies to both event and person property blobs: reading either as raw JSON can be up to ~100x slower
    than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group
@@ -94,7 +94,7 @@ diagnosis, and stay open to a cause that is not listed here.
 
 ## Tracing a query back to its origin
 
-The `lc_*` columns exist **only on `query_log_archive`** — they are the pre-parsed `log_comment` tags.
+The `lc_*` columns exist **only on `query_log_archive`**: they are the pre-parsed `log_comment` tags.
 `system.query_log` carries the exact same information, but unparsed, inside its `log_comment` JSON blob,
 so on `query_log` you read the field out of that JSON (e.g. `JSONExtractString(log_comment, 'query_type')`)
 instead of selecting an `lc_*` column. The table below uses the `query_log_archive` column names.
@@ -128,11 +128,11 @@ specifically need index pruning numbers, and avoid hammering `indexes=1` in a ti
 re-check the current docs before running a variant at scale. Pull the query text, strip the leading
 `/* … */` tag comment, and prepend the EXPLAIN modifier that answers your question:
 
-- `EXPLAIN actions=1` — the full plan: shows the `Sorting` step, `ReadType` (`InOrder` vs `Default`),
+- `EXPLAIN actions=1`: the full plan, showing the `Sorting` step, `ReadType` (`InOrder` vs `Default`),
   and whether a filter is a primary-key condition or only a `Prewhere` row filter.
-- `EXPLAIN indexes=1` — per-index granule pruning (`Granules: X/Y`, which skip indexes fired).
-- `EXPLAIN PIPELINE` — the executor pipeline (thread fan-out, merge stages).
-- `EXPLAIN json=1` — machine-readable, handy for diffing two plans programmatically.
+- `EXPLAIN indexes=1`: per-index granule pruning (`Granules: X/Y`, which skip indexes fired).
+- `EXPLAIN PIPELINE`: the executor pipeline (thread fan-out, merge stages).
+- `EXPLAIN json=1`: machine-readable, handy for diffing two plans programmatically.
 
 The strongest technique is to **EXPLAIN the suspect query and a fixed variant side by side, then diff**.
 For the function-wrapped-key case, compare the generated `ORDER BY coalesce(toTimeZone(timestamp, …))`
@@ -142,15 +142,15 @@ the cause.
 
 Signals to read off the plan:
 
-- **`Granules: X`** — how many 8192-row blocks survive index pruning. A wrapped/opaque filter shows a
+- **`Granules: X`**: how many 8192-row blocks survive index pruning. A wrapped/opaque filter shows a
   much larger granule count than the equivalent raw-column filter; that delta is the wasted scan.
-- **`ReadType: InOrder` vs `Default`** — whether `optimize_read_in_order` applies. Note the events
+- **`ReadType: InOrder` vs `Default`**: whether `optimize_read_in_order` applies. Note the events
   table is ordered by `toDate(timestamp)`, not sub-day, so ordering by full `timestamp` still sorts;
   do not infer read-in-order from a date sort alone.
-- **`Prewhere filter` vs primary-key condition** — a time bound in Prewhere is evaluated row-by-row and
+- **`Prewhere filter` vs primary-key condition**: a time bound in Prewhere is evaluated row-by-row and
   does not prune granules; in the primary-key condition it does.
-- **Skip-index effectiveness** (e.g. `minmax_mat_*`) — how many granules each eliminates.
-- **Bytes vs rows** — similar granule counts but wildly different bytes means a column-width problem
+- **Skip-index effectiveness** (e.g. `minmax_mat_*`): how many granules each eliminates.
+- **Bytes vs rows**: similar granule counts but wildly different bytes means a column-width problem
   (the JSON blob again).
 
 ## Concurrency and timing notes

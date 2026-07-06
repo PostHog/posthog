@@ -102,6 +102,7 @@ const ALL_FEATURES = [
     AvailableFeature.SSO_ENFORCEMENT,
     AvailableFeature.SAML,
     AvailableFeature.SCIM,
+    AvailableFeature.XAA_AUTHENTICATION,
 ]
 
 type Story = StoryObj<typeof App>
@@ -124,9 +125,9 @@ const meta: Meta<typeof App> = {
                 '/api/user_home_settings/@me/': {},
             },
             patch: {
-                '/api/projects/:id': async (req, res, ctx) => {
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
-                    return res(ctx.json(newTeamSettings))
+                '/api/projects/:id': async ({ request }) => {
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) }
+                    return [200, newTeamSettings]
                 },
             },
         }),

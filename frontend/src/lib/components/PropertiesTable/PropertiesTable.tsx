@@ -13,7 +13,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL, isKeyOf } from 'lib/utils'
+import { isObject, isKeyOf } from 'lib/utils/guards'
+import { isURL } from 'lib/utils/url'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -263,6 +264,7 @@ export function PropertiesTable({
             [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
             [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
             [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+            [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
             [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
             [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
             [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,

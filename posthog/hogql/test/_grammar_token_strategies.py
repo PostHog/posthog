@@ -215,6 +215,15 @@ octal_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[0-7]{1,6}", full
 
 hexadecimal_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[xX][0-9a-fA-F]{1,6}", fullmatch=True)
 
+# Binary literal per the lexer: ``BINARY_LITERAL : '0' B BIN_DIGIT+`` where B is
+# case-insensitive ``b`` and BIN_DIGIT is ``[01]``.
+binary_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[bB][01]{1,8}", fullmatch=True)
+
+# Octal-prefix literal: ``'0' [oO] DEC_DIGIT+``. The lexer allows 0-9 here, not
+# just 0-7 — the parser / visitor rejects truly non-octal payloads downstream.
+# Matching the lexer rule faithfully exercises that mismatch handling.
+octal_prefix_literal_token: st.SearchStrategy[str] = st.from_regex(r"0[oO][0-9]{1,6}", fullmatch=True)
+
 
 # Floating literal — ``DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS|DASH)? DEC_DIGIT+``
 # is one valid form. We keep things simple with ``<int>.<int>e<int>``.
@@ -230,3 +239,50 @@ def _floating_literal(draw: Any) -> str:
 
 
 floating_literal_token: st.SearchStrategy[str] = _floating_literal()
+
+
+# ─── Variable-content tokens for HogQLX / template strings ────────────────────
+# These belong to lexer modes the codegen can't resolve to literal text on its
+# own. Strategies are short and conservative so the surrounding parse stays
+# plausible; the surface we care about exercising is the *grammar rule*, not
+# whatever arbitrary text could legally fit in the token slot.
+
+
+# `f'…'` template-string start. Pushes the lexer into IN_TEMPLATE_STRING mode.
+quote_single_template_token: st.SearchStrategy[str] = st.just("f'")
+
+# `F'…'` full-template start. Pushes IN_FULL_TEMPLATE_STRING.
+quote_single_template_full_token: st.SearchStrategy[str] = st.just("F'")
+
+# `{` inside a template-string body — escapes back into expression mode for
+# the embedded ``{expr}`` chunk. The closing `}` is a separate punctuation
+# token the codegen already knows.
+string_escape_trigger_token: st.SearchStrategy[str] = st.just("{")
+full_string_escape_trigger_token: st.SearchStrategy[str] = st.just("{")
+
+# Body text inside a `f'…'` template (the part between `f'`/`}` and `{`/`'`).
+# The lexer rule excludes ``\``, ``'``, and ``{``; everything else, including
+# whitespace, is fair game. Stay short for legibility.
+string_text_token: st.SearchStrategy[str] = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz 0123456789", min_size=1, max_size=8
+)
+
+# Body text inside a `F'…'` full template. The lexer rule for FULL_STRING_TEXT
+# only excludes ``{`` (no quote escaping), so the alphabet can include `'`.
+full_string_text_token: st.SearchStrategy[str] = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz '0123456789", min_size=1, max_size=8
+)
+
+# Body text inside a HogQLX tag (`<tag>here</tag>`). HOGQLX_TEXT_TEXT excludes
+# `<` and `{` (the tag and interpolation triggers).
+hogqlx_text_token: st.SearchStrategy[str] = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz 0123456789", min_size=1, max_size=8
+)
+
+# Common escape sequences inside string content. Mirrors the lexer's
+# ESCAPE_CHAR_COMMON alternatives (``\b``, ``\f``, ``\r``, ``\n``, ``\t``,
+# ``\0``, ``\a``, ``\v``, ``\\``, ``\xHH``). Each is a complete token, so
+# we sample whole sequences rather than building char-by-char.
+escape_char_common_token: st.SearchStrategy[str] = st.sampled_from(
+    ["\\b", "\\f", "\\r", "\\n", "\\t", "\\0", "\\a", "\\v", "\\\\", "\\x00", "\\xff", "\\xAF"]
+)

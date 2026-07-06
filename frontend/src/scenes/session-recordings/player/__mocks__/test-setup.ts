@@ -1,3 +1,5 @@
+import { HttpResponse } from 'msw'
+
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
@@ -22,11 +24,11 @@ export const EMPTY_PAGINATED_RESPONSE = {
 }
 
 function createSnapshotMockHandler(sources: SessionRecordingSnapshotSource[]): MockSignature {
-    return async (req, res, ctx) => {
-        const sourceParam = req.url.searchParams.get('source')
+    return ({ request }) => {
+        const sourceParam = new URL(request.url).searchParams.get('source')
 
         if (sourceParam === 'blob_v2' || sourceParam === 'blob') {
-            return res(ctx.text(snapshotsAsJSONLines()))
+            return new HttpResponse(snapshotsAsJSONLines())
         }
 
         return [
@@ -131,8 +133,8 @@ export function createDifferentiatedQueryHandler(
         types: recordingEventsJson.types,
     }
 ): MockSignature {
-    return async (req) => {
-        const body = await req.json()
+    return async ({ request }) => {
+        const body = (await request.json()) as any
         const query = body.query?.query || ''
 
         if (query.includes('$session_id =')) {

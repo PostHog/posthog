@@ -16,9 +16,19 @@ from posthog.hogql.visitor import CloningVisitor, GetFieldsTraverser, Traversing
 
 
 class EventsSessionSubTable(VirtualTable):
+    description: str = (
+        "Virtual per-event session summary computed from the events table, exposed as `events.session`. "
+        "Provides the session id and duration without joining the sessions table."
+    )
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="$session_id", nullable=False),
-        "duration": IntegerDatabaseField(name="session_duration", nullable=False),
+        "id": StringDatabaseField(
+            name="$session_id", nullable=False, description="Session identifier; matches `events.$session_id`."
+        ),
+        "duration": IntegerDatabaseField(
+            name="session_duration",
+            nullable=False,
+            description="Session duration in seconds, computed as max(timestamp) - min(timestamp) over the session's events.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):

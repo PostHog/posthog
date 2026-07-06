@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
@@ -30,11 +31,10 @@ export const Empty: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [{ ...insight, result: [] }] }),
-                ],
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ count: 1, results: [{ ...insight, result: [] }] })
+                },
             },
         })
 
@@ -46,19 +46,20 @@ export const ServerError: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
-                ],
-                '/api/environments/:team_id/insights/:id': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(500),
-                    ctx.json({
-                        type: 'server_error',
-                        detail: 'There is nothing you can do to stop the impending catastrophe.',
-                    }),
-                ],
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ count: 1, results: [{ ...insight, result: null }] })
+                },
+                '/api/environments/:team_id/insights/:id': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'There is nothing you can do to stop the impending catastrophe.',
+                        },
+                        { status: 500 }
+                    )
+                },
             },
         })
 
@@ -70,24 +71,25 @@ export const QueryServerError: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(200),
-                    ctx.json({
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({
                         count: 1,
                         results: [insight],
-                    }),
-                ],
+                    })
+                },
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(500),
-                    ctx.json({
-                        type: 'server_error',
-                        detail: 'There is nothing you can do to stop the impending catastrophe.',
-                    }),
-                ],
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'There is nothing you can do to stop the impending catastrophe.',
+                        },
+                        { status: 500 }
+                    )
+                },
             },
         })
 
@@ -104,21 +106,22 @@ export const ValidationError: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
-                ],
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ count: 1, results: [{ ...insight, result: null }] })
+                },
             },
             post: {
-                '/api/environments/:team_id/insights/:id': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(400),
-                    ctx.json({
-                        type: 'validation_error',
-                        detail: 'You forgot to hug the person next to you. Please do that now.',
-                    }),
-                ],
+                '/api/environments/:team_id/insights/:id': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'validation_error',
+                            detail: 'You forgot to hug the person next to you. Please do that now.',
+                        },
+                        { status: 400 }
+                    )
+                },
             },
         })
 
@@ -130,20 +133,22 @@ export const EstimatedQueryExecutionTimeTooLong: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    { count: 1, results: [{ ...insight, result: null }] },
                 ],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [
-                    ctx.delay(100),
-                    ctx.status(512),
-                    ctx.json({
-                        type: 'server_error',
-                        detail: 'Estimated query execution time is too long. Try reducing its scope by changing the time range.',
-                    }),
-                ],
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'Estimated query execution time is too long. Try reducing its scope by changing the time range.',
+                        },
+                        { status: 512 }
+                    )
+                },
             },
         })
 
@@ -161,13 +166,16 @@ export const LongLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    { count: 1, results: [{ ...insight, result: null }] },
                 ],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({})
+                },
             },
         })
 

@@ -58,6 +58,23 @@ tools:
         description: >
             Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version
             info, materialization status, and column types. Supports ?version=N to retrieve a specific version.
+    endpoint-logs:
+        operation: endpoints_logs_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Get endpoint logs
+        description: >
+            Retrieve execution logs for an endpoint by name. Each run emits one entry with a timestamp, level (INFO or
+            ERROR), and a message whose extra data is in key=value tokens (path=materialized|inline|ducklake,
+            cache=hit|miss, duration_ms=, rows=, version=, error=). Filter by level (e.g. "ERROR"), text search (e.g.
+            "cache=miss"), time range (after/before), a specific execution (instance_id), and limit (max 500). Use to
+            debug why an endpoint failed, timed out, missed cache, or returned unexpected row counts.
     endpoint-materialization-status:
         operation: endpoints_materialization_status_retrieve
         enabled: true

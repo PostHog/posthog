@@ -4,25 +4,16 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.conf import settings
 from django.contrib.admin import AdminSite
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY
 
 
-# Creating an RS256 app requires OIDC_RSA_PRIVATE_KEY, which isn't available on fork/external PR CI and
-# can be cleared by other OAuth tests overriding OAUTH2_PROVIDER (django-oauth-toolkit caches its
-# settings). Pin a test key so these tests pass regardless of environment and ordering.
-@override_settings(
-    OIDC_RSA_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": TEST_RSA_PRIVATE_KEY},
-)
 class TestOAuthApplicationAdmin(BaseTest):
     def setUp(self):
         super().setUp()

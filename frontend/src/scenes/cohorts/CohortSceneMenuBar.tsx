@@ -37,7 +37,6 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const { cohort, cohortLoading } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!cohort) {
         return null
@@ -77,7 +76,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         Copy to another project
                     </SceneMenuBarItem>
                 )}
-                {!isNewCohort && !cohort.is_static && !!featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
+                {!isNewCohort && !cohort.is_static && (
                     <SceneMenuBarItem
                         onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
                         data-attr={`${RESOURCE_TYPE}-menubar-calculation-history`}

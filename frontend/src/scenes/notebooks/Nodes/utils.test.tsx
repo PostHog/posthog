@@ -16,12 +16,12 @@ import {
 } from './utils'
 
 // Mock dependencies for Group revenue utilities
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
+jest.mock('lib/utils/numbers', () => ({
+    ...jest.requireActual('lib/utils/numbers'),
     percentage: jest.fn((value: number) => `${(value * 100).toFixed(1)}%`),
 }))
 
-jest.mock('lib/utils/geography/currency', () => ({
+jest.mock('lib/utils/currency', () => ({
     formatCurrency: jest.fn((value: number) => `$${value.toFixed(2)}`),
 }))
 
@@ -55,7 +55,7 @@ describe('notebook node utils', () => {
             })
         })
 
-        it('should do nothing if an attribute is unchanged', () => {
+        it('should do nothing if an attribute is unchanged', async () => {
             const { result } = renderHook(() => useSyncedAttributes(nodeViewProps))
 
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
@@ -70,7 +70,7 @@ describe('notebook node utils', () => {
                 })
             })
 
-            jest.runOnlyPendingTimers()
+            await jest.runOnlyPendingTimersAsync()
 
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
 
@@ -79,7 +79,7 @@ describe('notebook node utils', () => {
             })
         })
 
-        it('should call the update attributes function if changed', () => {
+        it('should call the update attributes function if changed', async () => {
             const { result, rerender } = renderHook(() => useSyncedAttributes(nodeViewProps))
 
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
@@ -90,7 +90,7 @@ describe('notebook node utils', () => {
                 })
             })
 
-            jest.runOnlyPendingTimers()
+            await jest.runOnlyPendingTimersAsync()
 
             expect(nodeViewProps.updateAttributes).toHaveBeenCalledWith({
                 foo: 'bar2',
@@ -103,7 +103,7 @@ describe('notebook node utils', () => {
             })
         })
 
-        it('should stringify and parse content', () => {
+        it('should stringify and parse content', async () => {
             harness.node.attrs = {
                 filters: { my: 'data' },
                 number: 1,
@@ -126,7 +126,7 @@ describe('notebook node utils', () => {
                 })
             })
 
-            jest.runOnlyPendingTimers()
+            await jest.runOnlyPendingTimersAsync()
 
             expect(nodeViewProps.updateAttributes).toHaveBeenCalledWith({
                 filters: '{"my":"changed data"}',
@@ -152,7 +152,7 @@ describe('notebook node utils', () => {
                 })
             })
 
-            jest.runOnlyPendingTimers()
+            await jest.runOnlyPendingTimersAsync()
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
         })
     })

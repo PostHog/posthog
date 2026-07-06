@@ -28,10 +28,11 @@ vite_port_listeners() {
     return 0
 }
 
-# Vite isn't configured with strictPort, so if a stale process from a previous
-# session is still squatting on $VITE_PORT, Vite silently falls back to the next
-# free port — and the app, which hardcodes $VITE_PORT everywhere, fails to load.
-# Reclaim the port up front so we always come up where we're expected.
+# If a stale process from a previous session is still squatting on $VITE_PORT,
+# the app — which hardcodes $VITE_PORT everywhere — fails to load. Reclaim the
+# port up front so we always come up where we're expected; Vite's strictPort
+# turns any reclaim failure into a loud startup error instead of a silent
+# fallback to the next free port.
 free_vite_port() {
     local pids
     pids=$(vite_port_listeners)

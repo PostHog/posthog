@@ -6,17 +6,17 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
@@ -30,7 +30,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
@@ -45,11 +45,10 @@ interface PersistedRow {
 }
 
 /**
- * Probe the ClickHouse Kafka MV for our topic in particular. resetKafka()
- * deletes and recreates the topic, which forces the MV's internal consumer to
- * reconnect; with auto.offset.reset=latest, anything produced before the
- * reconnect is silently dropped. Send probe rows until one lands in CH so we
- * know the MV is live.
+ * Probe the ClickHouse Kafka MV for our topic in particular. With
+ * auto.offset.reset=latest, anything produced before the MV's internal consumer
+ * has attached is silently dropped. Send probe rows until one lands in CH so we
+ * know the MV is live before the test produces real rows.
  */
 const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
     const producer = await ActualKafkaProducerWrapper.create(undefined)
@@ -149,10 +148,10 @@ describe('CDP hog invocation rerun e2e', () => {
         // real producer to observe via KafkaProducerObserver.
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
 
-        await resetKafka()
-        // resetKafka does not include KAFKA_HOG_INVOCATION_RESULTS — add it so the
-        // ClickHouse Kafka engine consumer can attach.
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS])
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse
+        // Kafka engine consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS,
+        // which this test's MV needs but the shared set does not cover.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
         await resetTestDatabase()
@@ -377,5 +376,141 @@ describe('CDP hog invocation rerun e2e', () => {
 
         // ── 6. The hog function's fetch was called twice — once original, once rerun ─
         expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('reruns successfully when person rehydration misses and the input reads person.properties', async () => {
+        // On the rerun path the paginator strips globals.person; the worker
+        // re-hydrates via getCyclotronPerson, which returns null when the
+        // distinct_id has no row in posthog_persondistinctid (cookieless
+        // events by design, deleted persons, etc.). The worker must fall back
+        // to an empty person stub — leaving globals.person as undefined halts
+        // any input bytecode dereferencing `person.properties.*` with "Could
+        // not execute bytecode", before coalesce fallbacks can traverse to an
+        // event-level branch.
+        //
+        // If the worker's null-lookup fallback regresses, this test's rerun
+        // fetch never fires and the count assertion fails.
+
+        // Custom function whose input specifically dereferences
+        // `person.properties.foo` — the shape that crashed pre-fix.
+        const FALLBACK_WEBHOOK_URL = 'https://example.com/person-props-fallback'
+        const gclidLikeHog = `
+        let res := fetch(inputs.url, { 'method': 'POST', 'body': f'foo={inputs.foo}' });
+        print('Fetch response:', res);
+        `
+        const personPropsFn = await _insertHogFunction(hub.postgres, team.id, {
+            type: 'destination',
+            hog: gclidLikeHog,
+            bytecode: await compileHog(gclidLikeHog),
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'foo', type: 'string', label: 'foo', secret: false, required: false },
+            ],
+            inputs: {
+                url: {
+                    value: FALLBACK_WEBHOOK_URL,
+                    bytecode: ['_h', 32, FALLBACK_WEBHOOK_URL],
+                },
+                // Same shape as the Google Ads template: person.properties first,
+                // event.properties as the tail fallback.
+                foo: {
+                    value: '{person.properties.foo ?? event.properties.foo}',
+                    bytecode: await compileHog('return person.properties.foo ?? event.properties.foo'),
+                },
+            },
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({ ok: true }),
+            text: () => Promise.resolve('{"ok":true}'),
+            headers: { 'Content-Type': 'application/json' },
+            dump: () => Promise.resolve(),
+        })
+
+        // Simulate cookieless / missing-person for the rerun: personRepo returns
+        // no rows for any distinct_id, so getCyclotronPerson returns null. The
+        // ORIGINAL invocation doesn't call the repo — events consumer uses the
+        // person we attach to data.person directly — so this only affects the
+        // rerun path's rehydration.
+        const personRepo = cdpDeps.personRepository as jest.Mocked<PersonReadRepository>
+        personRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+
+        // Original event carries the fallback value on event.properties. The
+        // person we hand-attach here has no `foo`, so even on the original the
+        // coalesce falls through to event.properties.foo — proving the
+        // fallback wiring is real (and letting the rerun's stubbed-empty
+        // person hit the same branch).
+        const cookielessGlobals = createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: 'aaaa1111-bbbb-2222-cccc-333333333333',
+                event: '$pageview',
+                distinct_id: 'cookieless_stub',
+                properties: { foo: 'from-event' },
+                timestamp: '2026-07-02T09:00:00Z',
+            } as any,
+            person: {
+                id: '',
+                name: 'cookieless_stub',
+                url: 'http://localhost:8000/persons/cookieless_stub',
+                properties: {}, // no `foo` — coalesce must reach event branch
+            },
+        })
+
+        const { invocations } = await eventsConsumer.processBatch([cookielessGlobals])
+        // Both fnFetch (from beforeEach) and personPropsFn match a $pageview — we
+        // care about ours.
+        const personPropsInvocations = invocations.filter((i) => i.functionId === personPropsFn.id)
+        expect(personPropsInvocations).toHaveLength(1)
+
+        await waitForExpect(async () => {
+            const rows = await clickhouse.query<PersistedRow>(
+                `SELECT invocation_id, status FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND function_id = '${personPropsFn.id}' AND status = 'succeeded'`
+            )
+            expect(rows.length).toBeGreaterThanOrEqual(1)
+        }, 30_000)
+
+        const originalRows = await clickhouse.query<PersistedRow>(
+            `SELECT invocation_id, status FROM hog_invocation_results
+             WHERE team_id = ${team.id} AND function_id = '${personPropsFn.id}' AND status = 'succeeded'`
+        )
+        const originalInvocationId = originalRows[0].invocation_id
+
+        // Trigger the rerun scoped to just this invocation_id.
+        const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const windowEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        const rerunJobId = await rerunManager.enqueue(team.id, 'hog_function', personPropsFn.id, {
+            filter: {
+                window_start: windowStart,
+                window_end: windowEnd,
+                status: ['succeeded'],
+                invocation_ids: [originalInvocationId],
+            },
+        })
+
+        rerunWorker = new CdpRerunWorkerConsumer(
+            { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+            cdpDeps,
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+        )
+        await rerunWorker.start()
+
+        await waitForExpect(async () => {
+            const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
+            expect(res.rows[0]?.status).toBe('completed')
+        }, 30_000)
+
+        // The core assertion: the rerun re-fired the fetch to our specific URL,
+        // with the value coming through the coalesce's event-level fallback.
+        // Pre-fix, the input eval crashed on `undefined.properties` and this
+        // count stayed at 1 (just the original). Post-fix, it's 2 (original +
+        // rerun), and the rerun's body carries `foo=from-event`.
+        const ourCalls = mockFetch.mock.calls.filter(([url]) => String(url).startsWith(FALLBACK_WEBHOOK_URL))
+        expect(ourCalls.length).toBeGreaterThanOrEqual(2)
+        const rerunBody = String((ourCalls[ourCalls.length - 1] as any)[1]?.body ?? '')
+        expect(rerunBody).toContain('foo=from-event')
     })
 })

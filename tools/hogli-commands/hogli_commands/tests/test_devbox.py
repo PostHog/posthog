@@ -716,6 +716,19 @@ class TestWorkspaceNaming:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         assert coder.get_workspace_name(label, region=region) == expected
 
+    @pytest.mark.parametrize(
+        "workspace_name, expected_region",
+        [
+            ("devbox-test-user", "us-east-1"),
+            ("devbox-test-user-api", "us-east-1"),
+            ("devbox-test-user-eu", "eu-central-1"),
+            ("devbox-test-user-api-eu", "eu-central-1"),
+        ],
+        ids=["default-us", "labeled-us", "default-eu", "labeled-eu"],
+    )
+    def test_region_from_workspace_name(self, workspace_name: str, expected_region: str) -> None:
+        assert coder.region_from_workspace_name(workspace_name) == expected_region
+
     @pytest.mark.parametrize("reserved", ["eu", "api-eu", "foo-eu"])
     def test_label_colliding_with_region_suffix_rejected(self, monkeypatch: pytest.MonkeyPatch, reserved: str) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
@@ -855,6 +868,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
+        start_app: bool | None = None,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -867,6 +881,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "region": region,
                 "template": template,
                 "preset": preset,
+                "start_app": str(start_app),
             }
         )
 
@@ -894,15 +909,20 @@ class TestWorkspaceCreation:
     @pytest.mark.parametrize(
         "kwargs, available_presets, expected_template, expected_preset, expected_params",
         [
+            # Default opts out of presets so a vanilla create never claims a
+            # prebuild; the resolved preset is the NO_PRESET sentinel.
             (
                 {},
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
-                "Default (warm)",
+                "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
+            # An explicit warm preset that the template defines flows through to
+            # the coder argv unchanged, alongside all optional params.
             (
                 {
+                    "preset": "Default (warm)",
                     "git_name": "PostHog Engineer",
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
@@ -923,21 +943,15 @@ class TestWorkspaceCreation:
                 {"template": "posthog-microvm"},
                 ["Default (warm)"],
                 "posthog-microvm",
-                "Default (warm)",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
-            ),
-            (
-                {"preset": "none"},
-                ["Default (warm)"],
-                "posthog-linux",
                 "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
-            # the resolved value flows through to the coder argv.
+            # the resolved value flows through to the coder argv. The requested
+            # preset is not among the template's presets, so it falls back.
             (
-                {"template": "posthog-microvm"},
+                {"template": "posthog-microvm", "preset": "Default (warm)"},
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
@@ -948,15 +962,14 @@ class TestWorkspaceCreation:
                 {"region": "eu-central-1"},
                 ["Default (warm)"],
                 "posthog-linux",
-                "Default (warm)",
+                "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
             "defaults",
-            "all-optionals",
+            "explicit-preset-all-optionals",
             "custom-template",
-            "preset-opt-out",
             "resolver-fallback-flows-through",
             "explicit-region",
         ],
@@ -990,6 +1003,26 @@ class TestWorkspaceCreation:
         params = _parse_parameter_flags(args)
         assert "claude_oauth_token" not in params
         assert params == expected_params
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_create_workspace_forwards_start_app_parameter(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
+
+        coder.create_workspace("devbox-test-user", 100, start_app=start_app)
+
+        params = _parse_parameter_flags(captured["args"])
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in params
+        else:
+            assert params[coder.AUTO_START_APP_PARAMETER] == expected
 
     @pytest.mark.parametrize(
         "outputs, dropped, raises",
@@ -1230,6 +1263,18 @@ class TestResolveWorkspaceName:
         # Preferred-region name would be `devbox-test-user-api-eu`; fallback finds the us workspace.
         assert name == "devbox-test-user-api"
         assert workspaces == [{"name": "devbox-test-user-api"}]
+
+    def test_multiple_workspaces_falls_back_to_other_region_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With no default in the preferred region, the other region's default wins over failing."""
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-api"}],
+        )
+        name, _ = devbox_cli.resolve_workspace_name(None)
+        assert name == "devbox-test-user"
 
     def test_own_label_prefers_preferred_region_when_both_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
@@ -1503,6 +1548,7 @@ class TestDevboxCommands:
             "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
+            "start_app": "None",
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1574,9 +1620,8 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -1585,6 +1630,28 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["region"] == "eu-central-1"
         assert "region=eu-central-1" in result.output
+
+    @pytest.mark.parametrize(
+        "flag, expected",
+        [("--start-app", "True"), ("--no-start-app", "False")],
+        ids=["enable", "disable"],
+    )
+    def test_devbox_start_forwards_start_app_flag(
+        self, monkeypatch: pytest.MonkeyPatch, flag: str, expected: str
+    ) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", flag])
+
+        assert result.exit_code == 0, result.output
+        assert captured["start_app"] == expected
 
     def test_devbox_start_rejects_unknown_region(self) -> None:
         # click.Choice rejects the value during option parsing, before the
@@ -1635,6 +1702,106 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["region"] == "eu-central-1"
         assert captured["name"] == "devbox-test-user-eu"
+
+    @pytest.mark.parametrize(
+        "saved_region, boxes, expected_resumed, expected_hint",
+        [
+            (None, ["devbox-test-user"], "devbox-test-user", None),
+            (None, ["devbox-test-user-eu"], "devbox-test-user-eu", None),
+            (
+                "eu-central-1",
+                ["devbox-test-user"],
+                "devbox-test-user",
+                "hogli devbox:start --region eu-central-1",
+            ),
+            (
+                "eu-central-1",
+                ["devbox-test-user", "devbox-test-user-api"],
+                "devbox-test-user",
+                "hogli devbox:start --region eu-central-1",
+            ),
+        ],
+        ids=["matching-region", "other-region-no-pref", "other-region-with-pref", "multi-box-other-region-default"],
+    )
+    def test_devbox_start_bare_resumes_existing_box(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        saved_region: str | None,
+        boxes: list[str],
+        expected_resumed: str,
+        expected_hint: str | None,
+    ) -> None:
+        """A bare start resumes the box the user has -- a saved pref alone never abandons it.
+
+        When the resumed default is outside the saved pref, a hint says how to
+        create one there explicitly; otherwise no hint is printed.
+        """
+        if saved_region is not None:
+            devbox_config.save_region(saved_region)
+
+        captured: dict[str, str | None] = {}
+        resumed: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in boxes],
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start"])
+
+        assert result.exit_code == 0, result.output
+        assert resumed == [expected_resumed]
+        assert captured == {}
+        if expected_hint is None:
+            assert "--region" not in result.output
+        else:
+            assert expected_hint in result.output
+
+    @pytest.mark.parametrize(
+        "existing_boxes",
+        [
+            ["devbox-test-user"],
+            ["devbox-test-user", "devbox-test-user-api"],
+        ],
+        ids=["single-box", "multiple-boxes"],
+    )
+    def test_devbox_start_explicit_region_creates_default_alongside_existing_boxes(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path, existing_boxes: list[str]
+    ) -> None:
+        """`--region` targets that region's default directly, creating it even when other boxes exist."""
+        captured: dict[str, str | None] = {}
+        resumed: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in existing_boxes],
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+
+        assert result.exit_code == 0, result.output
+        assert resumed == []
+        assert captured["name"] == "devbox-test-user-eu"
+        assert captured["region"] == "eu-central-1"
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -2195,6 +2362,57 @@ class TestStartExistingWorkspace:
         devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
 
         assert calls == ["start"]
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_pushes_start_app_param_before_starting(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured.update(params),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user",
+            {"latest_build": {"status": "stopped"}},
+            start_app=start_app,
+            verbose=False,
+        )
+
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in captured
+        else:
+            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
+
+    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
+    def test_start_app_flag_never_pushed_unless_stopped(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
+    ) -> None:
+        """`coder update` stops a running workspace, so the flag must only note, never push."""
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
+        )
+
+        assert "was not applied" in capsys.readouterr().out
 
     def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The pre-start sync must omit `workspace_region`.

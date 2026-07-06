@@ -145,10 +145,10 @@
     {% if can_verify %}
     <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #417690; display: flex; align-items: center; gap: 10px;">
         <div class="info">
-            This request is <strong>queued</strong> for deferred deletion. Verify to re-check ClickHouse now —
-            if no matching events remain, it will be marked completed.
+            This request is <strong>{{ original.get_status_display|lower }}</strong>. Verify to re-check ClickHouse now —
+            if no matching events remain, it will be marked completed{% if original.status == "failed" %} (use this when the job errored after the events were already deleted){% endif %}.
         </div>
-        <button type="submit" formaction="{{ verify_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #417690; color: white;" onclick="return confirm('Verify this queued request against ClickHouse now?');">Verify deletion</button>
+        <button type="submit" formaction="{{ verify_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #417690; color: white;" onclick="return confirm('Verify this request against ClickHouse now?');">Verify deletion</button>
     </div>
     {% endif %}
 {% endblock %}

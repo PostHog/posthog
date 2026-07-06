@@ -96,7 +96,10 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
-SSE_MAX_DURATION_SECONDS = 30 * 60
+# Long-lived connections pin NGINX Unit processes during recycle-drain; the
+# `event: end` close makes EventSource reconnect, so the cap is near-invisible to
+# users (the progress tracker may show a brief "reconnecting" blip per rotation).
+SSE_MAX_DURATION_SECONDS = 15 * 60
 
 WIZARD_SYNC_KILLSWITCH_FLAG = "onboarding-wizard-sync-killswitch"
 
@@ -117,13 +120,13 @@ def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
 
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
-    scope_object_read_actions = ["list", "retrieve", "stream"]
+    scope_object_read_actions = ["list", "retrieve", "stream", "latest"]
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
-    # Negative lookahead so a session_id of `stream` can't collide with the
-    # `@action(url_path="stream")` detail-vs-action route.
-    lookup_value_regex = r"(?!stream$)[^/]+"
+    # Negative lookahead so a session_id of `stream` or `latest` can't collide
+    # with the `@action(url_path=...)` detail-vs-action routes.
+    lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
 
     def check_permissions(self, request: Request) -> None:
         try:
@@ -162,7 +165,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         sessions = wizard_facade.list_for_team(
             self.team_id,
             workflow_id=request.query_params.get("workflow_id"),
-            skill_id=request.query_params.get("skill_id"),
+            skill_id=request.query_params.get("skill_id") or None,
             offset=page_offset,
             limit=page_limit,
         )
@@ -185,6 +188,63 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         dto = wizard_facade.get(self.team_id, session_id)
         if dto is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(WizardSessionSerializer(dto).data)
+
+    def _killswitch_active(self, request: Request) -> bool:
+        # Shared by `latest` and `stream` so flipping the incident flag quiets both the
+        # SSE stream and the 60s REST poll — otherwise the fleet keeps hitting `latest`.
+        user = getattr(request, "user", None)
+        distinct_id = (
+            str(user.distinct_id)
+            if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
+            else f"team:{self.team_id}"
+        )
+        return _wizard_sync_killswitch_enabled(distinct_id)
+
+    @extend_schema(
+        description=(
+            "Return the single most-recent wizard session for a workflow (and "
+            "optional skill), or 204 if none exists. Unlike `list`, this is a "
+            "point lookup the app shell uses to decide whether to open the live "
+            "SSE stream — it never returns a collection, and 'no run' is a 204 "
+            "rather than a 404 so clients don't conflate it with a missing "
+            "endpoint."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="workflow_id",
+                required=True,
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter to a single workflow (e.g. 'posthog-integration').",
+            ),
+            OpenApiParameter(
+                name="skill_id",
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter to a single skill within the workflow (e.g. 'nextjs').",
+            ),
+        ],
+        responses={
+            200: WizardSessionSerializer,
+            204: OpenApiResponse(description="No session for this workflow/skill in this project."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="latest")
+    def latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Killswitch parity with `stream`: a 204 makes the client treat this as "no run"
+        # and wind the detector down, so flipping the flag in an incident also stops the
+        # 60s poll (and skips the DB read entirely), not just the SSE stream.
+        if self._killswitch_active(request):
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        workflow_id = request.query_params.get("workflow_id")
+        if not workflow_id:
+            raise ValidationError({"detail": "workflow_id is required."})
+        skill_id = request.query_params.get("skill_id") or None
+        dto = wizard_facade.get_latest(self.team_id, workflow_id, skill_id)
+        if dto is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(WizardSessionSerializer(dto).data)
 
     @extend_schema(
@@ -258,13 +318,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         # Killswitch first, before any other work: a 204 tells EventSource to stop
         # reconnecting, severing the self-reconnect loop for already-open tabs.
-        user = getattr(request, "user", None)
-        distinct_id = (
-            str(user.distinct_id)
-            if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
-            else f"team:{self.team_id}"
-        )
-        if _wizard_sync_killswitch_enabled(distinct_id):
+        if self._killswitch_active(request):
             return HttpResponse(status=204)
 
         workflow_id = request.query_params.get("workflow_id")
@@ -284,7 +338,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
-        return sse_streaming_response(generator)
+        return sse_streaming_response(generator, endpoint="wizard_session")
 
 
 async def _wizard_session_event_stream(

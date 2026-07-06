@@ -32,21 +32,12 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-
-            - name: Install dependencies
-              env:
-                  HUSKY: 0
-              run: |
-                  cd nodejs
-                  pnpm install --frozen-lockfile --ignore-scripts
+                  working-directory: nodejs
+                  # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts
 
             - name: Update AI costs
               run: |
@@ -56,18 +47,18 @@ jobs:
             - name: Format generated files
               run: |
                   cd nodejs
-                  pnpm prettier --write src/ingestion/ai/costs/providers/canonical-providers.ts src/ingestion/ai/costs/providers/llm-costs.json
+                  pnpm prettier --write src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts src/ingestion/pipelines/ai/costs/providers/llm-costs.json
 
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/ai/costs/providers/llm-costs.json; then
+                  if git diff --quiet nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json; then
                     echo "changes=false" >> $GITHUB_OUTPUT
                     echo "No changes detected in AI costs"
                   else
                     echo "changes=true" >> $GITHUB_OUTPUT
                     echo "Changes detected in AI costs"
-                    git diff --stat nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/ai/costs/providers/llm-costs.json
+                    git diff --stat nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json
                   fi
 
             - name: Clean up stale branch
@@ -158,7 +149,7 @@ jobs:
                   )" \
                     --base master \
                     --head chore/llma-update-ai-costs \
-                    --label "automated" --label "llm-analytics" \
+                    --label "automated" \
                     --reviewer "PostHog/team-ai-gateway")
                   echo "Created $new_pr_url"
 

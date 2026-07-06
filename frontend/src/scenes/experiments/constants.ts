@@ -49,6 +49,10 @@ export const DEFAULT_MDE = 30
 // Autorefresh constants
 export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
 export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
+// While a launched experiment is still gathering its first exposures, force refresh results on page
+// load (queries are fast with little data and this is better UX to not let users wait until they see
+// the experiment is working).
+export const NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES = 1
 
 // Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
 export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60

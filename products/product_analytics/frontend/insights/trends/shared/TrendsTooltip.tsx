@@ -3,7 +3,8 @@ import { useCallback, useMemo } from 'react'
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { percentage } from 'lib/utils'
+import { toOpaqueHex } from 'lib/utils/colors'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -134,7 +135,10 @@ export function TrendsTooltip({
                             className="mr-2"
                             hasBreakdown={hasBreakdown}
                             seriesIndex={datum.action?.order ?? datum.id}
-                            seriesColor={datum.color}
+                            // Previous-period series arrive pre-dimmed (rgba); the ribbon keeps the dim to
+                            // mark the period, but the identifier glyph must stay legible — give it the
+                            // opaque color.
+                            seriesColor={datum.color ? toOpaqueHex(datum.color) : undefined}
                         />
                     )}
                     {value}

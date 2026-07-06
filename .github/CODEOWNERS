@@ -31,6 +31,8 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # We must be careful to only execute code from this repo's default branch, and never execute code from the PR's branch.
 .github/workflows/auto-assign-reviewers.yml @PostHog/team-security
 .github/scripts/assign-reviewers.js @PostHog/team-security
+# The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
+.github/scripts/codeowners.js @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
@@ -51,3 +53,6 @@ ee/api/scim/auth.py @PostHog/team-security
 # v1 data-modeling workflow is frozen during the v1 → v2 migration.
 # this will be removed from CODEOWNERS by June 1
 posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
+
+# Dev sandbox provides important protection in local dev
+bin/dev-sandbox* @PostHog/team-security

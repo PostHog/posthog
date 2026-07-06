@@ -6,8 +6,6 @@ import { useMemo, useState } from 'react'
 import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
-import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -19,6 +17,8 @@ import {
     isEventPersonOrSessionPropertyFilter,
     isWebAnalyticsPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
+import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -26,7 +26,7 @@ import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInpu
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
@@ -373,7 +373,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Device toggle shortcuts (Web Analytics-specific)
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsDesktop',
         keybind: [[...baseModifier, 'p']],
         intent: 'Filter desktop devices',
@@ -381,7 +381,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
         callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Desktop' ? null : 'Desktop'),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsMobile',
         keybind: [[...baseModifier, 'm']],
         intent: 'Filter mobile devices',
@@ -501,7 +501,7 @@ function FiltersPopover(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Toggle filters shortcut
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsFilters',
         keybind: [[...baseModifier, 'f']],
         intent: 'Toggle filters',

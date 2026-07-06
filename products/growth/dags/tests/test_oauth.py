@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-import pytest
 import unittest.mock
 from freezegun import freeze_time
 
@@ -21,7 +20,6 @@ from products.growth.dags.oauth import (
 )
 
 
-@pytest.mark.requires_secrets
 class TestOAuthTokenCleanup(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -70,7 +68,6 @@ class TestOAuthTokenCleanup(TestCase):
         self.assertTrue(OAuthAccessToken.objects.filter(id=valid_token.id).exists())
 
 
-@pytest.mark.requires_secrets
 class TestBatchDeleteFunctionality(TestCase):
     """Test the new DRY batch delete functionality."""
 

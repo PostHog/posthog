@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
 import { StepDefinition } from '../steps'
@@ -31,7 +31,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     if isMyFlagEnabled {
                                         // Do something differently for this user
                                         // Optional: fetch the payload
-                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagPayload("flag-key")
+                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagResult("flag-key")?.payload
                                     }
                                 `,
                             },
@@ -60,7 +60,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     if enabledVariant == "variant-key" { // replace 'variant-key' with the key of your variant
                                         // Do something differently for this user
                                         // Optional: fetch the payload
-                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagPayload("flag-key")
+                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagResult("flag-key")?.payload
                                     }
                                 `,
                             },

@@ -14,7 +14,7 @@ pub struct FileSelectionArgs {
     #[arg(short, long, alias = "file")]
     pub directory: Vec<PathBuf>,
 
-    /// Read additional file/directory paths from stdin (one per line)
+    /// Read additional file/directory paths from stdin (one per line) [default: false]
     #[arg(long, default_value = "false")]
     pub stdin: bool,
 
@@ -98,19 +98,19 @@ pub struct ReleaseArgs {
     pub build: Option<String>,
 
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
-    /// retry the upload without associating a release instead of failing.
+    /// retry the upload without associating a release instead of failing. [default: true]
     #[arg(long, default_value = "true")]
     pub skip_release_on_fail: bool,
 }
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed.
+    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged.
+    /// Existing symbol sets are left unchanged. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
 }

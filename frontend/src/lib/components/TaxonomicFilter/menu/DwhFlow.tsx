@@ -28,11 +28,17 @@
  *     that mirrors the legacy popover.
  */
 import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import {
     Badge,
     Button,
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
     Dialog,
     DialogBody,
     DialogContent,
@@ -46,12 +52,6 @@ import {
     ItemContent,
     ItemDescription,
     ItemTitle,
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     Tabs,
     TabsList,
     TabsTrigger,
@@ -512,7 +512,18 @@ interface ColumnSelectProps {
 
 const HOGQL_SENTINEL = '__hogql__'
 
+/** Flat entry shape backing the combobox — `title`/`description` map to the
+ *  column name + type (or the SQL-expression sentinel row). */
+interface ColumnSelectEntry {
+    value: string
+    title: string
+    description?: string
+}
+
 function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProps): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+
     // HogQL mode whenever the value isn't a real column name AND the field
     // allows it. Drop the `!!value` guard so the empty string (set by
     // picking "SQL expression" from the dropdown before typing anything)
@@ -520,57 +531,59 @@ function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProp
     // rendering as blank.
     const isHogQL = allowHogQL && !options.some((o) => o.name === value)
     const displayValue = isHogQL ? HOGQL_SENTINEL : value
+
+    const items: ColumnSelectEntry[] = useMemo(
+        () => [
+            ...options.map((o) => ({ value: o.name, title: o.name, description: o.type as string })),
+            ...(allowHogQL
+                ? [{ value: HOGQL_SENTINEL, title: 'SQL expression', description: 'Use a HogQL expression' }]
+                : []),
+        ],
+        [options, allowHogQL]
+    )
+
+    const selectedItem = items.find((item) => item.value === displayValue) ?? null
+
     return (
-        <Select<string>
-            value={displayValue || undefined}
-            onValueChange={(v) => onChange((v === HOGQL_SENTINEL ? '' : (v as string)) ?? '')}
-            itemToStringLabel={(o) => o ?? ''}
-            itemToStringValue={(o) => o ?? ''}
+        <Combobox
+            items={items}
+            itemToStringLabel={(item: ColumnSelectEntry) => item.title}
+            itemToStringValue={(item: ColumnSelectEntry) => item.value}
+            open={open}
+            onOpenChange={setOpen}
+            value={selectedItem}
+            onValueChange={(item: ColumnSelectEntry | null) =>
+                onChange(item ? (item.value === HOGQL_SENTINEL ? '' : item.value) : '')
+            }
         >
-            <SelectTrigger render={(props) => <Button variant="outline" {...props} className="h-min" />}>
-                <SelectValue placeholder="Select a value">
-                    {(option: string | null) => {
-                        if (!option) {
-                            return null
-                        }
-                        if (option === HOGQL_SENTINEL) {
-                            return (
-                                <ItemContent variant="menuItem">
-                                    <ItemTitle>SQL expression</ItemTitle>
-                                    <ItemDescription className="leading-none">Use a HogQL expression</ItemDescription>
-                                </ItemContent>
-                            )
-                        }
-                        const opt = options.find((o) => o.name === option)
-                        return (
+            <Button ref={triggerRef} variant="outline" className="h-min" onClick={() => setOpen((prev) => !prev)}>
+                {selectedItem ? (
+                    <ItemContent variant="menuItem">
+                        <ItemTitle>{selectedItem.title}</ItemTitle>
+                        {selectedItem.description && (
+                            <ItemDescription className="leading-none">{selectedItem.description}</ItemDescription>
+                        )}
+                    </ItemContent>
+                ) : (
+                    <span className="text-muted-foreground">Select a value</span>
+                )}
+            </Button>
+            <ComboboxContent anchor={triggerRef} className="min-w-(--anchor-width)" align="start" sideOffset={8}>
+                <ComboboxInput placeholder="Search columns" showTrigger={false} />
+                <ComboboxEmpty>No columns found</ComboboxEmpty>
+                <ComboboxList>
+                    {(item: ColumnSelectEntry) => (
+                        <ComboboxItem key={item.value} value={item} className="py-0">
                             <ItemContent variant="menuItem">
-                                <ItemTitle>{option}</ItemTitle>
-                                {opt?.type && <ItemDescription className="leading-none">{opt.type}</ItemDescription>}
+                                <ItemTitle>{item.title}</ItemTitle>
+                                {item.description && (
+                                    <ItemDescription className="leading-none">{item.description}</ItemDescription>
+                                )}
                             </ItemContent>
-                        )
-                    }}
-                </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="min-w-(--anchor-width)" align="start" sideOffset={8}>
-                <SelectGroup>
-                    {options.map((o) => (
-                        <SelectItem key={o.name} value={o.name} className="py-0">
-                            <ItemContent variant="menuItem">
-                                <ItemTitle>{o.name}</ItemTitle>
-                                <ItemDescription className="leading-none">{o.type}</ItemDescription>
-                            </ItemContent>
-                        </SelectItem>
-                    ))}
-                    {allowHogQL && (
-                        <SelectItem value={HOGQL_SENTINEL} className="py-0">
-                            <ItemContent variant="menuItem">
-                                <ItemTitle>SQL expression</ItemTitle>
-                                <ItemDescription className="leading-none">Use a HogQL expression</ItemDescription>
-                            </ItemContent>
-                        </SelectItem>
+                        </ComboboxItem>
                     )}
-                </SelectGroup>
-            </SelectContent>
-        </Select>
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
     )
 }

@@ -21,7 +21,7 @@ jobs:
     build:
         name: Build and push container image
         if: |
-            github.repository == 'PostHog/posthog' && (
+            github.repository_owner == 'PostHog' && (
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
@@ -52,6 +52,8 @@ jobs:
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   push-to-dockerhub: 'false'
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -63,7 +65,7 @@ jobs:
                   project: c1f2m5s6zd
                   file: ./services/mcp/Dockerfile
                   buildx-fallback: false
-                  push: ${{ github.ref == 'refs/heads/master' }}
+                  push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
@@ -74,7 +76,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
-        if: github.ref == 'refs/heads/master'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         permissions: {}
 
         steps:

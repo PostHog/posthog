@@ -5,19 +5,16 @@ import React from 'react'
 import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -37,8 +34,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
-import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
+import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
     buildApplyUrlStatePayload,
@@ -50,6 +46,7 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 import { getDefaultGenerationsColumns, aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -186,7 +183,6 @@ function AIObservabilityGenerations(): JSX.Element {
     const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } = useValues(
         aiObservabilityGenerationsLogic
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
@@ -196,12 +192,7 @@ function AIObservabilityGenerations(): JSX.Element {
             return null
         }
 
-        const columns =
-            generationsQuery.source.select ||
-            getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
-            )
+        const columns = generationsQuery.source.select || getDefaultGenerationsColumns()
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
@@ -232,10 +223,7 @@ function AIObservabilityGenerations(): JSX.Element {
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
-                defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
-                ),
+                defaultColumns: getDefaultGenerationsColumns(),
             }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
@@ -313,7 +301,7 @@ function AIObservabilityGenerations(): JSX.Element {
                         ),
                     },
                     person: aiObservabilityColumnRenderers.person,
-                    "'' -- Sentiment": aiObservabilityColumnRenderers["'' -- Sentiment"],
+                    [GENERATION_SENTIMENT_SELECT]: aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT],
                     'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
@@ -459,14 +447,12 @@ export function AIObservabilityScene(): JSX.Element {
 
 function AIObservabilitySceneContent(): JSX.Element {
     const { activeTab } = useValues(aiObservabilitySharedLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
-    const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
 
     // Tab switching shortcuts
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab1',
         keybind: [keyBinds.tab1],
         intent: 'Go to Dashboard',
@@ -474,7 +460,7 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityDashboard(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
         intent: 'Go to Traces',
@@ -482,41 +468,28 @@ function AIObservabilitySceneContent(): JSX.Element {
         callback: () => push(combineUrl(urls.aiObservabilityTraces(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: isTraceReviewEnabled ? 'Go to Reviews' : 'Go to Generations',
+        intent: 'Go to Generations',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    isTraceReviewEnabled ? urls.aiObservabilityReviews() : urls.aiObservabilityGenerations(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityGenerations(), searchParams).url),
         scope: Scene.AIObservability,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
-        intent: isTraceReviewEnabled ? 'Go to Generations' : 'Go to Users',
-        interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    isTraceReviewEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilityUsers(),
-                    searchParams
-                ).url
-            ),
-        scope: Scene.AIObservability,
-    })
-    useAppShortcut({
-        name: 'AIObservabilityTab5',
-        keybind: [keyBinds.tab5],
         intent: 'Go to Users',
         interaction: 'function',
         callback: () => push(combineUrl(urls.aiObservabilityUsers(), searchParams).url),
-        disabled: !isTraceReviewEnabled,
+        scope: Scene.AIObservability,
+    })
+    useShortcut({
+        name: 'AIObservabilityTab5',
+        keybind: [keyBinds.tab5],
+        intent: 'Go to Errors',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.aiObservabilityErrors(), searchParams).url),
         scope: Scene.AIObservability,
     })
 
@@ -539,21 +512,6 @@ function AIObservabilitySceneContent(): JSX.Element {
             link: combineUrl(urls.aiObservabilityTraces(), searchParams).url,
             'data-attr': 'traces-tab',
         },
-        ...(isTraceReviewEnabled
-            ? [
-                  {
-                      key: 'reviews',
-                      label: 'Reviews',
-                      content: (
-                          <AIObservabilitySetupPrompt thing="trace">
-                              <AIObservabilityHumanReviews />
-                          </AIObservabilitySetupPrompt>
-                      ),
-                      link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
-                      'data-attr': 'llma-reviews-tab',
-                  } as LemonTab<string>,
-              ]
-            : []),
         {
             key: 'generations',
             label: 'Generations',
@@ -590,54 +548,61 @@ function AIObservabilitySceneContent(): JSX.Element {
         'data-attr': 'errors-tab',
     })
 
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    tabs.push({
+        key: 'tools',
+        label: 'Tools',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <AIObservabilityTools />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
+        'data-attr': 'tools-tab',
+    })
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
-        tabs.push({
-            key: 'tools',
-            label: 'Tools',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilityTools />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
-            'data-attr': 'tools-tab',
-        })
-    }
+    tabs.push({
+        key: 'sentiment',
+        label: 'Sentiment',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <Filters />
+                <AIObservabilitySentiment />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
+        'data-attr': 'llma-sentiment-tab',
+    })
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
-        tabs.push({
-            key: 'sentiment',
-            label: 'Sentiment',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <Filters />
-                    <AIObservabilitySentiment />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
-            'data-attr': 'llma-sentiment-tab',
-        })
-    }
+    tabs.push({
+        key: 'sessions',
+        label: 'Sessions',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <Filters />
+                <AIObservabilitySessionsPlaylist />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
+        'data-attr': 'sessions-tab',
+    })
 
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
-        tabs.push({
-            key: 'sessions',
-            label: 'Sessions',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilitySessionsScene />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
-            'data-attr': 'sessions-tab',
-        })
-    }
+    tabs.push({
+        key: 'reviews',
+        label: 'Reviews',
+        content: (
+            <AIObservabilitySetupPrompt thing="trace">
+                <AIObservabilityHumanReviews />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
+        'data-attr': 'llma-reviews-tab',
+    })
 
-    if (activeTab === 'reviews' && !isTraceReviewEnabled) {
-        return <NotFound object="page" />
+    // Sessions is a primary view — surface it right after Generations, not last.
+    const sessionsIdx = tabs.findIndex((t) => t.key === 'sessions')
+    if (sessionsIdx > -1) {
+        const [sessionsTab] = tabs.splice(sessionsIdx, 1)
+        tabs.splice(tabs.findIndex((t) => t.key === 'generations') + 1, 0, sessionsTab)
     }
 
     return (
@@ -661,8 +626,6 @@ function AIObservabilitySceneContent(): JSX.Element {
                     </>
                 }
             />
-
-            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>

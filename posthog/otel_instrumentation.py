@@ -7,6 +7,7 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
@@ -35,6 +36,17 @@ def _otel_django_response_hook(span, request, response):
 
 
 def initialize_otel():
+    # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
+    # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
+    # process-wide span exporter to the SDK default localhost:4317 with no collector there,
+    # so the flush at pytest shutdown retries with exponential backoff and stalls the run by
+    # minutes. Skip app instrumentation in tests WITHOUT touching OTEL_SDK_DISABLED, so tests
+    # that build their own in-memory TracerProvider still record spans (test_auth_spans,
+    # test_celery_span_team_id, test_routing). TEST is forced on by settings/overrides.py
+    # before any app import runs.
+    if os.environ.get("TEST") == "1":
+        return
+
     # --- BEGIN FORCED OTEL DEBUG LOGGING ---
     otel_python_log_level_env = os.environ.get("OTEL_PYTHON_LOG_LEVEL", "info").lower()
     effective_log_level = logging.DEBUG if otel_python_log_level_env == "debug" else logging.INFO
@@ -89,6 +101,7 @@ def initialize_otel():
         )
 
         instrument_django(provider)
+        instrument_celery(provider)
         instrument_redis(provider)
         instrument_psycopg(provider)
         instrument_kafka(provider)
@@ -117,6 +130,14 @@ def instrument_django(provider: trace.TracerProvider):
         logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_celery(provider: trace.TracerProvider):
+    try:
+        CeleryInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="error", exc_info=e)
 
 
 def instrument_redis(provider: trace.TracerProvider):

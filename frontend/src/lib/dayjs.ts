@@ -48,6 +48,16 @@ export function dayjsUtcToTimezone(
     return datetime
 }
 
+/** Current moment expressed as the given timezone's wall clock, returned as a naive (offset-free) Dayjs
+ *  so it stays comparable to naive picked datetimes. Falls back to browser-local time on an invalid timezone. */
+export function dayjsNowInTimezone(timezone: string): Dayjs {
+    try {
+        return dayjs(dayjs().tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
+    } catch {
+        return dayjs()
+    }
+}
+
 /** Parse local datetime string using Day.js, taking into account time zone conversion edge cases. */
 export function dayjsLocalToTimezone(
     isoString: string,

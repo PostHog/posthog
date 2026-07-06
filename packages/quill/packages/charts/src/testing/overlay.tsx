@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
 import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
 import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { Gutter } from '../core/y-axis-gutters'
 import { dimensions as DEFAULT_DIMENSIONS } from './jsdom'
 
 const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
@@ -20,6 +21,7 @@ export interface OverlayContextOverrides {
     isPercent?: boolean
     hoverIndex?: number
     xTickFormatter?: (value: string, index: number) => string | null
+    yGutters?: Gutter[]
 }
 
 /** Build a fully-populated overlay context with sensible defaults. Required:
@@ -39,6 +41,7 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
             isPercent: overrides.isPercent ?? false,
         },
         hoverIndex: overrides.hoverIndex ?? -1,
+        yGutters: overrides.yGutters ?? [],
     }
 }
 

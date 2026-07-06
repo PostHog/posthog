@@ -1,6 +1,6 @@
-import re
 import uuid
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Optional, Union
@@ -9,7 +9,7 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -23,9 +23,11 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    render_prompt,
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
     HogQLFix,
     QueryPlanStep,
@@ -51,15 +53,33 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
+# Total result budget across all steps entering the synthesis prompt: without it, the per-step backstop
+# alone would let MAX_QUERY_PLAN_STEPS x _QUERY_RESULT_MAX_CHARS into one synthesis call. `per_step_cap`
+# derives from this — the outer min() lets small plans keep the full per-step backstop, while the floor
+# (the budget split evenly across a full-size plan) guarantees each step a minimum so a max-size plan
+# can't starve any single step. Deriving the floor from the cap keeps the total within budget at any cap.
+_SYNTHESIS_RESULTS_CHAR_BUDGET = 200_000
+_MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
+
+# The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
+# instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
+# same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
+QUERY_FAILED_PREFIX = "Query failed to run"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
-# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
+# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently, bounded by
+# _MAX_CONCURRENT_STEPS.
 _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
+# The planner may emit up to MAX_QUERY_PLAN_STEPS steps; bound how many run their ClickHouse query at
+# once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
+# queue and run as slots free up — every step still executes.
+_MAX_CONCURRENT_STEPS = 5
+
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed_" placeholder without retrying,
+# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
 # since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
 _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     MaxToolRetryableError,
@@ -82,6 +102,23 @@ class AiReportStageError(Exception):
         super().__init__(f"AI report failed at {stage} stage: {original}")
 
 
+@dataclass(frozen=True)
+class QueryStepDiagnostic:
+    # Per-step audit record persisted to the delivery's content_snapshot. The generated HogQL and the
+    # failure type are otherwise discarded once the report renders, leaving a "could not be computed"
+    # line with no way to see which query ran or why it failed.
+    description: str
+    hogql: str
+    ok: bool
+    error_type: Optional[str]
+
+
+@dataclass(frozen=True)
+class AiReportResult:
+    markdown: str
+    diagnostics: tuple[QueryStepDiagnostic, ...]
+
+
 async def generate_ai_report(
     *,
     team: Team,
@@ -89,7 +126,7 @@ async def generate_ai_report(
     prompt: Optional[str],
     window_days: int,
     trace_correlation_id: Optional[Union[int, str]] = None,
-) -> str:
+) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
 
@@ -107,7 +144,7 @@ async def generate_ai_report(
             spec = await _plan(
                 team=team, user=user, prompt=prompt, window_days=window_days, trace_id=trace_correlation_id
             )
-            rendered_results, failed_count = await _execute_plan(spec, team, user, trace_correlation_id)
+            rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
@@ -131,7 +168,7 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        return report
+        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
 
 
 async def _plan(
@@ -156,7 +193,7 @@ async def _execute_plan(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     try:
         return await _run_steps(spec, team, user, trace_correlation_id)
     except Exception as exc:
@@ -190,6 +227,9 @@ async def _synthesize(
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
     )
+    # Inject the failure marker from the same constant the placeholder renders, so the prompt's
+    # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
+    synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
@@ -222,10 +262,19 @@ async def _run_steps(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
+    # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
+    step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
 
-    async def run_step(step: QueryPlanStep) -> tuple[str, bool]:
+    # Scale each step's result cap so the combined results stay within the synthesis budget even at the
+    # max plan size; a small plan still gets the full per-step backstop.
+    per_step_cap = min(
+        _QUERY_RESULT_MAX_CHARS,
+        max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
+    )
+
+    async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope
@@ -239,8 +288,11 @@ async def _run_steps(
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
-                return (f"### {safe_description}\n\n{safe_formatted}", True)
+                safe_formatted = strip_llm_framing_markers(formatted, per_step_cap)
+                return (
+                    f"### {safe_description}\n\n{safe_formatted}",
+                    QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
+                )
             except Exception as exc:
                 last_exc = exc
                 if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
@@ -255,8 +307,14 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # don't forward internal error text to the LLM — it can echo cluster URLs/table names
-                    error_message=str(exc) if isinstance(exc, ExposedHogQLError) else type(exc).__name__,
+                    # Forward the message for exposed errors and ResolutionError. ResolutionError messages
+                    # describe query structure — usually the field/property the planner itself referenced
+                    # (e.g. "Unable to resolve field 'operaton'"), which is what the fixer needs. A few raise
+                    # sites wrap a nested exception, but those describe query shape, not cluster topology, so
+                    # the leak risk stays low. Other internal errors (parsing/impossible-AST) stay type-only.
+                    error_message=(
+                        str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
+                    ),
                     step_description=safe_description,
                     team=team,
                     user=user,
@@ -276,12 +334,23 @@ async def _run_steps(
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
         # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        return (f"### {safe_description}\n\n_Query failed: {type_name}_", False)
+        # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
+        # metric as "could not be computed" instead of paraphrasing the failure into "no data".
+        return (
+            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
+            QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
+        )
 
-    step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+        # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
+        async with step_semaphore:
+            return await run_step(step)
+
+    step_results = await asyncio.gather(*(run_step_bounded(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
-    failed_count = sum(1 for _, ok in step_results if not ok)
-    return rendered, failed_count
+    diagnostics = [diag for _, diag in step_results]
+    failed_count = sum(1 for diag in diagnostics if not diag.ok)
+    return rendered, failed_count, diagnostics
 
 
 async def _arequest_hogql_fix(
@@ -306,18 +375,12 @@ async def _arequest_hogql_fix(
         posthog_properties=posthog_properties,
     ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
 
-    substitutions = {
-        "description": step_description,
-        "error": error_message,
-        "original_hogql": original_hogql,
-    }
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
-    rendered = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered = render_prompt(
         fix_prompt,
+        {"description": step_description, "error": error_message, "original_hogql": original_hogql},
     )
 
     try:
@@ -337,4 +400,4 @@ async def _arequest_hogql_fix(
     return fixed or None
 
 
-__all__ = ["generate_ai_report", "AiReportStageError", "ReportStage"]
+__all__ = ["generate_ai_report", "AiReportResult", "QueryStepDiagnostic", "AiReportStageError", "ReportStage"]

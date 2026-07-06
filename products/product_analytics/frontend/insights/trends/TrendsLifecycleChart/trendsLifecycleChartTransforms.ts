@@ -1,4 +1,10 @@
-import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import type {
+    Series,
+    TimeInterval,
+    TimeSeriesBarChartConfig,
+    ValueLabelFormatter,
+    YAxisConfig,
+} from '@posthog/quill-charts'
 
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
@@ -23,6 +29,40 @@ export interface TrendsLifecycleResultLike {
 function lifecycleStatusOrder(status: string | undefined): number {
     const i = LIFECYCLE_STATUS_ORDER.indexOf(status ?? '')
     return i === -1 ? LIFECYCLE_STATUS_ORDER.length : i
+}
+
+export interface LifecycleValueLabelOptions {
+    showValues: boolean
+    showPercentages: boolean
+}
+
+// Positives only — dormant is the lone negative series, so it's excluded from the active total.
+function activeBandTotal(bandValues: number[] | undefined): number {
+    return (bandValues ?? []).reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+}
+
+// Dormant orgs lapsed from the *previous* period's active pool, so their share divides by that
+// period's total rather than the current one.
+export function buildLifecycleValueLabelFormatter(
+    formatValue: (value: number) => string,
+    { showValues, showPercentages }: LifecycleValueLabelOptions
+): ValueLabelFormatter {
+    return (value, _seriesIndex, _dataIndex, context) => {
+        const valueText = showValues ? formatValue(value) : ''
+        if (!showPercentages || context.isPercent) {
+            return valueText
+        }
+        const isDormant = context.rawValue < 0
+        const denominator = isDormant
+            ? activeBandTotal(context.previousBandValues)
+            : activeBandTotal(context.bandValues)
+        if (denominator === 0) {
+            // Dormant in the first period has no previous band to divide by — show its value rather than blank.
+            return isDormant ? formatValue(value) : valueText
+        }
+        const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
+        return showValues ? `${valueText} (${pct}%)` : `${pct}%`
+    }
 }
 
 /** Drops rows whose lifecycle status is toggled off — mirrors the main app's legend toggles, which
@@ -87,9 +127,12 @@ export interface BuildTrendsLifecycleConfigOpts {
     allDays?: string[]
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
+    legend?: TimeSeriesBarChartConfig['legend']
 }
 
-export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsLifecycleConfig(
+    opts: BuildTrendsLifecycleConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
@@ -106,6 +149,7 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
         // Only meaningful in stacked layout — dormant stacks below 0.
         divergingStack: opts.isStacked,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }
 

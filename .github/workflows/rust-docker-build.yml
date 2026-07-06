@@ -39,7 +39,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Skip on workflow_dispatch — always build everything (escape hatch)
-        if: github.event_name != 'workflow_dispatch'
+        if: >-
+            github.event_name != 'workflow_dispatch' &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository)
         permissions:
             contents: read
         outputs:
@@ -77,10 +80,14 @@ jobs:
         # Run unless affected explicitly found zero images ('none') or failed.
         if: |
             always() && !cancelled() &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
+            # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
+            push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
             image-filter: ${{ needs.affected.outputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
@@ -89,7 +96,9 @@ jobs:
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
-        secrets: inherit
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
         permissions:
             id-token: write
             contents: read
@@ -100,7 +109,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build-images
-        if: github.ref == 'refs/heads/master'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         strategy:
             # fail-fast false so one missing digest doesn't cancel other deploys
             fail-fast: false
@@ -127,17 +136,23 @@ jobs:
                     - release: flags-cache-jumphost
                       digest_key: flags-cache-warmer
                       values_key: image
+                    - release: flags-cache-builder
+                      digest_key: flags-cache-builder
+                      values_key: image
                     - release: flags-consumer
                       digest_key: flags-consumer
+                      values_key: image
+                    - release: cohort-event-shuffler
+                      digest_key: cohort-event-shuffler
+                      values_key: image
+                    - release: cohort-stream-processor
+                      digest_key: cohort-stream-processor
                       values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker
                       values_key: image
                     - release: cymbal
                       digest_key: cymbal
-                      values_key: image
-                    - release: cymbal-resolution
-                      digest_key: cymbal-resolution
                       values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker

@@ -10,7 +10,7 @@ Playwright tests are discovered from two locations (configured in `playwright.co
 Shared fixtures, page models, and helpers live under `playwright/utils/`, `playwright/page-models/`, and `playwright/mocks/`. Import them from anywhere via TypeScript path aliases:
 
 ```ts
-import { expect, test } from '@playwright-utils/playwright-test-base'
+import { expect, test } from '@playwright-utils/workspace-test-base'
 import { randomString } from '@playwright-utils'
 import { InsightPage } from '@playwright-pages/insightPage'
 ```

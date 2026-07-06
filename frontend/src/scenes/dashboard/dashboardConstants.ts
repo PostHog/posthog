@@ -8,3 +8,6 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = DashboardAutoRefreshInterva
  * backend throttle (`SHARED_FORCE_BLOCKING_MIN_AGE`).
  */
 export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
+
+/** Default project-tree folder for dashboards that haven't been filed anywhere (mirrors the backend's `base_folder`). */
+export const UNFILED_DASHBOARDS_FOLDER = 'Unfiled/Dashboards'

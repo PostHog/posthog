@@ -1,6 +1,6 @@
+from collections.abc import Iterable as _Iterable
 from typing import (
     ClassVar as _ClassVar,
-    Iterable as _Iterable,
     Optional as _Optional,
     Union as _Union,
 )

@@ -18,6 +18,7 @@ export function HogFunctionInputs(): JSX.Element {
         showSource,
         configuration,
         configurationErrors,
+        inputFormWarnings,
         sampleGlobalsWithInputs,
         usesGroups,
         hasGroupsAddon,
@@ -52,6 +53,7 @@ export function HogFunctionInputs(): JSX.Element {
 
                 <CyclotronJobInputs
                     errors={(configurationErrors.inputs ?? {}) as Record<string, string>}
+                    warnings={inputFormWarnings}
                     configuration={{
                         inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
                         inputs: configuration.inputs ?? {},

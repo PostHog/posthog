@@ -1,7 +1,11 @@
+from collections.abc import Mapping
 from contextlib import contextmanager
+from numbers import Number
 from typing import Any
+from uuid import UUID
 
 import structlog
+import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
@@ -13,6 +17,33 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+
+def feature_enabled_or_false(
+    key: str,
+    distinct_id: Number | str | UUID | int,
+    groups: Mapping[str, str | int] | None = None,
+    person_properties: dict[str, Any] | None = None,
+    group_properties: dict[str, dict[str, Any]] | None = None,
+    only_evaluate_locally: bool = False,
+    send_feature_flag_events: bool = True,
+    disable_geoip: bool | None = None,
+    device_id: str | None = None,
+) -> bool:
+    return (
+        posthoganalytics.feature_enabled(
+            key,
+            distinct_id,
+            groups=groups,
+            person_properties=person_properties,
+            group_properties=group_properties,
+            only_evaluate_locally=only_evaluate_locally,
+            send_feature_flag_events=send_feature_flag_events,
+            disable_geoip=disable_geoip,
+            device_id=device_id,
+        )
+        is True
+    )
 
 
 def get_regional_ph_client(**kwargs: Any):
@@ -45,9 +76,12 @@ def ph_scoped_capture():
         if is_cloud() and ph_client:
             ph_client.capture(*args, **kwargs)
 
-    yield capture_ph_event
-
-    ph_client.shutdown()
+    # Flush even when the caller's block raises — events already captured
+    # before the exception shouldn't be dropped with the buffer.
+    try:
+        yield capture_ph_event
+    finally:
+        ph_client.shutdown()
 
 
 def get_client(region: str = "US", **kwargs: Any):

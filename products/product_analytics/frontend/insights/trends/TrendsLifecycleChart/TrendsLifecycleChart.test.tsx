@@ -4,8 +4,6 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { chart, type InsightQuery, type MockResponse, personsModal, renderInsight } from '~/test/insight-testing'
 
@@ -23,8 +21,6 @@ afterEach(() => {
     cleanupJsdom()
     cleanup()
 })
-
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE]: true }
 
 const LIFECYCLE_DAYS = ['2024-06-10', '2024-06-11', '2024-06-12', '2024-06-13', '2024-06-14']
 const LIFECYCLE_LABELS = ['10-Jun', '11-Jun', '12-Jun', '13-Jun', '14-Jun']
@@ -66,7 +62,6 @@ describe('TrendsLifecycleChart', () => {
     it('renders a stacked bar series for each lifecycle status', async () => {
         renderInsight({
             query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
             mocks: { additionalMockResponses: lifecycleMocks },
         })
 
@@ -78,7 +73,7 @@ describe('TrendsLifecycleChart', () => {
         )
         await waitFor(
             () => {
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -87,7 +82,6 @@ describe('TrendsLifecycleChart', () => {
     it('shows the shortened lifecycle status in the tooltip rows', async () => {
         renderInsight({
             query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
             mocks: { additionalMockResponses: lifecycleMocks },
         })
 
@@ -98,24 +92,13 @@ describe('TrendsLifecycleChart', () => {
         expect(tooltip.row('Returning')).toBeTruthy()
         expect(tooltip.row('Resurrecting')).toBeTruthy()
         expect(tooltip.row('Dormant')).toBeTruthy()
-    })
-
-    it('uses "Users" as the group type label in the tooltip', async () => {
-        renderInsight({
-            query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
-            mocks: { additionalMockResponses: lifecycleMocks },
-        })
-
-        await screen.findByTestId('trend-lifecycle-graph')
-        const tooltip = await chart.hoverTooltip(2)
+        // "Users" is the group type label.
         expect(tooltip.element.textContent).toMatch(/Users/)
     })
 
     it('renders InsightEmptyState when every series count is zero', async () => {
         renderInsight({
             query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
             mocks: {
                 additionalMockResponses: [
                     {
@@ -141,45 +124,33 @@ describe('TrendsLifecycleChart', () => {
         )
     })
 
-    it('renders the legend items in the same order as the rendered series', async () => {
+    // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
+    it.each([
+        {
+            name: 'renders the legend items in series order when showLegend is set',
+            showLegend: true,
+            expectedLabels: ['Dormant', 'Returning', 'Resurrecting', 'New'],
+        },
+        {
+            name: 'omits the legend when showLegend is not set',
+            showLegend: undefined,
+            expectedLabels: null,
+        },
+    ])('$name', async ({ showLegend, expectedLabels }) => {
         renderInsight({
-            query: buildLifecycleQuery({ lifecycleFilter: { showLegend: true } }) as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
+            query: buildLifecycleQuery(
+                showLegend ? { lifecycleFilter: { showLegend } } : {}
+            ) as unknown as InsightQuery,
             mocks: { additionalMockResponses: lifecycleMocks },
         })
 
         await screen.findByTestId('trend-lifecycle-graph')
-        const legend = await screen.findByTestId('trend-lifecycle-legend')
-        // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
-        const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
-        expect(labels).toEqual(['Dormant', 'Returning', 'Resurrecting', 'New'])
-    })
-
-    it('omits the legend when showLegend is not set', async () => {
-        renderInsight({
-            query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: HOG_CHARTS_FLAG,
-            mocks: { additionalMockResponses: lifecycleMocks },
-        })
-
-        await screen.findByTestId('trend-lifecycle-graph')
-        expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
-    })
-
-    it('falls back to the legacy renderer when the flag is off', async () => {
-        renderInsight({
-            query: buildLifecycleQuery() as unknown as InsightQuery,
-            featureFlags: {},
-            mocks: { additionalMockResponses: lifecycleMocks },
-        })
-
-        // Without the flag the hog-charts data-attr is never rendered; the Chart.js LineGraph
-        // renders a <canvas> instead.
-        await waitFor(
-            () => {
-                expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
+        if (expectedLabels) {
+            const legend = await screen.findByTestId('hog-chart-timeseries-bar-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(expectedLabels)
+        } else {
+            expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
+        }
     })
 })

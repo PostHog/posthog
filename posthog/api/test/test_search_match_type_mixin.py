@@ -1,15 +1,30 @@
 from parameterized import parameterized
 from rest_framework import serializers
 
+from posthog.api.cohort import CohortSerializer
+from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.shared import SearchMatchTypeSerializerMixin
 
+from products.alerts.backend.api.alert import AlertSerializer
+from products.cdp.backend.api.hog_function import HogFunctionMinimalSerializer, HogFunctionSerializer
+from products.dashboards.backend.api.dashboard import DashboardBasicSerializer
 from products.product_analytics.backend.api.insight import InsightBasicSerializer, InsightSerializer
+from products.product_tours.backend.api.product_tour import ProductTourSerializer
+from products.surveys.backend.api.survey import SurveySerializer
 
 # Each product that migrates its saved-list search onto apply_trigram_search appends its
 # serializer(s) here, so the MRO-ordering contract is pinned for every consumer.
 SEARCH_LIST_SERIALIZERS = [
     ("insight_basic", InsightBasicSerializer),
     ("insight", InsightSerializer),
+    ("organization_member", OrganizationMemberSerializer),
+    ("dashboard_basic", DashboardBasicSerializer),
+    ("hog_function_minimal", HogFunctionMinimalSerializer),
+    ("hog_function", HogFunctionSerializer),
+    ("survey", SurveySerializer),
+    ("product_tour", ProductTourSerializer),
+    ("alert", AlertSerializer),
+    ("cohort", CohortSerializer),
 ]
 
 

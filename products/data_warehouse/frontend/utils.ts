@@ -165,6 +165,7 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     append: 'Append only',
     webhook: 'Webhook',
     cdc: 'CDC',
+    xmin: 'xmin',
 }
 
 export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {

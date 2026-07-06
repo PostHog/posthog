@@ -7,7 +7,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
