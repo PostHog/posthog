@@ -202,9 +202,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    validated live — Δ +0.0% vs gateway LiteLLM costs on every bucket, naive = 4.8× true confirmed on a
    published PR #68749 review ($9.90 true), and the probe-era "+28% sonnet discrepancy" resolved as a
    measurement artifact. The same-day local-DB nuke deleted the archived arm events, so corrected
-   baselines accumulate from fresh runs. **Remaining Gate-0 (the next experiment): gateway cache probe +
-   fork-sizing spikes, starting with fresh large multi-chunk run data — entry point is `PLAN.md`'s
-   status block.**
+   baselines accumulate from fresh runs. **Gate 0 CLOSED the same day by a user reframe (locked
+   constraints 6-9 in `CANDIDATES.md`): the warm-up is designed as THE per-chunk investigation stage,
+   value scales with unbounded perspective count, so no overlap measurement gates the build — the
+   pre-build spikes are dropped/optional. TTL resolved: sandboxes default to the 5m cache (proven);
+   1h is one env var (`ENABLE_PROMPT_CACHING_1H=1` in the sandbox env, per-unit, 2× write cost) — see
+   the experiment's `HARNESS.md`. Next experiment: the warm-up+fork build (#8) on frozen PR #62096,
+   in its own experiment folder with its own plan; T2/T3 harness patches run locally per `HARNESS.md`.**
 
 ### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
 

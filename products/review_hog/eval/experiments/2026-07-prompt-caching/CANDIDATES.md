@@ -23,6 +23,23 @@
 5. Working mode: experiments run **iteratively and in isolation, one after another**, each on its own branch off
    `signals/reviewhog`; contradictory work is stashed or kept on its branch; only decided winners merge back.
 
+## Locked constraints — added 2026-07-06 late session (user, after Gate-0 session 1)
+
+6. **The fork is reframed from "harvest incidental overlap" to "design the warm-up as THE investigation stage."**
+   After chunking, one neutral agent per chunk understands the chunk and the related codespace (reads, no judgments,
+   no code); perspectives fork from its cached session and should not NEED to re-investigate. Perspectives keep full
+   tools and freedom (constraints 1-2 unchanged — skipping re-investigation is the expected outcome, not a rule),
+   and the anchoring guard (per-perspective finding-count distribution + yardstick) stays mandatory.
+7. **The value case is fan-out width, not measured overlap: perspectives are user-extensible (could be 20, we don't
+   limit custom perspectives), so the warm-up amortizes over N and "it should always be worth it if we make the
+   cache work." The s >= 0.55 pre-build gate is DROPPED** — no overlap measurement gates the build. Measurement
+   moves post-build: follower turn count / per-turn cost vs control (the saving is turn elimination) + quality parity.
+8. **Fixture for the fork experiment: frozen PR #62096** (the standard eval fixture, 3 chunks) — comparable with
+   every prior round. The large-PR (1000+) bucket stays untested for now, accepted.
+9. **TTL policy:** default on our sandbox path is 5m (proven — see HARNESS.md "1h cache TTL"); 1h is enforceable
+   with `ENABLE_PROMPT_CACHING_1H=1` in the sandbox env (per-unit, 2× write cost). Start with 5m sliding +
+   per-chunk sequencing, or selectively 1h on the warm-up unit; widen only if measured gaps demand it.
+
 ## Measured facts the program stands on
 
 1. **The naive baseline overstates true cost ~4.8x.**
@@ -105,6 +122,9 @@ before committing to the recompute (retention makes this fragile if delayed).
 ### 2. `gateway-cache-probe` — cross-client cache-share probe (Spike 1, cheap worker-side variant)
 
 DEP: none (throwaway script). Direct saving: $0 (go/no-go information). Verdicts: modify + modify. Cost ~$0.25-0.60, ~1-3h.
+**Status 2026-07-06 late: OPTIONAL.** The existential question has a production PASS (twice — smoke run 2 + the
+PR #68749 publish run), and the fork build's own mechanics gate (follower turn-1 cache reads ≈ warm-up transcript)
+subsumes the substrate check. Run the controlled arms only if the build's cache behavior surprises.
 Post-veto re-aim: **arm 5 (sandbox-origin pair) is the load-bearing arm** — the substrate check for all cross-SANDBOX
 sharing (T2/T3/#8); the direct-path breakpoint result now matters only for the one-shot chunking/dedup calls.
 
@@ -130,6 +150,10 @@ demonstrably works through the gateway, so a strip would be direct-path-specific
 DEP: none (offline; data capture may ride the next eval round's controls). Direct saving: $0. Verdicts: keep + modify.
 **In Gate 0: this is the flagship's go/no-go. Include large multi-chunk runs (large PRs are the priority),
 reporting s per chunk-count bucket.**
+**Status 2026-07-06 late: DEMOTED by locked constraint 7 — s no longer gates the build** (the reframed warm-up
+targets s→1 by design, and value scales with unbounded perspective count). The warmth/TTL half is folded into the
+fork build (measure gaps on its runs; `ENABLE_PROMPT_CACHING_1H` is the lever if they exceed 5m). The overlap
+analysis survives only as an optional post-build diagnostic.
 
 One extraction harness over post-flip runs, joining `$ai_generation` (timestamps, cache_creation) to the tasks' ACP logs
 for tool-call arguments (`$ai_tools_called` has names only, verified).
@@ -186,7 +210,14 @@ find what the wave missed) — which is why this is a hedge, not the flagship.
 
 DEP: harness (T2 + T3 + SHA-pinned checkout). Corrected saving: ~$0.7/chunk at s in [0.55, 0.6] (~$1.5-2.2/run on the
 3-chunk frozen PR; scales with chunk count, so large PRs benefit most). Verdicts: modify + modify.
-**THE FLAGSHIP (2026-07-06).** Every reviewer stays a full sandbox agent with unrestricted exploration; the
+**THE FLAGSHIP (2026-07-06).**
+**Status 2026-07-06 late: promoted to THE NEXT EXPERIMENT under locked constraints 6-9** — the gated ladder
+(#3 s-gate → #2 arm 5 → Spike 2) collapses: no pre-build measurement; Spike 2 (stripped-form fork fidelity) becomes
+the build's first milestone, and the substrate check folds into the mechanics gate. The $ figure above was sized at
+N=3 wave units and s≈0.55 — under the reframe (warm-up = the investigation stage, N unbounded via custom
+perspectives) it is a floor, not the estimate. Fixture: frozen PR #62096; standard eval (2 arm vs 2 control) with
+the anchoring guard; gates = mechanics (follower turn-1 cache_read ≈ warm-up transcript), cost (follower turns +
+per-turn cost drop), quality (yardstick parity). Every reviewer stays a full sandbox agent with unrestricted exploration; the
 perspective-invariant share of exploration arrives pre-done as a 0.1x cached prefix instead of being re-derived 3x per chunk.
 
 Warm-up = a real Claude Code sandbox session (tools+system must match followers byte-for-byte; a direct call cannot seed this)

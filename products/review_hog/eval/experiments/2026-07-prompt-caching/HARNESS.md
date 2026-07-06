@@ -81,6 +81,35 @@ Housekeeping: while `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, EVERY local sandb
 - Remember from CANDIDATES #8: the warm-up needs a final settling user turn (thinking-block stripping), and Spike 2's
   gate is against the stripped-form prefix.
 
+## 1h cache TTL — resolved 2026-07-06 (late session): default is 5m on our path; 1h is one env var away
+
+**Question (user):** aren't we on the 1-hour TTL by default? **Answer: no — proven three ways, and cleanly enforceable.**
+
+1. **Billing proof:** the PR #68749 run's cache-write cost matched the 5m rate (1.25×) to the cent
+   (`runs/gate0-run1-pr68749-publish.md` per-side cross-check), and LiteLLM prices 1h writes separately
+   (`cache_creation_input_token_cost_above_1hr` = 2× — used by its cost calc, so 1h writes would have shown).
+2. **Behavior proof:** two independent >5m gaps caused full prefix rewrites (blind-spot 5m52s after the last wave
+   gen on the #68749 run; the 10-min gap on smoke run 2).
+3. **Mechanism (decompiled from the CLI bundle, `packages/agent/dist/claude-cli/claude`):** per request the CLI sets
+   `ttl = CCH(querySource) ? "1h" : undefined` and threads it into every cache breakpoint (+ pushes the
+   `extended-cache-ttl-2025-04-11` beta header). `CCH()`:
+   `FORCE_PROMPT_CACHING_5M` env → always 5m; **`ENABLE_PROMPT_CACHING_1H` env → always 1h (unconditional)**;
+   otherwise requires first-party auth (`Nq()`, fails on our gateway token/base-URL path) before consulting a
+   statsig allowlist (`tengu_prompt_cache_1h_config`, default `["repl_main_thread*","sdk","auto_mode","memdir_relevance"]`).
+   So interactive Claude Code and first-party SDK sessions DO default to 1h — our gateway-authed sandboxes fall
+   through to 5m. That reconciles the "we use 1h by default" intuition with the measured 5m behavior.
+
+**Enforcement (no patches needed):** set `ENABLE_PROMPT_CACHING_1H=1` in the sandbox container env — injection
+point `products/tasks/backend/temporal/process_task/activities/provision_sandbox.py` (the `environment_variables`
+dict, near the `LLM_GATEWAY_URL` line). It's per-sandbox, so it can be enabled selectively (e.g. warm-up unit only:
+its transcript entry then survives 1h while follower writes stay 5m). Neither repo sets these vars today (verified).
+
+**Costs and residual unknowns:** 1h writes bill 2× vs 1.25× (blanket-enabling on the #68749 run shape would have
+added ~$2.4/run in write premium — enable selectively, not fleet-wide). The ttl field is GA (no header required
+per current Anthropic docs); whether the CLI's beta-header push also fires on our path (`uk()` gate, un-decoded)
+is a verify-at-run-time detail — the first enabled run's write-side cost (expect ~+60% on that unit) and a >5m
+gap survival are the empirical confirmation.
+
 ## Verification — the tripwire
 
 - The gateway captures `$ai_generation` with `$ai_cache_read_input_tokens` / `$ai_cache_creation_input_tokens`
