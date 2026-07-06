@@ -528,6 +528,7 @@ mod test {
             fingerprint: None,
             proposed_fingerprint: None,
             fingerprint_record: None,
+            fingerprint_version: None,
             issue_id: None,
             proposed_issue_name: None,
             proposed_issue_description: None,
