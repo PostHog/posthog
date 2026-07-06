@@ -1222,6 +1222,46 @@ hog_functions: PostgresTable = PostgresTable(
     },
 )
 
+
+def _notebook_content_or_empty_object_expr() -> ast.Expr:
+    return ast.Call(name="ifNull", args=[ast.Field(chain=["content"]), ast.Constant(value="{}")])
+
+
+def _first_notebook_content_node_expr() -> ast.Expr:
+    return ast.ArrayAccess(
+        array=ast.Call(
+            name="JSONExtractArrayRaw",
+            args=[_notebook_content_or_empty_object_expr(), ast.Constant(value="content")],
+        ),
+        property=ast.Constant(value=1),
+    )
+
+
+def _notebook_markdown_expr() -> ast.Expr:
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(
+                left=ast.Call(
+                    name="JSONExtractString",
+                    args=[_first_notebook_content_node_expr(), ast.Constant(value="type")],
+                ),
+                right=ast.Constant(value="ph-markdown-notebook"),
+                op=ast.CompareOperationOp.Eq,
+            ),
+            ast.Call(
+                name="JSONExtractString",
+                args=[
+                    _first_notebook_content_node_expr(),
+                    ast.Constant(value="attrs"),
+                    ast.Constant(value="markdown"),
+                ],
+            ),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
@@ -1234,6 +1274,12 @@ notebooks: PostgresTable = PostgresTable(
         "title": StringDatabaseField(name="title", description="Notebook title."),
         "content": StringJSONDatabaseField(
             name="content", description="JSON rich-text document (ProseMirror) content."
+        ),
+        "markdown": ExpressionField(
+            name="markdown",
+            nullable=True,
+            expr=_notebook_markdown_expr(),
+            description="Markdown source for markdown notebooks; NULL for legacy rich-text notebooks.",
         ),
         "text_content": StringDatabaseField(
             name="text_content", description="Plain-text rendering of the notebook, for search."

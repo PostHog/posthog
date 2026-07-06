@@ -56,6 +56,8 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
@@ -70,7 +72,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -912,10 +914,17 @@ class SessionRecordingViewSet(
         except CHQueryErrorTooManySimultaneousQueries:
             SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
+            # event) is the caller's problem, not a server error. Surface the actual reason as a 400
+            # instead of collapsing it into a generic 500.
+            raise exceptions.ValidationError(str(e), getattr(e, "code_name", None))
+        except exceptions.APIException:
+            # ValidationError, Throttled, and the ClickHouse capacity / timeout / memory-limit
+            # exceptions already carry a correct status code and a user-safe message. Let DRF render
+            # them as-is rather than masking a well-formed response behind a generic 500.
+            raise
         except (ServerException, Exception) as e:
-            if isinstance(e, exceptions.ValidationError):
-                raise
-
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
                 SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")

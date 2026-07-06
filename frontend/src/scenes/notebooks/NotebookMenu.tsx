@@ -43,7 +43,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         {isMarkdownNotebook ? (
                             <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
                                 <IconDownload />
-                                Download
+                                Download .md
                             </ButtonPrimitive>
                         ) : (
                             <ButtonPrimitive onClick={() => exportJSON()} menuItem>
