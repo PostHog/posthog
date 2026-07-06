@@ -1,0 +1,1322 @@
+[
+    {
+        "case_id": "impl_gen_000_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_000() -> str:` that returns the string 'signals-eval-000'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_000", "signals-eval-000"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_001_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_001 = 'signals-eval-001'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_001", "signals-eval-001"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_002_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_002.md` containing exactly one line: 'signals-eval-marker-002'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_002"],
+            "expected_diff_keywords": ["signals-eval-marker-002"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_003_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_003.py` with a module docstring and a function `def helper_003() -> int: return 3`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_003"],
+            "expected_diff_keywords": ["helper_003"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_004_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_004() -> str:` that returns the string 'signals-eval-004'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_004", "signals-eval-004"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_005_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_005 = 'signals-eval-005'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_005", "signals-eval-005"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_006_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_006.md` containing exactly one line: 'signals-eval-marker-006'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_006"],
+            "expected_diff_keywords": ["signals-eval-marker-006"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_007_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_007.py` with a module docstring and a function `def helper_007() -> int: return 7`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_007"],
+            "expected_diff_keywords": ["helper_007"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_008_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_008() -> str:` that returns the string 'signals-eval-008'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_008", "signals-eval-008"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_009_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_009 = 'signals-eval-009'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_009", "signals-eval-009"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_010_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_010.md` containing exactly one line: 'signals-eval-marker-010'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_010"],
+            "expected_diff_keywords": ["signals-eval-marker-010"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_011_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_011.py` with a module docstring and a function `def helper_011() -> int: return 11`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_011"],
+            "expected_diff_keywords": ["helper_011"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_012_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_012() -> str:` that returns the string 'signals-eval-012'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_012", "signals-eval-012"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_013_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_013 = 'signals-eval-013'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_013", "signals-eval-013"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_014_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_014.md` containing exactly one line: 'signals-eval-marker-014'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_014"],
+            "expected_diff_keywords": ["signals-eval-marker-014"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_015_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_015.py` with a module docstring and a function `def helper_015() -> int: return 15`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_015"],
+            "expected_diff_keywords": ["helper_015"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_016_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_016() -> str:` that returns the string 'signals-eval-016'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_016", "signals-eval-016"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_017_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_017 = 'signals-eval-017'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_017", "signals-eval-017"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_018_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_018.md` containing exactly one line: 'signals-eval-marker-018'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_018"],
+            "expected_diff_keywords": ["signals-eval-marker-018"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_019_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_019.py` with a module docstring and a function `def helper_019() -> int: return 19`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_019"],
+            "expected_diff_keywords": ["helper_019"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_020_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_020() -> str:` that returns the string 'signals-eval-020'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_020", "signals-eval-020"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_021_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_021 = 'signals-eval-021'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_021", "signals-eval-021"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_022_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_022.md` containing exactly one line: 'signals-eval-marker-022'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_022"],
+            "expected_diff_keywords": ["signals-eval-marker-022"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_023_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_023.py` with a module docstring and a function `def helper_023() -> int: return 23`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_023"],
+            "expected_diff_keywords": ["helper_023"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_024_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_024() -> str:` that returns the string 'signals-eval-024'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_024", "signals-eval-024"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_025_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_025 = 'signals-eval-025'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_025", "signals-eval-025"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_026_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_026.md` containing exactly one line: 'signals-eval-marker-026'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_026"],
+            "expected_diff_keywords": ["signals-eval-marker-026"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_027_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_027.py` with a module docstring and a function `def helper_027() -> int: return 27`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_027"],
+            "expected_diff_keywords": ["helper_027"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_028_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_028() -> str:` that returns the string 'signals-eval-028'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_028", "signals-eval-028"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_029_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_029 = 'signals-eval-029'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_029", "signals-eval-029"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_030_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_030.md` containing exactly one line: 'signals-eval-marker-030'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_030"],
+            "expected_diff_keywords": ["signals-eval-marker-030"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_031_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_031.py` with a module docstring and a function `def helper_031() -> int: return 31`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_031"],
+            "expected_diff_keywords": ["helper_031"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_032_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_032() -> str:` that returns the string 'signals-eval-032'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_032", "signals-eval-032"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_033_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_033 = 'signals-eval-033'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_033", "signals-eval-033"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_034_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_034.md` containing exactly one line: 'signals-eval-marker-034'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_034"],
+            "expected_diff_keywords": ["signals-eval-marker-034"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_035_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_035.py` with a module docstring and a function `def helper_035() -> int: return 35`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_035"],
+            "expected_diff_keywords": ["helper_035"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_036_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_036() -> str:` that returns the string 'signals-eval-036'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_036", "signals-eval-036"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_037_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_037 = 'signals-eval-037'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_037", "signals-eval-037"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_038_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_038.md` containing exactly one line: 'signals-eval-marker-038'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_038"],
+            "expected_diff_keywords": ["signals-eval-marker-038"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_039_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_039.py` with a module docstring and a function `def helper_039() -> int: return 39`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_039"],
+            "expected_diff_keywords": ["helper_039"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_040_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_040() -> str:` that returns the string 'signals-eval-040'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_040", "signals-eval-040"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_041_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_041 = 'signals-eval-041'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_041", "signals-eval-041"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_042_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_042.md` containing exactly one line: 'signals-eval-marker-042'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_042"],
+            "expected_diff_keywords": ["signals-eval-marker-042"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_043_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_043.py` with a module docstring and a function `def helper_043() -> int: return 43`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_043"],
+            "expected_diff_keywords": ["helper_043"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_044_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_044() -> str:` that returns the string 'signals-eval-044'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_044", "signals-eval-044"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_045_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_045 = 'signals-eval-045'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_045", "signals-eval-045"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_046_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_046.md` containing exactly one line: 'signals-eval-marker-046'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_046"],
+            "expected_diff_keywords": ["signals-eval-marker-046"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_047_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_047.py` with a module docstring and a function `def helper_047() -> int: return 47`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_047"],
+            "expected_diff_keywords": ["helper_047"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_048_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_048() -> str:` that returns the string 'signals-eval-048'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_048", "signals-eval-048"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_049_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_049 = 'signals-eval-049'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_049", "signals-eval-049"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_050_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_050.md` containing exactly one line: 'signals-eval-marker-050'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_050"],
+            "expected_diff_keywords": ["signals-eval-marker-050"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_051_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_051.py` with a module docstring and a function `def helper_051() -> int: return 51`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_051"],
+            "expected_diff_keywords": ["helper_051"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_052_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_052() -> str:` that returns the string 'signals-eval-052'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_052", "signals-eval-052"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_053_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_053 = 'signals-eval-053'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_053", "signals-eval-053"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_054_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_054.md` containing exactly one line: 'signals-eval-marker-054'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_054"],
+            "expected_diff_keywords": ["signals-eval-marker-054"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_055_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_055.py` with a module docstring and a function `def helper_055() -> int: return 55`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_055"],
+            "expected_diff_keywords": ["helper_055"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_056_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_056() -> str:` that returns the string 'signals-eval-056'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_056", "signals-eval-056"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_057_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_057 = 'signals-eval-057'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_057", "signals-eval-057"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_058_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_058.md` containing exactly one line: 'signals-eval-marker-058'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_058"],
+            "expected_diff_keywords": ["signals-eval-marker-058"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_059_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_059.py` with a module docstring and a function `def helper_059() -> int: return 59`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_059"],
+            "expected_diff_keywords": ["helper_059"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_060_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_060() -> str:` that returns the string 'signals-eval-060'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_060", "signals-eval-060"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_061_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_061 = 'signals-eval-061'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_061", "signals-eval-061"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_062_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_062.md` containing exactly one line: 'signals-eval-marker-062'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_062"],
+            "expected_diff_keywords": ["signals-eval-marker-062"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_063_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_063.py` with a module docstring and a function `def helper_063() -> int: return 63`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_063"],
+            "expected_diff_keywords": ["helper_063"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_064_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_064() -> str:` that returns the string 'signals-eval-064'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_064", "signals-eval-064"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_065_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_065 = 'signals-eval-065'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_065", "signals-eval-065"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_066_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_066.md` containing exactly one line: 'signals-eval-marker-066'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_066"],
+            "expected_diff_keywords": ["signals-eval-marker-066"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_067_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_067.py` with a module docstring and a function `def helper_067() -> int: return 67`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_067"],
+            "expected_diff_keywords": ["helper_067"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_068_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_068() -> str:` that returns the string 'signals-eval-068'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_068", "signals-eval-068"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_069_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_069 = 'signals-eval-069'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_069", "signals-eval-069"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_070_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_070.md` containing exactly one line: 'signals-eval-marker-070'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_070"],
+            "expected_diff_keywords": ["signals-eval-marker-070"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_071_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_071.py` with a module docstring and a function `def helper_071() -> int: return 71`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_071"],
+            "expected_diff_keywords": ["helper_071"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_072_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_072() -> str:` that returns the string 'signals-eval-072'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_072", "signals-eval-072"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_073_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_073 = 'signals-eval-073'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_073", "signals-eval-073"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_074_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_074.md` containing exactly one line: 'signals-eval-marker-074'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_074"],
+            "expected_diff_keywords": ["signals-eval-marker-074"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_075_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_075.py` with a module docstring and a function `def helper_075() -> int: return 75`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_075"],
+            "expected_diff_keywords": ["helper_075"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_076_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_076() -> str:` that returns the string 'signals-eval-076'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_076", "signals-eval-076"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_077_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_077 = 'signals-eval-077'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_077", "signals-eval-077"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_078_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_078.md` containing exactly one line: 'signals-eval-marker-078'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_078"],
+            "expected_diff_keywords": ["signals-eval-marker-078"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_079_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_079.py` with a module docstring and a function `def helper_079() -> int: return 79`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_079"],
+            "expected_diff_keywords": ["helper_079"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_080_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_080() -> str:` that returns the string 'signals-eval-080'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_080", "signals-eval-080"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_081_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_081 = 'signals-eval-081'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_081", "signals-eval-081"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_082_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_082.md` containing exactly one line: 'signals-eval-marker-082'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_082"],
+            "expected_diff_keywords": ["signals-eval-marker-082"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_083_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_083.py` with a module docstring and a function `def helper_083() -> int: return 83`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_083"],
+            "expected_diff_keywords": ["helper_083"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_084_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_084() -> str:` that returns the string 'signals-eval-084'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_084", "signals-eval-084"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_085_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_085 = 'signals-eval-085'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_085", "signals-eval-085"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_086_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_086.md` containing exactly one line: 'signals-eval-marker-086'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_086"],
+            "expected_diff_keywords": ["signals-eval-marker-086"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_087_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_087.py` with a module docstring and a function `def helper_087() -> int: return 87`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_087"],
+            "expected_diff_keywords": ["helper_087"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_088_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_088() -> str:` that returns the string 'signals-eval-088'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_088", "signals-eval-088"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_089_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_089 = 'signals-eval-089'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_089", "signals-eval-089"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_090_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_090.md` containing exactly one line: 'signals-eval-marker-090'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_090"],
+            "expected_diff_keywords": ["signals-eval-marker-090"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_091_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_091.py` with a module docstring and a function `def helper_091() -> int: return 91`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_091"],
+            "expected_diff_keywords": ["helper_091"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_092_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_092() -> str:` that returns the string 'signals-eval-092'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_092", "signals-eval-092"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_093_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_093 = 'signals-eval-093'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_093", "signals-eval-093"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_094_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_094.md` containing exactly one line: 'signals-eval-marker-094'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_094"],
+            "expected_diff_keywords": ["signals-eval-marker-094"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_095_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_095.py` with a module docstring and a function `def helper_095() -> int: return 95`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_095"],
+            "expected_diff_keywords": ["helper_095"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_096_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_096() -> str:` that returns the string 'signals-eval-096'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_096", "signals-eval-096"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_097_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_097 = 'signals-eval-097'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_097", "signals-eval-097"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_098_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_098.md` containing exactly one line: 'signals-eval-marker-098'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_098"],
+            "expected_diff_keywords": ["signals-eval-marker-098"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_099_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_099.py` with a module docstring and a function `def helper_099() -> int: return 99`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_099"],
+            "expected_diff_keywords": ["helper_099"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_100_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_100() -> str:` that returns the string 'signals-eval-100'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_100", "signals-eval-100"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_101_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_101 = 'signals-eval-101'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_101", "signals-eval-101"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_102_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_102.md` containing exactly one line: 'signals-eval-marker-102'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_102"],
+            "expected_diff_keywords": ["signals-eval-marker-102"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_103_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_103.py` with a module docstring and a function `def helper_103() -> int: return 103`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_103"],
+            "expected_diff_keywords": ["helper_103"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_104_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_104() -> str:` that returns the string 'signals-eval-104'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_104", "signals-eval-104"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_105_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_105 = 'signals-eval-105'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_105", "signals-eval-105"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_106_newfile",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `eval_notes/note_106.md` containing exactly one line: 'signals-eval-marker-106'. Create the directory if needed. Do not modify any other files.",
+        "expectation": {
+            "expected_file_substrings": ["note_106"],
+            "expected_diff_keywords": ["signals-eval-marker-106"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_107_docstring_file",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "Create a new file `posthog/eval_module_107.py` with a module docstring and a function `def helper_107() -> int: return 107`. Keep it minimal.",
+        "expectation": {
+            "expected_file_substrings": ["eval_module_107"],
+            "expected_diff_keywords": ["helper_107"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_108_function",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a top-level function `def eval_fn_108() -> str:` that returns the string 'signals-eval-108'. Keep the change minimal and place it near the other top-level functions.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["eval_fn_108", "signals-eval-108"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    },
+    {
+        "case_id": "impl_gen_109_constant",
+        "repo": "posthog/posthog-python",
+        "issue_prompt": "In `posthog/__init__.py`, add a module-level constant `EVAL_CONST_109 = 'signals-eval-109'` near the top of the module. Keep the change minimal.",
+        "expectation": {
+            "expected_file_substrings": ["__init__.py"],
+            "expected_diff_keywords": ["EVAL_CONST_109", "signals-eval-109"],
+            "forbidden_file_substrings": ["pnpm-lock", "package-lock", "yarn.lock", "poetry.lock"],
+            "min_files_changed": 1,
+            "max_files_changed": 2
+        }
+    }
+]

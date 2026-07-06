@@ -3,6 +3,21 @@
 Commands for emitting signals, tracking pipeline processing, and inspecting grouping results.
 Use these to test grouping strategies against real signal data end-to-end.
 
+## Agentic evals
+
+`run_agentic_eval` runs the agentic eval framework (research / repo selection / implementation)
+and `seed_eval_project` seeds the synthetic eval project. Full docs:
+`products/signals/eval/agentic/README.md`.
+
+```bash
+python manage.py run_agentic_eval                       # all steps, deterministic replay
+python manage.py run_agentic_eval --step research --judge --min-pass-rate 1.0
+python manage.py seed_eval_project                      # hedgebox dataset for live runs (needs stack)
+```
+
+Replay needs no stack/LLM (it replays recorded cassettes through the real step functions);
+`--mode live` / `--mode record` drive the real sandbox agent and need the local stack + Docker.
+
 ## Full flow
 
 Always clean up before re-ingesting to avoid stale data mixing with new results.

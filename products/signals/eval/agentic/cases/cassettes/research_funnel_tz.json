@@ -1,0 +1,35 @@
+{
+    "version": 1,
+    "case_id": "research_funnel_tz",
+    "step": "research",
+    "meta": {
+        "recorded": "hand-authored golden run",
+        "note": "Represents a strong research run over a single funnel-timezone signal."
+    },
+    "turns": [
+        {
+            "index": 0,
+            "label": "initial turn",
+            "model": "SignalFinding",
+            "raw_text": "{\"signal_id\": \"sig_funnel_tz\", \"relevant_code_paths\": [\"posthog/hogql_queries/insights/funnels/funnel.py\", \"posthog/hogql/property.py\"], \"relevant_commit_hashes\": {\"a1b2c3d\": \"Introduced timezone-naive bucketing in funnel step windows\", \"e4f5a6b\": \"Changed DST handling in funnel date range resolution\"}, \"data_queried\": \"Ran execute-sql over events for the 'Signup conversion' funnel for the last 7 days: step 1 (signed_up) counts match the prior week, but step 2 (activated) returns 0 after 2026-03-08, the DST boundary. Conversion fell from ~12% to 0% for 7 days.\", \"verified\": true}"
+        },
+        {
+            "index": 1,
+            "label": "actionability",
+            "model": "ActionabilityAssessment",
+            "raw_text": "{\"explanation\": \"The funnel breaks because step windows compare timezone-naive datetimes across the DST boundary in funnel.py, so step 2 events fall outside the window. This is a concrete, localized code fix.\", \"actionability\": \"immediately_actionable\", \"already_addressed\": false}"
+        },
+        {
+            "index": 2,
+            "label": "priority",
+            "model": "PriorityAssessment",
+            "raw_text": "{\"explanation\": \"Every funnel spanning the DST boundary is affected; the 'Signup conversion' funnel dropped from ~12% to 0% for 7 days, and the bug generalizes across teams.\", \"priority\": \"P1\", \"dollar_value\": 25000}"
+        },
+        {
+            "index": 3,
+            "label": "presentation",
+            "model": "ReportPresentationOutput",
+            "raw_text": "{\"title\": \"fix(funnels): Handle DST timezone conversion in step windows\", \"summary\": \"Users see 0% conversion on any funnel spanning the recent DST change.\\n\\n## Problem\\nFunnel step windows compare timezone-naive datetimes, so after the 2026-03-08 DST boundary step 2 events fall outside the window in funnel.py.\\n\\n## Impact\\nThe Signup conversion funnel dropped from ~12% to 0% for 7 days, and every team with a funnel across the DST boundary is hit.\\n\\n## Solution\\nNormalize step windows to the project timezone before bucketing so DST shifts no longer drop events.\"}"
+        }
+    ]
+}

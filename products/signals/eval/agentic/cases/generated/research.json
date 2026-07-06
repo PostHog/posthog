@@ -1,0 +1,1383 @@
+[
+    {
+        "case_id": "research_gen_err_000_attributeerror",
+        "signal": {
+            "signal_id": "sig_err_000",
+            "content": "Error tracking shows a 'AttributeError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["attributeerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_001_checkout",
+        "signal": {
+            "signal_id": "sig_err_001",
+            "content": "Error tracking shows a 'Checkout API timeout' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["checkout"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_002_clienterror",
+        "signal": {
+            "signal_id": "sig_err_002",
+            "content": "Error tracking shows a 'ClientError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["clienterror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_003_connectionrefusederror",
+        "signal": {
+            "signal_id": "sig_err_003",
+            "content": "Error tracking shows a 'ConnectionRefusedError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["connectionrefusederror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_004_error",
+        "signal": {
+            "signal_id": "sig_err_004",
+            "content": "Error tracking shows a 'Error' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["error"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_005_fielderror",
+        "signal": {
+            "signal_id": "sig_err_005",
+            "content": "Error tracking shows a 'FieldError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["fielderror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_006_preview",
+        "signal": {
+            "signal_id": "sig_err_006",
+            "content": "Error tracking shows a 'File preview render failure' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["preview"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_007_githubintegrationerror",
+        "signal": {
+            "signal_id": "sig_err_007",
+            "content": "Error tracking shows a 'GitHubIntegrationError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["githubintegrationerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_008_importerror",
+        "signal": {
+            "signal_id": "sig_err_008",
+            "content": "Error tracking shows a 'ImportError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["importerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_009_indentationerror",
+        "signal": {
+            "signal_id": "sig_err_009",
+            "content": "Error tracking shows a 'IndentationError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["indentationerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_010_doesnotexist",
+        "signal": {
+            "signal_id": "sig_err_010",
+            "content": "Error tracking shows a 'Integration.DoesNotExist' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["doesnotexist"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_011_keyerror",
+        "signal": {
+            "signal_id": "sig_err_011",
+            "content": "Error tracking shows a 'KeyError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["keyerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_012_locknotownederror",
+        "signal": {
+            "signal_id": "sig_err_012",
+            "content": "Error tracking shows a 'LockNotOwnedError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["locknotownederror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_013_modulenotfounderror",
+        "signal": {
+            "signal_id": "sig_err_013",
+            "content": "Error tracking shows a 'ModuleNotFoundError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["modulenotfounderror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_014_notauthenticated",
+        "signal": {
+            "signal_id": "sig_err_014",
+            "content": "Error tracking shows a 'NotAuthenticated' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["notauthenticated"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_015_oserror",
+        "signal": {
+            "signal_id": "sig_err_015",
+            "content": "Error tracking shows a 'OSError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["oserror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_016_operationalerror",
+        "signal": {
+            "signal_id": "sig_err_016",
+            "content": "Error tracking shows a 'OperationalError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["operationalerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_017_referenceerror",
+        "signal": {
+            "signal_id": "sig_err_017",
+            "content": "Error tracking shows a 'ReferenceError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["referenceerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_018_serverexception",
+        "signal": {
+            "signal_id": "sig_err_018",
+            "content": "Error tracking shows a 'ServerException' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["serverexception"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_019_syntaxerror",
+        "signal": {
+            "signal_id": "sig_err_019",
+            "content": "Error tracking shows a 'SyntaxError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["syntaxerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_020_rejected",
+        "signal": {
+            "signal_id": "sig_err_020",
+            "content": "Error tracking shows a 'Team invite rejected' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["rejected"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_021_typeerror",
+        "signal": {
+            "signal_id": "sig_err_021",
+            "content": "Error tracking shows a 'TypeError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["typeerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_022_undefinedcolumn",
+        "signal": {
+            "signal_id": "sig_err_022",
+            "content": "Error tracking shows a 'UndefinedColumn' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["undefinedcolumn"]
+        }
+    },
+    {
+        "case_id": "research_gen_err_023_untaggedqueryerror",
+        "signal": {
+            "signal_id": "sig_err_023",
+            "content": "Error tracking shows a 'UntaggedQueryError' issue. Customers are hitting it. Investigate the real impact via the project's data and assess whether it's worth acting on.",
+            "source_product": "error_tracking",
+            "source_type": "issue_spiking"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["untaggedqueryerror"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_000_downloaded",
+        "signal": {
+            "signal_id": "sig_evt_000",
+            "content": "We suspect the 'downloaded_file' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["downloaded"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_001_framerate",
+        "signal": {
+            "signal_id": "sig_evt_001",
+            "content": "We suspect the 'react_framerate' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["framerate"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_002_properties",
+        "signal": {
+            "signal_id": "sig_evt_002",
+            "content": "We suspect the 'update user properties' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["properties"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_003_logged",
+        "signal": {
+            "signal_id": "sig_evt_003",
+            "content": "We suspect the 'logged_out' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["logged"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_004_memory",
+        "signal": {
+            "signal_id": "sig_evt_004",
+            "content": "We suspect the 'memory_usage' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["memory"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_005_created",
+        "signal": {
+            "signal_id": "sig_evt_005",
+            "content": "We suspect the 'task_created' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["created"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_006_activity",
+        "signal": {
+            "signal_id": "sig_evt_006",
+            "content": "We suspect the 'process_task_activity_started' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["activity"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_007_created",
+        "signal": {
+            "signal_id": "sig_evt_007",
+            "content": "We suspect the 'task_run_created' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["created"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_008_request",
+        "signal": {
+            "signal_id": "sig_evt_008",
+            "content": "We suspect the 'client_request_failure' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["request"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_009_completed",
+        "signal": {
+            "signal_id": "sig_evt_009",
+            "content": "We suspect the 'process_task_activity_completed' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["completed"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_010_livestream",
+        "signal": {
+            "signal_id": "sig_evt_010",
+            "content": "We suspect the 'livestream_sse_error' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["livestream"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_011_livestream",
+        "signal": {
+            "signal_id": "sig_evt_011",
+            "content": "We suspect the 'livestream_sse_startsse_called' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["livestream"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_012_livestream",
+        "signal": {
+            "signal_id": "sig_evt_012",
+            "content": "We suspect the 'livestream_sse_connecting' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["livestream"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_013_livestream",
+        "signal": {
+            "signal_id": "sig_evt_013",
+            "content": "We suspect the 'livestream_sse_stopped' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["livestream"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_014_uploaded",
+        "signal": {
+            "signal_id": "sig_evt_014",
+            "content": "We suspect the 'uploaded_file' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["uploaded"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_015_signed",
+        "signal": {
+            "signal_id": "sig_evt_015",
+            "content": "We suspect the 'signed_up' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["signed"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_016_emitted",
+        "signal": {
+            "signal_id": "sig_evt_016",
+            "content": "We suspect the 'signal_emitted' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["emitted"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_017_emission",
+        "signal": {
+            "signal_id": "sig_evt_017",
+            "content": "We suspect the 'signal_emission_started' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["emission"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_018_viewed",
+        "signal": {
+            "signal_id": "sig_evt_018",
+            "content": "We suspect the 'Inbox viewed' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["viewed"]
+        }
+    },
+    {
+        "case_id": "research_gen_evt_019_onfeatureflags",
+        "signal": {
+            "signal_id": "sig_evt_019",
+            "content": "We suspect the 'onFeatureFlags error' behavior has shifted recently. Check the trend in the project's analytics and assess whether there's a real change worth acting on.",
+            "source_product": "session_replay",
+            "source_type": "replay_vision"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["onfeatureflags"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_000_onboarding",
+        "signal": {
+            "signal_id": "sig_exp_000",
+            "content": "A teammate flagged that the 'z. Onboarding flow test' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["onboarding"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_001_engagement",
+        "signal": {
+            "signal_id": "sig_exp_001",
+            "content": "A teammate flagged that the 'File engagement boost' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["engagement"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_002_redesign",
+        "signal": {
+            "signal_id": "sig_exp_002",
+            "content": "A teammate flagged that the 'Pricing page redesign' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["redesign"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_003_incentive",
+        "signal": {
+            "signal_id": "sig_exp_003",
+            "content": "A teammate flagged that the 'File sharing incentive' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["incentive"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_004_experiment",
+        "signal": {
+            "signal_id": "sig_exp_004",
+            "content": "A teammate flagged that the 'Upgrade prompt experiment' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["experiment"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_005_retention",
+        "signal": {
+            "signal_id": "sig_exp_005",
+            "content": "A teammate flagged that the 'Retention nudge' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["retention"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_006_collaboration",
+        "signal": {
+            "signal_id": "sig_exp_006",
+            "content": "A teammate flagged that the 'Team collaboration boost' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["collaboration"]
+        }
+    },
+    {
+        "case_id": "research_gen_exp_007_warning",
+        "signal": {
+            "signal_id": "sig_exp_007",
+            "content": "A teammate flagged that the 'Bias warning demo: uneven split with multi-variant' experiment may be inconclusive or negative. Read the experiment results in the project and recommend ship / iterate / roll back.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "expect_data_evidence": true,
+            "summary_must_mention": ["warning"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_000_bug",
+        "signal": {
+            "signal_id": "sig_var_000",
+            "content": "A customer reports a clear, reproducible bug: the file upload progress bar sticks at 99% and never completes. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["completes"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_001_bug",
+        "signal": {
+            "signal_id": "sig_var_001",
+            "content": "A customer reports a clear, reproducible bug: shared links 404 for recipients who are not logged in. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["recipients"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_002_bug",
+        "signal": {
+            "signal_id": "sig_var_002",
+            "content": "A customer reports a clear, reproducible bug: the dashboard date filter resets to default on refresh. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["dashboard"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_003_bug",
+        "signal": {
+            "signal_id": "sig_var_003",
+            "content": "A customer reports a clear, reproducible bug: CSV export drops the last row when the table is paginated. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["paginated"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_004_bug",
+        "signal": {
+            "signal_id": "sig_var_004",
+            "content": "A customer reports a clear, reproducible bug: the mobile nav menu cannot be closed once opened. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["mobile"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_005_feature",
+        "signal": {
+            "signal_id": "sig_var_005",
+            "content": "Feature request: let users bulk-download a whole folder as a single zip. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["download"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_006_feature",
+        "signal": {
+            "signal_id": "sig_var_006",
+            "content": "Feature request: add a dark mode toggle to the settings page. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["settings"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_007_feature",
+        "signal": {
+            "signal_id": "sig_var_007",
+            "content": "Feature request: support SSO login via Okta for enterprise accounts. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["enterprise"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_008_feature",
+        "signal": {
+            "signal_id": "sig_var_008",
+            "content": "Feature request: allow scheduling a report to be emailed weekly. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["scheduling"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_009_feature",
+        "signal": {
+            "signal_id": "sig_var_009",
+            "content": "Feature request: add keyboard shortcuts for the most common actions. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["shortcuts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_010_vague",
+        "signal": {
+            "signal_id": "sig_var_010",
+            "content": "A user vaguely says: 'the product just feels kind of slow and clunky sometimes'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["sometimes"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_011_vague",
+        "signal": {
+            "signal_id": "sig_var_011",
+            "content": "A user vaguely says: 'something seems off lately, not sure what'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["something"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_012_vague",
+        "signal": {
+            "signal_id": "sig_var_012",
+            "content": "A user vaguely says: 'the new design is weird'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["design"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_013_perf",
+        "signal": {
+            "signal_id": "sig_var_013",
+            "content": "Performance report: the file list takes 8+ seconds to load for large accounts. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["accounts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_014_perf",
+        "signal": {
+            "signal_id": "sig_var_014",
+            "content": "Performance report: search latency spikes during business hours. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["business"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_015_perf",
+        "signal": {
+            "signal_id": "sig_var_015",
+            "content": "Performance report: the app uses a lot of memory and tabs get killed. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["memory"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_016_bug",
+        "signal": {
+            "signal_id": "sig_var_016",
+            "content": "A customer reports a clear, reproducible bug: the file upload progress bar sticks at 99% and never completes. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["completes"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_017_bug",
+        "signal": {
+            "signal_id": "sig_var_017",
+            "content": "A customer reports a clear, reproducible bug: shared links 404 for recipients who are not logged in. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["recipients"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_018_bug",
+        "signal": {
+            "signal_id": "sig_var_018",
+            "content": "A customer reports a clear, reproducible bug: the dashboard date filter resets to default on refresh. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["dashboard"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_019_bug",
+        "signal": {
+            "signal_id": "sig_var_019",
+            "content": "A customer reports a clear, reproducible bug: CSV export drops the last row when the table is paginated. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["paginated"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_020_bug",
+        "signal": {
+            "signal_id": "sig_var_020",
+            "content": "A customer reports a clear, reproducible bug: the mobile nav menu cannot be closed once opened. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["mobile"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_021_feature",
+        "signal": {
+            "signal_id": "sig_var_021",
+            "content": "Feature request: let users bulk-download a whole folder as a single zip. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["download"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_022_feature",
+        "signal": {
+            "signal_id": "sig_var_022",
+            "content": "Feature request: add a dark mode toggle to the settings page. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["settings"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_023_feature",
+        "signal": {
+            "signal_id": "sig_var_023",
+            "content": "Feature request: support SSO login via Okta for enterprise accounts. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["enterprise"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_024_feature",
+        "signal": {
+            "signal_id": "sig_var_024",
+            "content": "Feature request: allow scheduling a report to be emailed weekly. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["scheduling"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_025_feature",
+        "signal": {
+            "signal_id": "sig_var_025",
+            "content": "Feature request: add keyboard shortcuts for the most common actions. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["shortcuts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_026_vague",
+        "signal": {
+            "signal_id": "sig_var_026",
+            "content": "A user vaguely says: 'the product just feels kind of slow and clunky sometimes'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["sometimes"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_027_vague",
+        "signal": {
+            "signal_id": "sig_var_027",
+            "content": "A user vaguely says: 'something seems off lately, not sure what'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["something"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_028_vague",
+        "signal": {
+            "signal_id": "sig_var_028",
+            "content": "A user vaguely says: 'the new design is weird'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["design"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_029_perf",
+        "signal": {
+            "signal_id": "sig_var_029",
+            "content": "Performance report: the file list takes 8+ seconds to load for large accounts. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["accounts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_030_perf",
+        "signal": {
+            "signal_id": "sig_var_030",
+            "content": "Performance report: search latency spikes during business hours. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["business"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_031_perf",
+        "signal": {
+            "signal_id": "sig_var_031",
+            "content": "Performance report: the app uses a lot of memory and tabs get killed. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["memory"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_032_bug",
+        "signal": {
+            "signal_id": "sig_var_032",
+            "content": "A customer reports a clear, reproducible bug: the file upload progress bar sticks at 99% and never completes. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["completes"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_033_bug",
+        "signal": {
+            "signal_id": "sig_var_033",
+            "content": "A customer reports a clear, reproducible bug: shared links 404 for recipients who are not logged in. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["recipients"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_034_bug",
+        "signal": {
+            "signal_id": "sig_var_034",
+            "content": "A customer reports a clear, reproducible bug: the dashboard date filter resets to default on refresh. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["dashboard"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_035_bug",
+        "signal": {
+            "signal_id": "sig_var_035",
+            "content": "A customer reports a clear, reproducible bug: CSV export drops the last row when the table is paginated. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["paginated"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_036_bug",
+        "signal": {
+            "signal_id": "sig_var_036",
+            "content": "A customer reports a clear, reproducible bug: the mobile nav menu cannot be closed once opened. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["mobile"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_037_feature",
+        "signal": {
+            "signal_id": "sig_var_037",
+            "content": "Feature request: let users bulk-download a whole folder as a single zip. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["download"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_038_feature",
+        "signal": {
+            "signal_id": "sig_var_038",
+            "content": "Feature request: add a dark mode toggle to the settings page. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["settings"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_039_feature",
+        "signal": {
+            "signal_id": "sig_var_039",
+            "content": "Feature request: support SSO login via Okta for enterprise accounts. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["enterprise"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_040_feature",
+        "signal": {
+            "signal_id": "sig_var_040",
+            "content": "Feature request: allow scheduling a report to be emailed weekly. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["scheduling"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_041_feature",
+        "signal": {
+            "signal_id": "sig_var_041",
+            "content": "Feature request: add keyboard shortcuts for the most common actions. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["shortcuts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_042_vague",
+        "signal": {
+            "signal_id": "sig_var_042",
+            "content": "A user vaguely says: 'the product just feels kind of slow and clunky sometimes'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["sometimes"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_043_vague",
+        "signal": {
+            "signal_id": "sig_var_043",
+            "content": "A user vaguely says: 'something seems off lately, not sure what'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["something"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_044_vague",
+        "signal": {
+            "signal_id": "sig_var_044",
+            "content": "A user vaguely says: 'the new design is weird'. No specifics, repro, or scope.",
+            "source_product": "conversations",
+            "source_type": "message"
+        },
+        "expectation": {
+            "summary_must_mention": ["design"],
+            "expected_actionability": ["requires_human_input", "not_actionable"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_045_perf",
+        "signal": {
+            "signal_id": "sig_var_045",
+            "content": "Performance report: the file list takes 8+ seconds to load for large accounts. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["accounts"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_046_perf",
+        "signal": {
+            "signal_id": "sig_var_046",
+            "content": "Performance report: search latency spikes during business hours. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["business"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_047_perf",
+        "signal": {
+            "signal_id": "sig_var_047",
+            "content": "Performance report: the app uses a lot of memory and tabs get killed. Users notice slowness under load.",
+            "source_product": "github",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["memory"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_048_bug",
+        "signal": {
+            "signal_id": "sig_var_048",
+            "content": "A customer reports a clear, reproducible bug: the file upload progress bar sticks at 99% and never completes. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["completes"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_049_bug",
+        "signal": {
+            "signal_id": "sig_var_049",
+            "content": "A customer reports a clear, reproducible bug: shared links 404 for recipients who are not logged in. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["recipients"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_050_bug",
+        "signal": {
+            "signal_id": "sig_var_050",
+            "content": "A customer reports a clear, reproducible bug: the dashboard date filter resets to default on refresh. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["dashboard"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_051_bug",
+        "signal": {
+            "signal_id": "sig_var_051",
+            "content": "A customer reports a clear, reproducible bug: CSV export drops the last row when the table is paginated. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["paginated"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_052_bug",
+        "signal": {
+            "signal_id": "sig_var_052",
+            "content": "A customer reports a clear, reproducible bug: the mobile nav menu cannot be closed once opened. Steps and expected vs actual are included.",
+            "source_product": "zendesk",
+            "source_type": "ticket"
+        },
+        "expectation": {
+            "summary_must_mention": ["mobile"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_053_feature",
+        "signal": {
+            "signal_id": "sig_var_053",
+            "content": "Feature request: let users bulk-download a whole folder as a single zip. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["download"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_054_feature",
+        "signal": {
+            "signal_id": "sig_var_054",
+            "content": "Feature request: add a dark mode toggle to the settings page. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["settings"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_055_feature",
+        "signal": {
+            "signal_id": "sig_var_055",
+            "content": "Feature request: support SSO login via Okta for enterprise accounts. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["enterprise"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_056_feature",
+        "signal": {
+            "signal_id": "sig_var_056",
+            "content": "Feature request: allow scheduling a report to be emailed weekly. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["scheduling"]
+        }
+    },
+    {
+        "case_id": "research_gen_var_057_feature",
+        "signal": {
+            "signal_id": "sig_var_057",
+            "content": "Feature request: add keyboard shortcuts for the most common actions. Several customers have asked for this capability.",
+            "source_product": "linear",
+            "source_type": "issue_created"
+        },
+        "expectation": {
+            "summary_must_mention": ["shortcuts"]
+        }
+    }
+]

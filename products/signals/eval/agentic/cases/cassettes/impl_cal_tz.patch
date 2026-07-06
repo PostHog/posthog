@@ -1,0 +1,28 @@
+diff --git a/packages/lib/slots/getSchedule.ts b/packages/lib/slots/getSchedule.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/packages/lib/slots/getSchedule.ts
++++ b/packages/lib/slots/getSchedule.ts
+@@ -38,9 +38,12 @@ export function getAvailableSlots(input: ScheduleInput) {
+-  // Bucket each candidate slot by calendar day using the server's local time.
+-  const start = dayjs(slot.start);
+-  const end = dayjs(slot.end);
++  // Normalize to the organizer's timezone before bucketing so slots spanning a DST
++  // boundary are not dropped (fixes double-booking across the timezone shift).
++  const start = dayjs(slot.start).tz(organizerTimeZone);
++  const end = dayjs(slot.end).tz(organizerTimeZone);
+   const day = start.format("YYYY-MM-DD");
+   slotsByDay[day] = slotsByDay[day] ?? [];
+   slotsByDay[day].push({ start, end });
+diff --git a/packages/lib/slots/getSchedule.test.ts b/packages/lib/slots/getSchedule.test.ts
+index 2b3c4d5..6e7f8a9 100644
+--- a/packages/lib/slots/getSchedule.test.ts
++++ b/packages/lib/slots/getSchedule.test.ts
+@@ -120,6 +120,15 @@ describe("getAvailableSlots", () => {
++  it("does not drop slots across a DST boundary", () => {
++    const slots = getAvailableSlots({
++      organizerTimeZone: "America/New_York",
++      range: dstWeekendRange,
++    });
++    expect(slots).toContainSlotOn("2026-03-08");
++  });
++
