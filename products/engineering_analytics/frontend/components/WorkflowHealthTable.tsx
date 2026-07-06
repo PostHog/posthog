@@ -81,6 +81,8 @@ export interface WorkflowHealthTableProps {
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
+    /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
+    embedded?: boolean
 }
 
 export function WorkflowHealthTable({
@@ -92,6 +94,7 @@ export function WorkflowHealthTable({
     pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
+    embedded = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
     // Carry the active window/branch scope into the drill-down; without `q` the detail page would
@@ -275,6 +278,7 @@ export function WorkflowHealthTable({
         <LemonTable
             data-attr={dataAttr}
             size="small"
+            embedded={embedded}
             columns={columns}
             dataSource={rows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}

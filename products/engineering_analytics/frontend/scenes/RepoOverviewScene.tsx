@@ -418,6 +418,7 @@ export function RepoOverviewScene(): JSX.Element {
                         loading={pullRequestsLoading}
                         sourceId={sourceId}
                         costLensEnabled={costLensEnabled}
+                        embedded
                         pageSize={HUB_TABLE_PAGE_SIZE}
                         emptyState="Nothing failing or stuck in the open backlog."
                         dataAttr="engineering-analytics-attention-prs"
@@ -437,6 +438,7 @@ export function RepoOverviewScene(): JSX.Element {
                         loading={workflowHealthLoading}
                         sourceId={sourceId}
                         showCost={jobsAvailable}
+                        embedded
                         defaultSorting={{ columnKey: 'runCount', order: -1 }}
                         pageSize={HUB_TABLE_PAGE_SIZE}
                         emptyState="No workflow runs in the window."
@@ -469,6 +471,7 @@ export function RepoOverviewScene(): JSX.Element {
                         <Sparkline
                             data={costPerMergeSeries.values}
                             labels={costPerMergeSeries.labels}
+                            name="Cost per merged PR"
                             type="line"
                             className="h-24 w-full"
                             renderLabel={(label) => label}
