@@ -1719,7 +1719,7 @@ class TestAlertListFilters(APIBaseTest):
         )
         assert all(a["name"] != "Totally unrelated" for a in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self) -> None:
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self) -> None:
         for name in ("revenue spike", "spike in revenue", "reveneu drop", "Unrelated alert"):
             self._create_alert(name)
 
@@ -1730,11 +1730,7 @@ class TestAlertListFilters(APIBaseTest):
         assert match_type_by_name == {
             "revenue spike": "exact",
             "spike in revenue": "exact",
-            "reveneu drop": "similar",
-        }
-
-        match_types = [a["search_match_type"] for a in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self) -> None:
         self._create_alert("Revenue spike")

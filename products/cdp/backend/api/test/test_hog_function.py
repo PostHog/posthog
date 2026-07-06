@@ -1925,7 +1925,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert all(r["name"] != "Totally unrelated" for r in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("slack notification", "notification slack", "slcak metrics", "Engineering metrics"):
             HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
 
@@ -1937,11 +1937,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert match_type_by_name == {
             "slack notification": "exact",
             "notification slack": "exact",
-            "slcak metrics": "similar",
-        }
-
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")

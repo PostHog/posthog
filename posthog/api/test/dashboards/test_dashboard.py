@@ -358,7 +358,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert all(d["name"] != "Totally unrelated" for d in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
             self.dashboard_api.create_dashboard({"name": name})
 
@@ -369,11 +369,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert match_type_by_name == {
             "dashboard overview": "exact",
             "sales dashboard": "exact",
-            "dahsboard metrics": "similar",
-        }
-
-        match_types = [d["search_match_type"] for d in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         self.dashboard_api.create_dashboard({"name": "Alpha"})

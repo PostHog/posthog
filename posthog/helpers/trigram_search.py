@@ -81,17 +81,23 @@ def apply_trigram_search(
     extra_exact_q: Q | None = None,
     tiebreakers: tuple[str, ...] = (),
 ) -> QuerySet:
-    """Apply trigram + literal-substring search across `fields`, then order exact-first.
+    """Apply trigram + literal-substring search across `fields`, returning exact matches only
+    unless there are none, in which case fall back to similar matches.
 
     Two predicates select the rows. The literal `icontains` predicate (`exact_q`) catches
     tokens dense with non-alphanumerics — emails, UUIDs, dotted identifiers — where pg_trgm
     splits at punctuation and scores below threshold. The trigram word-similarity predicate
     (`similar_q`) catches typos and prefix-as-you-type. A row matching `exact_q` is flagged
-    `_is_exact=1` and sorts ahead of fuzzy-only matches via the leading `-_is_exact` order key.
+    `_is_exact=1`.
 
-    Within each exactness tier, `_search_score` ranks rows by each field's weighted word
-    similarity (plus full-string similarity where `include_full` is set). `tiebreakers` are
-    appended after the score (e.g. `-pinned`, `name`).
+    Similar (fuzzy-only) matches are suppressed whenever any exact match exists — otherwise,
+    once a caller re-orders by e.g. last-modified, similar matches can fill the visible area
+    and bury the exact hits the user was looking for. When no exact match exists, the similar
+    matches are returned so a typo'd query still finds something.
+
+    `_search_score` ranks rows by each field's weighted word similarity (plus full-string
+    similarity where `include_full` is set). `tiebreakers` are appended after the score
+    (e.g. `-pinned`, `name`).
 
     `extra_exact_q` OR's caller-supplied predicates into the exact tier — for structured
     fields that don't fit trigram (a commit-SHA prefix, an exact numeric id). Rows matched
@@ -140,17 +146,21 @@ def apply_trigram_search(
             component = component + F(f"_full_{f.key}")
         search_score = component if search_score is None else search_score + component
 
-    result = (
-        queryset.annotate(**word_annotations)
-        .annotate(
-            _is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()),
-            _search_score=search_score,
-        )
-        .filter(exact_q | similar_q)
-        .order_by("-_is_exact", "-_search_score", *tiebreakers)
+    annotated = queryset.annotate(**word_annotations).annotate(
+        _is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()),
+        _search_score=search_score,
     )
 
+    exact_only = annotated.filter(exact_q)
     if include_tag_search:
-        result = result.distinct()
+        exact_only = exact_only.distinct()
 
-    return result
+    # Prefer exact matches; only fall back to the fuzzy tier when there are none.
+    if exact_only.exists():
+        result = exact_only
+    else:
+        result = annotated.filter(similar_q)
+        if include_tag_search:
+            result = result.distinct()
+
+    return result.order_by("-_is_exact", "-_search_score", *tiebreakers)
