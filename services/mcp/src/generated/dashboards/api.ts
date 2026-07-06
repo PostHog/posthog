@@ -572,7 +572,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Sort direction for orderBy.'),
                                         status: zod
-                                            .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                            .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault
                                             )
@@ -1612,7 +1612,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod
@@ -2290,7 +2290,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     )
                                     .describe('Sort direction for orderBy.'),
                                 status: zod
-                                    .enum(['draft', 'running', 'paused', 'stopped', 'all'])
+                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemFourConfigOneStatusDefault)
                                     .describe('Experiment status filter.'),
                                 createdBy: zod

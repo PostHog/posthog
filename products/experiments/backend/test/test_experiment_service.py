@@ -20,8 +20,12 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.constants import AvailableFeature
-from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import EventSource
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -3289,13 +3293,23 @@ class TestExperimentService(APIBaseTest):
         assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
         assert frozen.is_exposure_frozen is True
 
-    def test_freeze_exposure_rejects_when_query_times_out(self):
-        experiment = self._create_running_experiment(name="Freeze Timeout", feature_flag_key="freeze-timeout-flag")
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong),
+        ]
+    )
+    def test_freeze_exposure_rejects_when_scan_is_too_big(self, _name: str, exception_class: type[Exception]):
+        experiment = self._create_running_experiment(
+            name=f"Freeze {_name}", feature_flag_key=f"freeze-{_name}-flag".replace("_", "-")
+        )
         original_filters = deepcopy(experiment.feature_flag.filters)
 
+        # All three "scan too big" ClickHouse errors must map to a friendly 400, not a 500.
         with patch(
             "products.experiments.backend.experiment_service.execute_hogql_query",
-            side_effect=ClickHouseQueryTimeOut(),
+            side_effect=exception_class(),
         ):
             with self.assertRaises(ValidationError) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())

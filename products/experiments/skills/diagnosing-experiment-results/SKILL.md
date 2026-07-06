@@ -27,7 +27,7 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
 - `exposure_criteria.exposure_event` — `null` means default `$feature_flag_called`
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
-- `feature_flag.active`, status (`draft` / `running` / `paused` / `stopped`), `start_date`, `end_date`
+- `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[].variant` — any non-null value is a forced-variant override on the
   matched cohort (release-condition assignment, not randomized). Surfaces A7 by default.
 - `stats_config` — Bayesian (default) or Frequentist

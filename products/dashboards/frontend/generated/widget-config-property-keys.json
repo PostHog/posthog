@@ -286,7 +286,7 @@
                 "$enum": ["ASC", "DESC"]
             },
             "status": {
-                "$enum": ["all", "draft", "paused", "running", "stopped"]
+                "$enum": ["all", "draft", "exposure_frozen", "paused", "running", "stopped"]
             },
             "createdBy": {
                 "$type": "integer"

@@ -32,8 +32,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.cohort import CohortSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import EventSource, report_user_action
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
@@ -104,10 +108,12 @@ DEFAULT_VARIANTS = [
 # Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
 # time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
 # materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
-# Long-running / very-high-traffic experiments that exceed either bound are rejected rather than frozen
-# synchronously (they would need a future async populate path).
+# The user cap is sized to the cohort insert (batches of 1000, sequential): 100k keeps the whole
+# freeze comfortably inside a web request. Long-running / very-high-traffic experiments that exceed
+# either bound are rejected rather than frozen synchronously (they would need a future async
+# populate path).
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
-FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 500_000
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -1933,7 +1939,14 @@ class ExperimentService:
                     # clamp so our explicit LIMIT (cap + 1) is what actually runs.
                     limit_context=LimitContext.COHORT_CALCULATION,
                 )
-        except ClickHouseQueryTimeOut:
+        except (
+            ClickHouseQueryTimeOut,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+        ):
+            # All three are "the scan is too big for a synchronous request" — timeout, memory
+            # limit, and ClickHouse's own pre-execution time estimate — and get the same
+            # friendly rejection instead of surfacing as a 500.
             raise ValidationError(
                 "This experiment has too much exposure data to freeze instantly. "
                 "Freezing very large or long-running experiments isn't supported yet."
