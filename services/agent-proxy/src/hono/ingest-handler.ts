@@ -35,6 +35,7 @@ import {
     TaskRunStreamSequenceGap,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    type DisconnectClassification,
     type IngestEventLine,
     type IngestCompleteLine,
     type IngestLine,
@@ -186,8 +187,6 @@ export async function handleIngest(
         200
     )
 }
-
-type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 
 // Post-turn disconnects are expected sandbox teardown; fail toward 'mid_turn' so real cuts stay visible.
 async function classifyDisconnect(redisStream: TaskRunRedisStream): Promise<DisconnectClassification> {

@@ -10,7 +10,7 @@
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { StreamConnectionOutcome } from '../lib/types.js'
+import type { DisconnectClassification, StreamConnectionOutcome } from '../lib/types.js'
 
 export const register = new Registry()
 
@@ -189,6 +189,6 @@ export function observeStreamIngestEvents(opts: { accepted: number; duplicate: n
     }
 }
 
-export function observeIngestClientDisconnect(classification: 'run_over' | 'idle' | 'mid_turn'): void {
+export function observeIngestClientDisconnect(classification: DisconnectClassification): void {
     ingestClientDisconnectsTotal.labels({ classification }).inc()
 }
