@@ -420,6 +420,10 @@ jobs:
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
+            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            - name: Check toolbar bundle stays under the CloudFront gzip limit
+              run: pnpm --filter=@posthog/frontend check-toolbar-size
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
