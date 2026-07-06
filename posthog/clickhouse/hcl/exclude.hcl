@@ -45,5 +45,14 @@ exclude {
     "custom_metrics*",
     # Orphan: present on prod OPS but no migration or code creates it anywhere.
     "events_team_daily_stats",
+
+    # AUX webhook delivery-status family (migration 0286). Created by the
+    # migrate path on AUX but not yet authored in the aux HCL layer, so the
+    # live gate would otherwise flag it as drift. Reconcile into
+    # roles/aux/shared (regenerate golden/ + sql/ via hclexp) and remove these.
+    "warehouse_webhook_delivery_status",
+    "warehouse_webhook_delivery_status_data",
+    "warehouse_webhook_delivery_status_mv",
+    "kafka_warehouse_webhook_delivery_status",
   ]
 }
