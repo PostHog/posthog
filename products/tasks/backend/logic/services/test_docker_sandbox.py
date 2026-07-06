@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
@@ -48,17 +50,17 @@ class TestSandboxProviderGuard:
     production (neither DEBUG nor TEST) but never trip test collection, where settings load
     with DEBUG off but TEST on. No Docker daemon needed, so this runs in CI unlike the classes below."""
 
-    @pytest.mark.parametrize(
-        "provider,debug,test,expect_raise",
+    @parameterized.expand(
         [
-            ("docker", False, False, True),  # production: blocked
-            ("docker", True, False, False),  # local dev: allowed via DEBUG
-            ("docker", False, True, False),  # test context: allowed via TEST
-            ("MODAL_DOCKER", False, False, True),  # production: blocked (fires before the modal import)
-        ],
+            ("docker_production_blocked", "docker", False, False, True),
+            ("docker_local_dev_debug", "docker", True, False, False),
+            ("docker_test_context", "docker", False, True, False),
+            # MODAL_DOCKER blocked in production — the guard fires before the modal import.
+            ("modal_docker_production_blocked", "MODAL_DOCKER", False, False, True),
+        ]
     )
     @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_provider_guard(self, mock_settings, provider, debug, test, expect_raise):
+    def test_provider_guard(self, _name, provider, debug, test, expect_raise, mock_settings):
         mock_settings.SANDBOX_PROVIDER = provider
         mock_settings.DEBUG = debug
         mock_settings.TEST = test
