@@ -462,9 +462,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (
+            direction?: 'newer' | 'older',
+            userModifiedFilters?: Record<string, any>,
+            preserveList?: boolean
+        ) => ({
             direction,
             userModifiedFilters,
+            preserveList,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
@@ -711,9 +716,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         sessionRecordings: [
             [] as SessionRecordingType[],
             {
-                loadSessionRecordings: (state, { direction }) => {
-                    // Reset if we are not paginating
-                    return direction ? state : []
+                loadSessionRecordings: (state, { direction, preserveList }) => {
+                    // Reset only when starting a fresh (non-paginated) load. `preserveList` is used
+                    // when we just need to fetch a missing selected recording without blanking the list.
+                    return direction || preserveList ? state : []
                 },
 
                 loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
@@ -732,16 +738,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     )
                 },
 
-                setSelectedRecordingId: (state, { id }) =>
-                    state.map((s) => {
-                        if (s.id === id) {
-                            return {
-                                ...s,
-                                viewed: true,
-                            }
-                        }
-                        return { ...s }
-                    }),
+                setSelectedRecordingId: (state, { id }) => {
+                    // Only the selected recording needs its `viewed` flag flipped. Keep every other
+                    // object reference stable so memoized list items don't re-render on each click.
+                    const index = state.findIndex((s) => s.id === id && !s.viewed)
+                    if (index === -1) {
+                        return state
+                    }
+                    const next = [...state]
+                    next[index] = { ...next[index], viewed: true }
+                    return next
+                },
             },
         ],
         selectedRecordingId: [
@@ -1024,10 +1031,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 
-            // If recording not found in current list, reload with the new selected recording
-            // The backend will automatically include it via session_recording_id parameter
+            // If the recording isn't in the current list (e.g. a shared/deep-linked URL), fetch it so
+            // the backend includes it via the session_recording_id param. Preserve the existing list
+            // rather than blanking it - clearing it snaps scroll back to the top and hides the results.
             if (recordingIndex === -1 && values.selectedRecordingId) {
-                actions.loadSessionRecordings()
+                actions.loadSessionRecordings(undefined, undefined, true)
             }
 
             // If we are at the end of the list then try to load more

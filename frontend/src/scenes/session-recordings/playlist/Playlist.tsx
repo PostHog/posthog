@@ -2,7 +2,7 @@ import './Playlist.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 import {
@@ -219,6 +219,18 @@ export function Playlist({
     }
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
+
+    // Selecting a recording re-renders the list; keep the scroll container where the user left it so
+    // they don't lose their place. Only restore for selection-driven renders - when the list itself
+    // changes (a load, filter, or pagination) we let it scroll naturally.
+    const lastItemsCountRef = useRef(itemsCount)
+    useLayoutEffect(() => {
+        const el = contentRef.current
+        if (el && lastItemsCountRef.current === itemsCount) {
+            el.scrollTop = lastScrollPositionRef.current
+        }
+        lastItemsCountRef.current = itemsCount
+    }, [activeItemId, itemsCount])
 
     const listEmptyState =
         type === 'collection' ? (

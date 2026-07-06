@@ -185,6 +185,25 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     sessionRecordings: listOfSessionRecordings,
                 })
             })
+
+            it('keeps the current list when fetching a missing selected recording', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                // A plain reload (e.g. a filter change) resets the list to start fresh
+                logic.actions.loadSessionRecordings()
+                expect(logic.values.sessionRecordings).toEqual([])
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
+
+                // A preserveList reload (selecting a not-yet-loaded recording) must not blank the list,
+                // otherwise the playlist flashes empty and scroll snaps back to the top
+                logic.actions.loadSessionRecordings(undefined, undefined, true)
+                expect(logic.values.sessionRecordings).toEqual(listOfSessionRecordings)
+            })
         })
 
         describe('activeSessionRecording', () => {
