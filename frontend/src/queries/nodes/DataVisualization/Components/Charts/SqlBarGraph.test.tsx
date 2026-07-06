@@ -95,6 +95,48 @@ describe('SqlBarGraph', () => {
         })
     })
 
+    describe('dual y-axis', () => {
+        it.each([
+            { name: 'grouped', display: ChartDisplayType.ActionsBar },
+            { name: 'stacked', display: ChartDisplayType.ActionsStackedBar },
+        ])('renders a right gutter formatted from its own column in the $name layout', async ({ display }) => {
+            renderBar(
+                display,
+                {
+                    yAxis: [
+                        { column: 'a', settings: { formatting: { prefix: '$' } } },
+                        {
+                            column: 'b',
+                            settings: { formatting: { suffix: '%' }, display: { yAxisPosition: 'right' } },
+                        },
+                    ],
+                },
+                twoSeries()
+            )
+
+            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
+            const chart = getHogChart()
+            expect(chart.yTicks().length).toBeGreaterThan(0)
+            expect(chart.yTicks().every((tick) => tick.startsWith('$'))).toBe(true)
+            const rightTicks = chart.yRightTicks()
+            expect(rightTicks.length).toBeGreaterThan(0)
+            expect(rightTicks.every((tick) => tick.endsWith('%'))).toBe(true)
+        })
+
+        it('renders the axis on the right when the only series targets the right axis', async () => {
+            renderBar(
+                ChartDisplayType.ActionsBar,
+                { yAxis: [{ column: 'a', settings: { display: { yAxisPosition: 'right' } } }] },
+                barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
+            )
+
+            await screen.findByRole('img', { name: /chart with/i })
+            await waitFor(() => expect(getHogChart().yRightTicks().length).toBeGreaterThan(0))
+            expect(getHogChart().yTicks()).toHaveLength(0)
+        })
+    })
+
     describe('tooltip', () => {
         // Grouped/stacked bars split the band, so a band-center hover only deterministically lands on
         // a single bar — assert tooltip content with one series, layout/legend with two.
@@ -108,7 +150,8 @@ describe('SqlBarGraph', () => {
             await screen.findByLabelText(/chart with/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
-            expect(tooltip.value('a')).toBe('3,000')
+            // formatSqlSeriesValue output — matches the line/combo tooltips, not toLocaleString.
+            expect(tooltip.value('a')).toBe('3000')
             expect(tooltip.label()).toBe('Dec 1, 2025')
             expect(tooltip.swatchColors()).toHaveLength(1)
         })
