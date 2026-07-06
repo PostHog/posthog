@@ -38,7 +38,12 @@ export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
-// logs) and shared across logic instances, which is safe because parsing is pure per log object.
+// logs) and shared across logic instances. Parsing is pure per object, so cached entries are
+// always correct as long as log objects are never mutated in place after creation (they aren't:
+// `logs` is only ever replaced wholesale via `setLogs`). The same immutability contract is why
+// live-tail prepends can keep existing log references untouched so their parsed rows stay
+// reference-stable, and why newLogUuids is tracked as a separate set rather than a flag on each
+// log — avoiding a clone of every existing log object per poll tick.
 const parsedLogCache = new WeakMap<LogMessage, ParsedLogMessage>()
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
@@ -173,8 +178,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     reducers({
-        // The uuids of the last live-tail batch, for the one-shot row highlight. Tracked outside
-        // the log objects so arriving logs don't force a clone of every existing log per poll.
+        // UUIDs of the last live-tail batch, for the one-shot row highlight (see parsedLogCache comment above).
         newLogUuids: [
             new Set<string>(),
             {
@@ -422,8 +426,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     }
                     seen.add(log.uuid)
 
-                    // Live-tail prepends keep existing log references, so the cache keeps the
-                    // parsed rows reference-stable too — only genuinely new rows re-render.
+                    // Existing log references are stable across polls — cache hit = no re-render.
                     const cached = parsedLogCache.get(log)
                     if (cached) {
                         result.push(cached)
@@ -748,8 +751,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
                 if (newLogs.length > 0) {
                     actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
-                    // Existing log references are kept untouched so their parsed rows stay
-                    // reference-stable; replacing newLogUuids un-highlights the previous batch.
+                    // Prepend new logs; existing references stay untouched (see parsedLogCache comment).
+                    // Replacing newLogUuids highlights the new batch and un-highlights the previous one.
                     actions.setNewLogUuids(newLogs.map((log) => log.uuid))
                     actions.setLogs(
                         [...newLogs, ...values.logs]
@@ -763,6 +766,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS
                     )
                     actions.setLiveTailInterval(newInterval)
+                    // No new logs this tick — clear the previous batch's highlights so rows that
+                    // scroll out and back don't replay the arrival animation on a quiet stream.
+                    actions.setNewLogUuids([])
                 }
             } catch (error) {
                 if (signal.aborted) {
