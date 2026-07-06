@@ -22,6 +22,10 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
+# Inherited implicitly from posthog/temporal/tests/conftest.py at this suite's previous location; now
+# that it lives under the product, re-import them so the e2e tests still resolve them. (postgres_config
+# is defined locally in the test modules that use it.)
+from posthog.temporal.tests.conftest import activity_environment, setup_postgres_test_db  # noqa: F401
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists

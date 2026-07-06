@@ -11,7 +11,7 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
     MSSQL_USER=username \
     MSSQL_PASSWORD=password \
     MSSQL_DATABASE=database_name \
-    pytest posthog/temporal/tests/data_imports/test_mssql_source.py
+    pytest products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_mssql_source.py
 ```
 
 (From my testing on Azure, the connection often fails the first time, but waiting for a bit and retrying works.
@@ -32,10 +32,9 @@ import pytz
 import pymssql
 import structlog
 
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
