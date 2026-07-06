@@ -231,6 +231,20 @@ def clickhouse_at_least_228() -> bool:
     return is_ch_version_228_or_above
 
 
+@lru_cache(maxsize=1)
+def clickhouse_supports_reverse_key() -> bool:
+    # `allow_experimental_reverse_key` only exists in ClickHouse 24.11+. Emitting it against an
+    # older server aborts migrate_clickhouse with "Unknown setting 'allow_experimental_reverse_key'
+    # for storage ReplicatedMergeTree", so table SQL must gate the setting on the server version.
+    from posthog.version_requirement import ServiceVersionRequirement
+
+    supported, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=24.11.0"
+    ).is_service_in_accepted_version()
+
+    return supported
+
+
 def validated_client_query_id() -> Optional[str]:
     client_query_id = get_query_tag_value("client_query_id")
     client_query_team_id = get_query_tag_value("team_id")

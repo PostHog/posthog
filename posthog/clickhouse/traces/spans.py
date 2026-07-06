@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.client.execute import clickhouse_supports_reverse_key
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 from .trace_attributes import TABLE_NAME as TRACE_ATTRIBUTES_TABLE_NAME
@@ -10,6 +11,8 @@ TTL = lambda: (
     "TTL timestamp + toIntervalHour(25) TO DISK 's3'" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else ""
 )
 STORAGE_POLICY = lambda: "tiered" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else "default"
+# `allow_experimental_reverse_key` is only recognised by ClickHouse 24.11+; omit it on older servers.
+REVERSE_KEY_SETTING = lambda: "allow_experimental_reverse_key = 1,\n    " if clickhouse_supports_reverse_key() else ""
 
 
 def TRACE_SPANS_TABLE_SQL():
@@ -106,8 +109,7 @@ ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code,
 SETTINGS
     storage_policy = '{STORAGE_POLICY()}',
     allow_remote_fs_zero_copy_replication = 1,
-    allow_experimental_reverse_key = 1,
-    index_granularity_bytes = 104857600,
+    {REVERSE_KEY_SETTING()}index_granularity_bytes = 104857600,
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
     add_minmax_index_for_numeric_columns = 1

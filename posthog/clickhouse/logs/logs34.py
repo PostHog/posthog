@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.client.execute import clickhouse_supports_reverse_key
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
@@ -11,6 +12,9 @@ KAFKA_TABLE_NAME = "kafka_logs_avro"
 KAFKA_NAMED_COLLECTION = "warpstream_logs"
 KAFKA_TOPIC = "clickhouse_logs"
 KAFKA_GROUP = "clickhouse-logs-avro-new"
+
+# `allow_experimental_reverse_key` is only recognised by ClickHouse 24.11+; omit it on older servers.
+REVERSE_KEY_SETTING = lambda: "allow_experimental_reverse_key = 1,\n    " if clickhouse_supports_reverse_key() else ""
 
 
 def LOGS34_TABLE_SQL():
@@ -81,8 +85,7 @@ PRIMARY KEY (team_id, time_bucket, service_name, resource_fingerprint, severity_
 ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp)
 TTL original_expiry_timestamp
 SETTINGS
-    allow_experimental_reverse_key = 1,
-    index_granularity_bytes = 104857600,
+    {REVERSE_KEY_SETTING()}index_granularity_bytes = 104857600,
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
     add_minmax_index_for_numeric_columns = 1,
