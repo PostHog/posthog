@@ -2176,7 +2176,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // If we are beyond the current segment then move to the next one
                 if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
-                    const nextSegment = values.segmentForTimestamp(newTimestamp)
+                    // findSegmentForTimestamp clamps past-end timestamps to the nearest segment (for stale-link boot seeks), so end-of-recording must be detected against the recording end, not a null segment.
+                    const isPastEnd =
+                        values.sessionPlayerData.end && newTimestamp > values.sessionPlayerData.end.valueOf()
+                    const nextSegment = isPastEnd ? null : values.segmentForTimestamp(newTimestamp)
 
                     if (nextSegment) {
                         // NOTE: confusingly this setCurrentTimestamp call is essential to playback
