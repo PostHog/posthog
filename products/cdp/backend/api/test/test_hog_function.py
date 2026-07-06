@@ -1939,6 +1939,18 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "notification slack": "exact",
         }, "similar matches must be hidden when exact matches exist"
 
+    def test_list_filter_by_search_decides_match_tier_after_type_filter(self):
+        HogFunction.objects.create(team=self.team, name="slack notification", type="destination", hog="return event")
+        HogFunction.objects.create(team=self.team, name="slcak transform", type="transformation", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=slack&type=transformation")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [(r["name"], r["search_match_type"]) for r in results] == [("slcak transform", "similar")], (
+            "an exact match removed by the type filter must not suppress the similar matches that survive it"
+        )
+
     def test_list_filter_by_search_match_type_absent_without_search(self):
         HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
 
