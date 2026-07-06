@@ -1,8 +1,12 @@
 import json
+import time
+from typing import Any
 
 from unittest.mock import patch
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -12,6 +16,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.prompt_suggestions import (
     _MAX_SUMMARIES_PER_RUN,
+    _MAX_TOOL_ROUNDS,
     _AgentToolState,
     _dispatch_agent_tool,
     _generate_agentic,
@@ -61,6 +66,9 @@ class TestPromptAgent(_VisionAPITestCase):
         )
         ReplayObservationLabel.objects.create(observation=self.observation, is_correct=False, feedback="should be yes")
 
+    def _state(self, *, allow_cold_summaries: bool = False, budget_s: float = 60.0) -> _AgentToolState:
+        return _AgentToolState(self.scanner, self.user, allow_cold_summaries, time.monotonic() + budget_s)
+
     def test_tool_rounds_run_then_final_structured_answer_parses(self) -> None:
         answer = json.dumps({"suggested_prompt": "better prompt", "rationale": "grounded in sess-1"})
         responses = iter(
@@ -70,9 +78,12 @@ class TestPromptAgent(_VisionAPITestCase):
                 _Response(text=answer),  # forced structured turn
             ]
         )
-        with patch(
-            "products.replay_vision.backend.prompt_suggestions._model_call",
-            side_effect=lambda *a, **k: next(responses),
+        with (
+            patch("products.replay_vision.backend.prompt_suggestions.genai"),
+            patch(
+                "products.replay_vision.backend.prompt_suggestions._model_call",
+                side_effect=lambda *a, **k: next(responses),
+            ),
         ):
             parsed = _generate_agentic(
                 scanner=self.scanner,
@@ -83,8 +94,48 @@ class TestPromptAgent(_VisionAPITestCase):
             )
         self.assertEqual(parsed.suggested_prompt, "better prompt")
 
-    def test_observation_tool_returns_full_detail_and_summary_tool_respects_budget(self) -> None:
-        state = _AgentToolState(self.scanner, self.user, allow_cold_summaries=False)
+    @parameterized.expand(
+        [
+            ("round_budget_exhausted", 60.0, _MAX_TOOL_ROUNDS + 2),
+            ("time_budget_exhausted", 0.0, 2),
+        ]
+    )
+    def test_exhausted_budget_answers_pending_tool_calls_before_the_final_turn(
+        self, _name: str, budget_s: float, expected_model_calls: int
+    ) -> None:
+        answer = json.dumps({"suggested_prompt": "better prompt", "rationale": "grounded"})
+        seen_contents: list[list[Any]] = []
+
+        def fake_model_call(client: Any, contents: list[Any], config: Any, **kwargs: Any) -> _Response:
+            seen_contents.append(list(contents))
+            if config.response_json_schema is not None:
+                return _Response(text=answer)
+            return _Response(calls=[_Call("get_rated_observation", {"session_id": "sess-1"})])
+
+        with (
+            patch("products.replay_vision.backend.prompt_suggestions._AGENT_BUDGET_INLINE_S", budget_s),
+            patch("products.replay_vision.backend.prompt_suggestions.genai"),
+            patch("products.replay_vision.backend.prompt_suggestions._model_call", side_effect=fake_model_call),
+        ):
+            parsed = _generate_agentic(
+                scanner=self.scanner,
+                user_content="briefing",
+                user=self.user,
+                allow_cold_summaries=False,
+                distinct_id="test",
+            )
+        self.assertEqual(parsed.suggested_prompt, "better prompt")
+        self.assertEqual(len(seen_contents), expected_model_calls)
+        # The last user turn must answer the still-pending call, or Gemini rejects the conversation.
+        final_turn = seen_contents[-1][-1]
+        self.assertEqual(
+            [p.function_response.name for p in final_turn.parts if p.function_response is not None],
+            ["get_rated_observation"],
+        )
+        self.assertEqual(final_turn.parts[-1].text, "Respond now with the JSON answer.")
+
+    def test_observation_tool_returns_full_detail_and_summary_tool_budgets_cold_runs(self) -> None:
+        state = self._state()
 
         detail = _dispatch_agent_tool(state, _Call("get_rated_observation", {"session_id": "sess-1"}))
         self.assertEqual(detail["rating"], "thumbs_down")
@@ -96,13 +147,18 @@ class TestPromptAgent(_VisionAPITestCase):
         self.assertEqual(listing["sessions"][0]["session_id"], "sess-1")
 
         summary = _dispatch_agent_tool(state, _Call("get_session_summary", {"session_id": "sess-1"}))
-        self.assertIn("error", summary)
+        self.assertIn("error", summary)  # no cached summary, cold generation disallowed here
 
-        state.summaries_used = _MAX_SUMMARIES_PER_RUN
-        capped = _dispatch_agent_tool(state, _Call("get_session_summary", {"session_id": "sess-1"}))
+        cold_state = self._state(allow_cold_summaries=True, budget_s=600.0)
+        cold_state.cold_summaries_used = _MAX_SUMMARIES_PER_RUN
+        capped = _dispatch_agent_tool(cold_state, _Call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("budget", capped["error"])
 
+        drained = self._state(allow_cold_summaries=True, budget_s=0.0)
+        timed_out = _dispatch_agent_tool(drained, _Call("get_session_summary", {"session_id": "sess-1"}))
+        self.assertIn("time", timed_out["error"])
+
     def test_unknown_session_and_unknown_tool_return_errors(self) -> None:
-        state = _AgentToolState(self.scanner, self.user, allow_cold_summaries=False)
+        state = self._state()
         self.assertIn("error", _dispatch_agent_tool(state, _Call("get_rated_observation", {"session_id": "nope"})))
         self.assertIn("error", _dispatch_agent_tool(state, _Call("hack_the_planet", {})))

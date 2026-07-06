@@ -5,7 +5,9 @@ Mirrors the frontend "Improve scanner prompt" message: the current prompt plus t
 rewrite. Suggestions are persisted so the Quality tab can show the current one and its history.
 """
 
+import time
 import uuid
+import asyncio
 import hashlib
 import datetime as dt
 from typing import Any
@@ -23,6 +25,7 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -46,6 +49,13 @@ _MAX_DISMISSED_PROMPT_CHARS = 600
 _MAX_TOOL_ROUNDS = 6
 _MAX_SUMMARIES_PER_RUN = 2
 _MAX_TOOL_REASONING_CHARS = 4000
+# Wall-clock budgets for the agentic loop: once spent, no new tool rounds start (the final structured
+# turn still runs). The inline API path stays close to the old single-call bound; the background
+# refresh gets room for cold summaries while finishing well inside its Temporal activity timeout.
+_AGENT_BUDGET_INLINE_S = 60.0
+_AGENT_BUDGET_BACKGROUND_S = 180.0
+# Never start a cold summary with less than this much budget left; the wait is bounded by the remainder.
+_COLD_SUMMARY_MIN_BUDGET_S = 60.0
 
 _SYSTEM_PROMPT = (
     "You rewrite the instruction prompt of a session-replay scanner so its future results agree with the "
@@ -66,6 +76,8 @@ _AGENT_SYSTEM_ADDENDUM = (
     "Summaries are expensive: request them only where they change your rewrite. When you have enough "
     "context, answer."
 )
+
+_AGENT_SYSTEM_PROMPT = _SYSTEM_PROMPT + _AGENT_SYSTEM_ADDENDUM
 
 
 class PromptSuggestionError(Exception):
@@ -217,14 +229,17 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
     return "\n".join(lines)
 
 
-def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmPromptSuggestion:
-    api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    # The generate endpoint runs this inline in a web worker, so a hung provider call must time out.
-    client = genai.Client(
-        api_key=api_key,
+def _gemini_client() -> genai.Client:
+    # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
+    return genai.Client(
+        api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
         posthog_client=posthoganalytics.default_client,
         http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
     )
+
+
+def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmPromptSuggestion:
+    client = _gemini_client()
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -305,11 +320,15 @@ def _agent_tools() -> types.Tool:
 
 
 class _AgentToolState:
-    def __init__(self, scanner: ReplayScanner, user: User | None, allow_cold_summaries: bool) -> None:
+    def __init__(
+        self, scanner: ReplayScanner, summary_user: User | None, allow_cold_summaries: bool, deadline: float
+    ) -> None:
         self.scanner = scanner
-        self.user = user
+        self.summary_user = summary_user
         self.allow_cold_summaries = allow_cold_summaries
-        self.summaries_used = 0
+        self.deadline = deadline
+        self.cold_summaries_used = 0
+        self.summary_cache: dict[str, str] = {}
 
 
 def _rated_observation_for_session(state: _AgentToolState, session_id: str) -> ReplayObservation | None:
@@ -326,7 +345,7 @@ def _rated_observation_for_session(state: _AgentToolState, session_id: str) -> R
     )
 
 
-def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict:
+def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict[str, Any]:
     observation = _rated_observation_for_session(state, session_id)
     if observation is None:
         return {"error": "no rated observation for that session id on this scanner"}
@@ -345,7 +364,7 @@ def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict
     }
 
 
-def _tool_list_rated_sessions(state: _AgentToolState, offset: int) -> dict:
+def _tool_list_rated_sessions(state: _AgentToolState, offset: int) -> dict[str, Any]:
     base = ReplayObservation.objects.filter(
         team_id=state.scanner.team_id,
         scanner_id=state.scanner.id,
@@ -369,44 +388,66 @@ def _tool_list_rated_sessions(state: _AgentToolState, offset: int) -> dict:
     }
 
 
-def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
+def _run_cold_summary(state: _AgentToolState, session_id: str, user: User, *, timeout_s: float) -> dict[str, Any]:
+    """Run the summarization workflow for an unsummarized session, waiting at most the remaining run budget."""
+    from posthog.temporal.session_replay.session_summary.workflow import (  # noqa: PLC0415 (heavy temporal dep, only loaded on the cold path)
+        execute_summarize_session,
+    )
+
+    # Count before executing so a failing cold run still spends budget.
+    state.cold_summaries_used += 1
+    team = Team.objects.get(pk=state.scanner.team_id)
+
+    async def _bounded() -> dict[str, Any]:
+        return await asyncio.wait_for(
+            execute_summarize_session(
+                session_id=session_id,
+                user=user,
+                team=team,
+                custom_tags={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
+            ),
+            timeout=timeout_s,
+        )
+
+    return async_to_sync(_bounded)()
+
+
+def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict[str, Any]:
+    if session_id in state.summary_cache:
+        return {"session_id": session_id, "summary": state.summary_cache[session_id]}
     if _rated_observation_for_session(state, session_id) is None:
         return {"error": "no rated observation for that session id on this scanner"}
-    if state.summaries_used >= _MAX_SUMMARIES_PER_RUN:
-        return {"error": "summary budget for this run is exhausted; decide with the context you have"}
     # Deferred: heavy modules stay off the API import path. Summaries go through core helpers,
     # since replay_vision must not import products.replay internals.
-    from posthog.temporal.session_replay.session_summary.state import get_ready_summaries_from_db  # noqa: PLC0415
+    from posthog.temporal.session_replay.session_summary.state import (
+        get_ready_summaries_from_db,  # noqa: PLC0415 (heavy temporal dep, see above)
+    )
+
+    from ee.hogai.session_summaries.session.stringify import (
+        SingleSessionSummaryStringifier,  # noqa: PLC0415 (heavy ee dep, see above)
+    )
 
     cached = get_ready_summaries_from_db([session_id], team_id=state.scanner.team_id, extra_summary_context=None)
     summary_json = cached[0].summary if cached else None
     if summary_json is None:
-        if not (state.allow_cold_summaries and state.user):
+        # Only cold generation is budgeted; cached summaries above are cheap reads.
+        summary_user = state.summary_user if state.allow_cold_summaries else None
+        if summary_user is None:
             return {"error": "no summary exists for this session yet and generating one is unavailable here"}
-        from posthog.models.team import Team  # noqa: PLC0415
-        from posthog.temporal.session_replay.session_summary.workflow import (  # noqa: PLC0415 (heavy temporal dep)
-            execute_summarize_session,
-        )
-
-        # Count before executing so a failing cold run still spends budget.
-        state.summaries_used += 1
-        team = Team.objects.get(pk=state.scanner.team_id)
-        summary_json = async_to_sync(execute_summarize_session)(
-            session_id=session_id,
-            user=state.user,
-            team=team,
-            custom_tags={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
-        )
-    else:
-        state.summaries_used += 1
-    from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier  # noqa: PLC0415
-
-    return {"session_id": session_id, "summary": SingleSessionSummaryStringifier(summary_json).stringify_session()}
+        if state.cold_summaries_used >= _MAX_SUMMARIES_PER_RUN:
+            return {"error": "summary budget for this run is exhausted; decide with the context you have"}
+        remaining = state.deadline - time.monotonic()
+        if remaining < _COLD_SUMMARY_MIN_BUDGET_S:
+            return {"error": "not enough time left in this run to generate a summary; decide with the context you have"}
+        summary_json = _run_cold_summary(state, session_id, summary_user, timeout_s=remaining)
+    text = SingleSessionSummaryStringifier(summary_json).stringify_session()
+    state.summary_cache[session_id] = text
+    return {"session_id": session_id, "summary": text}
 
 
-def _dispatch_agent_tool(state: _AgentToolState, call: Any) -> dict:
-    name = getattr(call, "name", None)
-    args = dict(getattr(call, "args", None) or {})
+def _dispatch_agent_tool(state: _AgentToolState, call: types.FunctionCall) -> dict[str, Any]:
+    name = call.name
+    args = dict(call.args or {})
     try:
         if name == "get_rated_observation":
             return _tool_get_rated_observation(state, str(args.get("session_id", "")))
@@ -421,8 +462,13 @@ def _dispatch_agent_tool(state: _AgentToolState, call: Any) -> dict:
 
 
 def _model_call(
-    client: Any, contents: list[Any], config: GenerateContentConfig, *, team_id: int, distinct_id: str
-) -> Any:
+    client: genai.Client,
+    contents: list[types.Content | types.Part],
+    config: GenerateContentConfig,
+    *,
+    team_id: int,
+    distinct_id: str,
+) -> types.GenerateContentResponse:
     return client.models.generate_content(
         model=_AGENT_MODEL,
         contents=contents,
@@ -444,38 +490,47 @@ def _generate_agentic(
 ) -> _LlmPromptSuggestion:
     """Tool-loop generation: the model may inspect rated sessions (and their summaries) before rewriting,
     then a final tool-free turn forces the structured answer, mirroring the scanner's own tool loop."""
-    api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(
-        api_key=api_key,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
-    state = _AgentToolState(scanner, user, allow_cold_summaries)
+    client = _gemini_client()
+    budget_s = _AGENT_BUDGET_BACKGROUND_S if allow_cold_summaries else _AGENT_BUDGET_INLINE_S
+    deadline = time.monotonic() + budget_s
+    # Cold summaries on the automatic path run as the scanner's creator; suggestion attribution stays `user`.
+    state = _AgentToolState(scanner, user or scanner.created_by, allow_cold_summaries, deadline)
     tool_config = GenerateContentConfig(
-        system_instruction=_SYSTEM_PROMPT + _AGENT_SYSTEM_ADDENDUM,
+        system_instruction=_AGENT_SYSTEM_PROMPT,
         tools=[_agent_tools()],
         temperature=0.3,
     )
-    convo: list[Any] = [types.Content(role="user", parts=[types.Part(text=user_content)])]
+    convo: list[types.Content | types.Part] = [types.Content(role="user", parts=[types.Part(text=user_content)])]
     response = _model_call(client, convo, tool_config, team_id=scanner.team_id, distinct_id=distinct_id)
     for _ in range(_MAX_TOOL_ROUNDS):
-        calls = list(getattr(response, "function_calls", None) or [])
-        if not calls or not getattr(response, "candidates", None):
+        content = response.candidates[0].content if response.candidates else None
+        if not response.function_calls or content is None or time.monotonic() >= deadline:
             break
-        convo.append(response.candidates[0].content)  # carries thought signatures across the round-trip
-        for call in calls:
+        convo.append(content)  # carries thought signatures across the round-trip
+        for call in response.function_calls:
             convo.append(
                 types.Part(
                     function_response=types.FunctionResponse(name=call.name, response=_dispatch_agent_tool(state, call))
                 )
             )
         response = _model_call(client, convo, tool_config, team_id=scanner.team_id, distinct_id=distinct_id)
-    # Final structured turn: tools off, JSON schema on (Gemini disallows combining the two).
-    if getattr(response, "candidates", None):
-        convo.append(response.candidates[0].content)
-    convo.append(types.Content(role="user", parts=[types.Part(text="Respond now with the JSON answer.")]))
+    # Final structured turn: tools off, JSON schema on (Gemini disallows combining the two). If the round or
+    # time budget ran out with calls still pending, answer them first: Gemini rejects a conversation that
+    # leaves a function_call turn without matching function responses.
+    final_parts: list[types.Part] = []
+    last_content = response.candidates[0].content if response.candidates else None
+    if last_content is not None:
+        convo.append(last_content)
+        final_parts.extend(
+            types.Part(
+                function_response=types.FunctionResponse(name=call.name, response=_dispatch_agent_tool(state, call))
+            )
+            for call in response.function_calls or []
+        )
+    final_parts.append(types.Part(text="Respond now with the JSON answer."))
+    convo.append(types.Content(role="user", parts=final_parts))
     final_config = GenerateContentConfig(
-        system_instruction=_SYSTEM_PROMPT + _AGENT_SYSTEM_ADDENDUM,
+        system_instruction=_AGENT_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmPromptSuggestion.model_json_schema(),
         tool_config=types.ToolConfig(
@@ -562,9 +617,8 @@ def refresh_prompt_suggestion_if_stale(scanner: ReplayScanner) -> str:
         if timezone.now() - latest.created_at < PROMPT_SUGGESTION_MIN_AGE:
             return "refreshed_recently"
     try:
-        # Cold summaries need a user, so attribute them to the scanner's creator. Without one
-        # the agent runs with cached summaries only.
-        generate_prompt_suggestion(scanner, scanner.created_by, allow_cold_summaries=True)
+        # user=None keeps automatic suggestions unattributed; cold summaries run as the scanner's creator.
+        generate_prompt_suggestion(scanner, allow_cold_summaries=True)
     except PromptSuggestionError as e:
         if str(e) == "no rated observations":
             return "no_ratings"

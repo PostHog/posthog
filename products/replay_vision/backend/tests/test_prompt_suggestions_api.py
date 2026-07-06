@@ -219,9 +219,10 @@ class TestPromptSuggestions(_VisionAPITestCase):
         # No ratings at all: nothing to generate from.
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "no_ratings")
 
-        # Ratings but no suggestion yet: generate immediately.
+        # Ratings but no suggestion yet: generate immediately, unattributed (no requesting user).
         self._create_rated_observation("sess-1", False, "should be yes")
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
+        self.assertIsNone(ReplayScannerPromptSuggestion.objects.get().created_by)
 
         # Same rated set: skip regardless of age.
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "ratings_unchanged")
