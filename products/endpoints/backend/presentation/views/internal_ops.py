@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.internal_ops import DataModelingOpsJWTAuthentication
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
-from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 
 
 class InternalEndpointVersionSerializer(serializers.ModelSerializer):

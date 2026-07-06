@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from django.apps import apps
 from django.conf import settings
+from django.http import HttpRequest
 
 import jwt
 import structlog
@@ -133,5 +134,5 @@ class DataModelingOpsJWTAuthentication(InternalAPIAuthentication):
         )
         return (InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims)
 
-    def authenticate_header(self, request: Request) -> str:
+    def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword

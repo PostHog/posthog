@@ -10,10 +10,9 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 class TestInternalEndpointsOpsAPI(APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
-        kwargs = {}
         if token is not None:
-            kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
-        return self.client.get(f"{base}{path}", **kwargs)
+            return self.client.get(f"{base}{path}", HTTP_AUTHORIZATION=f"Bearer {token}")
+        return self.client.get(f"{base}{path}")
 
     def _token(self) -> str:
         return mint_data_modeling_ops_token(team_id=self.team.id, acting_user="test@posthog.com")
@@ -53,6 +52,7 @@ class TestInternalEndpointsOpsAPI(APIBaseTest):
         version = data["versions"][0]
         self.assertEqual(version["saved_query_id"], str(saved_query.id))
         self.assertIsNone(version["saved_query_last_run_at"])
+        assert job.updated_at is not None
         self.assertEqual(version["last_successful_job_at"], job.updated_at.isoformat())
 
     def test_endpoints_list(self):

@@ -30,10 +30,9 @@ def _wrong_audience_token(team_id: int) -> str:
 class TestInternalDataModelingOpsAPI(APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
-        kwargs = {}
         if token is not None:
-            kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
-        return self.client.get(f"{base}{path}", **kwargs)
+            return self.client.get(f"{base}{path}", HTTP_AUTHORIZATION=f"Bearer {token}")
+        return self.client.get(f"{base}{path}")
 
     def _token(self, team_id: int | None = None) -> str:
         return mint_data_modeling_ops_token(team_id=team_id or self.team.id, acting_user="test@posthog.com")
