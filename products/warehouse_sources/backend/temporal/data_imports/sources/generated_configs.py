@@ -1719,7 +1719,7 @@ class JustCallSourceConfig(config.Config):
 
 @config.config
 class JustSiftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
