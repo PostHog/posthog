@@ -59,6 +59,32 @@ def pending_batch_select_columns(status_alias: str) -> str:
     """
 
 
+def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "LEFT") -> str:
+    """Per-batch latest-status lookup, driven by the (batch_id, created_at DESC, id DESC) index.
+
+    Replaces joins against the ``DISTINCT ON`` latest-status view: the view has
+    to reduce the *entire* status table before the planner can join it, so its
+    cost grows with total queue history no matter how few batches the outer
+    query touches — under backlog that made every poll and sweep degrade
+    together. A lateral LIMIT 1 probe costs one index descent per outer batch
+    instead.
+
+    ``join="LEFT"`` keeps outer batches with no status row (``status_alias``
+    columns come back NULL); ``join="INNER"`` drops them.
+    """
+    join_kw = "LEFT JOIN" if join == "LEFT" else "JOIN"
+    return f"""
+        {join_kw} LATERAL (
+            SELECT id, batch_id, job_state, attempt, exec_time, error_response, created_at
+            FROM {STATUS_TABLE}
+            WHERE batch_id = {batch_alias}.id
+              AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ) {status_alias} ON true
+    """
+
+
 # Retained for the duckgres sink, which still coordinates via session advisory
 # locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
 async def unlock_advisory_locks(
@@ -296,7 +322,7 @@ class BatchQueue:
                     SELECT
                         {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
-                    LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    {latest_status_lateral("b", "s")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (
@@ -311,7 +337,7 @@ class BatchQueue:
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {BATCH_TABLE} b_prev
-                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            {latest_status_lateral("b_prev", "s_prev")}
                             WHERE b_prev.run_uuid = b.run_uuid
                                 AND b_prev.batch_index < b.batch_index
                                 AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -325,17 +351,18 @@ class BatchQueue:
                                     )
                                 )
                         )
-                        AND b.run_uuid NOT IN (
-                            SELECT DISTINCT b2.run_uuid
+                        AND NOT EXISTS (
+                            SELECT 1
                             FROM {BATCH_TABLE} b2
-                            JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
-                            WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            {latest_status_lateral("b2", "s2", join="INNER")}
+                            WHERE b2.run_uuid = b.run_uuid
+                                AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
                         )
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {BATCH_TABLE} b_busy
-                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            {latest_status_lateral("b_busy", "s_busy", join="INNER")}
                             WHERE b_busy.team_id = b.team_id
                                 AND b_busy.schema_id = b.schema_id
                                 AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -485,7 +512,7 @@ class BatchQueue:
                 SELECT
                     {pending_batch_select_columns("s")}
                 FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                {latest_status_lateral("b", "s", join="INNER")}
                 LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
                 WHERE
                     b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -513,7 +540,7 @@ class BatchQueue:
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
             FROM {BATCH_TABLE} b
-            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            {latest_status_lateral("b", "s")}
             WHERE
                 b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.run_uuid = %(run_uuid)s
@@ -539,7 +566,7 @@ class BatchQueue:
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
             FROM {BATCH_TABLE} b
-            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            {latest_status_lateral("b", "s")}
             WHERE
                 b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.job_id = %(job_id)s
@@ -576,7 +603,7 @@ class BatchQueue:
                         b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
                         s.created_at AS failed_at
                     FROM {BATCH_TABLE} b
-                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    {latest_status_lateral("b", "s", join="INNER")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND s.job_state = 'failed'
@@ -670,7 +697,7 @@ class BatchQueue:
                     ) AS non_terminal_count,
                     GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
                 FROM {BATCH_TABLE} b
-                LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                {latest_status_lateral("b", "s")}
                 WHERE
                     b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b.job_id = %(job_id)s
