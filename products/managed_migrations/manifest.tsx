@@ -8,6 +8,7 @@ export const manifest: ProductManifest = {
         ManagedMigration: {
             import: () => import('./frontend/ManagedMigration'),
             name: 'Managed migrations',
+            description: 'Managed migrations provide an automated way to migrate your historical data into PostHog.',
             projectBased: true,
         },
         ManagedMigrationNew: {
