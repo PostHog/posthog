@@ -23,7 +23,7 @@ export function MCPSessionDetail(): JSX.Element {
     const {
         selectedSession,
         toolCalls,
-        toolCallsLoading,
+        isSelectedSessionToolCallsLoading,
         toolCallsHasNext,
         toolCallsLoadingMore,
         selectedSessionIntent,
@@ -46,9 +46,10 @@ export function MCPSessionDetail(): JSX.Element {
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
         : selectedSession.distinct_id || 'unknown'
 
-    // Animate the whole detail panel only on the initial per-session load; a "Load more"
-    // append keeps the existing calls and spins just the button.
-    const loading = toolCallsLoading && !toolCallsLoadingMore
+    // Skeleton the panel only while the *selected* session's first page loads; a "Load more"
+    // append keeps the existing calls and spins just the button. Scoped to the selected session
+    // so a concurrent load-more for a previous session can't drop the skeleton early.
+    const loading = isSelectedSessionToolCallsLoading
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -197,6 +198,7 @@ export function MCPSessionDetail(): JSX.Element {
                                     size="sm"
                                     onClick={() => loadMoreToolCalls()}
                                     disabled={toolCallsLoadingMore}
+                                    data-attr="mcp-session-load-more-tool-calls"
                                 >
                                     {toolCallsLoadingMore ? <Spinner /> : null}
                                     Load more

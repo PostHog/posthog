@@ -183,11 +183,20 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                             offset: baseCalls.length,
                         }
                     )
-                    if (sessionId !== values.selectedSessionId) {
+                    // Drop the page if the list changed underneath us while it was in flight — a
+                    // session switch (or a switch-and-return) triggers loadToolCalls, which replaces
+                    // toolCalls with a fresh array; appending our stale snapshot then would resurrect
+                    // the previous session's calls. The reference check also catches the X→Y→X case
+                    // that a bare selectedSessionId comparison misses.
+                    if (sessionId !== values.selectedSessionId || values.toolCalls !== baseCalls) {
                         return values.toolCalls
                     }
                     actions.setToolCallsHasNext(response.has_next ?? false)
-                    return [...baseCalls, ...(response.results ?? [])]
+                    // Dedupe on event_id: offset paging over the backend's non-total timestamp order
+                    // can repeat a row straddling a page boundary, which would also collide React keys.
+                    const seen = new Set(baseCalls.map((call) => call.event_id))
+                    const fresh = (response.results ?? []).filter((call) => !call.event_id || !seen.has(call.event_id))
+                    return [...baseCalls, ...fresh]
                 },
             },
         ],
@@ -265,6 +274,18 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadToolCalls: () => false,
             },
         ],
+        // The session whose first page is loading. Drives the skeleton via a session-scoped
+        // selector rather than the shared toolCallsLoading flag — a concurrent "Load more" for a
+        // previously-selected session resolves and flips that shared flag false early, which would
+        // otherwise render the new session's header over the old session's calls.
+        loadingToolCallsSessionId: [
+            null as string | null,
+            {
+                loadToolCalls: (_, sessionId) => sessionId,
+                loadToolCallsSuccess: () => null,
+                loadToolCallsFailure: () => null,
+            },
+        ],
         intentOverrides: [
             {} as Record<string, string>,
             {
@@ -308,6 +329,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             (s) => [s.generatedIntentLoading, s.generatingSessionId, s.selectedSessionId],
             (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
                 generatedIntentLoading && generatingSessionId === selectedSessionId,
+        ],
+        // True only while the *currently selected* session's first page is loading — decoupled
+        // from the shared toolCallsLoading flag so a concurrent "Load more" for a previously
+        // selected session can't flip it false and flash the wrong session's calls.
+        isSelectedSessionToolCallsLoading: [
+            (s) => [s.loadingToolCallsSessionId, s.selectedSessionId],
+            (loadingToolCallsSessionId, selectedSessionId): boolean =>
+                loadingToolCallsSessionId !== null && loadingToolCallsSessionId === selectedSessionId,
         ],
     }),
     listeners(({ actions, values }) => ({
