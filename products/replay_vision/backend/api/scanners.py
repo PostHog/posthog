@@ -123,6 +123,25 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     return None
 
 
+class FeedbackThemeSerializer(serializers.Serializer):
+    theme = serializers.CharField(
+        help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
+    )
+    count = serializers.IntegerField(help_text="How many feedback comments describe this failure mode.")
+    examples = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to two short representative quotes from the feedback comments.",
+    )
+
+
+class FeedbackThemesSerializer(serializers.Serializer):
+    themes = FeedbackThemeSerializer(many=True, help_text="Recurring failure modes, most frequent first.")
+    feedback_count = serializers.IntegerField(
+        help_text="Number of thumbs-down feedback comments the summary was generated from."
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
+
+
 class ReplayScannerSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -204,6 +223,22 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User who created the scanner.",
     )
+    feedback_themes = serializers.SerializerMethodField(
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes. "
+        "Refreshed with prompt recommendations; null until enough feedback accumulates."
+    )
+
+    @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
+    def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
+        cached = scanner.feedback_themes if isinstance(scanner.feedback_themes, dict) else None
+        if not cached:
+            return None
+        # The staleness fingerprint is internal bookkeeping, not API surface.
+        return {
+            "themes": cached.get("themes") or [],
+            "feedback_count": cached.get("feedback_count", 0),
+            "generated_at": cached.get("generated_at"),
+        }
 
     class Meta:
         model = ReplayScanner
@@ -226,6 +261,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
         read_only_fields = [
             "id",
@@ -235,6 +271,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "feedback_themes",
         ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

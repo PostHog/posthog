@@ -24556,6 +24556,24 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeedbackTheme {
+      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+      theme: string;
+      /** How many feedback comments describe this failure mode. */
+      count: number;
+      /** Up to two short representative quotes from the feedback comments. */
+      examples: string[];
+    }
+
+    export interface FeedbackThemes {
+      /** Recurring failure modes, most frequent first. */
+      themes: FeedbackTheme[];
+      /** Number of thumbs-down feedback comments the summary was generated from. */
+      feedback_count: number;
+      /** When the summary was generated. */
+      generated_at: string;
+    }
+
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -34079,6 +34097,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes: FeedbackThemes | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -41856,6 +41876,8 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+      readonly feedback_themes?: FeedbackThemes | null;
     }
 
     export interface PatchedReviewQueueItemUpdate {

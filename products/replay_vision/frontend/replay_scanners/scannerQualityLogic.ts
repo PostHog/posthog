@@ -383,6 +383,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 const suggestion = await visionScannersPromptSuggestionsGenerateCreate(String(teamId), props.scannerId)
                 cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.generateSuggestionSuccess(suggestion)
+                // Generation also refreshes the feedback-theme chips, which live on the scanner.
+                replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
             } catch (error: any) {
                 lemonToast.error(`Couldn't generate a recommendation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.generateSuggestionFailure()

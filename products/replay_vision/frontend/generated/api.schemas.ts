@@ -586,6 +586,24 @@ export const ScannerModelEnumApi = {
     Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
 } as const
 
+export interface FeedbackThemeApi {
+    /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
+    theme: string
+    /** How many feedback comments describe this failure mode. */
+    count: number
+    /** Up to two short representative quotes from the feedback comments. */
+    examples: string[]
+}
+
+export interface FeedbackThemesApi {
+    /** Recurring failure modes, most frequent first. */
+    themes: FeedbackThemeApi[]
+    /** Number of thumbs-down feedback comments the summary was generated from. */
+    feedback_count: number
+    /** When the summary was generated. */
+    generated_at: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -647,6 +665,8 @@ export interface ReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes: FeedbackThemesApi | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -719,6 +739,8 @@ export interface PatchedReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
+    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
+    readonly feedback_themes?: FeedbackThemesApi | null
 }
 
 /**

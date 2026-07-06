@@ -36,7 +36,11 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
-import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import type {
+    FeedbackThemesApi,
+    ReplayObservationApi,
+    ReplayScannerPromptSuggestionApi,
+} from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
@@ -760,6 +764,42 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     )
 }
 
+/** Recurring failure modes summarized from the team's written feedback, so raters know what to look for. */
+function FeedbackThemeChips({ feedbackThemes }: { feedbackThemes: FeedbackThemesApi }): JSX.Element | null {
+    if (feedbackThemes.themes.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with the prompt recommendation and also steer it.">
+                <span className="text-xs text-muted">Feedback themes:</span>
+            </Tooltip>
+            {feedbackThemes.themes.map((theme) => (
+                <Tooltip
+                    key={theme.theme}
+                    title={
+                        <div className="space-y-1">
+                            <div>
+                                {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure mode.
+                                Watch for it when rating.
+                            </div>
+                            {theme.examples.map((example) => (
+                                <div key={example} className="text-muted italic">
+                                    "{example}"
+                                </div>
+                            ))}
+                        </div>
+                    }
+                >
+                    <LemonTag type="muted">
+                        {theme.theme} · {theme.count}
+                    </LemonTag>
+                </Tooltip>
+            ))}
+        </div>
+    )
+}
+
 /**
  * The scanner's Quality tab: the current prompt recommendation (with history), quality over time,
  * and the results still awaiting a rating.
@@ -910,6 +950,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         />
                     </div>
                 </div>
+                {scanner?.feedback_themes && <FeedbackThemeChips feedbackThemes={scanner.feedback_themes} />}
                 <LemonTable
                     columns={columns}
                     dataSource={observations}

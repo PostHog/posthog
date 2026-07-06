@@ -33,6 +33,7 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.replay_vision.backend.feedback_themes import refresh_feedback_themes_if_stale, theme_lines
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -229,6 +230,7 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
         lines.append("")
         lines.append(f"Sessions it got RIGHT ({len(right)}), keep these passing:")
         lines.extend(_example_line(o) for o in right)
+    lines.extend(theme_lines(scanner))
     lines.extend(_dismissed_lines(scanner))
     lines.extend(_version_trend_lines(scanner))
     return "\n".join(lines)
@@ -584,8 +586,13 @@ def generate_prompt_suggestion(
     if not observations:
         raise PromptSuggestionError("no rated observations")
     base_prompt = (scanner.scanner_config or {}).get("prompt") or ""
-    user_content = _build_user_content(scanner, base_prompt, observations)
     distinct_id = str(user.uuid) if user else f"replay-vision-scanner-{scanner.id}"
+    try:
+        # Fresh themes feed the briefing below and the Quality tab's chips; stale ones beat none.
+        refresh_feedback_themes_if_stale(scanner, distinct_id=distinct_id)
+    except Exception:
+        logger.exception("replay_vision.feedback_themes.refresh_failed", scanner_id=str(scanner.id))
+    user_content = _build_user_content(scanner, base_prompt, observations)
     try:
         parsed = _generate_agentic(
             scanner=scanner,
