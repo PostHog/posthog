@@ -361,7 +361,7 @@ export class IngestionApiServer implements NodeServer {
         // 7. Create the ingestion pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,

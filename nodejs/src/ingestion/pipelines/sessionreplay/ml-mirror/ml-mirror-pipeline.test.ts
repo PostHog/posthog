@@ -104,7 +104,7 @@ describe('ml-mirror-pipeline', () => {
         return createMlMirrorReplayPipeline({
             outputs,
             eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             promiseScheduler,
             teamService: mockTeamService,
             retentionService,

@@ -167,7 +167,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             groupTypeManager: new ReadOnlyGroupTypeManager(
                 new PersonHogGroupReadRepository(container.personhogClient, clientLabel)
             ),
-            overflowEnabled,
+            overflowMode,
             preservePartitionLocality,
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,

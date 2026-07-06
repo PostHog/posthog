@@ -205,7 +205,6 @@ export class ErrorTrackingServer implements NodeServer {
                     cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
                     overflowMode: this.config.INGESTION_OVERFLOW_MODE,
-                    overflowEnabled: this.config.INGESTION_OVERFLOW_MODE === 'redirect',
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,

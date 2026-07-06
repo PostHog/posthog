@@ -145,7 +145,6 @@ describe('ErrorTrackingConsumer', () => {
             cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: infra.config.INGESTION_LANE ?? ('main' as const),
             overflowMode: infra.config.INGESTION_OVERFLOW_MODE,
-            overflowEnabled: infra.config.INGESTION_OVERFLOW_MODE === 'redirect',
             overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
             statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,

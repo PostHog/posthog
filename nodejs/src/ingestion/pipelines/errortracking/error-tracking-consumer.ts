@@ -54,7 +54,6 @@ export interface ErrorTrackingConsumerOptions {
     cymbalMaxBodyBytes: number
     lane: IngestionLane
     overflowMode: IngestionOverflowMode
-    overflowEnabled: boolean
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
     statefulOverflowRedisTTLSeconds: number
@@ -248,7 +247,7 @@ export class ErrorTrackingConsumer {
         logger.info('🚀', `${this.name} - starting`, {
             groupId: this.config.groupId,
             topic: this.config.topic,
-            overflowEnabled: this.config.overflowEnabled,
+            overflowMode: this.config.overflowMode,
             lane: this.config.lane,
             cymbalUrl: this.config.cymbalBaseUrl,
         })
@@ -290,7 +289,7 @@ export class ErrorTrackingConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             cookielessManager: this.deps.cookielessManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.config.overflowEnabled,
+            overflowMode: this.config.overflowMode,
             preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
