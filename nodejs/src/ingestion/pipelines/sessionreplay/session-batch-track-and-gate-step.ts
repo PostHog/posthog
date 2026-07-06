@@ -10,6 +10,14 @@ import { Gated, NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 
+/** The minimal per-element shape this step needs to track and rate-limit a session. */
+type TrackAndGateStepInput = {
+    message: Pick<Message, 'partition' | 'offset'>
+    team: TeamForReplay
+    headers: SessionReplayHeaders
+    retentionPeriod: RetentionPeriod
+}
+
 /**
  * Record-phase batch step: for the whole batch, learn which sessions are new, rate-limit the new ones
  * against their team's budget, and tag each element with `isNewSession` and a gate verdict (allowed vs
@@ -32,14 +40,6 @@ import { SessionTracker } from './sessions/session-tracker'
  * filter calls ({@link SessionFilter.handleNewSessions}/{@link SessionFilter.isBlocked}) are pure rate
  * limiting and fail open, so a Redis blip there under-limits rather than halting.
  */
-/** The minimal per-element shape this step needs to track and rate-limit a session. */
-type TrackAndGateStepInput = {
-    message: Pick<Message, 'partition' | 'offset'>
-    team: TeamForReplay
-    headers: SessionReplayHeaders
-    retentionPeriod: RetentionPeriod
-}
-
 export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
     sessionTracker: SessionTracker,
     sessionFilter: SessionFilter

@@ -7,6 +7,9 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { NewSessionFlag, Recordable, Resolved, SessionReplayHeaders } from './pipeline-types'
 import { SessionTracker } from './sessions/session-tracker'
 
+/** The minimal per-element shape this step needs to mark a session seen. */
+type MarkSeenStepInput = { team: TeamForReplay; headers: SessionReplayHeaders } & NewSessionFlag
+
 /**
  * Record-phase batch step: mark every new session in the batch as seen, in one Redis pipeline, now that
  * each session's key has been durably resolved upstream — then drop the sessions that won't be recorded
@@ -19,7 +22,7 @@ import { SessionTracker } from './sessions/session-tracker'
  * keyless session seen is safe — a blocked session's block flag shares the seen TTL, and a deleted
  * session's tombstone outlives it, so either stays dropped (blocked / deleted) for as long as it's seen.
  */
-export function createMarkSeenStep<T extends { team: TeamForReplay; headers: SessionReplayHeaders } & NewSessionFlag>(
+export function createMarkSeenStep<T extends MarkSeenStepInput>(
     sessionTracker: SessionTracker
 ): BatchProcessingStep<Resolved<T>, Recordable<T>> {
     return async function markSeenStep(values) {
