@@ -1875,7 +1875,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node {
     display: flex;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
 }
 
@@ -1891,7 +1891,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // overrides the inline `height` and the resize drag has no visible effect.
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     overflow: hidden;
 }
 
