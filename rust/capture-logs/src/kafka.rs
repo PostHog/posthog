@@ -196,6 +196,17 @@ async fn build_producer(
     Ok(producer)
 }
 
+/// End-to-end produce outcome and latency, measured from enqueue to broker
+/// acknowledgment. `capture_kafka_produce_rtt_latency_us` (rdkafka's view) covers
+/// broker round-trips only; this covers what a request handler actually waits on.
+fn record_produce(topic: &str, outcome: &'static str, started: std::time::Instant) {
+    let topic: std::sync::Arc<str> = std::sync::Arc::from(topic);
+    counter!("capture_logs_kafka_produce_total", "topic" => topic.clone(), "outcome" => outcome)
+        .increment(1);
+    metrics::histogram!("capture_logs_kafka_produce_duration_ms", "topic" => topic, "outcome" => outcome)
+        .record(started.elapsed().as_secs_f64() * 1000.0);
+}
+
 #[cfg(test)]
 impl KafkaSink {
     /// A sink whose producers point at an unreachable broker and skip the
@@ -214,6 +225,7 @@ impl KafkaSink {
         let mut producers = handles.into_iter().map(|liveness| {
             let mut config = ClientConfig::new();
             config.set("bootstrap.servers", "localhost:1");
+            config.set("message.timeout.ms", "5");
             config
                 .create_with_context(KafkaContext { liveness })
                 .expect("test producer")
@@ -391,6 +403,7 @@ impl KafkaSink {
 
         let payload: Vec<u8> = writer.into_inner()?;
 
+        let produce_started = std::time::Instant::now();
         let future = match producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
@@ -439,13 +452,27 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
-            Ok(delivery_future) => Ok(delivery_future),
-        }?;
+            Err((err, _)) => {
+                record_produce(topic, "enqueue_error", produce_started);
+                return Err(anyhow!(format!("kafka error: {err}")));
+            }
+            Ok(delivery_future) => delivery_future,
+        };
 
-        drop(future.await?);
-
-        Ok(())
+        match future.await {
+            Err(_canceled) => {
+                record_produce(topic, "canceled", produce_started);
+                Err(anyhow!("kafka delivery future canceled"))
+            }
+            Ok(Err((err, _message))) => {
+                record_produce(topic, "delivery_error", produce_started);
+                Err(anyhow!(format!("kafka delivery failed: {err}")))
+            }
+            Ok(Ok(_)) => {
+                record_produce(topic, "ok", produce_started);
+                Ok(())
+            }
+        }
     }
 
     pub async fn write(
@@ -545,5 +572,52 @@ impl KafkaSink {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod produce_metrics_tests {
+    use super::*;
+    use crate::internal_metrics::InternalMetricsRecorder;
+    use std::collections::HashMap;
+
+    // A failed Kafka delivery must fail the write (the handler turns it into a
+    // 500 the client retries) and count a delivery_error outcome. Before this,
+    // the delivery result was dropped: broker-down meant 200 + silent data loss.
+    #[test]
+    fn failed_delivery_errors_and_counts_outcome() {
+        let recorder = InternalMetricsRecorder::new();
+        metrics::with_local_recorder(&recorder, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                let sink = KafkaSink::for_tests().await;
+                let (row, _) = KafkaLogRow::new(Default::default(), None, None).expect("test row");
+                let result = sink.write("test-token", vec![row], 10, 0).await;
+                assert!(result.is_err(), "failed delivery must not report success");
+                let err = format!("{}", result.unwrap_err());
+                assert!(
+                    err.contains("kafka delivery failed") || err.contains("kafka error"),
+                    "unexpected error: {err}"
+                );
+            });
+        });
+
+        let rows = recorder.drain_rows(&HashMap::new());
+        let produce_counter = rows
+            .iter()
+            .find(|row| {
+                row.metric_name == "capture_logs_kafka_produce_total"
+                    && row.attributes.get("outcome").map(String::as_str) != Some("ok")
+            })
+            .expect("produce outcome counter missing");
+        assert_eq!(produce_counter.attributes["topic"], "logs");
+        assert_eq!(produce_counter.value, 1.0);
+        assert!(rows.iter().any(|row| {
+            row.metric_name == "capture_logs_kafka_produce_duration_ms"
+                && row.metric_type == "histogram"
+        }));
     }
 }
