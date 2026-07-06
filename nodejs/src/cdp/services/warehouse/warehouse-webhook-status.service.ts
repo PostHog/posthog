@@ -1,9 +1,9 @@
 import { Gauge } from 'prom-client'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
 import { WAREHOUSE_WEBHOOK_DELIVERY_STATUS_OUTPUT, WarehouseWebhookDeliveryStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 
