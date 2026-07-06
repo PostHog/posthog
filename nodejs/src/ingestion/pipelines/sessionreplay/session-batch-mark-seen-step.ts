@@ -2,10 +2,9 @@ import { logger } from '~/common/utils/logger'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
+import { NewSessionFlag, Recordable, Resolved, SessionReplayHeaders } from './pipeline-types'
 import { SessionTracker } from './sessions/session-tracker'
 
 /**
@@ -22,7 +21,7 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export function createMarkSeenStep<T extends { team: TeamForReplay; headers: SessionReplayHeaders } & NewSessionFlag>(
     sessionTracker: SessionTracker
-): BatchProcessingStep<Resolved<T>, T & { status: 'allowed'; sessionKey: SessionKey }> {
+): BatchProcessingStep<Resolved<T>, Recordable<T>> {
     return async function markSeenStep(values) {
         const newlySeen = new SessionSet()
         for (const value of values) {
@@ -43,7 +42,7 @@ export function createMarkSeenStep<T extends { team: TeamForReplay; headers: Ses
                 teamId: value.team.teamId,
                 reason,
             })
-            return drop<T & { status: 'allowed'; sessionKey: SessionKey }>(reason)
+            return drop<Recordable<T>>(reason)
         })
     }
 }

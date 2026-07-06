@@ -43,7 +43,10 @@ export type Gated<T> = (T & { status: 'allowed' }) | (T & { status: 'blocked' })
  * recording (a deleted session's tombstone outlives its seen flag, so while it's seen it always resolves
  * as deleted).
  */
-export type Resolved<T> =
-    | (T & { status: 'allowed'; sessionKey: SessionKey })
-    | (T & { status: 'blocked' })
-    | (T & { status: 'deleted' })
+export type Resolved<T> = Recordable<T> | (T & { status: 'blocked' }) | (T & { status: 'deleted' })
+
+/**
+ * The one branch of {@link Resolved} that reaches recording: an `allowed` session carrying its resolved
+ * key. This is what the mark-seen step emits after dropping the blocked and deleted sessions.
+ */
+export type Recordable<T> = T & { status: 'allowed'; sessionKey: SessionKey }
