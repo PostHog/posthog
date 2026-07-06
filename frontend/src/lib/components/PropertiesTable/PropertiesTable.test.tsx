@@ -222,9 +222,12 @@ describe('PropertiesTable inline editor', () => {
         it.each([
             { collapsible: false, expectArrayTag: true },
             { collapsible: true, expectArrayTag: false },
-        ])('collapsible=$collapsible renders expanded array table: $expectArrayTag', ({ collapsible, expectArrayTag }) => {
-            renderWith(collapsible)
-            expect(!!screen.queryByText('array')).toBe(expectArrayTag)
-        })
+        ])(
+            'collapsible=$collapsible renders expanded array table: $expectArrayTag',
+            ({ collapsible, expectArrayTag }) => {
+                renderWith(collapsible)
+                expect(!!screen.queryByText('array')).toBe(expectArrayTag)
+            }
+        )
     })
 })
