@@ -22,3 +22,20 @@ def test_reverse_key_setting_omitted_on_old_clickhouse(name, gate_path, table_sq
     # because CI runs a modern ClickHouse, so this locks in the omission on older servers.
     with patch(gate_path, return_value=False):
         assert "allow_experimental_reverse_key" not in table_sql()
+
+
+def test_reverse_key_gate_defaults_to_supported_when_version_unknown():
+    # These builders run at migration-import and pytest-collection time, where ClickHouse may be
+    # unreachable. A version-lookup failure must fall back to the historical behavior (setting
+    # present) rather than raising, so a dropped try/except can't break SQL generation everywhere.
+    from posthog.clickhouse.client.execute import clickhouse_supports_reverse_key
+
+    clickhouse_supports_reverse_key.cache_clear()
+    try:
+        with patch(
+            "posthog.version_requirement.ServiceVersionRequirement.is_service_in_accepted_version",
+            side_effect=RuntimeError("clickhouse unreachable"),
+        ):
+            assert clickhouse_supports_reverse_key() is True
+    finally:
+        clickhouse_supports_reverse_key.cache_clear()

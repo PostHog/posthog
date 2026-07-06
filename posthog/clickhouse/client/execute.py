@@ -235,12 +235,22 @@ def clickhouse_at_least_228() -> bool:
 def clickhouse_supports_reverse_key() -> bool:
     # `allow_experimental_reverse_key` only exists in ClickHouse 24.11+. Emitting it against an
     # older server aborts migrate_clickhouse with "Unknown setting 'allow_experimental_reverse_key'
-    # for storage ReplicatedMergeTree", so table SQL must gate the setting on the server version.
+    # for storage ReplicatedMergeTree", so table SQL gates the setting on the server version.
+    #
+    # These builders are called from impure contexts (migration import, pytest collection of the
+    # schema snapshots) where ClickHouse may be unreachable. Default to True there so we preserve
+    # the historical behavior (setting present) and never crash: we only drop the setting when we
+    # can positively confirm an older server, which is exactly the migrate_clickhouse path where a
+    # live connection is guaranteed.
     from posthog.version_requirement import ServiceVersionRequirement
 
-    supported, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=24.11.0"
-    ).is_service_in_accepted_version()
+    try:
+        supported, _ = ServiceVersionRequirement(
+            service="clickhouse", supported_version=">=24.11.0"
+        ).is_service_in_accepted_version()
+    except Exception:
+        logger.warning("Could not determine ClickHouse version for reverse-key gating; assuming supported")
+        return True
 
     return supported
 
