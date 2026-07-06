@@ -60,16 +60,19 @@ def end_active(*, team_id: int, account: Account, definition: AccountRelationshi
 
 
 def end_relationship(*, team_id: int, relationship_id: str) -> AccountRelationship:
-    relationship = (
-        AccountRelationship.objects.for_team(team_id)
-        .select_related("definition", "account")
-        .filter(id=relationship_id, ended_at__isnull=True)
-        .first()
-    )
-    if relationship is None:
-        raise AccountRelationshipNotFound(relationship_id)
-    relationship.ended_at = timezone.now()
-    relationship.save(update_fields=["ended_at"])
+    with transaction.atomic():
+        # Serializes concurrent ends of the same row, matching assign's locking contract.
+        relationship = (
+            AccountRelationship.objects.for_team(team_id)
+            .select_related("definition", "account")
+            .select_for_update(of=("self",))
+            .filter(id=relationship_id, ended_at__isnull=True)
+            .first()
+        )
+        if relationship is None:
+            raise AccountRelationshipNotFound(relationship_id)
+        relationship.ended_at = timezone.now()
+        relationship.save(update_fields=["ended_at"])
     return relationship
 
 
