@@ -455,17 +455,21 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
     return section
 
 
+# Region -> "[Error tracking] Weekly digest email" workflow in that region's internal PostHog
+# project. The webhook is protected by WORKFLOWS_WEBHOOK_SECRET, so the ids are not secrets.
+# Regions without an entry don't send.
+DIGEST_DELIVERY_WORKFLOWS: dict[str, tuple[str, str]] = {
+    "US": ("https://webhooks.us.posthog.com", "019f2754-aeff-0000-6a0d-5d3933a94b08"),
+}
+
+
 def get_digest_workflow_webhook_url() -> str | None:
-    """Public webhook URL of the workflow that delivers the digest email, or None when not configured."""
-    workflow_id = settings.ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID
-    if not workflow_id:
+    """Public webhook URL of the workflow that delivers the digest email, or None when this region has none."""
+    entry = DIGEST_DELIVERY_WORKFLOWS.get((settings.CLOUD_DEPLOYMENT or "").upper())
+    if not entry:
         return None
 
-    webhooks_host = {
-        "US": "https://webhooks.us.posthog.com",
-        "EU": "https://webhooks.eu.posthog.com",
-        "DEV": "https://app.dev.posthog.dev",
-    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
+    webhooks_host, workflow_id = entry
     return f"{webhooks_host}/public/webhooks/{workflow_id}"
 
 
@@ -476,7 +480,7 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     """
     webhook_url = get_digest_workflow_webhook_url()
     if not webhook_url:
-        raise ValueError("ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID is not configured")
+        raise ValueError("No digest delivery workflow for this region (CLOUD_DEPLOYMENT)")
 
     # The workflow trigger's "auth_header" input compares the Authorization header verbatim,
     # so the secret must be the full header value (e.g. "Bearer <token>").

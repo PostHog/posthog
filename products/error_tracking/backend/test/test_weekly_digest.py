@@ -6,7 +6,6 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -558,23 +557,19 @@ class TestSourceMapsRecommendationForDigest(APIBaseTest):
 
 
 class TestSendDigestToWorkflow(SimpleTestCase):
-    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="")
-    def test_raises_when_workflow_not_configured(self):
+    @override_settings(CLOUD_DEPLOYMENT=None)
+    def test_raises_when_region_has_no_delivery_workflow(self):
         with pytest.raises(ValueError):
             send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
 
-    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="wf-123", CLOUD_DEPLOYMENT=None)
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
             mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("500")
             with pytest.raises(requests.HTTPError):
                 send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
 
-    @override_settings(
-        ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="wf-123",
-        WORKFLOWS_WEBHOOK_SECRET="Bearer test-token",
-        CLOUD_DEPLOYMENT=None,
-    )
+    @override_settings(WORKFLOWS_WEBHOOK_SECRET="Bearer test-token", CLOUD_DEPLOYMENT="US")
     def test_sends_secret_as_authorization_header(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
             send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
@@ -588,9 +583,8 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         materialize("events", "$exception_issue_id", is_nullable=True)
 
     @override_settings(
-        ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="wf-123",
         ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"],
-        CLOUD_DEPLOYMENT=None,
+        CLOUD_DEPLOYMENT="US",
     )
     def test_task_posts_json_safe_digest_and_dedupes_on_retry(self):
         issue = ErrorTrackingIssue.objects.create(
@@ -615,7 +609,7 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
 
             assert mock_post.call_count == 1
             url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
-            assert url == f"{settings.SITE_URL}/public/webhooks/wf-123"
+            assert url == "https://webhooks.us.posthog.com/public/webhooks/019f2754-aeff-0000-6a0d-5d3933a94b08"
 
             payload = mock_post.call_args.kwargs["json"]
             json.dumps(payload)  # the workflow webhook only accepts JSON-serializable payloads
