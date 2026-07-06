@@ -47,6 +47,9 @@ env:
     # automated reconciliation, so update this when the required checks change.
     # (container-images-ci and shellcheck are also required but only run on PR/merge_group,
     # so this push-based alerter can't observe them.)
+    # Every workflow listed MUST run on every master push (no path filters): the script
+    # verifies runs-page freshness against master's newest commit, so a workflow that
+    # legitimately lags would read as permanently stale and wedge incident resolution.
     GATING_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
 
 jobs:
