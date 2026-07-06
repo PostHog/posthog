@@ -2219,6 +2219,8 @@ export interface BillingProductV2Type {
     current_amount_usd_before_addons: string | null
     current_amount_usd: string | null
     usage_limit: number | null
+    // The billing limit is an ALERT threshold only (never caps usage/billing) — e.g. MDW storage.
+    alert_only?: boolean
     has_exceeded_limit: boolean
     unit: string | null
     // Display formatting fields - for human-friendly display of usage values
@@ -2275,6 +2277,8 @@ export interface BillingProductV2AddonType {
         | 'has_parent_subscription'
         | null
     usage_limit?: number | null
+    // The billing limit is an ALERT threshold only (never caps usage/billing) — e.g. MDW storage.
+    alert_only?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }

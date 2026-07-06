@@ -21,7 +21,13 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
+import {
+    calculateFreeTier,
+    createGaugeItems,
+    getSyntheticStorageAddon,
+    isAddonVisible,
+    isProductVariantPrimary,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -456,12 +462,27 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
 
                 const mainProduct = product as BillingProductV2Type
+
+                // MDW compute is hard-capped by its billing limit, and its only "addon" — storage — is a
+                // synthetic top-level product nested under compute for display (see `groupedProducts`),
+                // not folded into compute's `projected_amount_usd`. So the compute row must show the
+                // CAPPED projection to match the combined gauge (which uses `projected_amount_usd_with_limit`)
+                // and the amount actually billed. Storage (alert-only, uncapped) is its own variant row.
+                const hasSyntheticStorageAddon = !!getSyntheticStorageAddon(mainProduct)
+                if (hasSyntheticStorageAddon) {
+                    return parseFloat(
+                        mainProduct.projected_amount_usd_with_limit || mainProduct.projected_amount_usd || '0'
+                    ).toFixed(2)
+                }
+
                 const totalProjected = parseFloat(mainProduct.projected_amount_usd || '0')
 
                 if (!mainProduct.addons?.length) {
                     return totalProjected.toFixed(2)
                 }
 
+                // Real addons (e.g. mobile replay) ARE folded into the primary's `projected_amount_usd`,
+                // so subtract them to get the primary's own projected spend.
                 const addonProjected = mainProduct.addons.reduce(
                     (sum: number, addon: BillingProductV2AddonType) =>
                         sum + parseFloat(addon.projected_amount_usd || '0'),
@@ -489,6 +510,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     session_replay: 'Web session replay',
                     data_warehouse: 'Synced rows',
                     data_warehouse_historical: 'Free historical synced rows',
+                    managed_data_warehouse: 'Compute',
+                    managed_data_warehouse_storage: 'Storage',
                 }
 
                 const mainProduct = product as BillingProductV2Type
@@ -522,13 +545,34 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 const discountPercent = billing?.discount_percent || 0
                 const discountMultiplier = 1 - discountPercent / 100
 
+                // Storage is a synthetic addon (a separate top-level product nested under compute for
+                // display — see `groupedProducts`), so its spend is NOT folded into compute's
+                // `*_amount_usd`. Add it back here so the card headline reflects compute + storage and
+                // reconciles with the per-variant breakdown below it. Real addons are already included.
+                const storageAddon = getSyntheticStorageAddon(mainProduct) as BillingProductV2Type | undefined
+                const storageCurrent = parseFloat(storageAddon?.current_amount_usd || '0')
+                // Storage is alert-only: its limit is an alert threshold, never a cap. Use the UNCAPPED
+                // projection — `projected_amount_usd_with_limit` clamps to the alert value (e.g. $3), which
+                // would push the projected total below current spend and not reconcile with the storage row
+                // below (which already shows the uncapped `projected_amount_usd`).
+                const storageProjected = parseFloat(storageAddon?.projected_amount_usd || '0')
+
+                const mainProjected = parseFloat(mainProduct.projected_amount_usd_with_limit || '0')
+                const rawCurrentTotal = parseFloat(mainProduct.current_amount_usd || '0') + storageCurrent
+                const rawProjectedTotal = mainProjected + storageProjected
+
                 return {
-                    currentTotal: parseFloat(mainProduct.current_amount_usd || '0') * discountMultiplier,
-                    projectedTotal: parseFloat(mainProduct.projected_amount_usd_with_limit || '0') * discountMultiplier,
+                    currentTotal: rawCurrentTotal * discountMultiplier,
+                    projectedTotal: rawProjectedTotal * discountMultiplier,
                     billingLimit: limit,
+                    // The billing limit caps only the main product (compute); storage is alert-only and
+                    // billed on top. Expose the cappable portion + a flag so the gauge/tooltip don't
+                    // claim the combined total is capped when storage is what pushes it over the limit.
+                    cappableProjectedTotal: mainProjected * discountMultiplier,
+                    hasUncappedStorage: !!storageAddon && storageProjected > 0,
                     discountPercent,
-                    rawCurrentTotal: mainProduct.current_amount_usd || '0',
-                    rawProjectedTotal: mainProduct.projected_amount_usd_with_limit || '0',
+                    rawCurrentTotal: rawCurrentTotal.toString(),
+                    rawProjectedTotal: rawProjectedTotal.toString(),
                 }
             },
         ],

@@ -21,9 +21,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import {
+    HOURS_PER_MONTH,
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
+    getSyntheticStorageAddon,
     isProductVariantPrimary,
 } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
@@ -46,6 +48,17 @@ export const getTierDescription = (
 ): string => {
     const formatValue = createProductValueFormatter(product)
     const unitLabel = getProductUnitLabel(product)
+
+    // Storage's free tier is a LEVEL ("up to 100 GB at any moment"), so phrase the free ($0) row in
+    // GB (= GB-hours / 744) to match the public pricing page — paid rows below stay in GB-hours.
+    if (
+        product.type === 'managed_data_warehouse_storage' &&
+        i === 0 &&
+        tiers[i].up_to &&
+        parseFloat(tiers[i].unit_amount_usd || '0') === 0
+    ) {
+        return `Up to ${Math.round((tiers[i].up_to || 0) / HOURS_PER_MONTH).toLocaleString()} GB`
+    }
 
     return i === 0
         ? tiers[i].up_to
@@ -228,11 +241,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {/* Combined monetary gauge for product variants - only show for subscribed users */}
                     {isProductWithVariants && product.subscribed && (
                         <div className="mt-6 mb-4 ml-2">
-                            <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_130px_100px] md:gap-4 items-center">
                                 <div>
                                     <BillingGauge
                                         items={combinedMonetaryGaugeItems}
-                                        product={{ ...product, unit: '$' }}
+                                        product={product}
+                                        // Gauge values are dollars, not usage units — bypass the
+                                        // product's unit-display config entirely (items carry the '$'
+                                        // prefix).
+                                        valueFormatter={(value) => (value ?? 0).toFixed(2)}
                                     />
                                 </div>
                                 <Tooltip
@@ -256,8 +273,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         billing?.discount_percent ? ', discounts on your account,' : ''
                                     } and the remaining time left in this billing period. This number updates once daily.${
                                         combinedMonetaryData.billingLimit &&
-                                        combinedMonetaryData.projectedTotal >= combinedMonetaryData.billingLimit
-                                            ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit.`
+                                        combinedMonetaryData.cappableProjectedTotal >= combinedMonetaryData.billingLimit
+                                            ? combinedMonetaryData.hasUncappedStorage
+                                                ? ` Compute is capped at your billing limit; storage is billed separately and is never blocked.`
+                                                : ` This value is capped at your current billing limit, we will never charge you more than your billing limit.`
                                             : ''
                                     }`}
                                 >
@@ -576,7 +595,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 {/* Billing limit */}
                 {!isTemporaryFreeProduct && (
                     <div className={isProductWithVariants ? 'mt-8' : ''}>
-                        <BillingLimit product={product} />
+                        {/* Managed data warehouse: the enforced limit caps compute only, so scope the
+                            copy to "compute" to make that explicit. Storage is the alert-only line below. */}
+                        <BillingLimit
+                            product={product}
+                            scopeName={product.type === 'managed_data_warehouse' ? 'compute' : undefined}
+                        />
+                        {/* Managed data warehouse: compute (this product) gets the enforced billing
+                            limit above; storage is a separate billing product nested here for
+                            display, surfaced as an alert-only threshold (never hard-capped). */}
+                        {product.type === 'managed_data_warehouse' &&
+                            (() => {
+                                const storageProduct = getSyntheticStorageAddon(product)
+                                return storageProduct ? (
+                                    <BillingLimit
+                                        product={storageProduct as unknown as BillingProductV2Type}
+                                        alertOnly
+                                    />
+                                ) : null
+                            })()}
                     </div>
                 )}
 

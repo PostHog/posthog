@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -58,6 +58,10 @@ class OrganizationUsageInfo(TypedDict):
     workflow_emails: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
+    # NotRequired: billing only sends storage usage for MDW orgs, so it's added to organization.usage
+    # only for them — non-MDW orgs never gain an empty storage key (which would spuriously flip
+    # set_org_usage_summary's has_changed on the first sync and trigger a needless quota re-eval).
+    managed_warehouse_storage_gb_hours: NotRequired[OrganizationUsageResource | None]
     period: list[str] | None
 
 

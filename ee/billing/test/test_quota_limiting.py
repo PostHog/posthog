@@ -892,6 +892,38 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limiting_suspended_until": None,
             }
 
+    def test_org_quota_limited_until_managed_warehouse_storage(self):
+        # MDW storage rides the same free-tier enforcement as every other product: billing sends the
+        # limit as the free allocation (74,400 GB-hours = 100 GB) for unsubscribed storage, with usage
+        # being the current level projected to GB-hours (level_gb * 744). The quota machinery flags the
+        # org once usage >= limit. Paid storage is alert-only: billing sends limit=None, so it's never
+        # limited via this path.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        previously = list_limited_team_attributes(
+            QuotaResource.MANAGED_WAREHOUSE_STORAGE, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        free_allocation = 74_400  # 100 GB * 744 h
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            # ~83 GB level (61,752 GB-hours) — under the 100 GB free tier
+            "managed_warehouse_storage_gb_hours": {"usage": 61_752, "limit": free_allocation},
+        }
+
+        # Under the free tier -> not limited
+        assert org_quota_limited_until(self.organization, QuotaResource.MANAGED_WAREHOUSE_STORAGE, previously) is None
+
+        # >= 100 GB level (77,376 GB-hours) -> limited (no overage buffer for storage)
+        self.organization.usage["managed_warehouse_storage_gb_hours"]["usage"] = 77_376
+        assert org_quota_limited_until(self.organization, QuotaResource.MANAGED_WAREHOUSE_STORAGE, previously) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+
+        # Paid storage is alert-only (billing sends limit=None) -> never limited via the quota path
+        self.organization.usage["managed_warehouse_storage_gb_hours"]["limit"] = None
+        assert org_quota_limited_until(self.organization, QuotaResource.MANAGED_WAREHOUSE_STORAGE, previously) is None
+
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
         previously_quota_limited_team_tokens_events = list_limited_team_attributes(
@@ -2240,6 +2272,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         workflow_emails=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
+        managed_warehouse_storage_gb_hours=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base
