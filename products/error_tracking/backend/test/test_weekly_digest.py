@@ -570,6 +570,16 @@ class TestSendDigestToWorkflow(SimpleTestCase):
             with pytest.raises(requests.HTTPError):
                 send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
 
+    @override_settings(
+        ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="wf-123",
+        ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET="Bearer test-token",
+        CLOUD_DEPLOYMENT=None,
+    )
+    def test_sends_secret_as_authorization_header(self):
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
+            assert mock_post.call_args.kwargs["headers"] == {"Authorization": "Bearer test-token"}
+
 
 class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
     @classmethod

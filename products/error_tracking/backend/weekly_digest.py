@@ -478,6 +478,12 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     if not webhook_url:
         raise ValueError("ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID is not configured")
 
+    # The workflow trigger's "auth_header" input compares the Authorization header verbatim,
+    # so the secret must be the full header value (e.g. "Bearer <token>").
+    headers = {}
+    if settings.ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET:
+        headers["Authorization"] = settings.ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET
+
     response = requests.post(
         webhook_url,
         json={
@@ -485,6 +491,7 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
             "distinct_id": distinct_id,
             "digest": digest,
         },
+        headers=headers,
         timeout=DIGEST_WEBHOOK_TIMEOUT_SECONDS,
     )
     response.raise_for_status()

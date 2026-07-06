@@ -893,6 +893,10 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 # Empty disables sending.
 ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID = get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID", "")
 
+# Sent verbatim as the Authorization header on digest webhook POSTs. Must match the workflow
+# trigger's "auth_header" input exactly, including any scheme prefix (e.g. "Bearer <token>").
+ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET = get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET", "")
+
 ####
 # OAuth
 
