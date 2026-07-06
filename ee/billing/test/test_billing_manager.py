@@ -27,6 +27,7 @@ from ee.billing.billing_manager import (
     BillingManager,
     _get_user_organization_role,
     build_billing_token,
+    handle_billing_service_error,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -422,6 +423,34 @@ class TestBillingManager(BaseTest):
             BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
 
         assert "Open invoices must be resolved first" in str(context.exception)
+
+
+class TestHandleBillingServiceError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_body", "", {"error_message": "Billing service returned status 408"}),
+            ("non_json_body", "gateway timeout", {"error_message": "gateway timeout"}),
+        ]
+    )
+    def test_non_json_error_body_yields_dict_payload(self, _name, body, expected_payload):
+        # args[2] must always be a dict so downstream handlers can call .get() on it;
+        # an empty-body 408 previously left a string there and blew up with AttributeError.
+        res = MagicMock(status_code=408, text=body, json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)))
+
+        with self.assertRaises(Exception) as context:
+            handle_billing_service_error(res)
+
+        assert isinstance(context.exception.args[2], dict)
+        assert context.exception.args[2] == expected_payload
+
+    def test_json_dict_error_body_is_preserved(self):
+        payload = {"code": "some_error", "error_message": "nope"}
+        res = MagicMock(status_code=400, text=json.dumps(payload), json=MagicMock(return_value=payload))
+
+        with self.assertRaises(Exception) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.args[2] == payload
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):

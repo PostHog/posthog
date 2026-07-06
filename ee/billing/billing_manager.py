@@ -140,9 +140,13 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
             response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            response = None
+        # Always surface a dict as the error payload (args[2]) so downstream handlers can
+        # safely call .get() on it, even for empty or non-JSON bodies (e.g. a 408 timeout).
+        if not isinstance(response, dict):
+            response = {"error_message": res.text or f"Billing service returned status {res.status_code}"}
+        raise Exception(f"Billing service returned bad status code: {res.status_code}", "body:", response)
 
 
 class BillingManager:

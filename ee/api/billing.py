@@ -224,6 +224,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
                 return Response(
                     {
                         "statusText": e.args[0],
@@ -236,7 +238,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-        return self.list(request, *args, **kwargs)
+        # Deactivation succeeded. Refreshing billing state can transiently fail (e.g. a
+        # billing-service 408 timeout) - don't let that surface as a 500 on this admin path.
+        # The client reloads billing separately, so degrade to a minimal valid response.
+        try:
+            return self.list(request, *args, **kwargs)
+        except Exception as e:
+            logger.warning("Billing refresh after product deactivation failed", exc_info=True)
+            capture_exception(e)
+            return Response(
+                {"available_product_features": [], "products": []},
+                status=status.HTTP_200_OK,
+            )
 
     @action(
         methods=["POST"],
