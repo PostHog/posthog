@@ -55,18 +55,18 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                             |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
-| `inbox-reports-retrieve`              | Full detail for a single report                                     |
+| Tool                                  | Purpose                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
-| `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                       |
-| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report      |
-| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)       |
-| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
-| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
-| `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)           |
-| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
+| `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
+| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report                                                |
+| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)                                                 |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)                                                     |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                                                                        |
+| `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
+| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
 The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
