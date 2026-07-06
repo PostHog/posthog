@@ -347,9 +347,10 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
     etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
     read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    user-facing validation path (`get_schemas`, via `_retry_on_connection_dropped` directly)
-    deliberately keeps failing fast on the same connect-time conditions, where a timeout usually means
-    an unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    schema-discovery path retries drops and connection-limit refusals too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
