@@ -293,7 +293,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -309,7 +309,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
     semgrep-test-rules:
         runs-on: ubuntu-latest

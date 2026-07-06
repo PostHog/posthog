@@ -238,7 +238,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     kind: 'query',
                     tileId: TileId.MARKETING,
                     layout: {
-                        colSpanClassName: 'md:col-span-2',
+                        colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                         orderWhenLargeClassName: '2xl:order-1',
                     },
                     title: `Marketing ${tileColumnSelectionName}`,
@@ -268,7 +268,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                           kind: 'query',
                           tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                           layout: {
-                              colSpanClassName: 'md:col-span-2',
+                              colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                               orderWhenLargeClassName: '2xl:order-2',
                           },
                           title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,

@@ -23,7 +23,7 @@ describe('WebVitalsToolbarMenu', () => {
     it('uses the PostHog ui host for the settings link', () => {
         render(<WebVitalsToolbarMenu />)
 
-        const settingsLink = screen.getByRole('link', { name: 'settings page' })
+        const settingsLink = screen.getByText('settings page').closest('a')
         expect(settingsLink).toHaveAttribute('href', 'https://us.posthog.com/settings/project')
         expect(settingsLink).toHaveAttribute('target', '_blank')
     })
