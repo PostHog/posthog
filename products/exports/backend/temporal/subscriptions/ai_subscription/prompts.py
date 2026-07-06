@@ -214,7 +214,7 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
   LIMIT 50
 
 First-EVER occurrence of an event per user, landing in the window (e.g. "users whose first ever
-'Dashboard created' is today", broken down by a property of that first event). "First ever" needs each
+'Dashboard created' falls in the window", broken down by a property of that first event). "First ever" needs each
 user's earliest event across ALL history, so compute it in a FROM-subquery, then filter to the
 window — never approximate it with a flat `countIf`, and never use a JOIN or window function:
   SELECT
@@ -229,7 +229,7 @@ window — never approximate it with a flat `countIf`, and never use a JOIN or w
     WHERE event = 'Dashboard created'
     GROUP BY distinct_id
   )
-  WHERE first_seen >= toStartOfDay(now()) AND first_seen < toStartOfDay(now() + INTERVAL 1 DAY)
+  WHERE first_seen >= toDateTime('<start>') AND first_seen < toDateTime('<end>')
   GROUP BY template
   ORDER BY first_time_users DESC
   LIMIT 50

@@ -108,18 +108,20 @@ def compute_report_window(
 ) -> ReportWindow:
     """Compute the `[start, end)` analysis window for a report run, timezone-aware in the team's tz.
 
-    `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's `finished_at` (gap-free
-    "since last send"), falling back to `end - window_days` when there's no prior successful
-    delivery. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
+    `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's `finished_at` ("since last
+    send"), falling back to `end - window_days` when there's no prior successful delivery. This is
+    gap-free modulo the prior run's own generation+send latency (its `finished_at` trails its window
+    `end` by that much), which is seconds to low minutes and errs toward re-covering rather than
+    dropping data. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
     it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
     """
     tz = team.timezone_info
     end = _in_tz(now, tz)
 
     if last_successful_delivery_at is not None:
-        # "Since last send" is intentionally gap-free: a re-fire shortly after a successful delivery
-        # yields a small window (and a short report) because there's genuinely little new data — we
-        # don't pad it back to `window_days`, which would double-report data already sent.
+        # "Since last send": a re-fire shortly after a successful delivery yields a small window (and
+        # a short report) because there's genuinely little new data — we don't pad it back to
+        # `window_days`, which would double-report data already sent.
         start = _in_tz(last_successful_delivery_at, tz)
         # A clock skew or a stale finished_at could land start after end; clamp to the fallback
         # window so we never hand the planner an inverted range.

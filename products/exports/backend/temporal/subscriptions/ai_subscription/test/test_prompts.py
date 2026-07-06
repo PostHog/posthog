@@ -1,3 +1,5 @@
+import re
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -25,11 +27,13 @@ class TestPlannerWindowInstruction:
     def test_instructs_explicit_window_and_forbids_now_interval(self, _name: str, prompt: str) -> None:
         # The half-open `toDateTime(...)` filter is the template the model must copy/preserve.
         assert "toDateTime(" in prompt
-        # The relative window date-math the fix removes must not appear as a usable example. The
-        # prohibition text says "Never now() - INTERVAL …" with an ellipsis, so a concrete
-        # `now() - INTERVAL <n> DAY` example (the thing models copy) is what we're guarding against.
-        assert "now() - INTERVAL 7 DAY" not in prompt
-        assert "now() - INTERVAL 14 DAY" not in prompt
+        # `now()` may appear only in the prohibition prose (`now()` / `now() - INTERVAL …` / `today()`).
+        # A *usable* example — `now()` wired into concrete date-math or time-bucketing that the model
+        # would copy verbatim — must not appear anywhere, or the planner reintroduces the run-to-run
+        # drift the fix removes. Guard both shapes rather than two exact literals, since the last such
+        # example (`toStartOfDay(now())`) slipped through a literal-match guard.
+        assert not re.search(r"toStartOf\w+\(\s*now\(\)", prompt)
+        assert not re.search(r"now\(\)\s*[-+]\s*INTERVAL\s+\d", prompt)
 
 
 @patch(f"{_P}.ph_scoped_capture")
