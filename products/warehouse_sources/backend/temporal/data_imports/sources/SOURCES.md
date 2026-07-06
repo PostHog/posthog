@@ -271,6 +271,7 @@ the row lists both.
 | postmark                | HTTP                        | requests                                                        | ✅                          |
 | productboard            | HTTP                        | requests                                                        | ✅                          |
 | pylon                   | HTTP                        | requests                                                        | ✅                          |
+| qualaroo                | HTTP                        | requests                                                        | ✅                          |
 | recurly                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                    | HTTP                        | requests                                                        | ✅                          |
 | recharge                | HTTP                        | requests                                                        | ✅                          |
@@ -600,7 +601,6 @@ doesn't conflict with concurrent PRs.
 - productive
 - pypi
 - qonto
-- qualaroo
 - qualtrics
 - quickbooks
 - railz
