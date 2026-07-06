@@ -1579,6 +1579,41 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "P", "display_type": display_type}, format="json")
         self.assertEqual(expected_status, response.status_code, response.json())
 
+    def test_create_select_assigns_option_ids_and_patch_round_trips(self):
+        response = self._create(
+            name="Stage",
+            display_type="select",
+            is_big_number=False,
+            options=[{"label": "Open", "color": "preset-1"}, {"label": "Closed", "color": "preset-2"}],
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        options = response.json()["options"]
+        self.assertEqual([option["label"] for option in options], ["Open", "Closed"])
+        self.assertTrue(all(option["id"] for option in options))
+
+        patched = self.client.patch(
+            f"{self.endpoint_base}{response.json()['id']}/",
+            {"options": [{**options[0], "label": "Won"}, options[1]]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, patched.status_code, patched.json())
+        self.assertEqual([option["label"] for option in patched.json()["options"]], ["Won", "Closed"])
+        self.assertEqual(patched.json()["options"][0]["id"], options[0]["id"])
+
+    @parameterized.expand(
+        [
+            ("select_without_options", {"name": "S1", "display_type": "select"}),
+            ("select_empty_options", {"name": "S2", "display_type": "select", "options": []}),
+            ("bad_color", {"name": "S3", "display_type": "select", "options": [{"label": "A", "color": "red"}]}),
+        ]
+    )
+    def test_create_select_rejects_invalid_payloads(self, _name, payload):
+        response = self.client.post(self.endpoint_base, payload, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+
     def test_is_big_number_forced_false_for_non_numeric(self):
         response = self._create(name="Tier", display_type="text", is_big_number=True)
 
