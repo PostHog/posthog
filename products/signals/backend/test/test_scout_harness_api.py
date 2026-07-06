@@ -648,11 +648,15 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_emit_finding_unknown_run_returns_404(self) -> None:
+    def test_emit_finding_unknown_run_returns_recoverable_404(self) -> None:
+        # A run_id that doesn't resolve (e.g. a scout's prompt id not matching the persisted row) must
+        # return an actionable 404 steering the scout to recover via `signals-scout-runs-list` — a bare
+        # 404 reads as terminal and the scout silently drops the finding it was mid-emit on.
         response = self.client.post(
             self._emit_signal_url("00000000-0000-0000-0000-000000000000"), data=self._payload(), format="json"
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "signals-scout-runs-list" in response.json()["detail"]
 
     def test_emit_finding_other_teams_run_returns_404(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")

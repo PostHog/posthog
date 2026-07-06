@@ -400,7 +400,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     return f"""{intro}
 # Your run identity
 
-- **run_id**: `{run_id}` — pass this when calling `{emit_tool}`.
+- **run_id**: `{run_id}` — pass this when calling `{emit_tool}`. If a `{emit_tool}` call 404s on this id, don't treat it as terminal: recover the authoritative run_id from `signals-scout-runs-list` (your own in-progress run) and retry.
 - **team_id**: `{team_id}` — implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational; use current clock time for queries about "now".

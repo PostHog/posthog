@@ -288,6 +288,23 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     return view.team.parent_team_id or view.team_id
 
 
+def _run_write_not_found(run_id: uuid.UUID) -> exceptions.NotFound:
+    """Actionable 404 for a run-scoped *write* (emit-signal / emit-report / edit-report) whose `run_id`
+    didn't resolve to a row for this project.
+
+    A scout passes the `run_id` from its prompt identity block; if that value doesn't match a persisted
+    `SignalScoutRun`, a bare 404 reads as terminal and a scout that stops there silently drops the finding
+    it was mid-emit on. Steer it to the recovery path instead: its own in-progress run is always listed by
+    `signals-scout-runs-list`, so it can read the authoritative `run_id` from there and retry. The message
+    is the whole fix for a scout that would otherwise treat this as the end of the road.
+    """
+    return exceptions.NotFound(
+        f"No run `{run_id}` for this project. If you have an active run, this run_id may not match the "
+        "persisted run row: recover the authoritative run_id from `signals-scout-runs-list` (your own "
+        "in-progress run, matched by skill_name/status) and retry with it. Do not treat this 404 as terminal."
+    )
+
+
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
     """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
     is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
@@ -717,7 +734,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             .first()
         )
         if run is None:
-            raise exceptions.NotFound()
+            raise _run_write_not_found(run_id)
         if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise exceptions.ValidationError(
                 {"status": f"Findings can only be emitted on in-progress runs (current: {run.task_run.status})."}
@@ -789,7 +806,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             .first()
         )
         if run is None:
-            raise exceptions.NotFound()
+            raise _run_write_not_found(run_id)
         if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise exceptions.ValidationError(
                 {"status": f"Reports can only be authored on in-progress runs (current: {run.task_run.status})."}
