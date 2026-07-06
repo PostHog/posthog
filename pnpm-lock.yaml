@@ -54,6 +54,9 @@ catalogs:
     jest:
       specifier: ^29.7.0
       version: 29.7.0
+    jest-junit:
+      specifier: ^16.0.0
+      version: 16.0.0
     kea:
       specifier: ^4.0.0-pre.5
       version: 4.0.0-pre.5
@@ -401,6 +404,9 @@ importers:
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-junit:
+        specifier: 'catalog:'
+        version: 16.0.0
 
   common/storybook:
     dependencies:
