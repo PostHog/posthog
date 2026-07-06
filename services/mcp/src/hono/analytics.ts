@@ -155,7 +155,8 @@ export interface ExecuteSqlGenerationMeta {
  * authored the query; this server is the observer that sees intent and output
  * together. Lands in LLM analytics, where online evaluations (LLM judge / Hog) can
  * score it for anti-patterns on live traffic. `$ai_trace_id` is the MCP session
- * uuid, so a session's queries group into one trace.
+ * uuid, so a session's queries group into one trace. Only emitted for orgs that
+ * approved AI data processing (fail-closed when the flag can't be resolved).
  */
 export async function trackExecuteSqlGeneration(
     toolName: string,
@@ -172,6 +173,11 @@ export async function trackExecuteSqlGeneration(
         return
     }
     try {
+        const aiConsentGiven = await state.context.stateManager.getAiConsentGiven()
+        if (!aiConsentGiven) {
+            return
+        }
+
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
         const { properties, groups } = buildBaseProperties(state, analyticsContext)

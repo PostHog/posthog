@@ -26,7 +26,9 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
         } as any,
         context: {
-            stateManager: {},
+            stateManager: {
+                getAiConsentGiven: vi.fn(async () => true),
+            },
         } as any,
         useSingleExec: true,
         toolFeatureFlags: undefined,
@@ -173,6 +175,22 @@ describe('Hono MCP analytics contexts', () => {
             ['a non-string query', 'execute-sql', { query: 42 }],
         ])('does not emit for %s', async (_case, toolName, args) => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
+
+            expect(mockCapture).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['declined', false],
+            ['unknown', undefined],
+        ])('does not emit when AI data processing consent is %s', async (_case, consent) => {
+            const state = makeState({
+                context: { stateManager: { getAiConsentGiven: vi.fn(async () => consent) } } as any,
+            })
+
+            await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, {
+                durationMs: 5,
+                isError: false,
+            })
 
             expect(mockCapture).not.toHaveBeenCalled()
         })
