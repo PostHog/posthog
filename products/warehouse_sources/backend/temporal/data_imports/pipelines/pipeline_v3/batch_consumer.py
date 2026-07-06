@@ -71,6 +71,12 @@ class BatchConsumerConfig:
     reconcile_grace_seconds: int = RECONCILE_GRACE_SECONDS
     reconcile_lookback_seconds: int = RECONCILE_LOOKBACK_SECONDS
     reconcile_limit: int = 100
+    # Ceilings on queue-DB operations. Without them a claim query or sweep that
+    # degrades past "slow" into "never returns" silently wedges the consumer:
+    # the awaiting task holds its slot forever, with no error and no log.
+    connect_timeout_seconds: int = 10
+    poll_timeout_seconds: float | None = 180.0
+    sweep_timeout_seconds: float | None = 300.0
     # When set, the consumer stops reporting itself healthy once any single batch
     # has been executing longer than this, so a wedged sink connection turns into
     # a liveness-probe restart instead of an indefinite, invisible stall.
@@ -238,7 +244,23 @@ class BatchConsumer:
         return await psycopg.AsyncConnection.connect(
             self._config.database_url,
             autocommit=True,
+            connect_timeout=self._config.connect_timeout_seconds,
         )
+
+    async def _drop_conn(self, attr: str) -> None:
+        """Close and forget a connection after a timed-out operation.
+
+        A cancelled psycopg operation can leave the connection mid-protocol;
+        re-dialing on the next cycle is cheaper than reasoning about its state.
+        """
+        conn: psycopg.AsyncConnection[Any] | None = getattr(self, attr)
+        setattr(self, attr, None)
+        if conn is None:
+            return
+        try:
+            await asyncio.wait_for(conn.close(), timeout=5.0)
+        except Exception:
+            pass
 
     async def _ensure_poll_conn(self) -> psycopg.AsyncConnection[Any]:
         """Return the poll connection, reconnecting if a failover/pgbouncer bounce dropped it."""
@@ -286,7 +308,7 @@ class BatchConsumer:
             # scans the whole queue and can outlast the health server's startup
             # grace window, and a pod liveness-killed mid-sweep can never boot.
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-            await self._recovery_sweep()
+            await self._recovery_sweep_with_timeout()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
 
             while not self._shutdown.is_set():
@@ -307,13 +329,22 @@ class BatchConsumer:
                 poll_start = time.monotonic()
                 try:
                     conn = await self._ensure_poll_conn()
-                    batches = await self._adapter.fetch_and_lock(
-                        conn,
-                        limit=self._fetch_limit(available),
-                        retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
-                        owner_token=self._owner_token,
-                        lease_ttl_seconds=self._lease_ttl_seconds,
+                    async with asyncio.timeout(self._config.poll_timeout_seconds):
+                        batches = await self._adapter.fetch_and_lock(
+                            conn,
+                            limit=self._fetch_limit(available),
+                            retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+                            owner_token=self._owner_token,
+                            lease_ttl_seconds=self._lease_ttl_seconds,
+                        )
+                except TimeoutError:
+                    logger.exception(
+                        self._event("poll_timed_out"),
+                        timeout_seconds=self._config.poll_timeout_seconds,
                     )
+                    await self._drop_conn("_poll_conn")
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    continue
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
@@ -718,7 +749,7 @@ class BatchConsumer:
                 break
 
             try:
-                await self._recovery_sweep()
+                await self._recovery_sweep_with_timeout()
             except Exception as e:
                 logger.exception(self._event("recovery_sweep_error"))
                 capture_exception(e)
@@ -727,10 +758,29 @@ class BatchConsumer:
             if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:
                 self._last_reconcile_monotonic = now
                 try:
-                    await self._reconcile_failed_runs()
+                    async with asyncio.timeout(self._config.sweep_timeout_seconds):
+                        await self._reconcile_failed_runs()
+                except TimeoutError:
+                    logger.exception(
+                        self._event("reconcile_sweep_timed_out"),
+                        timeout_seconds=self._config.sweep_timeout_seconds,
+                    )
+                    await self._drop_conn("_recovery_conn")
                 except Exception as e:
                     logger.exception(self._event("reconcile_sweep_error"))
                     capture_exception(e)
+
+    async def _recovery_sweep_with_timeout(self) -> None:
+        """Run the recovery sweep under the sweep timeout; a sweep that never returns must not stall the consumer."""
+        try:
+            async with asyncio.timeout(self._config.sweep_timeout_seconds):
+                await self._recovery_sweep()
+        except TimeoutError:
+            logger.exception(
+                self._event("recovery_sweep_timed_out"),
+                timeout_seconds=self._config.sweep_timeout_seconds,
+            )
+            await self._drop_conn("_recovery_conn")
 
     async def _reconcile_failed_runs(self) -> None:
         """Reconcile runs whose queue batch failed but whose terminal-state write never landed."""

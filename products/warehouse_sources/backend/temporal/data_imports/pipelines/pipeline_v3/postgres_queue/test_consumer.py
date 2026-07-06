@@ -404,6 +404,92 @@ class TestStartupLiveness:
             await asyncio.wait_for(run_task, timeout=5.0)
 
 
+class TestQueueOperationTimeouts:
+    @pytest.mark.asyncio
+    async def test_hung_poll_times_out_and_consumer_keeps_polling(self):
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            poll_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def hung_fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls >= 2:
+                second_poll_started.set()
+            await asyncio.sleep(3600)
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=hung_fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # A second poll can only start if the first hung one timed out instead of wedging.
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+    @pytest.mark.asyncio
+    async def test_hung_startup_sweep_times_out_and_polling_starts(self):
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            sweep_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        polling_started = asyncio.Event()
+
+        async def hung_sweep(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            await asyncio.sleep(3600)
+            return []
+
+        async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            polling_started.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=hung_sweep,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # Polling can only begin if the hung startup sweep was abandoned by the timeout.
+            await asyncio.wait_for(polling_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+
 class TestFailRun:
     @pytest.mark.asyncio
     async def test_does_not_raise_when_job_status_update_fails(self):
