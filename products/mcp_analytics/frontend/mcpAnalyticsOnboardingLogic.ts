@@ -11,34 +11,25 @@ import type { mcpAnalyticsOnboardingLogicType } from './mcpAnalyticsOnboardingLo
 export type MCPOnboardingState = 'not-instrumented' | 'connected-no-calls' | 'onboarded'
 
 /**
- * How much data the project has, once onboarded. `early` mixes progressive
- * small-data sections into the dashboard; `full` is the standard windowed
- * dashboard. Volume-gated rather than time-gated so a low-traffic server never
- * regresses to an empty dashboard.
+ * Which question the dashboard answers, by volume. `activity` is for "what are
+ * agents doing with my server?" — a live feed, verbatim intents, and an
+ * instrumentation checklist; windowed metrics would be noise at this volume.
+ * `metrics` is the standard dashboard for "is it healthy?". Volume-gated rather
+ * than time-gated so a low-traffic server never regresses to an empty dashboard.
  */
-export type MCPDataMaturity = 'early' | 'full'
+export type MCPDashboardStage = 'activity' | 'metrics'
 
-/**
- * The dashboard's information hierarchy, by volume. `warming` leads with the
- * live feed (metrics would be noise); `emerging` adds the windowed key metrics
- * and charts on top; `mature` is the standard dashboard with the early
- * sections retired.
- */
-export type MCPDashboardStage = 'warming' | 'emerging' | 'mature'
-
-/** Windowed key metrics and charts appear once trends are meaningful. */
-export const KEY_METRICS_LIFETIME_CALLS = 300
-/** The early sections retire on lifetime volume… */
-export const FULL_DASHBOARD_LIFETIME_CALLS = 1000
+/** Metrics and trends unlock on lifetime volume… */
+export const METRICS_UNLOCK_LIFETIME_CALLS = 300
 /** …or on sustained density, whichever comes first. */
-export const FULL_DASHBOARD_7D_CALLS = 250
+export const METRICS_UNLOCK_7D_CALLS = 250
 
 export interface MCPOnboardingSignals {
     /** A client has completed the MCP handshake — proves the SDK wrap is live. */
     hasInitialize: boolean
     /** A tool has actually been called — the server is in use. */
     hasToolCall: boolean
-    /** Lifetime `$mcp_tool_call` count — drives the early/full maturity gate. */
+    /** Lifetime `$mcp_tool_call` count — drives the activity/metrics stage gate. */
     toolCallsTotal: number
     /** `$mcp_tool_call` count over the last 7 days — the density half of the gate. */
     toolCalls7d: number
@@ -49,7 +40,7 @@ export interface MCPOnboardingSignals {
 // Signal funnel over all history. `$mcp_initialize` fires when an agent connects
 // (before any tool call), so it distinguishes "instrumented but no traffic yet"
 // from "not instrumented at all". Counts (not booleans) so the same query drives
-// the early/full maturity gate. Deliberately no `properties.*` access: event-name +
+// the activity/metrics stage gate. Deliberately no `properties.*` access: event-name +
 // timestamp filters hit the events sort key, so this stays cheap even on projects
 // with millions of MCP events — property-derived stats live in mcpEarlyDataLogic,
 // which only mounts when volume is known to be small.
@@ -63,7 +54,7 @@ FROM events
 WHERE event IN ('$mcp_initialize', '$mcp_tool_call')
 `
 
-// While the user is onboarding (or watching the early-data view fill in) we re-check
+// While the user is onboarding (or watching the activity stage fill in) we re-check
 // on a timer so the page advances on its own as events land. The disposables plugin
 // pauses this on hidden tabs and tears it down on unmount.
 const POLL_INTERVAL_MS = 20000
@@ -81,7 +72,7 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 // minute after the data is actually queryable, dulling the "you're connected!"
                 // moment. Forcing keeps the flip near-instant. Polling stops once the project
                 // graduates to the full dashboard (see loadSignalsSuccess), so this is bounded
-                // to the onboarding + early-data window, and the query itself is cheap (event-name
+                // to the onboarding + activity window, and the query itself is cheap (event-name
                 // counts on the sort key).
                 const response = (await api.query(
                     {
@@ -125,28 +116,16 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             },
         ],
         isOnboarded: [(s) => [s.onboardingState], (onboardingState): boolean => onboardingState === 'onboarded'],
-        dataMaturity: [
+        dashboardStage: [
             (s) => [s.signals],
-            (signals): MCPDataMaturity | null => {
+            (signals): MCPDashboardStage | null => {
                 if (!signals || !signals.hasToolCall) {
                     return null
                 }
-                return signals.toolCallsTotal >= FULL_DASHBOARD_LIFETIME_CALLS ||
-                    signals.toolCalls7d >= FULL_DASHBOARD_7D_CALLS
-                    ? 'full'
-                    : 'early'
-            },
-        ],
-        dashboardStage: [
-            (s) => [s.signals, s.dataMaturity],
-            (signals, dataMaturity): MCPDashboardStage | null => {
-                if (!dataMaturity) {
-                    return null
-                }
-                if (dataMaturity === 'full') {
-                    return 'mature'
-                }
-                return (signals?.toolCallsTotal ?? 0) >= KEY_METRICS_LIFETIME_CALLS ? 'emerging' : 'warming'
+                return signals.toolCallsTotal >= METRICS_UNLOCK_LIFETIME_CALLS ||
+                    signals.toolCalls7d >= METRICS_UNLOCK_7D_CALLS
+                    ? 'metrics'
+                    : 'activity'
             },
         ],
     }),
@@ -163,10 +142,9 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                     intent_context: ProductIntentContext.MCP_ANALYTICS_CONNECTED,
                 })
             }
-            // Keep polling through the early-data window so the progress header and
-            // milestones advance live; stop for good once the volume gate graduates
-            // the project to the full dashboard.
-            if (values.dataMaturity === 'full') {
+            // Keep polling through the activity stage so the summary advances live;
+            // stop for good once the volume gate graduates the project to metrics.
+            if (values.dashboardStage === 'metrics') {
                 cache.disposables.dispose('poll')
             }
         },

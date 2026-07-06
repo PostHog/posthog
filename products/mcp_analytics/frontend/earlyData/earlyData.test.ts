@@ -1,5 +1,5 @@
+import { buildActivitySummary } from './activitySummary'
 import { buildChecklist, EarlyStats } from './earlyDataChecklist'
-import { buildMilestones, nextMilestone, progressToNextMilestone } from './earlyDataMilestones'
 
 const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     totalCalls: 0,
@@ -14,19 +14,22 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
 
 describe('early data derivations', () => {
     it.each([
-        // Boundaries: exactly at a threshold counts as reached; progress restarts at 0
-        // toward the next step and never goes negative or above 1.
-        [0, 'first-call', 0],
-        [1, 'tool-patterns', 0],
-        [13, 'tool-patterns', 0.5],
-        [25, 'sessions', 0],
-        [999, 'full-dashboard', (999 - 300) / 700],
-        [1000, null, 1],
-        [5000, null, 1],
-    ])('at %i calls the next milestone is %s with progress %f', (calls, expectedNextKey, expectedProgress) => {
-        const milestones = buildMilestones(calls)
-        expect(nextMilestone(milestones)?.key ?? null).toBe(expectedNextKey)
-        expect(progressToNextMilestone(calls, milestones)).toBeCloseTo(expectedProgress, 5)
+        // First calls get the celebratory copy, not a stats sentence.
+        [{ totalCalls: 1, distinctClients: 1, errorCalls: 0, topTool: null }, /first tool call arrived/],
+        [{ totalCalls: 4, distinctClients: 1, errorCalls: 1, topTool: 'search' }, /first 4 tool calls arrived/],
+        // The full sentence composes favorite + failures with correct punctuation.
+        [
+            { totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
+            /^42 tool calls from 3 clients so far — search_docs is the favorite, 4 failures worth a look$/,
+        ],
+        // Failures read grammatically even without a favorite tool.
+        [
+            { totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },
+            /^42 tool calls so far — 1 failure worth a look$/,
+        ],
+        [{ totalCalls: 42, distinctClients: 1, errorCalls: 0, topTool: null }, /^42 tool calls from 1 client so far$/],
+    ])('summarizes %j', (input, expected) => {
+        expect(buildActivitySummary(input)).toMatch(expected)
     })
 
     it.each([

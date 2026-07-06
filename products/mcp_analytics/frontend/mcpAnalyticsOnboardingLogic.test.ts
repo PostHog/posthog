@@ -51,16 +51,13 @@ describe('mcpAnalyticsOnboardingLogic', () => {
     })
 
     it.each([
-        // Below the key-metrics threshold: live-feed-first hierarchy.
-        [1, 1, 'warming'],
-        [299, 100, 'warming'],
-        // Key metrics appear at 300 lifetime calls.
-        [300, 100, 'emerging'],
-        [500, 100, 'emerging'],
-        // Lifetime volume graduates even with a quiet week.
-        [1000, 0, 'mature'],
-        // Sustained density graduates even with low lifetime volume.
-        [400, 250, 'mature'],
+        // Below both thresholds: the live-feed activity stage.
+        [1, 1, 'activity'],
+        [299, 100, 'activity'],
+        // Lifetime volume unlocks metrics even with a quiet week.
+        [300, 0, 'metrics'],
+        // Sustained density unlocks metrics even with low lifetime volume.
+        [260, 250, 'metrics'],
     ])('stages %i lifetime / %i weekly calls as %s', async (total, last7d, expected) => {
         const logic = mountWith([[1, total, last7d, '2026-07-01T00:00:00Z']])
         await expectLogic(logic).toFinishAllListeners()

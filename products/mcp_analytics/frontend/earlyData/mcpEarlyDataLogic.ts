@@ -6,8 +6,8 @@ import api from 'lib/api'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
+import { buildActivitySummary } from './activitySummary'
 import { ChecklistItem, EarlyStats, buildChecklist } from './earlyDataChecklist'
-import { Milestone, buildMilestones, nextMilestone, progressToNextMilestone } from './earlyDataMilestones'
 import type { mcpEarlyDataLogicType } from './mcpEarlyDataLogicType'
 
 export type { ChecklistItem, EarlyStats } from './earlyDataChecklist'
@@ -179,18 +179,36 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         },
     }),
     selectors({
-        // The onboarding signal poll and the early stats query run on different cadences,
-        // so during active ingestion they can briefly disagree. One number drives the
-        // header, milestones, and progress so the view never contradicts itself.
+        // The onboarding signal poll and the stats query run on different cadences,
+        // so during active ingestion they can briefly disagree. One number drives
+        // the summary so the view never contradicts itself.
         totalCalls: [
             (s) => [s.signals, s.stats],
             (signals, stats): number => Math.max(stats.totalCalls, signals?.toolCallsTotal ?? 0),
         ],
-        milestones: [(s) => [s.totalCalls], (totalCalls): Milestone[] => buildMilestones(totalCalls)],
-        nextMilestone: [(s) => [s.milestones], (milestones): Milestone | null => nextMilestone(milestones)],
-        milestoneProgress: [
-            (s) => [s.totalCalls, s.milestones],
-            (totalCalls, milestones): number => progressToNextMilestone(totalCalls, milestones),
+        summary: [
+            (s) => [s.totalCalls, s.stats, s.topTools],
+            (totalCalls, stats, topTools): string =>
+                buildActivitySummary({
+                    totalCalls,
+                    distinctClients: stats.distinctClients,
+                    errorCalls: stats.errorCalls,
+                    topTool: totalCalls > 10 ? (topTools[0]?.tool ?? null) : null,
+                }),
+        ],
+        // Verbatim agent intents, deduplicated — at low volume, reading what agents
+        // actually tried beats any aggregation of it.
+        recentIntents: [
+            (s) => [s.recentCalls],
+            (recentCalls): string[] => {
+                const seen = new Set<string>()
+                for (const call of recentCalls) {
+                    if (call.intent) {
+                        seen.add(call.intent)
+                    }
+                }
+                return [...seen].slice(0, 6)
+            },
         ],
         checklist: [(s) => [s.stats], (stats): ChecklistItem[] => buildChecklist(stats)],
         isRefreshing: [

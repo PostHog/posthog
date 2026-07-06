@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -9,47 +9,27 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
-import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
-import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import type { ChecklistItem, EarlyRecentCall, EarlyToolRow } from './mcpEarlyDataLogic'
+import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
+import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 /**
- * Volume-adaptive dashboard for projects that haven't graduated to the standard
- * windowed dashboard yet. `warming` (< 300 calls) leads with the live feed and
- * all-time totals — windowed metrics would be noise. `emerging` (300+) puts the
- * standard key metrics and charts on top and demotes the live sections below.
- * Early sections are all-time rather than windowed, refresh on a timer, and
- * frame low volume as progress ("what unlocks next") instead of emptiness.
+ * The dashboard's activity stage: answers "what are agents doing with my
+ * server?" for projects below the metrics-unlock volume. A plain-language
+ * summary instead of KPI tiles, the live feed as the hero, verbatim agent
+ * intents, and an instrumentation checklist. Everything is all-time rather
+ * than windowed and refreshes live — windowed metrics would be noise here.
  */
-export function MCPAnalyticsEarlyDashboard({ stage }: { stage: 'warming' | 'emerging' }): JSX.Element {
-    if (stage === 'emerging') {
-        return (
-            <div className="flex flex-col gap-4" data-attr="mcp-analytics-early-data">
-                <ProgressHeader />
-                <MCPAnalyticsDashboardOverview />
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <div className="lg:col-span-2">
-                        <LiveActivityCard />
-                    </div>
-                    <div className="flex flex-col gap-4">
-                        <ClientsCard />
-                        <ChecklistCard />
-                    </div>
-                </div>
-            </div>
-        )
-    }
+export function MCPAnalyticsActivityDashboard(): JSX.Element {
     return (
-        <div className="flex flex-col gap-4" data-attr="mcp-analytics-early-data">
-            <ProgressHeader />
+        <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
+            <SummaryCard />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="lg:col-span-2 flex flex-col gap-4">
+                <div className="lg:col-span-2">
                     <LiveActivityCard />
-                    <TopToolsCard />
                 </div>
                 <div className="flex flex-col gap-4">
-                    <StatsCard />
+                    <IntentsCard />
                     <ClientsCard />
                     <ChecklistCard />
                 </div>
@@ -58,69 +38,40 @@ export function MCPAnalyticsEarlyDashboard({ stage }: { stage: 'warming' | 'emer
     )
 }
 
-function ProgressHeader(): JSX.Element {
+function SummaryCard(): JSX.Element {
     const { signals } = useValues(mcpAnalyticsOnboardingLogic)
-    const { stats, totalCalls, milestones, nextMilestone, milestoneProgress, isRefreshing } =
-        useValues(mcpEarlyDataLogic)
+    const { summary, isRefreshing } = useValues(mcpEarlyDataLogic)
     const { refreshAll } = useActions(mcpEarlyDataLogic)
-    const summaryParts = [
-        `${formatNumber(totalCalls)} tool call${totalCalls === 1 ? '' : 's'}`,
-        stats.distinctTools > 0 ? `across ${stats.distinctTools} tool${stats.distinctTools === 1 ? '' : 's'}` : null,
-        stats.distinctClients > 0
-            ? `from ${stats.distinctClients} client${stats.distinctClients === 1 ? '' : 's'}`
-            : null,
-    ].filter(Boolean)
 
     return (
         <Card>
-            <div className="flex flex-col gap-3">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                        <h3 className="text-lg font-semibold m-0">
-                            {summaryParts.join(' ')}
-                            {/* Omitted on day one — "since today" is noise. */}
-                            {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
-                                <span className="text-muted font-normal">
-                                    {' '}
-                                    since {dayjs(signals.firstCallAt).format('MMM D')}
-                                </span>
-                            ) : null}
-                        </h3>
-                        <p className="text-muted text-sm m-0 mt-1">
-                            Your MCP server is warming up. This view fills in live as agents use it
-                            {nextMilestone
-                                ? ` — next up: ${nextMilestone.unlocks.toLowerCase()} at ${formatNumber(nextMilestone.threshold)} calls.`
-                                : '.'}
-                        </p>
-                    </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={isRefreshing}
-                        onClick={refreshAll}
-                        data-attr="mcp-analytics-early-view-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                    <h3 className="text-lg font-semibold m-0">
+                        {summary}
+                        {/* Omitted on day one — "since today" is noise. */}
+                        {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
+                            <span className="text-muted font-normal">
+                                {' '}
+                                since {dayjs(signals.firstCallAt).format('MMM D')}
+                            </span>
+                        ) : null}
+                    </h3>
+                    <p className="text-muted text-sm m-0 mt-1">
+                        This view fills in live as agents use your server. Metrics and trends unlock as usage grows (~
+                        {formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
+                    </p>
                 </div>
-                <LemonProgress percent={milestoneProgress * 100} />
-                <div className="flex gap-2 flex-wrap">
-                    {milestones.map((milestone) => (
-                        <Tooltip
-                            key={milestone.key}
-                            title={`${formatNumber(milestone.threshold)} tool call${milestone.threshold === 1 ? '' : 's'}`}
-                        >
-                            <LemonTag
-                                type={milestone.reached ? 'success' : 'muted'}
-                                className={milestone.reached ? undefined : 'opacity-60'}
-                                icon={milestone.reached ? <IconCheckCircle /> : <IconClock />}
-                            >
-                                {milestone.unlocks}
-                            </LemonTag>
-                        </Tooltip>
-                    ))}
-                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    loading={isRefreshing}
+                    onClick={refreshAll}
+                    data-attr="mcp-analytics-activity-refresh"
+                >
+                    Refresh
+                </LemonButton>
             </div>
         </Card>
     )
@@ -183,59 +134,24 @@ function LiveActivityCard(): JSX.Element {
     )
 }
 
-function TopToolsCard(): JSX.Element {
-    const { topTools, topToolsLoading } = useValues(mcpEarlyDataLogic)
+function IntentsCard(): JSX.Element {
+    const { recentIntents } = useValues(mcpEarlyDataLogic)
 
     return (
-        <Card title="Most-used tools">
-            <LemonTable<EarlyToolRow>
-                embedded
-                dataSource={topTools}
-                loading={topToolsLoading && topTools.length === 0}
-                rowKey="tool"
-                emptyState="No tool calls yet"
-                columns={[
-                    {
-                        title: 'Tool',
-                        key: 'tool',
-                        render: (_, row) => <span className="font-mono text-xs">{row.tool}</span>,
-                    },
-                    { title: 'Calls', key: 'calls', width: 90, align: 'right', render: (_, row) => row.calls },
-                    {
-                        title: 'Errors',
-                        key: 'errors',
-                        width: 90,
-                        align: 'right',
-                        render: (_, row) =>
-                            row.errors > 0 ? <span className="text-danger">{row.errors}</span> : row.errors,
-                    },
-                ]}
-            />
-        </Card>
-    )
-}
-
-function StatsCard(): JSX.Element {
-    const { stats } = useValues(mcpEarlyDataLogic)
-    const errorRate = stats.totalCalls > 0 ? (stats.errorCalls / stats.totalCalls) * 100 : 0
-
-    const tiles: Array<{ label: string; value: string }> = [
-        { label: 'Tool calls', value: formatNumber(stats.totalCalls) },
-        { label: 'Tools used', value: formatNumber(stats.distinctTools) },
-        { label: 'Sessions', value: formatNumber(stats.distinctSessions) },
-        { label: 'Error rate', value: stats.totalCalls > 0 ? `${errorRate.toFixed(1)}%` : '—' },
-    ]
-
-    return (
-        <Card title="All-time totals">
-            <div className="grid grid-cols-2 gap-3">
-                {tiles.map((tile) => (
-                    <div key={tile.label}>
-                        <div className="text-2xl font-semibold">{tile.value}</div>
-                        <div className="text-muted text-xs">{tile.label}</div>
-                    </div>
-                ))}
-            </div>
+        <Card title="What agents are trying to do">
+            {recentIntents.length === 0 ? (
+                <span className="text-muted text-sm">
+                    No agent intents captured yet — they show up here as agents explain what they're doing.
+                </span>
+            ) : (
+                <ul className="flex flex-col gap-2 m-0 pl-4">
+                    {recentIntents.map((intent) => (
+                        <li key={intent} className="text-sm">
+                            {intent}
+                        </li>
+                    ))}
+                </ul>
+            )}
         </Card>
     )
 }
