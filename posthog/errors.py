@@ -336,7 +336,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
     48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
-    50: ErrorCodeMeta("UNKNOWN_TYPE", category=QueryErrorCategory.USER_ERROR),  # referenced data type does not exist
+    50: ErrorCodeMeta("UNKNOWN_TYPE", user_safe=True),  # referenced data type does not exist (e.g. bad type literal)
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
     52: ErrorCodeMeta("COLUMN_QUERIED_MORE_THAN_ONCE"),
     53: ErrorCodeMeta("TYPE_MISMATCH", user_safe=True),

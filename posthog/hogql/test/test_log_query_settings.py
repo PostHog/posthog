@@ -1,4 +1,6 @@
 import pytest
+from django.test import SimpleTestCase
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from clickhouse_driver.errors import ServerException
@@ -117,3 +119,18 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         )
         wrapped = wrap_clickhouse_query_error(server_error)
         assert getattr(wrapped, "code_name", None) == "too_many_bytes"
+
+
+class TestUnknownTypeError(SimpleTestCase):
+    """An invalid ClickHouse type literal (e.g. `JSONExtract(..., 'Array(name)')`) is a user
+    mistake HogQL cannot validate ahead of time, so it must surface as a user-facing 4xx rather
+    than being wrapped as an internal error and captured by error tracking."""
+
+    def test_wrap_clickhouse_query_error_unknown_type_is_exposed(self):
+        server_error = ServerException(
+            "DB::Exception: Unknown data type family: name. Stack trace: ...",
+            code=50,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert getattr(wrapped, "code_name", None) == "unknown_type"
