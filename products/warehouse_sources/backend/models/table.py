@@ -33,16 +33,6 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.sources import (
-    DIRECT_MYSQL_SCHEMA_OPTION,
-    DIRECT_MYSQL_TABLE_OPTION,
-    DIRECT_POSTGRES_CATALOG_OPTION,
-    DIRECT_POSTGRES_SCHEMA_OPTION,
-    DIRECT_POSTGRES_TABLE_OPTION,
-    DIRECT_SNOWFLAKE_CATALOG_OPTION,
-    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
-    DIRECT_SNOWFLAKE_TABLE_OPTION,
-)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -515,6 +505,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+        # Deferred: importing data_warehouse's facade at module scope creates an import cycle
+        # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
+        # These direct-query option keys are only needed here, at query-build time.
+        from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_MYSQL_SCHEMA_OPTION,
+            DIRECT_MYSQL_TABLE_OPTION,
+            DIRECT_POSTGRES_CATALOG_OPTION,
+            DIRECT_POSTGRES_SCHEMA_OPTION,
+            DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_SNOWFLAKE_CATALOG_OPTION,
+            DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+            DIRECT_SNOWFLAKE_TABLE_OPTION,
+        )
+
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
