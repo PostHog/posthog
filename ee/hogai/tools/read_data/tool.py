@@ -755,6 +755,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         dashboard_ctx = DashboardContext(
             team=self._team,
             insights_data=insights_data,
+            user=self._user,
             name=dashboard_name,
             description=dashboard.description,
             dashboard_id=dashboard_id,
@@ -770,6 +771,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_error_tracking_issue(self, issue_id: str) -> str:
         context = ErrorTrackingIssueContext(
             team=self._team,
+            user=self._user,
             issue_id=issue_id,
         )
         return await context.execute_and_format()
@@ -777,6 +779,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_survey(self, survey_id: str) -> str:
         context = SurveyContext(
             team=self._team,
+            user=self._user,
             survey_id=survey_id,
         )
         survey = await context.aget_survey()
@@ -795,6 +798,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case VisualizationArtifactContent():
                 context = InsightContext(
                     team=self._team,
+                    user=self._user,
                     query=content.query,
                     name=content.name,
                     description=content.description,
@@ -921,7 +925,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         trace_query = TraceQuery(traceId=trace_id)
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(trace_query)
 
         results = query_results.get("results", [])

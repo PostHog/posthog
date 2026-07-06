@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from django.conf import settings
 
 import structlog
+from opentelemetry import trace
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
@@ -113,8 +114,32 @@ def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricM
     return meter
 
 
+def _tag_span_with_batch_export_context(attributes: dict[str, str | int | float | bool | None]) -> None:
+    """Enrich the active OTel span (the RunActivity/RunWorkflow span emitted by the OTel plugin)
+    with batch export metadata.
+
+    This annotates traces, not the Prometheus meters above. Best-effort: span bookkeeping must
+    never break execution, and set_attribute is a no-op when the span isn't recording (e.g. tracing
+    disabled, or during workflow replay). None-valued attributes are skipped.
+    """
+    try:
+        span = trace.get_current_span()
+        if not span.is_recording():
+            return
+        for key, value in attributes.items():
+            if value is not None:
+                span.set_attribute(key, value)
+    except Exception:
+        pass
+
+
 class BatchExportsMetricsInterceptor(Interceptor):
-    """Interceptor to emit Prometheus metrics for batch exports."""
+    """Interceptor for batch export observability.
+
+    Emits Prometheus metrics (execution latency, attempt counters) and enriches the active OTel
+    trace span with batch export metadata (id, destination, interval, model) via
+    _tag_span_with_batch_export_context.
+    """
 
     task_queue = (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE)
 
@@ -147,6 +172,21 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
                 data_interval_start = None
                 data_interval_end = None
                 interval = None
+
+        # Enrich the trace span with batch export identity, mirroring the metric attributes below.
+        details = getattr(input.args[0], "batch_export", input.args[0])
+        workflow_type = activity.info().workflow_type
+        model = getattr(details, "batch_export_model", None)
+        _tag_span_with_batch_export_context(
+            {
+                "batch_export.id": getattr(details, "batch_export_id", None),
+                "batch_export.destination": workflow_type.removesuffix("-export") if workflow_type else None,
+                "batch_export.interval": interval,
+                "batch_export.model": getattr(model, "name", None),
+                "batch_export.run_id": getattr(details, "run_id", None),
+                "attempt": activity.info().attempt,
+            }
+        )
 
         if not interval:
             LOGGER.error(
@@ -199,6 +239,16 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         # This only affects "every 5 minutes" which becomes "every_5_minutes".
         interval = input.args[0].interval.replace(" ", "_")
         histogram_attributes: Attributes = {"interval": interval}
+
+        model = getattr(input.args[0], "batch_export_model", None)
+        _tag_span_with_batch_export_context(
+            {
+                "batch_export.id": getattr(input.args[0], "batch_export_id", None),
+                "batch_export.destination": workflow_type.removesuffix("-export"),
+                "batch_export.interval": interval,
+                "batch_export.model": getattr(model, "name", None),
+            }
+        )
 
         async with SLAWaiter(batch_export_id=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
             with ExecutionTimeRecorder(
