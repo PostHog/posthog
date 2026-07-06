@@ -178,11 +178,15 @@ impl StashTable {
 
     /// Enqueue a request if the partition is frozen; otherwise return
     /// `Forward` to signal the caller should route normally.
+    /// Takes the frame and headers by reference and clones them only when
+    /// the request actually parks — the steady state (no handoff in
+    /// progress) returns `Forward` from the dashmap miss without copying
+    /// anything.
     pub async fn enqueue_or_forward(
         &self,
         partition: u32,
-        frame: Bytes,
-        headers: HeaderMap,
+        frame: &Bytes,
+        headers: &HeaderMap,
         key: (i64, i64),
     ) -> StashDecision {
         let stash = match self.inner.get(&partition) {
@@ -198,7 +202,7 @@ impl StashTable {
             return StashDecision::Forward;
         };
 
-        let request_size = approximate_size(&frame);
+        let request_size = approximate_size(frame);
 
         if queue.requests.len() >= stash.max_messages {
             metrics::counter!(
@@ -219,8 +223,8 @@ impl StashTable {
 
         let (tx, rx) = oneshot::channel();
         queue.requests.push_back(StashedRequest {
-            frame,
-            headers,
+            frame: frame.clone(),
+            headers: headers.clone(),
             key,
             reply: tx,
             enqueued_at: Instant::now(),
@@ -307,6 +311,7 @@ impl StashTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http::HeaderValue;
     use http_body_util::{BodyExt, Empty};
 
     /// Collect drained requests into a `Vec` via the forward-batch
@@ -340,8 +345,8 @@ mod tests {
         table
             .enqueue_or_forward(
                 partition,
-                Bytes::from_static(b"x"),
-                HeaderMap::new(),
+                &Bytes::from_static(b"x"),
+                &HeaderMap::new(),
                 (1, person_id),
             )
             .await
@@ -358,8 +363,8 @@ mod tests {
         table
             .enqueue_or_forward(
                 partition,
-                Bytes::from(vec![0u8; payload]),
-                HeaderMap::new(),
+                &Bytes::from(vec![0u8; payload]),
+                &HeaderMap::new(),
                 (1, person_id),
             )
             .await
@@ -598,7 +603,7 @@ mod tests {
         let mut response = test_response();
         response
             .headers_mut()
-            .insert("x-test", http::HeaderValue::from_static("ok"));
+            .insert("x-test", HeaderValue::from_static("ok"));
         req.reply
             .send(response)
             .expect("send must succeed when receiver is alive");

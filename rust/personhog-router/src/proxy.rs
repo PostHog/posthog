@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http_body::Frame;
@@ -469,24 +469,45 @@ async fn collect_body_limited(
     mut body: BoxBody,
     max_bytes: usize,
 ) -> Result<Bytes, http::Response<BoxBody>> {
-    let mut buf = Vec::new();
+    // Most unary requests arrive as a single DATA frame, which we hand on
+    // as-is without copying the payload. Only bodies that span multiple
+    // frames (large payloads split at the HTTP/2 frame size) pay for
+    // reassembly into a contiguous buffer, which the retry path needs so
+    // it can replay the request.
+    let mut first: Option<Bytes> = None;
+    let mut buf: Vec<u8> = Vec::new();
 
     while let Some(frame_result) = body.frame().await {
         let frame = frame_result.map_err(|e| {
             grpc_error_response(Code::Internal, &format!("failed to read body: {e}"))
         })?;
-        if let Ok(data) = frame.into_data() {
-            if buf.len() + data.len() > max_bytes {
-                return Err(grpc_error_response(
-                    Code::ResourceExhausted,
-                    &format!("received message larger than max ({max_bytes} bytes)"),
-                ));
+        let Ok(data) = frame.into_data() else {
+            continue;
+        };
+
+        let collected = first.as_ref().map_or(0, Bytes::len) + buf.len();
+        if collected + data.len() > max_bytes {
+            return Err(grpc_error_response(
+                Code::ResourceExhausted,
+                &format!("received message larger than max ({max_bytes} bytes)"),
+            ));
+        }
+
+        if first.is_none() && buf.is_empty() {
+            first = Some(data);
+        } else {
+            if let Some(f) = first.take() {
+                buf.reserve(f.len() + data.len());
+                buf.extend_from_slice(&f);
             }
             buf.extend_from_slice(&data);
         }
     }
 
-    Ok(Bytes::from(buf))
+    Ok(match first {
+        Some(single_frame) => single_frame,
+        None => Bytes::from(buf),
+    })
 }
 
 /// Shared retry bookkeeping for the raw-forward paths: bump the retry
@@ -507,7 +528,7 @@ async fn retry_backoff(
 
     let base = *delay_ms / 2;
     let jittered = base + rand::thread_rng().gen_range(0..=base);
-    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
+    tokio::time::sleep(Duration::from_millis(jittered)).await;
     *delay_ms = (*delay_ms * 2).min(retry_config.max_backoff_ms);
 }
 
@@ -612,7 +633,8 @@ impl Drop for ByteCountedBody {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http_body_util::Empty;
+    use futures::stream;
+    use http_body_util::{Empty, StreamBody};
 
     #[test]
     fn known_method_lookup() {
@@ -690,5 +712,34 @@ mod tests {
         let result = collect_body_limited(body, 100).await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    /// Build a body that yields each chunk as its own DATA frame,
+    /// exercising the multi-frame reassembly path (large payloads arrive
+    /// split at the HTTP/2 frame size).
+    fn multi_frame_body(chunks: Vec<&'static [u8]>) -> BoxBody {
+        let frames = chunks
+            .into_iter()
+            .map(|c| Ok::<_, tonic::Status>(Frame::data(Bytes::from_static(c))));
+        BoxBody::new(StreamBody::new(stream::iter(frames)))
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_reassembles_multiple_frames() {
+        let body = multi_frame_body(vec![b"hello ", b"personhog ", b"world"]);
+        let result = collect_body_limited(body, 100).await.unwrap();
+        assert_eq!(&result[..], b"hello personhog world");
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_rejects_over_limit_across_frames() {
+        // Each frame is under the limit; their sum is not.
+        let body = multi_frame_body(vec![&[0u8; 60], &[0u8; 60]]);
+        let result = collect_body_limited(body, 100).await;
+        let resp = result.unwrap_err();
+        assert_eq!(
+            resp.headers().get("grpc-status").unwrap(),
+            &format!("{}", Code::ResourceExhausted as i32),
+        );
     }
 }

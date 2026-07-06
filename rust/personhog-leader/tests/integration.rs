@@ -26,11 +26,12 @@ use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
+use tonic::Request;
 
 /// Wrap a request with the `x-partition` metadata the leader reads in place
 /// of a body field, matching how the router forwards to the leader.
-fn with_partition<T>(req: T, partition: u32) -> tonic::Request<T> {
-    let mut request = tonic::Request::new(req);
+fn with_partition<T>(req: T, partition: u32) -> Request<T> {
+    let mut request = Request::new(req);
     request
         .metadata_mut()
         .insert("x-partition", partition.to_string().parse().unwrap());
@@ -39,11 +40,7 @@ fn with_partition<T>(req: T, partition: u32) -> tonic::Request<T> {
 
 /// Build a `GetPerson` request carrying the partition in `x-partition`
 /// metadata, matching how the router forwards strong reads to the leader.
-fn leader_get_request(
-    team_id: i64,
-    person_id: i64,
-    partition: u32,
-) -> tonic::Request<GetPersonRequest> {
+fn leader_get_request(team_id: i64, person_id: i64, partition: u32) -> Request<GetPersonRequest> {
     with_partition(
         GetPersonRequest {
             team_id,
@@ -267,7 +264,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
             .await
             .unwrap();
     });
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     let mut client = create_leader_client(addr).await;
 

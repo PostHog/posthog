@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use dashmap::DashMap;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, Method, Uri, Version};
 use http_body_util::{BodyExt, Full};
 use metrics::histogram;
 use tokio::sync::RwLock;
@@ -178,12 +178,12 @@ impl LeaderBackend {
 
                 let body = BoxBody::new(Full::new(frame).map_err(|never| match never {}));
                 let mut req = http::Request::new(body);
-                *req.method_mut() = http::Method::POST;
-                *req.uri_mut() = http::Uri::builder()
+                *req.method_mut() = Method::POST;
+                *req.uri_mut() = Uri::builder()
                     .path_and_query(path)
                     .build()
                     .expect("leader path is a valid URI");
-                *req.version_mut() = http::Version::HTTP_2;
+                *req.version_mut() = Version::HTTP_2;
                 *req.headers_mut() = headers;
                 req.headers_mut().insert("x-partition", partition_header);
 
@@ -224,10 +224,12 @@ impl LeaderBackend {
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         // The stash module emits its own enqueued/rejected counters at the
-        // source; we don't double-count here.
+        // source; we don't double-count here. It borrows the frame and
+        // headers, cloning only when the request actually parks, so the
+        // steady-state forward path copies nothing.
         match self
             .stash
-            .enqueue_or_forward(partition, frame.clone(), headers.clone(), key)
+            .enqueue_or_forward(partition, &frame, &headers, key)
             .await
         {
             StashDecision::Stashed(rx) => {
