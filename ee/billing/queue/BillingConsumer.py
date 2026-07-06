@@ -7,7 +7,9 @@ from django.db import close_old_connections
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
+from posthog.models.user import User
 
 from products.customer_analytics.backend.facade.api import notify_managers_of_usage_spike
 
@@ -52,6 +54,8 @@ class BillingConsumer(SQSConsumer):
                 self._process_billing_customer_update(body)
             elif message_type == "usage_spike_detected":
                 self._process_usage_spike_detected(body)
+            elif message_type == "billing_activity":
+                self._process_billing_activity(body)
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
@@ -173,4 +177,55 @@ class BillingConsumer(SQSConsumer):
             billing_id=data.get("billing_id"),
             stripe_customer_id=data.get("stripe_customer_id"),
             detected_at=data.get("detected_at"),
+        )
+
+    def _process_billing_activity(self, body: dict[str, Any]) -> None:
+        """
+        Write a billing-originated change (spend limits, addons/products) to the
+        organization's activity log.
+
+        The actor is resolved from the distinct_id the billing service carries in
+        the message; when it is absent (system-origin changes such as Stripe
+        webhooks or dunning) the row is written as a system activity.
+        """
+        organization_id = body.get("organization_id")
+        if not organization_id:
+            logger.error("Billing activity is missing organization_id")
+            capture_exception(Exception("Billing activity is missing organization_id"))
+            return
+
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            logger.exception(f"Organization {organization_id} does not exist")
+            capture_exception(
+                Exception("Organization being consumed does not exist"),
+                {"organization_id": organization_id},
+            )
+            return
+
+        distinct_id = body.get("distinct_id")
+        user = User.objects.filter(distinct_id=distinct_id).first() if distinct_id else None
+
+        detail_data = body.get("detail") or {}
+        changes = [
+            Change(
+                type=change.get("type", "Billing"),
+                action=change.get("action", "changed"),
+                field=change.get("field"),
+                before=change.get("before"),
+                after=change.get("after"),
+            )
+            for change in (detail_data.get("changes") or [])
+        ]
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=None,
+            user=user,
+            was_impersonated=False,
+            item_id=body.get("item_id"),
+            scope="Billing",
+            activity=body.get("activity") or "updated",
+            detail=Detail(name=detail_data.get("name"), changes=changes),
         )
