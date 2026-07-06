@@ -67,9 +67,13 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
     })),
     selectors({
         isImportRunning: [
-            (s) => [s.importJob, s.importJobLoading],
-            (importJob: ZendeskImportJobApi | null, importJobLoading: boolean): boolean =>
-                importJobLoading || importJob?.status === 'running' || importJob?.status === 'pending',
+            // Derive purely from job status — not the shared loaders flag, which is also true during
+            // the initial status GET (and the submit POST). Folding loading in here mislabels the
+            // pre-first-response window on a fresh page as "Import already running". The submit
+            // button uses importJobLoading directly for its loading/disabled state instead.
+            (s) => [s.importJob],
+            (importJob: ZendeskImportJobApi | null): boolean =>
+                importJob?.status === 'running' || importJob?.status === 'pending',
         ],
         importProgressLabel: [
             (s) => [s.importJob],

@@ -91,3 +91,39 @@ class TestDownloadAttachmentSizeCap:
         client._session.get.return_value = resp
 
         assert client.download_attachment("https://acme.zendesk.com/a", max_bytes=10) == b"abcdef"
+
+
+class TestExpectedHostGuard:
+    def _client(self) -> ZendeskImportClient:
+        return ZendeskImportClient(
+            ZendeskCredentials(subdomain="acme", email_address="agent@acme.com", api_token="tok")
+        )
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Right host, wrong scheme: a host-only check would pass and send the Basic auth token
+            # over cleartext http. Both the plaintext downgrade and any off-host redirect must be
+            # refused before a request (and its Authorization header) goes out.
+            pytest.param("http://acme.zendesk.com/api/v2/tickets/1/comments.json", id="http_downgrade"),
+            pytest.param("https://evil.example.com/steal", id="off_host"),
+            pytest.param("https://acme.zendesk.com.evil.com/steal", id="suffix_host"),
+        ],
+    )
+    def test_download_attachment_refuses_and_sends_nothing(self, url: str) -> None:
+        client = self._client()
+        client._session = MagicMock()
+
+        with pytest.raises(ValueError):
+            client.download_attachment(url, max_bytes=10)
+        client._session.get.assert_not_called()
+
+    def test_request_refuses_http_absolute_url_and_sends_nothing(self) -> None:
+        # `next_page` in a comments response is an absolute URL echoed straight into _request; an
+        # http:// value must be rejected before the token-bearing request is issued.
+        client = self._client()
+        client._session = MagicMock()
+
+        with pytest.raises(ValueError):
+            client._request("GET", "http://acme.zendesk.com/api/v2/tickets/1/comments.json")
+        client._session.request.assert_not_called()

@@ -35,6 +35,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 IMPORT_FAILED_MESSAGE = "The import failed. Please try again or contact support if it persists."
+IMPORT_CANCELLED_MESSAGE = "The import was cancelled."
 
 
 @dataclass
@@ -229,6 +230,26 @@ class ZendeskImportCoordinatorWorkflow:
                 skipped=total_skipped,
                 failed=total_failed,
             )
+        except asyncio.CancelledError:
+            # Cancellation (admin cancels from the Temporal UI/CLI, handle.cancel(), a future
+            # "cancel import" action) is delivered as asyncio.CancelledError, which subclasses
+            # BaseException — the `except Exception` below can't see it. Without recording a
+            # terminal state here the ZendeskImportJob row stays stuck at RUNNING forever, and the
+            # settings UI polls "Syncing" indefinitely (the migrate_zendesk_tickets --force flag
+            # exists to clean up exactly this). Scheduling a cleanup activity after cancel is the
+            # supported Temporal pattern; the request is state-once so this await isn't re-cancelled.
+            workflow.logger.warning("zendesk_import_coordinator_cancelled", job_id=input.job_id, team_id=input.team_id)
+            await workflow.execute_activity(
+                zendesk_import_update_job_status_activity,
+                UpdateJobStatusInput(
+                    job_id=input.job_id,
+                    status=ZendeskImportJob.Status.FAILED,
+                    latest_error=IMPORT_CANCELLED_MESSAGE,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RETRY_POLICY,
+            )
+            raise
         except Exception:
             # Raw exception strings can carry internal hostnames, query details, or
             # secrets from failing requests. Log the full error server-side and persist

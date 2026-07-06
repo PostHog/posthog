@@ -120,10 +120,14 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = ZendeskImportJobSerializer
     permission_classes = [IsConversationsAdmin]
+    # Class-level attr must be unscoped: the fail-closed manager's .all() reads team context
+    # eagerly and there is none at import time. Every per-request read below goes through the
+    # scoped manager instead (the mixin sets canonical team context in initial()), so they filter
+    # by the canonical team id rather than the raw routed id.
     queryset = ZendeskImportJob.objects.unscoped()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        return ZendeskImportJob.objects.all().order_by("-created_at")
 
     @extend_schema(
         request=ZendeskImportStartSerializer,
@@ -162,21 +166,16 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        running = (
-            ZendeskImportJob.objects.unscoped()
-            .filter(
-                team_id=team_id,
-                status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
-            )
-            .exists()
-        )
+        running = ZendeskImportJob.objects.filter(
+            status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
+        ).exists()
         if running:
             return Response(
                 {"detail": "A Zendesk import is already running for this team"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        job = ZendeskImportJob.objects.unscoped().create(
+        job = ZendeskImportJob.objects.create(
             team_id=team_id,
             status=ZendeskImportJob.Status.PENDING,
             job_inputs={
@@ -219,7 +218,7 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"])
     def status(self, request: Request, *args, **kwargs) -> Response:
-        job = ZendeskImportJob.objects.unscoped().filter(team_id=self.team_id).order_by("-created_at").first()
+        job = ZendeskImportJob.objects.order_by("-created_at").first()
         if job is None:
             return Response({"detail": "No Zendesk import job found"}, status=drf_status.HTTP_404_NOT_FOUND)
 

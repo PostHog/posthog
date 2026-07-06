@@ -119,10 +119,17 @@ class ZendeskImportClient:
         time.sleep(retry_after)
 
     def _assert_expected_host(self, url: str) -> None:
-        """Reject absolute URLs whose host isn't the pinned Zendesk host (SSRF guard)."""
-        host = urlsplit(url).hostname
-        if host is None or host.lower() != self._host:
-            raise ValueError(f"Refusing to fetch URL outside Zendesk host {self._host!r}: {url!r}")
+        """Reject absolute URLs that aren't https on the pinned Zendesk host (SSRF guard).
+
+        Scheme is enforced alongside host: a host-only check lets a malicious/compromised API
+        response hand back an http:// URL on the right host, which passes but sends the reusable
+        Basic auth token in cleartext over the wire. Zendesk only ever returns https URLs, so
+        anything else is rejected.
+        """
+        parts = urlsplit(url)
+        host = parts.hostname
+        if parts.scheme.lower() != "https" or host is None or host.lower() != self._host:
+            raise ValueError(f"Refusing to fetch non-https or off-host URL (expected https://{self._host}): {url!r}")
 
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if path.startswith("http"):
@@ -255,8 +262,16 @@ def validate_zendesk_credentials(credentials: ZendeskCredentials) -> bool:
         redact_values=(token, credentials.api_token, credentials.email_address),
         capture=False,
     )
-    res = session.get(
-        f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
-        headers={"Authorization": f"Basic {token}"},
-    )
-    return res.status_code == 200
+    # Runs synchronously inside the settings-page create() request handler. Without a timeout a
+    # slow/unresponsive host would pin the Django worker indefinitely; without the try/except a
+    # transport-level error (DNS/connection/SSL) would escape as a 500 instead of the intended
+    # "credentials rejected" 400. Any failure to reach + authenticate == invalid credentials.
+    try:
+        res = session.get(
+            f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
+            headers={"Authorization": f"Basic {token}"},
+            timeout=10,
+        )
+        return res.status_code == 200
+    except Exception:
+        return False
