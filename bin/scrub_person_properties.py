@@ -140,14 +140,16 @@ def find_affected_persons_hogql(
     condition = " OR ".join(f"JSONHas(properties, {hogql_string_literal(p)})" for p in properties)
     log(f"Scanning persons where any of the properties exist (JSONHas): {', '.join(properties)}")
     affected: dict[str, dict[str, Any]] = {}
-    offset = 0
+    # Keyset pagination on id - the query API rejects OFFSET for personal-API-key queries
+    last_id: Optional[str] = None
     page = 0
     while True:
+        keyset = f" AND id > toUUID({hogql_string_literal(last_id)})" if last_id else ""
         rows = run_hogql_query(
             session,
             host,
             project_id,
-            f"SELECT id, properties FROM persons WHERE {condition} ORDER BY id ASC LIMIT {page_size} OFFSET {offset}",
+            f"SELECT id, properties FROM persons WHERE ({condition}){keyset} ORDER BY id ASC LIMIT {page_size}",
             # Resource-limit failures on huge projects are deterministic; fail fast to the fallback
             max_retries=2,
         )
@@ -163,7 +165,7 @@ def find_affected_persons_hogql(
                 affected[str(row_uuid)] = make_record(str(row_uuid), [], matched)
         if len(rows) < page_size:
             break
-        offset += page_size
+        last_id = str(rows[-1][0])
 
     # One distinct_id per person is enough to address scrub events; fetch them in bulk
     uuids = list(affected)
