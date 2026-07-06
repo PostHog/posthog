@@ -65,12 +65,13 @@ RUNS_RECONCILED_TOTAL = Counter(
 # The loader's data-freshness signal: it rises whenever loading stalls,
 # regardless of why (wedged consumers, claim-query degradation, crashloops).
 # Every pod reports the same queue-wide value, so aggregate with max().
-# livesum is safe: each pod runs a single consumer process.
+# livemax matches that: it stays accurate even if two consumer processes
+# briefly co-exist in one pod, where livesum would double the age.
 OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "warehouse_pg_queue_oldest_unclaimed_batch_seconds",
     "Age of the oldest queue batch no consumer has picked up yet (0 = none waiting). "
     "Sampled on the reconcile cadence; saturates at the freshness probe window.",
-    multiprocess_mode="livesum",
+    multiprocess_mode="livemax",
 )
 
 
