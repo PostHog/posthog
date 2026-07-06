@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -59,6 +60,10 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
     from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
     from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
+    from products.customer_analytics.backend.models.relationship import (
+        AccountRelationship,
+        AccountRelationshipDefinition,
+    )
     from products.error_tracking.backend.models import (
         ErrorTrackingAssignmentRule,
         ErrorTrackingBypassRule,
@@ -73,6 +78,8 @@ else:
     Account = apps.get_model("customer_analytics", "Account")
     CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
     CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
+    AccountRelationship = apps.get_model("customer_analytics", "AccountRelationship")
+    AccountRelationshipDefinition = apps.get_model("customer_analytics", "AccountRelationshipDefinition")
     ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
     ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
     ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
@@ -185,6 +192,12 @@ def _create_account(team: Team, label: str) -> Account:
 
 def _create_custom_property_definition(team: Team, label: str) -> "CustomPropertyDefinition":
     return CustomPropertyDefinition.objects.unscoped().create(team=team, name=f"def_{label}", display_type="text")
+
+
+def _create_account_relationship(team: Team, label: str) -> "AccountRelationship":
+    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+    definition = AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_{label}")
+    return AccountRelationship.objects.unscoped().create(team=team, account=account, definition=definition)
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -641,6 +654,7 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
@@ -983,3 +997,71 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert str(account.id) in rows_by_id
         assert rows_by_id[str(account.id)] != "secret"
         assert rows_by_id[str(account.id)] in (None, "")
+
+    def _create_relationship_definition(self, name="CSM", **kwargs):
+        return AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name=name, **kwargs)
+
+    def _create_relationship(self, account, definition, user, **kwargs):
+        return AccountRelationship.objects.unscoped().create(
+            team=self.team, account=account, definition=definition, user=user, **kwargs
+        )
+
+    def test_relationships_lazy_join_returns_active_user_ids_by_definition_id(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        definition = self._create_relationship_definition()
+        self._create_relationship(account, definition, self.user)
+        Account.objects.unscoped().create(team=self.team, name="B")  # no relationships
+
+        response = execute_hogql_query(
+            f"SELECT id, accounts.relationships.values.`{definition.id}` "
+            "FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+            user=self.user,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert rows_by_id[str(account.id)] == [self.user.id]
+
+    def test_relationships_lazy_join_excludes_ended_rows(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        definition = self._create_relationship_definition()
+        self._create_relationship(account, definition, self.user, ended_at=timezone.now())
+
+        response = execute_hogql_query(
+            f"SELECT accounts.relationships.values.`{definition.id}` FROM system.accounts AS accounts",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results[0][0] in ([], None)
+
+    def test_relationships_lazy_join_multi_holder_returns_all_active(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        definition = self._create_relationship_definition(name="FDE", is_single_holder=False)
+        other_user = self._create_user("fde2@posthog.com")
+        self._create_relationship(account, definition, self.user)
+        self._create_relationship(account, definition, other_user)
+
+        response = execute_hogql_query(
+            f"SELECT accounts.relationships.values.`{definition.id}` FROM system.accounts AS accounts",
+            team=self.team,
+            user=self.user,
+        )
+        assert sorted(response.results[0][0]) == sorted([self.user.id, other_user.id])
+
+    def test_relationships_lazy_join_isolated_per_team(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Ours")
+        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.other_team, name="CSM")
+        AccountRelationship.objects.unscoped().create(
+            team=self.other_team, account=other_account, definition=other_definition, user=self.user
+        )
+
+        response = execute_hogql_query(
+            f"SELECT id, accounts.relationships.values.`{other_definition.id}` FROM system.accounts AS accounts",
+            team=self.team,
+            user=self.user,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert str(account.id) in rows_by_id
+        assert rows_by_id[str(account.id)] in ([], None)

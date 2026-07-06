@@ -2741,10 +2741,111 @@
                   "schema_valid": true,
                   "table": "account_custom_properties",
                   "type": "lazy_table"
+              },
+              "relationships": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "relationships",
+                  "id": "relationships",
+                  "name": "relationships",
+                  "schema_valid": true,
+                  "table": "account_relationships",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.account_relationships": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_id",
+                  "id": null,
+                  "name": "definition_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "started_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "started_at",
+                  "id": null,
+                  "name": "started_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "ended_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ended_at",
+                  "id": null,
+                  "name": "ended_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.account_relationships",
+          "name": "system.account_relationships",
           "row_count": null,
           "type": "system"
       },
@@ -11347,10 +11448,111 @@
                   "schema_valid": true,
                   "table": "account_custom_properties",
                   "type": "lazy_table"
+              },
+              "relationships": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "relationships",
+                  "id": "relationships",
+                  "name": "relationships",
+                  "schema_valid": true,
+                  "table": "account_relationships",
+                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.account_relationships": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "definition_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_id",
+                  "id": null,
+                  "name": "definition_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "started_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "started_at",
+                  "id": null,
+                  "name": "started_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "ended_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ended_at",
+                  "id": null,
+                  "name": "ended_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.account_relationships",
+          "name": "system.account_relationships",
           "row_count": null,
           "type": "system"
       },
