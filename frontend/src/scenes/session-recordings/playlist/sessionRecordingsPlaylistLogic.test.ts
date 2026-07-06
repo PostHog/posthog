@@ -1367,39 +1367,50 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(getDefaultFilters(personUUID, pinnedFilters).order).toBe(expectedOrder)
         })
 
-        it.each<[string, Partial<RecordingUniversalFilters>, string]>([
-            ['defaults to recency when the URL omits order', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
-            ['respects an explicit order in the URL', { order: 'console_error_count' }, 'console_error_count'],
-        ])('deep link with pre-applied filters %s for the test arm', async (_name, extraFilters, expectedOrder) => {
-            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: 'relevance-deep-link-test',
-                updateSearchParams: true,
-            })
-            logic.mount()
-
-            // "View recordings" style navigation carrying pre-applied filters
-            router.actions.push('/replay', {
-                filters: {
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                            },
-                        ],
-                    },
-                    ...extraFilters,
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({ order: expectedOrder }),
+        it.each<[string, Partial<RecordingUniversalFilters>, Record<string, unknown>, string]>([
+            ['defaults to recency when the URL omits order', {}, {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
+            [
+                'respects an explicit order in the URL filters',
+                { order: 'console_error_count' },
+                {},
+                'console_error_count',
+            ],
+            // order arriving as its own URL search param beside filters takes a separate code path
+            ['respects a standalone order URL param', {}, { order: 'console_error_count' }, 'console_error_count'],
+        ])(
+            'deep link with pre-applied filters %s for the test arm',
+            async (_name, extraFilters, extraSearchParams, expectedOrder) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'relevance-deep-link-test',
+                    updateSearchParams: true,
                 })
-        })
+                logic.mount()
+
+                // "View recordings" style navigation carrying pre-applied filters
+                router.actions.push('/replay', {
+                    filters: {
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                                },
+                            ],
+                        },
+                        ...extraFilters,
+                    },
+                    ...extraSearchParams,
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setFilters'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({ order: expectedOrder }),
+                    })
+            }
+        )
     })
 
     describe('pinnedFilters', () => {
