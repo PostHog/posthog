@@ -14,6 +14,8 @@ import {
     VariantACenteredHandle,
     VariantBDashInHandle,
     VariantCHalfFill,
+    VariantDFullWidthHandleDash,
+    VariantENoHandleDash,
 } from './LemonSwitchIndeterminate.prototype'
 
 const meta: Meta = {
@@ -46,6 +48,18 @@ const VARIANTS: {
         name: 'Half fill',
         description: 'Handle stretches over the left half, right half shows accent. Literally half on.',
         Component: VariantCHalfFill,
+    },
+    {
+        key: 'D',
+        name: 'Full-width handle with dash',
+        description: 'Handle stretches across the entire track and carries the minus glyph. No position to misread.',
+        Component: VariantDFullWidthHandleDash,
+    },
+    {
+        key: 'E',
+        name: 'Dash on track, no handle',
+        description: 'No handle at all — the filled track shows a centered dash. Most minimal treatment.',
+        Component: VariantENoHandleDash,
     },
 ]
 

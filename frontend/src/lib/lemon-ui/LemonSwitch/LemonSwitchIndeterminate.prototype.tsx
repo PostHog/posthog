@@ -9,6 +9,10 @@
  *       (icon communicates, borrowed from indeterminate checkboxes).
  *   C — Half fill: the handle stretches over the left half while the right half of the
  *       track shows accent color (fill amount communicates, "literally half way").
+ *   D — Full-width handle with dash: the handle stretches across the entire track and
+ *       carries the minus glyph (icon communicates, no position to misread).
+ *   E — Dash on track, no handle: the handle disappears entirely; the filled track shows
+ *       a centered dash (most minimal, reads like a "blocked/mixed" badge).
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -35,6 +39,7 @@ interface ShellProps extends PrototypeSwitchProps {
     trackStyle?: React.CSSProperties
     handleStyle?: React.CSSProperties
     handleContent?: JSX.Element
+    trackContent?: JSX.Element
 }
 
 function SwitchShell({
@@ -45,6 +50,7 @@ function SwitchShell({
     trackStyle,
     handleStyle,
     handleContent,
+    trackContent,
 }: ShellProps): JSX.Element {
     const indeterminate = value === 'indeterminate'
     return (
@@ -65,6 +71,7 @@ function SwitchShell({
                 <div className="LemonSwitch__handle" style={indeterminate ? handleStyle : undefined}>
                     {indeterminate ? handleContent : null}
                 </div>
+                {indeterminate ? trackContent : null}
             </button>
         </div>
     )
@@ -85,17 +92,21 @@ export function VariantBDashInHandle(props: PrototypeSwitchProps): JSX.Element {
                 transform:
                     'translateX(calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter)))',
             }}
-            handleContent={
-                <span
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-                    style={{
-                        width: '55%',
-                        height: '2px',
-                        borderRadius: '1px',
-                        backgroundColor: 'var(--color-accent)',
-                    }}
-                />
-            }
+            handleContent={<Dash color="var(--color-accent)" width="55%" />}
+        />
+    )
+}
+
+function Dash({ color, width }: { color: string; width: string }): JSX.Element {
+    return (
+        <span
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{
+                width,
+                height: '2px',
+                borderRadius: '1px',
+                backgroundColor: color,
+            }}
         />
     )
 }
@@ -112,6 +123,33 @@ export function VariantCHalfFill(props: PrototypeSwitchProps): JSX.Element {
                 width: 'calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)',
                 transform: 'none',
             }}
+        />
+    )
+}
+
+/** D — handle stretches across the entire track and carries the minus glyph. */
+export function VariantDFullWidthHandleDash(props: PrototypeSwitchProps): JSX.Element {
+    return (
+        <SwitchShell
+            {...props}
+            trackStyle={{ backgroundColor: 'var(--color-accent)' }}
+            handleStyle={{
+                width: 'calc(var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter))',
+                transform: 'none',
+            }}
+            handleContent={<Dash color="var(--color-accent)" width="35%" />}
+        />
+    )
+}
+
+/** E — no handle at all: the filled track itself shows a centered dash. */
+export function VariantENoHandleDash(props: PrototypeSwitchProps): JSX.Element {
+    return (
+        <SwitchShell
+            {...props}
+            trackStyle={{ backgroundColor: 'var(--color-accent)' }}
+            handleStyle={{ visibility: 'hidden' }}
+            trackContent={<Dash color="var(--color-bg-surface-primary)" width="35%" />}
         />
     )
 }
