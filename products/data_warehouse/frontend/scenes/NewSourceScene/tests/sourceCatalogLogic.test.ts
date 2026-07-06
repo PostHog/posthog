@@ -1,3 +1,5 @@
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -57,5 +59,21 @@ describe('sourceCatalogLogic', () => {
 
         expect(logic.values.sourceRequestModalOpen).toBe(false)
         expect(logic.values.sourceRequestText).toEqual('')
+    })
+
+    it('keeps catalogItems and the search index stable across unrelated feature flag refreshes', () => {
+        // featureFlags is a broad dependency that changes identity on every flag load; without
+        // result equality that re-derived the whole catalog, rebuilt the Fuse index, and handed
+        // every tile a fresh item object per refresh.
+        const logic = sourceCatalogLogic()
+        featureFlagLogic.mount()
+        const initialItems = logic.values.catalogItems
+        const initialFuse = logic.values.catalogFuse
+        expect(initialItems.length).toBeGreaterThan(0)
+
+        featureFlagLogic.actions.setFeatureFlags(['some-unrelated-flag'], { 'some-unrelated-flag': true })
+
+        expect(logic.values.catalogItems).toBe(initialItems)
+        expect(logic.values.catalogFuse).toBe(initialFuse)
     })
 })

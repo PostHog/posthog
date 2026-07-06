@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -181,6 +182,10 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
 
                 return [...managed, ...selfManaged]
             },
+            // featureFlags is a broad dependency that changes identity on every flag refresh;
+            // keeping the previous array when the derived catalog is unchanged stops the Fuse
+            // index and every tile from re-deriving on unrelated flag updates.
+            { resultEqualityCheck: objectsEqual },
         ],
 
         categoriesWithCounts: [
