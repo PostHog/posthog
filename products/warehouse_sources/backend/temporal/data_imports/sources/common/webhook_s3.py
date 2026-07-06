@@ -12,7 +12,6 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-from asgiref.sync import sync_to_async
 from structlog.types import FilteringBoundLogger
 
 from posthog.clickhouse.client import sync_execute
@@ -155,7 +154,7 @@ class WebhookSourceManager:
         schema's rows and source-level rows.
         """
         window_seconds = await self._webhook_failure_lookback_seconds()
-        rows = await sync_to_async(sync_execute)(
+        rows = await database_sync_to_async_pool(sync_execute)(
             """
             SELECT http_status, ok, reason
             FROM warehouse_webhook_delivery_status

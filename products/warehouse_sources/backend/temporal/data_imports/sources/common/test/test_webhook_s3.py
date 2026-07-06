@@ -75,6 +75,15 @@ def _mock_s3_context(mock_s3: AsyncMock):
         yield mock_get_s3
 
 
+@pytest.fixture(autouse=True)
+def _stub_delivery_failure_check():
+    # get_items() fails fast on persistent webhook delivery errors, which queries
+    # Postgres + ClickHouse. That path is covered in test_webhook_source_manager.py;
+    # stub it here so these tests exercise only the S3 read/transform behaviour.
+    with patch.object(WebhookSourceManager, "_raise_on_persistent_webhook_failure", AsyncMock(return_value=None)):
+        yield
+
+
 @pytest.mark.asyncio
 class TestWebhookSourceManager:
     def test_get_webhook_s3_prefix(self):
