@@ -14,6 +14,7 @@ import {
     getExceptionAttributes,
     getExceptionList,
     getFingerprintRecords,
+    getHasRecording,
     getRecordingStatus,
     getSessionId,
 } from 'lib/components/Errors/utils'
@@ -76,6 +77,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         recordingStatus: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getRecordingStatus(properties) : undefined),
+        ],
+        hasRecording: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? getHasRecording(properties) : undefined),
         ],
         getExceptionFingerprint: [
             (s) => [s.fingerprintRecords],

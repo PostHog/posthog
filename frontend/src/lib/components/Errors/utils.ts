@@ -191,6 +191,10 @@ export function getRecordingStatus(properties: ErrorEventProperties): string | u
     return properties['$recording_status'] as string | undefined
 }
 
+export function getHasRecording(properties: ErrorEventProperties): boolean | undefined {
+    return properties['$has_recording'] as boolean | undefined
+}
+
 // we had a bug where SDK was sending non-string values for exception value
 function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
     if (!Array.isArray(exceptionList)) {
