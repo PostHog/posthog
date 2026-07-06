@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
@@ -23,11 +24,48 @@ from posthog.schema_enums import ProductKey
 logger = logging.getLogger(__name__)
 
 
+# ClickHouse constant types that only accept a numeric literal — an empty string won't parse.
+_NUMERIC_CONSTANT_TYPES = (ast.IntegerType, ast.FloatType, ast.DecimalType)
+
+
+def _numeric_arg_positions(function_name: str) -> frozenset[int]:
+    """Argument positions a HogQL function requires to be numeric, from its declared signatures.
+
+    A placeholder in one of these positions must become a numeric dummy: substituting an empty
+    string into e.g. ``toIntervalDay({variables.days})`` produces ``toIntervalDay('')``, which
+    ClickHouse can't parse ("Cannot parse IntervalDay from String, because value is too short").
+    """
+    meta = find_hogql_function(function_name)
+    if meta is None or not meta.signatures:
+        return frozenset()
+    # Only trust a position as numeric when every signature agrees, so we never numeric-ise a
+    # position that some overload treats as a string.
+    common: set[int] | None = None
+    for arg_types, _return_type in meta.signatures:
+        numeric = {i for i, t in enumerate(arg_types) if isinstance(t, _NUMERIC_CONSTANT_TYPES)}
+        common = numeric if common is None else (common & numeric)
+    return frozenset(common or ())
+
+
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
-    """Replace all {variables.foo} placeholders with empty string constants."""
+    """Replace {variables.foo} placeholders with parseable dummy constants for schema introspection.
+
+    Column introspection runs ``DESCRIBE TABLE (<compiled sql>)`` purely to read column types, so
+    the substituted value is irrelevant as long as the SQL parses. A blanket empty-string dummy
+    breaks numeric contexts — ``toIntervalDay({variables.days})`` would compile to ``toIntervalDay('')``,
+    which ClickHouse rejects. A placeholder sitting directly in a numeric argument position gets a
+    numeric dummy instead, inferred from the surrounding call's signature.
+    """
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
         return ast.Constant(value="")
+
+    def visit_call(self, node: ast.Call) -> ast.Call:
+        cloned = super().visit_call(node)
+        for i in _numeric_arg_positions(node.name):
+            if i < len(node.args) and isinstance(node.args[i], ast.Placeholder):
+                cloned.args[i] = ast.Constant(value=1)
+        return cloned
 
 
 _PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
@@ -222,7 +260,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     def get_columns(self) -> list[dict]:
         """Return columns, lazily populating from ClickHouse if not yet computed."""
         if self.columns is None:
-            columns: list[dict] = []
+            columns: list[dict] | None = None
             exc: Exception | None = None
             try:
                 columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
@@ -230,12 +268,14 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 exc = e
             # Save before capture_exception (which can hang serializing large AST objects)
             self.refresh_from_db(fields=["columns"])
-            if self.columns is None:
+            # Only persist a concrete result; None means "couldn't introspect", so leave it
+            # unset to retry on a later access rather than caching a missing schema.
+            if self.columns is None and columns is not None:
                 self.columns = columns
                 self.save(update_fields=["columns", "updated_at"])
             if exc is not None:
                 capture_exception(exc)
-        return self.columns
+        return self.columns or []
 
     @property
     def materialized_view_name(self) -> str:
@@ -275,8 +315,13 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return can_materialize_query(self.query)
 
     @staticmethod
-    def extract_columns(query: dict, team_id: int) -> list[dict]:
-        """Extract SELECT column names and types by describing the query against ClickHouse."""
+    def extract_columns(query: dict, team_id: int) -> list[dict] | None:
+        """Extract SELECT column names and types by describing the query against ClickHouse.
+
+        Returns None when the query can't be introspected — for example a placeholder feeding a
+        context we can't substitute a parseable dummy for. Column metadata is best-effort, so
+        callers treat None as "not computed" and the endpoint still works without it.
+        """
         if query.get("kind") != "HogQLQuery":
             return []
         hogql_string = query.get("query", "")
@@ -290,21 +335,29 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
         team = Team.objects.get(pk=team_id)
-        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
-        clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
-        if not clickhouse_sql:
-            return []
+        try:
+            executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+            clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
-        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
+            if not clickhouse_sql:
+                return []
 
-        # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
-        rows = sync_execute(
-            f"DESCRIBE TABLE ({clickhouse_sql})",
-            clickhouse_context.values,
-            team_id=team_id,
-            readonly=True,
-        )
+            tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
+
+            # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
+            rows = sync_execute(
+                f"DESCRIBE TABLE ({clickhouse_sql})",
+                clickhouse_context.values,
+                team_id=team_id,
+                readonly=True,
+            )
+        except Exception:
+            # Introspection is best-effort: a query we can compile for real execution may still be
+            # un-introspectable here. Degrade to "not computed" rather than surfacing a captured
+            # exception — the endpoint still runs and columns can be recomputed on a later access.
+            logger.warning("Failed to introspect endpoint columns for team %s", team_id, exc_info=True)
+            return None
 
         return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 

@@ -1568,6 +1568,22 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                     {"name": "cnt", "type": "integer"},
                 ],
             ),
+            (
+                "variable_in_interval_day_expression",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT count() AS cnt FROM events WHERE timestamp > now() - toIntervalDay({variables.days})",
+                },
+                [{"name": "cnt", "type": "integer"}],
+            ),
+            (
+                "variable_in_interval_hour_expression",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT count() AS cnt FROM events WHERE timestamp > now() - toIntervalHour({variables.hours})",
+                },
+                [{"name": "cnt", "type": "integer"}],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
