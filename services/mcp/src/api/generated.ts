@@ -55592,6 +55592,24 @@ export namespace Schemas {
       traceCount: number;
     }
 
+    export interface _TracingDurationHistogramQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingDurationHistogramRequest {
+      /** The duration-histogram query to execute. */
+      query: _TracingDurationHistogramQueryBody;
+    }
+
     /**
      * * `timestamp` - timestamp
      * * `duration` - duration
@@ -55665,22 +55683,6 @@ export namespace Schemas {
     export interface _TracingSparklineRequest {
       /** The sparkline query to execute. */
       query: _TracingSparklineQueryBody;
-    }
-
-    export interface _TracingTimeseriesQueryBody {
-      /** Date range for the query. Defaults to last hour. */
-      dateRange?: _TracingDateRange;
-      /** Filter by service names. */
-      serviceNames?: string[];
-      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
-      statusCodes?: number[];
-      /** Property filters for the query. */
-      filterGroup?: _SpanPropertyFilter[];
-    }
-
-    export interface _TracingTimeseriesRequest {
-      /** The sparkline / duration-histogram query to execute. */
-      query: _TracingTimeseriesQueryBody;
     }
 
     export interface _TracingTraceRequest {
