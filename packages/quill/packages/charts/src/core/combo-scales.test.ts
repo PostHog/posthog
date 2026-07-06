@@ -153,6 +153,30 @@ describe('combo-scales', () => {
             expect(leftMax).toBeLessThan(500)
         })
 
+        it('pins a sole axis right when the axes override says so', () => {
+            const bar = makeSeries({ key: 'b', data: [1, 2], type: 'bar', yAxisId: 'right' })
+            const scales = createComboScales([bar], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('bar'),
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(scales.yAxes.right.position).toBe('right')
+        })
+
+        it('floats a line-only axis with startAtZero false but keeps bar axes on a zero baseline', () => {
+            const bar = makeSeries({ key: 'bar', data: [800, 1000], type: 'bar' })
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+            const scales = createComboScales([bar, line], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left', startAtZero: false },
+                    { id: 'right', position: 'right', startAtZero: false },
+                ],
+            })
+            // The bar-carrying left axis ignores the float; the line-only right axis honors it.
+            expect(scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
+            expect(scales.yAxes.right.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
         it('points combo.y at the default axis when present', () => {
             const leftLine = makeSeries({ key: 'l', data: [10] })
             const rightBar = makeSeries({ key: 'r', data: [1000], type: 'bar', yAxisId: 'y1' })

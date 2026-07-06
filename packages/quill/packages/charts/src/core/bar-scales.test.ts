@@ -350,11 +350,39 @@ describe('hog-charts bar scales', () => {
             expect(yAxes).toBeUndefined()
         })
 
-        it('ignores per-series axes for stacked layouts (shared axis only)', () => {
+        it('builds per-axis scales for stacked layouts (stacks are per-axis)', () => {
             const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
                 barLayout: 'stacked',
             })
-            expect(yAxes).toBeUndefined()
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+            // Each axis's stack scales against its own domain, so both fill the plot height.
+            expect(yAxes!.left.scale(30)).toBeCloseTo(yAxes!.y1.scale(3000), 0)
+        })
+
+        it('honors explicit position and scaleType overrides from `axes`', () => {
+            const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+                axes: [
+                    { id: 'left', position: 'right' },
+                    { id: 'y1', position: 'left', scaleType: 'log' },
+                ],
+            })
+            expect(yAxes!.left.position).toBe('right')
+            expect(yAxes!.y1.position).toBe('left')
+            // The log override applies per axis: y1 gets a positive log domain, left stays linear from 0.
+            expect(yAxes!.left.scale.domain()[0]).toBe(0)
+            expect(yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
+        it('produces a yAxes record for a sole axis explicitly positioned right', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30], yAxisId: 'right' })]
+            const { yAxes, value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(yAxes!.right.position).toBe('right')
+            expect(value(30)).toBeCloseTo(yAxes!.right.scale(30), 5)
         })
     })
 })

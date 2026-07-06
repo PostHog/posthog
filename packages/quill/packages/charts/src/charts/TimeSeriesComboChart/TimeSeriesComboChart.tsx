@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
+    AxisLinesConfig,
     ChartLegendConfig,
     ChartTheme,
     ComboChartConfig,
@@ -40,7 +41,7 @@ export interface TimeSeriesComboChartConfig {
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
     showTickMarks?: boolean
     /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
@@ -120,7 +121,8 @@ export function TimeSeriesComboChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        // Multi-axis: each axis hides its own gutter; collapse globally only when all are hidden.
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,

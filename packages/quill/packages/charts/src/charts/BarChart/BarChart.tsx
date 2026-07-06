@@ -32,6 +32,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { resolveAxisLines } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
 import { cursorInInertTrackGap, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
@@ -79,7 +80,11 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        yAxes: configYAxes,
     } = config ?? {}
+    // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
         cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
@@ -182,6 +187,7 @@ function BarChartInner<Meta = unknown>({
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
                 valuePadding,
+                axes: configYAxes,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -255,6 +261,7 @@ function BarChartInner<Meta = unknown>({
             resolvedMinBandSize,
             valueDomain,
             valuePadding,
+            configYAxes,
         ]
     )
 
@@ -264,7 +271,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
-                showAxisLines,
+                axisLines,
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -276,7 +283,7 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
-            showAxisLines,
+            axisLines,
             stackedData,
             barLayout,
             isHorizontal,
