@@ -1,5 +1,9 @@
 # PostHog Development Guide
 
+## General guidelines
+
+- Avoid em-dashes like the plague
+
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
@@ -41,7 +45,7 @@
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
-- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
+- Scope convention: use `aio` for AI observability changes (for example, `feat(aio): ...`)
 
 ### Format
 

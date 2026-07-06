@@ -973,7 +973,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
@@ -2308,6 +2308,20 @@
         "summary": "Get early access feature",
         "title": "Get early access feature",
         "required_scopes": ["early_access_feature:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "elements-stats-retrieve": {
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get element click stats",
+        "title": "Get element click stats",
+        "required_scopes": ["element:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6107,7 +6121,7 @@
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",

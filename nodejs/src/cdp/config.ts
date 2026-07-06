@@ -274,7 +274,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        // Fallback cap used only when a batch-resolve API caller does not pass max_audience_size.
+        // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
+        // production batches use the per-team value from settings; this is only a safety net for
+        // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,

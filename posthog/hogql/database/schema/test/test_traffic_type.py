@@ -39,6 +39,14 @@ class TestClientIPExpr:
         assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
 
 
+class TestClientIPExpr:
+    def test_default_properties_path(self):
+        assert client_ip_expr() == ast.Field(chain=["properties", "$ip"])
+
+    def test_custom_properties_path(self):
+        assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
+
+
 class TestExpressionFieldFactories:
     @pytest.mark.parametrize(
         "factory_fn,field_name",
