@@ -411,6 +411,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if ids:
                 queryset = queryset.filter(distinct_id__in=ids)
 
+        # By-id reads without retrieve's mark-as-read side effect (e.g. a client
+        # refreshing a set of watched tickets nobody is actively viewing).
+        ids_param = self.request.query_params.get("ids")
+        if ids_param:
+            ticket_ids = []
+            for raw in ids_param.split(",")[:100]:
+                try:
+                    ticket_ids.append(uuid.UUID(raw.strip()))
+                except ValueError:
+                    continue
+            if ticket_ids:
+                queryset = queryset.filter(id__in=ticket_ids)
+
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
             if search.isdigit():
@@ -659,6 +672,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of ticket UUIDs to fetch (max 100). Invalid UUIDs are ignored. "
+                    "Unlike fetching a single ticket, listing by `ids` does not mark the tickets as read."
+                ),
             ),
             OpenApiParameter(
                 "search",

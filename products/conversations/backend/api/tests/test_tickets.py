@@ -294,6 +294,40 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_filter_by_ids(self, mock_on_commit):
+        second = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="second-session",
+            distinct_id="user-456",
+            status=Status.OPEN,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="third-session",
+            distinct_id="user-789",
+        )
+        ids = self._list_ids(ids=f"{self.ticket.id},{second.id}")
+        self.assertEqual(ids, {str(self.ticket.id), str(second.id)})
+
+    def test_filter_by_ids_ignores_invalid_uuids(self, mock_on_commit):
+        ids = self._list_ids(ids=f"{self.ticket.id}, not-a-uuid,")
+        self.assertEqual(ids, {str(self.ticket.id)})
+
+    def test_filter_by_ids_does_not_mark_read(self, mock_on_commit):
+        """Listing by ids is a pure read; only retrieve marks a ticket read."""
+        self.ticket.unread_team_count = 3
+        self.ticket.save(update_fields=["unread_team_count"])
+
+        self._list_ids(ids=str(self.ticket.id))
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 3)
+
+        self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 0)
+
     def test_filter_by_multiple_statuses(self, mock_on_commit):
         """Test filtering tickets by multiple statuses (comma-separated)."""
         self.ticket.status = Status.NEW
