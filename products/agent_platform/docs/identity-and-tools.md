@@ -156,7 +156,7 @@ instead of the tool failing.
 ### What a tool receives — `ToolContext`
 
 Threaded through to every tool: `teamId · applicationId · sessionId`,
-`secret(name)` (decrypted `encrypted_env`), `integrations` (team OAuth tokens),
+`secret(name)` (decrypted `encrypted_env`),
 `credentials.resolve(target)` (the per-session broker), `identity.resolve(provider)`
 (linked-identity gate), `resolvedIdentities` (pre-resolved for gated tools),
 `memoryStore` / `tabularStore`, and `http` (the proxy-bound `HttpClient` — the

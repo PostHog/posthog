@@ -53,7 +53,14 @@ report_result() {
 
 dump_logs_on_failure() {
     local exit_code=$?
-    if [ "$exit_code" -ne 0 ] || [ "$SMOKE_PASSED" != "1" ]; then
+    # A gate-stage failure is a schema mismatch, not an infra problem — check-live
+    # already printed the drift diff, so skip the container-log dump and let that
+    # diff be the last thing before the result banner.
+    local gate_failure=""
+    case "$SMOKE_STAGE" in
+        dump_live_hcl | check_live_hcl) gate_failure=1 ;;
+    esac
+    if { [ "$exit_code" -ne 0 ] || [ "$SMOKE_PASSED" != "1" ]; } && [ -z "$gate_failure" ]; then
         echo
         echo "===================== FAILURE: dumping container logs ====================="
         for svc in "${ALL_SERVICES[@]}"; do
@@ -192,6 +199,20 @@ python manage.py migrate_clickhouse
 SMOKE_STAGE="verify"
 echo "==> Verifying per-node table layout..."
 python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+
+# Convergence gate: the migrations just applied must reproduce the declarative
+# HCL golden for the managed OPS/LOGS roles. Two steps — (1) introspect those
+# nodes into HCL dumps, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
+# Enforced by default (drift fails the smoke); export VERIFY_LIVE_WARN=1 to make
+# it informational (report drift but pass) while reconciling.
+SMOKE_STAGE="dump_live_hcl"
+echo "==> Dumping live OPS/LOGS schema..."
+LIVE_DUMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")"
+bash posthog/clickhouse/hcl/dump-live.sh "$LIVE_DUMP_DIR" >/dev/null
+
+SMOKE_STAGE="check_live_hcl"
+echo "==> Comparing dumped schema against the HCL golden..."
+VERIFY_LIVE_WARN="${VERIFY_LIVE_WARN:-0}" bash posthog/clickhouse/hcl/check-live.sh "$LIVE_DUMP_DIR"
 
 SMOKE_PASSED=1
 SMOKE_STAGE="teardown"

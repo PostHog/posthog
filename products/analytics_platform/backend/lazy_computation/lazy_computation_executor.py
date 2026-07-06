@@ -723,7 +723,12 @@ def run_lazy_computation_insert(
     )
 
     set_ch_query_started(job.id)
-    with tags_context(client_query_id=str(job.id), team_id=team.id):
+    with tags_context(
+        client_query_id=str(job.id),
+        team_id=team.id,
+        precompute_window_start=str(job.time_range_start),
+        precompute_window_end=str(job.time_range_end),
+    ):
         sync_execute(
             insert_sql,
             values,
@@ -1197,7 +1202,12 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        tag_kwargs: dict = {
+            "client_query_id": str(job.id),
+            "team_id": t.id,
+            "precompute_window_start": str(job.time_range_start),
+            "precompute_window_end": str(job.time_range_end),
+        }
         if query_type:
             tag_kwargs["query_type"] = query_type
         with tags_context(**tag_kwargs):
@@ -1276,13 +1286,18 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL
+    # Print to SQL. Materialization is a system, team-scoped process with no request user, so bypass
+    # warehouse access control to avoid failing closed in this userless context. Caveat: the native
+    # pre-agg table this writes is later read WITHOUT warehouse RBAC, so materialization does not enforce
+    # per-source access on reads — a user with dashboard access can see aggregates from warehouse sources
+    # they can't query directly. Whether the pre-agg read should re-check source access is an open question.
     context = HogQLContext(
         team_id=team.id,
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
         modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

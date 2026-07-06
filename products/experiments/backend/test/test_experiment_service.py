@@ -18,8 +18,9 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -37,6 +38,9 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -101,6 +105,45 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
         assert experiment.exposure_criteria == {"filterTestAccounts": True}
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
+        # The capture must be deferred to on_commit, not run inside the transaction.
+        service = self._service()
+
+        registered_callbacks: list[Any] = []
+        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+            service.create_experiment(
+                name="Deferred Analytics",
+                feature_flag_key="deferred-flag",
+                event_source=EventSource.API,
+            )
+
+        # Nothing captured yet — it's deferred, not run inside the transaction.
+        mock_report_user_action.assert_not_called()
+        assert registered_callbacks, "expected create_experiment to register an on_commit callback"
+
+        for callback in registered_callbacks:
+            callback()
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
+        # A post-commit capture failure must not roll back or fail the create — experiment still exists.
+        mock_report_user_action.side_effect = RuntimeError("analytics down")
+        service = self._service()
+
+        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            experiment = service.create_experiment(
+                name="Resilient Analytics",
+                feature_flag_key="resilient-flag",
+                event_source=EventSource.API,
+            )
+
+        mock_report_user_action.assert_called_once()
+        assert Experiment.objects.filter(pk=experiment.pk).exists()
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
@@ -5592,3 +5635,96 @@ class TestValidateExcludedVariants:
     def test_invalid_raises(self, value):
         with pytest.raises(ValidationError, match="must be a list of strings"):
             ExperimentService.validate_excluded_variants(value)
+
+
+@patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_revenue",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Deny this member every warehouse object (warehouse_table inherits the warehouse_objects resource).
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _dw_metric(self) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": self.table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ds",
+                "math": "total",
+            },
+        }
+
+    def test_create_experiment_with_restricted_warehouse_metric_is_denied(self):
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-create",
+                metrics=[self._dw_metric()],
+                allow_unknown_events=True,
+            )
+
+    def test_update_experiment_with_restricted_warehouse_metric_is_denied(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-update",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(team=self.team, created_by=self.user, name="E", feature_flag=flag)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.update_experiment(experiment, {"metrics": [self._dw_metric()]})
+
+    def test_org_admin_can_author_restricted_warehouse_metric(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment allowed",
+            feature_flag_key="dw-allowed",
+            metrics=[self._dw_metric()],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+
+    def test_attaching_saved_metric_on_restricted_table_is_denied(self):
+        # A saved metric on the denied table (authored by someone with access) can't be smuggled in
+        # by attaching it via saved_metrics_ids.
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="DW saved metric",
+            query=self._dw_metric(),
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW via saved metric",
+                feature_flag_key="dw-saved",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )

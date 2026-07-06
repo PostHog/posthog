@@ -353,6 +353,12 @@ export class SessionFeatureRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        // `eventsByWindowId` is empty on pre-serialized messages, so this would silently emit
+        // zeroed feature blocks; the native path must keep features off.
+        if (message.preSerialized) {
+            throw new Error('SessionFeatureRecorder cannot process pre-serialized messages')
+        }
+
         if (!this._distinctId) {
             this._distinctId = message.distinct_id
         }

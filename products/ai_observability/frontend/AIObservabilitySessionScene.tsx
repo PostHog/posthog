@@ -31,6 +31,7 @@ import { SentimentBar } from './components/SentimentTag'
 import { SessionPlayerControls } from './components/SessionPlayer/SessionPlayerControls'
 import { SessionSeekbar } from './components/SessionPlayer/SessionSeekbar'
 import { TypingIndicator } from './components/SessionPlayer/TypingIndicator'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleStream'
 import { SessionTurn } from './extractSessionTurns'
 import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
@@ -105,9 +106,8 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         expandedGenerationIds,
     } = useValues(aiObservabilitySessionDataLogic)
     const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
-    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded } = useActions(
-        aiObservabilitySessionDataLogic
-    )
+    const { summarizeAllTraces, loadNextData, closeStepsDrawer, toggleGenerationExpanded, focusGenerationExpanded } =
+        useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
     const { ensureSessionTitleLoaded } = useActions(llmSessionTitleLazyLoaderLogic)
@@ -314,6 +314,13 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
             >
                 {drawerTraceId ? (
                     <div className="flex flex-col gap-3">
+                        <TraceTimeline
+                            events={fullTraces[drawerTraceId]?.events ?? []}
+                            selectedEventId={
+                                expandedGenerationIds.size === 1 ? Array.from(expandedGenerationIds)[0] : null
+                            }
+                            onSelectEvent={focusGenerationExpanded}
+                        />
                         <AIObservabilityTraceEvents
                             trace={fullTraces[drawerTraceId]}
                             isLoading={loadingFullTraces.has(drawerTraceId)}

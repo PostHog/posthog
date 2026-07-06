@@ -24,6 +24,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -94,6 +95,7 @@ import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
@@ -138,6 +140,17 @@ function keepNewestNotebookResponse(current: NotebookType | null, incoming: Note
     }
 
     return incoming.version < current.version ? current : incoming
+}
+
+function convertNotebookContentForRender(
+    content: JSONContent | null | undefined,
+    markdownNotebooksEnabled: boolean
+): JSONContent | null | undefined {
+    if (!markdownNotebooksEnabled || !content || isMarkdownNotebookContent(content)) {
+        return content
+    }
+
+    return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -659,6 +672,11 @@ export const notebookLogic = kea<notebookLogicType>([
                             )
                             actions.ackLocalSteps(stepsJson, String(sendable.clientID))
                             refreshTreeItem('notebook', String(values.notebook.short_id))
+                            posthog.capture('notebook saved', {
+                                short_id: values.notebook.short_id,
+                                save_path: 'tiptap_collab',
+                                is_markdown: false,
+                            })
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
@@ -692,6 +710,12 @@ export const notebookLogic = kea<notebookLogicType>([
                                 })
                                 return values.notebook
                             }
+                            posthog.capture('notebook save failed', {
+                                short_id: values.notebook.short_id,
+                                save_path: 'tiptap_collab',
+                                is_markdown: false,
+                                status: error.status,
+                            })
                             throw error
                         }
                     }
@@ -726,6 +750,11 @@ export const notebookLogic = kea<notebookLogicType>([
                                     : undefined,
                             })
                             refreshTreeItem('notebook', String(values.notebook.short_id))
+                            posthog.capture('notebook saved', {
+                                short_id: values.notebook.short_id,
+                                save_path: 'markdown_realtime',
+                                is_markdown: true,
+                            })
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.updates) {
@@ -737,6 +766,10 @@ export const notebookLogic = kea<notebookLogicType>([
                                     diff: TextChange[]
                                     base_crc?: number | null
                                 }[]
+                                posthog.capture('notebook markdown save conflict retried', {
+                                    short_id: values.notebook.short_id,
+                                    missed_updates: updates.length,
+                                })
                                 let serverMarkdown: string | null = baseMarkdown
                                 for (const update of updates) {
                                     if (
@@ -754,6 +787,10 @@ export const notebookLogic = kea<notebookLogicType>([
                                 if (serverMarkdown === null) {
                                     // Replay didn't fit our baseline — reload; the editor merges
                                     // local edits over the fresh server state via remoteValue.
+                                    posthog.capture('notebook markdown full reload', {
+                                        short_id: values.notebook.short_id,
+                                        reason: 'save_replay_failed',
+                                    })
                                     actions.loadNotebook()
                                     return values.notebook
                                 }
@@ -778,9 +815,19 @@ export const notebookLogic = kea<notebookLogicType>([
                             if (error.status === 410) {
                                 // Missed range not replayable (trimmed / mixed writers): full reload,
                                 // the editor merges local edits over the fresh server state.
+                                posthog.capture('notebook markdown full reload', {
+                                    short_id: values.notebook.short_id,
+                                    reason: 'stream_trimmed',
+                                })
                                 actions.loadNotebook()
                                 return values.notebook
                             }
+                            posthog.capture('notebook save failed', {
+                                short_id: values.notebook.short_id,
+                                save_path: 'markdown_realtime',
+                                is_markdown: true,
+                                status: error.status,
+                            })
                             throw error
                         }
                     }
@@ -809,6 +856,11 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
 
                         refreshTreeItem('notebook', String(values.notebook.short_id))
+                        posthog.capture('notebook saved', {
+                            short_id: values.notebook.short_id,
+                            save_path: 'legacy_patch',
+                            is_markdown: isMarkdownNotebookContent(notebookContent),
+                        })
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
@@ -840,6 +892,12 @@ export const notebookLogic = kea<notebookLogicType>([
                             actions.showConflictWarning()
                             return null
                         }
+                        posthog.capture('notebook save failed', {
+                            short_id: values.notebook.short_id,
+                            save_path: 'legacy_patch',
+                            is_markdown: isMarkdownNotebookContent(notebookContent),
+                            status: error.status,
+                        })
                         throw error
                     }
                 },
@@ -931,31 +989,28 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly, s.localContent, s.notebook],
-            (
-                featureFlags: Record<string, string | boolean>,
-                isLocalOnly: boolean,
-                localContent: JSONContent | null,
-                notebook: NotebookType | null
-            ): boolean =>
+            (s) => [s.featureFlags, s.isLocalOnly, s.content],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean, content: JSONContent): boolean =>
                 !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] &&
                 !isLocalOnly &&
-                !isMarkdownNotebookContent(localContent || notebook?.content),
+                !isMarkdownNotebookContent(content),
         ],
         markdownRealtimeEnabled: [
-            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.content, s.notebook],
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook, s.content, s.featureFlags],
             (
                 props: NotebookLogicProps,
                 mode: NotebookLogicMode,
                 isLocalOnly: boolean,
+                notebook: NotebookType | null,
                 content: JSONContent,
-                notebook: NotebookType | null
+                featureFlags: Record<string, string | boolean>
             ): boolean =>
                 mode === 'notebook' &&
                 !props.cachedNotebook &&
                 !isLocalOnly &&
                 !!notebook &&
-                isMarkdownNotebookContent(content),
+                (isMarkdownNotebookContent(notebook.content) ||
+                    (!!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS] && isMarkdownNotebookContent(content))),
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1014,10 +1069,15 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         content: [
-            (s) => [s.notebook, s.localContent, s.previewContent],
-            (notebook, localContent, previewContent): JSONContent => {
-                // We use the local content is set otherwise the notebook content
-                return previewContent || localContent || notebook?.content || []
+            (s) => [s.notebook, s.localContent, s.previewContent, s.featureFlags],
+            (
+                notebook: NotebookType | null,
+                localContent: JSONContent | null,
+                previewContent: JSONContent | null,
+                featureFlags: Record<string, string | boolean>
+            ): JSONContent => {
+                const content = previewContent || localContent || notebook?.content
+                return convertNotebookContentForRender(content, !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]) || []
             },
         ],
         markdownEditorMarkdown: [(s) => [s.content], (content): string => getMarkdownNotebookMarkdown(content)],
@@ -1465,6 +1525,16 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             }
             // Version gap, diff-less ping, or a diff that doesn't fit our base: full reload.
+            if (isMarkdownNotebookContent(notebook.content)) {
+                posthog.capture('notebook markdown full reload', {
+                    short_id: notebook.short_id,
+                    reason: !event.diff
+                        ? 'missing_diff'
+                        : event.version !== notebook.version + 1
+                          ? 'version_gap'
+                          : 'diff_mismatch',
+                })
+            }
             actions.loadNotebook()
         },
         processPendingMarkdownStreamEvents: () => {
@@ -1491,7 +1561,13 @@ export const notebookLogic = kea<notebookLogicType>([
                     toastId: `notebook-merge-conflict-${values.shortId}`,
                     button: {
                         label: 'Review',
-                        action: () => actions.showMarkdownMergeConflictDetails(conflicts),
+                        action: () => {
+                            posthog.capture('notebook markdown merge conflict reviewed', {
+                                short_id: values.notebook?.short_id,
+                                conflict_count: conflicts.length,
+                            })
+                            actions.showMarkdownMergeConflictDetails(conflicts)
+                        },
                     },
                 }
             )
@@ -1760,6 +1836,7 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!skipCapture) {
                 posthog.capture('notebook content changed', {
                     short_id: values.notebook?.short_id,
+                    is_markdown: isMarkdownNotebookContent(values.content),
                 })
             }
 
@@ -1785,6 +1862,9 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorUpdate: () => {
             if (!values.editor) {
+                return
+            }
+            if (values.previewContent) {
                 return
             }
             const jsonContent = values.editor.getJSON()
@@ -1833,12 +1913,23 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.clearLocalContent()
             }
             actions.scheduleNotebookRefresh()
+            if (values.showHistory) {
+                activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: values.shortId }).actions.fetchActivity()
+            }
             actions.processPendingMarkdownStreamEvents()
         },
         saveNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
         },
-        loadNotebookSuccess: () => {
+        loadNotebookSuccess: ({ notebook }) => {
+            if (
+                notebook &&
+                isMarkdownNotebookContent(notebook.content) &&
+                values.localContent &&
+                !isMarkdownNotebookContent(values.localContent)
+            ) {
+                actions.clearLocalContent()
+            }
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
@@ -1867,6 +1958,10 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         discardLocalChanges: () => {
+            posthog.capture('notebook collab conflict resolved', {
+                short_id: values.notebook?.short_id,
+                choice: 'discard',
+            })
             // Reload remounts the editor so it re-initialises with the server's content.
             actions.clearLocalContent()
             window.location.reload()
@@ -1903,6 +1998,10 @@ export const notebookLogic = kea<notebookLogicType>([
                     title: newTitle,
                 })
                 lemonToast.success('Saved your unsaved changes to a new notebook.')
+                posthog.capture('notebook collab conflict resolved', {
+                    short_id: values.notebook.short_id,
+                    choice: 'copy_to_new',
+                })
                 actions.dismissCollabConflict()
                 actions.clearLocalContent()
                 await openNotebook(created.short_id, NotebookTarget.Scene)

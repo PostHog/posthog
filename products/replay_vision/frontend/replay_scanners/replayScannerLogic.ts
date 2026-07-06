@@ -1,27 +1,37 @@
-import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
     visionScannersCreate,
-    visionScannersDestroy,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersObserveCreate,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
+    visionScannersSuggestTagsCreate,
 } from '../generated/api'
-import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
-import { scheduleObservationPoll } from '../logics/observationPolling'
-import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationStatusEnumApi, ObservationTriggerEnumApi } from '../generated/api.schemas'
+import type {
+    EstimateResponseApi,
+    ObservationStatsApi,
+    ReplayObservationApi,
+    TagSuggestionApi,
+} from '../generated/api.schemas'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
+import { requestObservationRetry } from '../logics/observationRetry'
+import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
@@ -41,9 +51,12 @@ export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
 export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
-export const OBSERVATIONS_PAGE_SIZE = 50
+// Derived from the generated runtime enums so a backend enum change can't strand a stale copy here.
+const OBSERVATION_STATUS_VALUES: readonly ObservationStatusValue[] = Object.values(ObservationStatusEnumApi)
+const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = Object.values(ObservationTriggerEnumApi)
+const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
 
-const OBSERVE_POLL_GRACE_MS = 30_000
+export const OBSERVATIONS_PAGE_SIZE = 50
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -68,54 +81,16 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
-const UNIT_BY_LETTER: Record<string, dayjs.ManipulateType> = {
-    h: 'hour',
-    d: 'day',
-    w: 'week',
-    m: 'month',
-    y: 'year',
-}
-
-const START_OF_BY_PREFIX: Record<string, dayjs.ManipulateType> = {
-    dStart: 'day',
-    wStart: 'week',
-    mStart: 'month',
-    yStart: 'year',
-}
-
-function chartRangeToDayjs(expr: string): dayjs.Dayjs | null {
-    const relative = expr.match(/^-(\d+)([hdwmy])(Start|End)?$/)
-    if (relative) {
-        const [, n, letter, suffix] = relative
-        const unit = UNIT_BY_LETTER[letter]
-        const date = dayjs().subtract(parseInt(n, 10), unit)
-        if (suffix === 'Start') {
-            return date.startOf(unit)
-        }
-        if (suffix === 'End') {
-            return date.endOf(unit)
-        }
-        return date
-    }
-    if (expr in START_OF_BY_PREFIX) {
-        return dayjs().startOf(START_OF_BY_PREFIX[expr])
-    }
-    if (expr === 'all') {
-        return dayjs().subtract(1, 'year')
-    }
-    const parsed = dayjs(expr)
-    return parsed.isValid() ? parsed : null
-}
-
 function daysFromChartRange(dateFrom: string | null, dateTo: string | null): number {
     if (!dateFrom) {
         return 14
     }
-    const from = chartRangeToDayjs(dateFrom)
+    // 'all' has no anchor; a year is the chart's practical ceiling.
+    const from = dateFrom === 'all' ? dayjs().subtract(1, 'year') : dateStringToDayJs(dateFrom)
     if (!from) {
         return 14
     }
-    const to = dateTo ? chartRangeToDayjs(dateTo) || dayjs() : dayjs()
+    const to = (dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null) ?? dayjs()
     return Math.max(1, to.diff(from, 'day'))
 }
 
@@ -130,10 +105,7 @@ interface ObservationListParams {
     order_by?: string
 }
 
-export interface ObservationsSorting {
-    columnKey: string
-    order: 1 | -1
-}
+export type ObservationsSorting = UrlSorting
 
 const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
@@ -220,6 +192,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
+        // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
+        scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
+        appendClassifierTags: (tags: string[]) => ({ tags }),
+        acceptTagSuggestion: (tag: string) => ({ tag }),
+        acceptAllTagSuggestions: true,
+        dismissTagSuggestions: true,
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -228,7 +206,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadObservationStats: true,
         loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
         loadObservationStatsFailure: true,
-        deleteScanner: true,
         toggleEnabled: true,
         toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
         toggleEnabledFailure: true,
@@ -256,6 +233,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
         triggerOnDemandObservationSuccess: true,
         triggerOnDemandObservationFailure: true,
+        retryObservation: (observationId: string) => ({ observationId }),
+        retryObservationSuccess: (observationId: string) => ({ observationId }),
+        retryObservationFailure: (observationId: string) => ({ observationId }),
         refreshObservations: true,
     }),
 
@@ -300,7 +280,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
-                if (values.submitIntent === 'advance') {
+                // Mid-wizard Enter (default 'save' intent) must advance, not create; pathname is project-prefixed, hence endsWith.
+                const onConfigureStep = router.values.location.pathname.endsWith(
+                    urls.replayVisionScannerConfigure(props.id)
+                )
+                if (values.submitIntent === 'advance' || (values.isNew && onConfigureStep)) {
                     actions.setSubmitIntent('save')
                     router.actions.push(urls.replayVisionScannerTriggers(props.id))
                     return
@@ -313,10 +297,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     if (props.id === 'new') {
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                        actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        lemonToast.success('Scanner created')
+                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
+                        lemonToast.success('Scanner created', {
+                            button: {
+                                label: 'Scan a recording now',
+                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
+                                dataAttr: 'vision-scanner-created-scan-now',
+                            },
+                        })
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
+                        actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
                         router.actions.push(urls.replayVision(props.id))
                     }
@@ -328,12 +321,42 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
+    loaders(({ props, values }) => ({
+        tagSuggestions: [
+            [] as TagSuggestionApi[],
+            {
+                loadTagSuggestions: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    const scanner = values.scanner
+                    if (!teamId || !scanner || scanner.scanner_type !== 'classifier') {
+                        return []
+                    }
+                    const config = scanner.scanner_config
+                    try {
+                        const response = await visionScannersSuggestTagsCreate(String(teamId), {
+                            prompt: config.prompt ?? '',
+                            tags: config.tags ?? [],
+                            multi_label: config.multi_label ?? true,
+                            allow_freeform_tags: config.allow_freeform_tags ?? false,
+                            scanner_id: props.id !== 'new' ? props.id : undefined,
+                        })
+                        return response.suggestions ?? []
+                    } catch (error: any) {
+                        lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
+
     reducers({
         originalScanner: [
             null as ReplayScanner | null,
             {
                 loadScannerSuccess: (_, { scanner }) => scanner,
-                submitScannerSuccess: (_, { scanner }: { scanner: ReplayScanner }) => scanner,
+                // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
+                scannerSaved: (_, { scanner }) => scanner,
                 toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
             },
         ],
@@ -363,14 +386,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             0,
             {
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                // The replacement row is inserted by the workflow moments after the retry 202 lands.
+                retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
         ],
-        refreshing: [
-            false,
+        retryingObservationIds: [
+            [] as string[],
             {
-                refreshObservations: () => true,
-                loadObservationsSuccess: () => false,
-                loadObservationsFailure: () => false,
+                retryObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                retryObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
             },
         ],
         scannerLoading: [
@@ -388,6 +418,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
+        tagSuggestions: {
+            // Accepted suggestions leave the panel; the listener adds them to the vocabulary.
+            acceptTagSuggestion: (state: TagSuggestionApi[], { tag }: { tag: string }) =>
+                state.filter((s) => s.tag !== tag),
+            dismissTagSuggestions: () => [],
+        },
         observations: [
             [] as ReplayObservationApi[],
             {
@@ -425,8 +461,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         observationsLoading: [
             false,
             {
-                // Background polls reload silently so the table stays interactable; only foreground
-                // loads (initial paint, manual refresh, filter/sort/pagination) show the overlay.
+                // Background polls reload silently so the table stays interactable; only foreground loads show the overlay.
                 loadObservations: (state, { background }) => (background ? state : true),
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
@@ -642,6 +677,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     listeners(({ actions, props, values, cache }) => {
+        const reschedulePoll = (): void => {
+            scheduleObservationPoll(
+                cache.disposables,
+                shouldPollObservations(values.hasObservationsInFlight, values.pollUntil),
+                () => reloadObservationsAndStats(true)
+            )
+        }
         const reloadObservationsAndStats = (background = false): void => {
             actions.loadObservations(background)
             actions.loadObservationStats()
@@ -651,8 +693,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (props.id === 'new') {
                     const templateKey = currentTemplateKey()
                     if (templateKey && !findScannerTemplate(templateKey)) {
-                        // Unknown template (stale link, typo, renamed key). Strip it so the URL matches
-                        // what the user actually gets: the from-scratch flow with a selectable type.
+                        // Strip an unknown template key so the URL matches the from-scratch flow the user actually gets.
                         const { template: _drop, ...rest } = router.values.searchParams
                         router.actions.replace(router.values.location.pathname, rest)
                         actions.loadScannerSuccess(newScanner(null))
@@ -663,6 +704,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadScannerFailure() // Clear the loading flag — a bare return would spin forever.
                     return
                 }
                 try {
@@ -677,9 +719,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
-                actions.requestScannerEstimate()
-                // A deep-link to `?sort=result` can't resolve its order_by until the scanner type is known;
-                // refire once we have it so the initial paint reflects the URL.
+                // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
@@ -698,14 +738,42 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 } as ReplayScanner)
             },
 
-            // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
-            // and rapid filter edits don't fire one request per tick.
+            // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
+            appendClassifierTags: ({ tags }) => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                // Keep existing tags, append new ones, dedupe case-insensitively (existing tags win).
+                const existing = scanner.scanner_config.tags ?? []
+                const seen = new Set(existing.map((t) => t.toLowerCase()))
+                const merged = [...existing]
+                for (const tag of tags) {
+                    const trimmed = tag.trim()
+                    if (trimmed && !seen.has(trimmed.toLowerCase())) {
+                        seen.add(trimmed.toLowerCase())
+                        merged.push(trimmed)
+                    }
+                }
+                if (merged.length !== existing.length) {
+                    actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),
+            acceptAllTagSuggestions: () => {
+                // Read the suggestions before dismiss clears them.
+                actions.appendClassifierTags(values.tagSuggestions.map((s) => s.tag))
+                actions.dismissTagSuggestions()
+            },
+
+            // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
             setScannerValue: () => actions.requestScannerEstimate(),
             setScannerValues: () => actions.requestScannerEstimate(),
-            submitScannerSuccess: () => {
+            scannerSaved: () => {
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
-                visionQuotaLogic.findMounted()?.actions.loadQuota()
+                refreshVisionQuota()
             },
 
             requestScannerEstimate: () => {
@@ -727,6 +795,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
+                        scanner_id: props.id !== 'new' ? props.id : null,
                     })
                     breakpoint()
                     if (values.estimateRequestVersion !== version) {
@@ -748,23 +818,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            deleteScanner: async () => {
-                if (props.id === 'new') {
-                    return
-                }
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-                try {
-                    await visionScannersDestroy(String(teamId), props.id)
-                    lemonToast.success('Scanner deleted')
-                    router.actions.replace(urls.replayVision())
-                } catch (error: any) {
-                    lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
-                }
-            },
-
             toggleEnabled: async () => {
                 const scanner = values.scanner
                 if (props.id === 'new' || !scanner) {
@@ -781,7 +834,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
-                    visionQuotaLogic.findMounted()?.actions.loadQuota()
+                    refreshVisionQuota()
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'
@@ -820,23 +873,47 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            triggerOnDemandObservationSuccess: () => refreshVisionQuota(),
+
+            retryObservation: async ({ observationId }) => {
+                if (props.id === 'new' || !(await requestObservationRetry(observationId))) {
+                    actions.retryObservationFailure(observationId)
+                    return
+                }
+                actions.retryObservationSuccess(observationId)
+                reloadObservationsAndStats()
+            },
+
             refreshObservations: () => reloadObservationsAndStats(),
 
-            loadObservations: async () => {
+            loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationsFailure()
                     return
                 }
                 try {
                     const offset = (values.observationsPage - 1) * OBSERVATIONS_PAGE_SIZE
                     const params = buildObservationListParams(values, OBSERVATIONS_PAGE_SIZE, offset)
                     const response = await visionScannersObservationsList(String(teamId), props.id, params)
-                    actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
-                } catch {
+                    // Drop out-of-order responses — a newer load (filter change, poll, pagination) owns the table.
+                    breakpoint()
+                    const results = response.results ?? []
+                    const count = response.count ?? 0
+                    // A shrunken set (narrowed filter, concurrent change) can strand an out-of-range page.
+                    if (results.length === 0 && count > 0 && values.observationsPage > 1) {
+                        actions.setObservationsPage(Math.ceil(count / OBSERVATIONS_PAGE_SIZE))
+                        return
+                    }
+                    actions.loadObservationsSuccess(results, count)
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
                     actions.loadObservationsFailure()
                 }
             },
@@ -860,13 +937,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.loadObservationStats()
             },
 
-            loadObservationStats: async () => {
+            loadObservationStats: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationStatsFailure()
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationStatsFailure()
                     return
                 }
                 try {
@@ -877,27 +955,20 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         ...params,
                         recent_days: recentDays,
                     })
+                    // Drop out-of-order responses; the superseding load reschedules the poll itself.
+                    breakpoint()
                     actions.loadObservationStatsSuccess(response)
-                } catch {
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
                     actions.loadObservationStatsFailure()
                 }
             },
 
-            loadObservationStatsSuccess: () => {
-                scheduleObservationPoll(
-                    cache.disposables,
-                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    () => reloadObservationsAndStats(true)
-                )
-            },
-            // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
-            loadObservationStatsFailure: () => {
-                scheduleObservationPoll(
-                    cache.disposables,
-                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    () => reloadObservationsAndStats(true)
-                )
-            },
+            // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+            loadObservationStatsSuccess: reschedulePoll,
+            loadObservationStatsFailure: reschedulePoll,
         }
     }),
 
@@ -911,9 +982,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 next.page = String(values.observationsPage)
             }
             const sort = values.observationsSort
-            if (sort && !(sort.columnKey === 'created_at' && sort.order === -1)) {
-                next.sort = `${sort.order === -1 ? '-' : ''}${sort.columnKey}`
-            }
+            next.sort = serializeSortParam(sort, { columnKey: 'created_at', order: -1 })
             Object.assign(next, observationFilterParams(values))
             return next
         }
@@ -941,28 +1010,50 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     urlToAction(({ actions, values, props }) => ({
-        // Restore as a single atomic action so the page reducer isn't reset by individual filter setters.
-        // Idempotent: we only dispatch when something actually differs from current state.
+        // Restore as one atomic action (individual setters would reset the page); dispatch only on actual change.
         [urls.replayVision(props.id)]: (_, searchParams) => {
             const pageRaw = Number(searchParams.page ?? 1)
             const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
             const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
-            const status = parseCsvParam<ObservationStatusValue>(searchParams.status)
-            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(searchParams.triggered_by)
-            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict)
+            const status = parseCsvParam<ObservationStatusValue>(searchParams.status, OBSERVATION_STATUS_VALUES)
+            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(
+                searchParams.triggered_by,
+                OBSERVATION_TRIGGERED_BY_VALUES
+            )
+            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict, OBSERVATION_VERDICT_VALUES)
             const tags = parseCsvParam<string>(searchParams.tags)
-            const subject = typeof searchParams.recording_subject === 'string' ? searchParams.recording_subject : ''
+            const subjectRaw = searchParams.recording_subject
+            // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
+            const subject =
+                typeof subjectRaw === 'string' ? subjectRaw : typeof subjectRaw === 'number' ? String(subjectRaw) : ''
             const sameAsCurrent =
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
                 sort.order === values.observationsSort?.order &&
-                equal(status, values.observationStatusFilter) &&
-                equal(triggeredBy, values.observationTriggeredByFilter) &&
-                equal(verdict, values.observationVerdictFilter) &&
-                equal(tags, values.observationTagFilter) &&
+                objectsEqual(status, values.observationStatusFilter) &&
+                objectsEqual(triggeredBy, values.observationTriggeredByFilter) &&
+                objectsEqual(verdict, values.observationVerdictFilter) &&
+                objectsEqual(tags, values.observationTagFilter) &&
                 subject === values.observationSubjectFilter
             if (!sameAsCurrent) {
                 actions.restoreObservationsTableState({ page, sort, status, triggeredBy, verdict, tags, subject })
+            }
+        },
+    })),
+
+    beforeUnload(({ values, actions, props }) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldGuardScannerNavigation({
+                hasUnsavedChanges: values.hasUnsavedChanges,
+                isSubmitting: values.isScannerSubmitting,
+                scannerId: props.id,
+                currentPathname: router.values.location.pathname,
+                nextPathname: newLocation?.pathname,
+            }),
+        message: 'Leave scanner editor?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (values.originalScanner) {
+                actions.resetScanner(values.originalScanner)
             }
         },
     })),
@@ -978,24 +1069,38 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
 const TABLE_URL_PARAM_KEYS = ['page', 'sort', 'status', 'triggered_by', 'verdict', 'tags', 'recording_subject'] as const
 
-export function parseSortParam(value: string | undefined): ObservationsSorting | null {
-    if (typeof value !== 'string' || value.length === 0) {
-        return null
-    }
-    const descending = value.startsWith('-')
-    const columnKey = descending ? value.slice(1) : value
-    if (!columnKey) {
-        return null
-    }
-    return { columnKey, order: descending ? -1 : 1 }
+/** The three step URLs of a scanner's editor wizard. */
+function scannerEditorPaths(scannerId: string): string[] {
+    return [
+        urls.replayVisionScannerTemplate(scannerId),
+        urls.replayVisionScannerConfigure(scannerId),
+        urls.replayVisionScannerTriggers(scannerId),
+    ]
 }
 
-export function parseCsvParam<T extends string>(value: string | undefined): T[] {
-    if (typeof value !== 'string' || value.length === 0) {
-        return []
+/**
+ * Whether leaving the current location should warn about losing unsaved scanner edits.
+ * Only guards while actually inside this scanner's editor, and stays quiet for the
+ * navigation the editor triggers itself: moving between its own steps, and the
+ * programmatic redirect that a save/advance fires while submitting.
+ */
+export function shouldGuardScannerNavigation(params: {
+    hasUnsavedChanges: boolean
+    isSubmitting: boolean
+    scannerId: string
+    currentPathname: string
+    nextPathname?: string
+}): boolean {
+    const { hasUnsavedChanges, isSubmitting, scannerId, currentPathname, nextPathname } = params
+    if (!hasUnsavedChanges || isSubmitting) {
+        return false
     }
-    return value
-        .split(',')
-        .map((v) => v.trim())
-        .filter((v) => v.length > 0) as T[]
+    const editorPaths = scannerEditorPaths(scannerId)
+    if (!editorPaths.includes(currentPathname)) {
+        return false
+    }
+    if (nextPathname && editorPaths.includes(nextPathname)) {
+        return false
+    }
+    return true
 }

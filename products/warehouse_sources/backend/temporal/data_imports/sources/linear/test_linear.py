@@ -1,4 +1,5 @@
 import copy
+import json
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -46,6 +47,17 @@ def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicM
     response.text = "<!DOCTYPE html><html><head><title>Rate limited</title></head></html>"
     response.headers = headers or {}
     response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+    return response
+
+
+def _make_truncated_response(body: str) -> MagicMock:
+    """Mimic a large 2xx page cut mid-stream: status is OK but the body fails to JSON-decode."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.reason = "OK"
+    response.text = body
+    response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", body, len(body))
     return response
 
 
@@ -289,6 +301,63 @@ class TestMakePaginatedRequest:
             )
 
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_truncated_2xx_response_is_retried_then_succeeds(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # A large page cut mid-stream arrives as a 2xx whose body fails to JSON-decode. It must be
+        # retried with backoff, not surfaced as a non-retryable JSONDecodeError/Exception.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_truncated_response('{"data":{"issues":{"nodes":[{"id":"a"'),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_truncated_response_raises_retryable_error_without_leaking_body(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # The partial body can embed customer data, so the retryable error must describe the failure
+        # without echoing response.text.
+        body = '{"data":{"issues":{"nodes":[{"title":"secret customer issue"'
+        session = MagicMock()
+        session.post.side_effect = [_make_truncated_response(body) for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError) as exc_info:
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+        assert "secret customer issue" not in str(exc_info.value)
 
 
 class TestRateLimitBackoff:

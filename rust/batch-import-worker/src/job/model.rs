@@ -68,7 +68,10 @@ pub struct PartState {
 impl PartState {
     pub fn is_done(&self) -> bool {
         match self.total_size {
-            Some(size) => self.current_offset == size,
+            // `>=` so a part whose stored offset overshot its total (written by a
+            // worker version that kept advancing past the end) still completes on
+            // resume instead of being permanently un-finishable.
+            Some(size) => self.current_offset >= size,
             None => false,
         }
     }
@@ -175,6 +178,17 @@ impl JobModel {
                 Ok(None)
             }
         }
+    }
+
+    /// Count jobs that still need a worker: everything in `running` status, whether
+    /// queued (unleased) or in-flight (leased). This is the autoscaling signal — one
+    /// worker processes one job, so the count maps directly to the desired replica count.
+    pub async fn count_active_jobs(pool: &PgPool) -> Result<i64, Error> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM posthog_batchimport WHERE status = 'running'")
+                .fetch_one(pool)
+                .await?;
+        Ok(count)
     }
 
     /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
@@ -493,6 +507,28 @@ mod tests {
                     total_size: None,
                 })
                 .collect(),
+        }
+    }
+
+    #[test]
+    fn test_part_is_done() {
+        // (offset, total, expected). Overshot offsets (recorded by worker versions
+        // that advanced past the end of a part) must still count as done, or the
+        // part can never complete on resume.
+        let cases: [(u64, Option<u64>, bool); 5] = [
+            (0, None, false),
+            (99, Some(100), false),
+            (100, Some(100), true),
+            (101, Some(100), true),
+            (0, Some(0), true),
+        ];
+        for (offset, total, expected) in cases {
+            let part = PartState {
+                key: "k".to_string(),
+                current_offset: offset,
+                total_size: total,
+            };
+            assert_eq!(part.is_done(), expected, "offset {offset}, total {total:?}");
         }
     }
 
