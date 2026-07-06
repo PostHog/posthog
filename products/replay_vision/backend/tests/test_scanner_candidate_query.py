@@ -17,7 +17,6 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
-    SAMPLE_RATE_PRECISION,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
 )
