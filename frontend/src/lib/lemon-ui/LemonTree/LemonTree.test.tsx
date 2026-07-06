@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -41,6 +41,10 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
+        // Unmount rendered trees between tests. Leaked mounts accumulate scroll listeners and
+        // effects that React's async act (which waitFor wraps) flushes on every wait, which under
+        // CI contention pushed later tests past the 10s timeout.
+        cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
     })
