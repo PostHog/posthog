@@ -173,6 +173,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="FDE", created_by=self.user
         )
+        assert definition.id is not None
         updated = facade.update_account_relationship_definition(
             team_id=self.team.id,
             definition_id=definition.id,
@@ -187,6 +188,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="FDE", created_by=self.user
         )
+        assert definition.id is not None
         with self.assertRaises(facade.AccountRelationshipDefinitionConflictError):
             facade.update_account_relationship_definition(
                 team_id=self.team.id, definition_id=definition.id, fields={"name": "CSM"}
@@ -209,6 +211,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
         relationships.assign(
             team_id=self.team.id,
@@ -224,6 +227,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
         rel = relationships.assign(
             team_id=self.team.id,
@@ -247,6 +251,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         assert facade.list_account_relationship_definitions(other_team.id) == ([], 0)
         assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
         assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
