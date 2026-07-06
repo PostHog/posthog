@@ -750,6 +750,63 @@
                                                     {
                                                         "type": "null"
                                                     }
+                                                ],
+                                                "description": "Null or omitted means all time (the survey's full lifetime)."
+                                            },
+                                            "limit": {
+                                                "default": 10,
+                                                "description": "Maximum number of recent responses to return.",
+                                                "maximum": 25,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "surveyId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Survey to show performance stats and recent responses for. Null until the user picks one."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "dateRange": {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "date_from": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "enum": [
+                                                                            "-1M",
+                                                                            "-30M",
+                                                                            "-1h",
+                                                                            "-3h",
+                                                                            "-24h",
+                                                                            "-7d",
+                                                                            "-14d",
+                                                                            "-30d",
+                                                                            "-90d"
+                                                                        ],
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
                                                 ]
                                             },
                                             "limit": {
@@ -829,14 +886,15 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
                                     "error_tracking_list",
                                     "experiment_results",
                                     "experiments_list",
                                     "logs_list",
-                                    "session_replay_list"
+                                    "session_replay_list",
+                                    "survey_results"
                                 ],
                                 "type": "string"
                             }

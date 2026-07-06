@@ -269,6 +269,76 @@ export const experimentResultsSamplePayload = {
     totalSecondaryMetricsCount: 1,
 }
 
+export const surveyResultsSamplePayload = {
+    survey: {
+        id: 'survey-101',
+        name: 'Post-purchase feedback',
+        type: 'popover',
+        archived: false,
+        start_date: '2026-05-12T00:00:00.000Z',
+        end_date: null,
+    },
+    stats: {
+        'survey shown': {
+            total_count: 1840,
+            total_count_only_seen: 1180,
+            unique_persons: 1640,
+            unique_persons_only_seen: 1040,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+        'survey dismissed': {
+            total_count: 240,
+            total_count_only_seen: 0,
+            unique_persons: 220,
+            unique_persons_only_seen: 0,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+        'survey sent': {
+            total_count: 420,
+            total_count_only_seen: 0,
+            unique_persons: 400,
+            unique_persons_only_seen: 0,
+            first_seen: '2026-05-12T00:00:00.000Z',
+            last_seen: '2026-06-20T00:00:00.000Z',
+        },
+    },
+    rates: {
+        response_rate: 22.83,
+        dismissal_rate: 13.04,
+        unique_users_response_rate: 24.39,
+        unique_users_dismissal_rate: 13.41,
+    },
+    responses: [
+        {
+            uuid: 'response-1',
+            distinct_id: 'user_8421',
+            session_id: 'session-1',
+            submitted_at: '2026-06-20T14:31:00.000Z',
+            answers: [
+                { question_id: 'q1', question_text: 'How satisfied are you?', question_type: 'rating', answer: '9' },
+                {
+                    question_id: 'q2',
+                    question_text: 'What can we improve?',
+                    question_type: 'open',
+                    answer: 'Faster checkout would be great.',
+                },
+            ],
+        },
+        {
+            uuid: 'response-2',
+            distinct_id: 'user_5530',
+            session_id: 'session-2',
+            submitted_at: '2026-06-20T11:02:00.000Z',
+            answers: [
+                { question_id: 'q1', question_text: 'How satisfied are you?', question_type: 'rating', answer: '6' },
+            ],
+        },
+    ],
+    hasMore: true,
+}
+
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
 export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey): WidgetOverviewDemoState {
     const catalogEntry = getDashboardWidgetCatalogEntry(catalogKey)
@@ -342,6 +412,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 config: { ...defaultConfig, experimentId: 101 },
                 loading: false,
                 result: experimentResultsSamplePayload,
+            }
+        case 'survey_results':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, surveyId: 'survey-101' },
+                loading: false,
+                result: surveyResultsSamplePayload,
             }
         case 'logs_list':
             return {
