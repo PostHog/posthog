@@ -5,7 +5,15 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.api_core.exceptions import (
+    BadRequest,
+    Forbidden,
+    InternalServerError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    ServiceUnavailable,
+)
 from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
@@ -14,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_QUERY_JOB_RETRY,
+    BIGQUERY_READ_ROWS_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
@@ -1138,6 +1147,31 @@ def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
 )
 def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
     assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The observed transient: a dropped Storage Read stream surfaced as a gRPC INTERNAL. The
+        # library default only reconnects on ServiceUnavailable, so this escaped and crashed the read.
+        InternalServerError("Received RST_STREAM with error code 2"),
+        ServiceUnavailable("503 The service is currently unavailable."),
+    ],
+)
+def test_bigquery_read_rows_retry_reconnects_on_transient_stream_errors(exc):
+    assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # Deterministic failures must surface rather than reconnect forever.
+        NotFound("404 Requested stream was not found."),
+        BadRequest("400 request failed"),
+    ],
+)
+def test_bigquery_read_rows_retry_does_not_reconnect_on_deterministic_errors(exc):
+    assert BIGQUERY_READ_ROWS_RETRY._predicate(exc) is False
 
 
 def test_bigquery_get_primary_keys_for_table_passes_job_retry():
