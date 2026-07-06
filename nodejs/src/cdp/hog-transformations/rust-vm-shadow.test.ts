@@ -170,6 +170,19 @@ describe('RustVmShadow', () => {
             expect(await outcomeCounts()).toEqual({ dropped: 1, match: 1 })
         })
 
+        it('functions calling nondeterministic stl fns are skipped at capture, not compared', async () => {
+            // CALL_GLOBAL randomFloat — two executions legitimately differ, comparison is meaningless.
+            shadow.capture({ ...capture('fn-rng', { name: 'a' }, 'ok'), bytecode: ['_H', 1, 2, 'randomFloat', 0, 38] })
+            // A string literal containing a fn name (preceded by the STRING op 32) must not skip.
+            shadow.capture({ ...capture('fn-str', { name: 'b' }, 'now'), bytecode: ['_H', 1, 32, 'now', 38] })
+
+            mockHogvmNode.executeBatch.mockResolvedValue([{ result: 'now', durationUs: 5 }])
+            await shadow.flush()
+
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(await outcomeCounts()).toEqual({ skipped_nondeterministic: 1, match: 1 })
+        })
+
         it('captures beyond the buffer cap are counted as dropped, not as rust errors', async () => {
             for (let i = 0; i < 10_001; i++) {
                 shadow.capture(capture('fn-a', { name: 'a' }, 'ok'))

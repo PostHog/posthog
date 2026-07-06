@@ -2614,6 +2614,9 @@ class GitHubIntegration(GitHubIntegrationBase):
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)
         self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
+        # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
+        self._disarm_proactive_refresh_if_installation_gone(response)
         oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         self.integration.save()
 
