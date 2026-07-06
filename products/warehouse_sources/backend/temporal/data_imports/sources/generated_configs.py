@@ -3529,7 +3529,8 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WufooSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
