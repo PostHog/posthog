@@ -219,13 +219,17 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return []
 
     def _own_results(self) -> list:
-        # The persons modal opens from a rendered funnel, so the insight cache is normally hot;
-        # recalculate only on a miss (matching the trends options builder's cost profile, which
-        # always executes a query).
+        # The persons modal opens from a rendered funnel, so the insight cache is normally hot.
+        # Read cache-only first (stale results included) so options mirror what's on screen even
+        # when it's stale; on a true miss, calculate blocking so the result is computed once AND
+        # written to the insight cache instead of recalculating on every options request.
         cached = self.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
         if isinstance(cached, CachedFunnelsQueryResponse) and cached.results:
             return cached.results
-        return self.calculate().results or []
+        response = self.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if isinstance(response, CachedFunnelsQueryResponse):
+            return response.results or []
+        return []
 
     @staticmethod
     def _breakdown_option_value(value: Any) -> str | int:
@@ -242,6 +246,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             return str(value)
         if isinstance(value, int):
             return value
+        if isinstance(value, float):
+            # Whole-number floats must not stringify: Python str(1.0) is "1.0" while the frontend
+            # holds 1 after the JSON round-trip (String(1) is "1"), which breaks selection matching.
+            return int(value) if value.is_integer() else str(value)
         return str(value)
 
     @staticmethod

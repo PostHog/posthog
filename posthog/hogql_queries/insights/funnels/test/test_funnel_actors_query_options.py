@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BreakdownFilter,
     CompareFilter,
@@ -199,6 +201,22 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query_options()
 
         self.assertIsNone(response.compare)
+
+    @parameterized.expand(
+        [
+            ("whole_float_matches_frontend_number", 1.0, 1),
+            ("fractional_float", 1.5, "1.5"),
+            ("bool_before_int", True, "True"),
+            ("int", 2, 2),
+            ("string", "x", "x"),
+            ("single_element_list_unwrapped", ["a"], "a"),
+            ("multi_element_list_json", ["a", "b"], '["a","b"]'),
+        ]
+    )
+    def test_breakdown_option_value_wire_contract(self, _name, value, expected):
+        # Option values must survive the results JSON round-trip: Python str(1.0) is "1.0" while
+        # the frontend holds 1, so a stringified whole float breaks dropdown selection matching.
+        self.assertEqual(FunnelsQueryRunner._breakdown_option_value(value), expected)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_trends_viz_breakdown_from_rows_and_compare_suppressed(self, _feature_enabled):
