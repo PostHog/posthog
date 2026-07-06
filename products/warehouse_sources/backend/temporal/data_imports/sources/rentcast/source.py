@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RentCastSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
     RentCastResumeConfig,
-    check_access,
     rentcast_source,
+    validate_credentials as _validate_rentcast_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
     ENDPOINTS,
@@ -110,12 +110,7 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
         self, config: RentCastSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid RentCast API key"
-        return False, message or "Could not validate RentCast API key"
+        return _validate_rentcast_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RentCastResumeConfig]:
         return ResumableSourceManager[RentCastResumeConfig](inputs, RentCastResumeConfig)
