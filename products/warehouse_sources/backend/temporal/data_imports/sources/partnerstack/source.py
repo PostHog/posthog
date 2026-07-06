@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PartnerStackSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.partnerstack import (
     PartnerStackResumeConfig,
-    check_access,
     partnerstack_source,
+    validate_credentials as _validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.settings import (
     ENDPOINTS,
@@ -118,12 +118,7 @@ You can find your **public key** and **private key** under **Settings → Integr
         self, config: PartnerStackSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The key pair is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.public_key, config.private_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid PartnerStack API keys"
-        return False, message or "Could not validate PartnerStack API keys"
+        return _validate_credentials(config.public_key, config.private_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PartnerStackResumeConfig]:
         return ResumableSourceManager[PartnerStackResumeConfig](inputs, PartnerStackResumeConfig)
