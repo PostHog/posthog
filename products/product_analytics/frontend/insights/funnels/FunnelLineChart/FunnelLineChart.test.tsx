@@ -156,7 +156,7 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({ funnelsFilter: { showValuesOnSeries: true } }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
                 const texts = getHogChart()
                     .valueLabels()
@@ -175,7 +175,7 @@ describe('FunnelLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
                 const lines = getHogChart().referenceLines()
                 // value→pixel isn't recoverable from the DOM; assert the line is labelled,
@@ -219,7 +219,7 @@ describe('FunnelLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
             expect(labels).toEqual(['Spike', 'Bramble'])
@@ -246,7 +246,7 @@ describe('FunnelLineChart', () => {
         ])('omits the legend when $desc', async ({ query }) => {
             renderInsight({ query })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(screen.queryByTestId('hog-chart-timeseries-line-legend')).not.toBeInTheDocument()
         })
 
@@ -258,7 +258,7 @@ describe('FunnelLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             // The label span also carries an inline style now (max-width), so keep only the colored swatches.
             const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]'))
@@ -295,7 +295,7 @@ describe('FunnelLineChart', () => {
                         expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
                     })
                 } else {
-                    await screen.findByRole('img', { name: /chart with/i })
+                    await screen.findByLabelText(/chart with/i)
                     expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
                 }
             }
@@ -326,7 +326,7 @@ describe('FunnelLineChart', () => {
                         expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
                     })
                 } else {
-                    await screen.findByRole('img', { name: /chart with/i })
+                    await screen.findByLabelText(/chart with/i)
                     expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
                 }
             }
