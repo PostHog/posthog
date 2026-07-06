@@ -59,6 +59,7 @@ describe('computeYAxisGutters', () => {
             }
         )
         expect(gutters.map((g) => g.axisId)).toEqual(['left', 'right2'])
-        expect(gutters.find((g) => g.axisId === 'right2')?.offset).toBe(0)
+        const right2 = gutters.find((g) => g.axisId === 'right2')
+        expect(right2).toMatchObject({ offset: 0 })
     })
 })

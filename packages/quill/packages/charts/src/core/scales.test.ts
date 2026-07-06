@@ -417,7 +417,6 @@ describe('hog-charts scales', () => {
                     { id: 'y1', position: 'right', startAtZero: false },
                 ],
             })
-            // Left keeps the zero-baseline clamp; the floated right axis tracks its data minimum.
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
             expect(result.yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
         })

@@ -81,7 +81,6 @@ export interface DrawBarChartStaticArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     showGrid: boolean
-    /** Resolved per-edge axis-line flags (see `resolveAxisLines`). */
     axisLines: { x: boolean; y: boolean }
     xTickFormatter: BarChartConfig['xTickFormatter']
     stackedData: Map<string, StackedBand> | undefined

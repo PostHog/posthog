@@ -172,7 +172,6 @@ describe('combo-scales', () => {
                     { id: 'right', position: 'right', startAtZero: false },
                 ],
             })
-            // The bar-carrying left axis ignores the float; the line-only right axis honors it.
             expect(scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
             expect(scales.yAxes.right.scale.domain()[0]).toBeGreaterThan(0)
         })
