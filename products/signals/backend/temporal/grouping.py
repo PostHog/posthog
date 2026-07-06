@@ -292,7 +292,11 @@ def _parse_combined_match_response(data: dict) -> CombinedMatchResponse:
         raise ValueError(f"Invalid match_type: {match_type}")
 
 
-MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
+# Shared building blocks for the grouping prompts. MATCHING_SYSTEM_PROMPT (two-call path),
+# SPECIFICITY_CHECK_SYSTEM_PROMPT (two-call path), and COMBINED_MATCH_SYSTEM_PROMPT
+# (single-call path) must keep their semantics in sync, so the common sections live here
+# and the prompts are composed from them.
+_GROUPING_INTRO = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
 or if it should start a new group.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
@@ -302,7 +306,46 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
 - A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
-- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match"""
+
+_EXISTING_MATCH_RESPONSE_FIELDS = """  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
+  "match_type": "existing",
+  "signal_id": "<the signal_id of the matching candidate>",
+  "query_index": <0-based index of the query that surfaced this candidate>"""
+
+_NEW_GROUP_RESPONSE = """{
+  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
+  "match_type": "new",
+  "title": "<short title for a new report>",
+  "summary": "<1-2 sentence summary of what this signal group is about>"
+}"""
+
+_RESPONSE_FOOTER = """IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
+
+You must respond with valid JSON only, no other text."""
+
+_PR_TEST_INSTRUCTIONS = """1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
+2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
+
+A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
+- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
+- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
+- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
+
+A VAGUE PR title is a catch-all that no single engineer would take on:
+- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
+- "Multiple workflow and integration improvements" — VAGUE (different systems)
+- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)"""
+
+_PR_TEST_RED_FLAGS = """- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
+- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
+- You'd assign the signals to different engineers based on expertise
+- The PR touches multiple unrelated systems or components"""
+
+
+MATCHING_SYSTEM_PROMPT = (
+    _GROUPING_INTRO
+    + """
 
 You will receive:
 1. A new signal with its description and source information
@@ -317,55 +360,41 @@ IMPORTANT — use group context when deciding:
 
 If a candidate signal from ANY query is related to the new signal AND its group theme aligns, respond with:
 {
-  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
-  "match_type": "existing",
-  "signal_id": "<the signal_id of the matching candidate>",
-  "query_index": <0-based index of the query that surfaced this candidate>
+"""
+    + _EXISTING_MATCH_RESPONSE_FIELDS
+    + """
 }
 
 If no candidate is related (or all queries returned no results), respond with:
-{
-  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
-  "match_type": "new",
-  "title": "<short title for a new report>",
-  "summary": "<1-2 sentence summary of what this signal group is about>"
-}
-
-IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
-
-You must respond with valid JSON only, no other text."""
+"""
+    + _NEW_GROUP_RESPONSE
+    + "\n\n"
+    + _RESPONSE_FOOTER
+)
 
 
-SPECIFICITY_CHECK_SYSTEM_PROMPT = """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
+SPECIFICITY_CHECK_SYSTEM_PROMPT = (
+    """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
 
 You will receive:
 1. A group of existing signals (the current report)
 2. A new signal being proposed for addition
 
 Your job:
-1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
-2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
-
-A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
-- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
-- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
-- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
-
-A VAGUE PR title is a catch-all that no single engineer would take on:
-- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
-- "Multiple workflow and integration improvements" — VAGUE (different systems)
-- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+"""
+    + _PR_TEST_INSTRUCTIONS
+    + """
 
 IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
 
 Red flags that the group is too broad:
-- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
-- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
-- You'd assign the signals to different engineers based on expertise
-- The PR touches multiple unrelated systems or components
+"""
+    + _PR_TEST_RED_FLAGS
+    + """
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
+)
 
 
 class SpecificityResult(BaseModel):
@@ -380,17 +409,9 @@ MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
 # MATCHING_SYSTEM_PROMPT merged with the PR-test rules of SPECIFICITY_CHECK_SYSTEM_PROMPT:
 # one call decides the match AND verifies the combined group passes the pull request test,
 # so the two stages can never disagree with each other.
-COMBINED_MATCH_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
-or if it should start a new group.
-
-Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
-Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
-
-IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
-- An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
-- A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
-- Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
-- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+COMBINED_MATCH_SYSTEM_PROMPT = (
+    _GROUPING_INTRO
+    + """
 
 You will receive:
 1. A new signal with its description and source information
@@ -405,49 +426,33 @@ IMPORTANT — use group context when deciding:
 - Groups found by multiple independent queries are more likely genuinely related.
 
 THE PULL REQUEST TEST — before accepting a match, review the group like a senior engineer deciding whether it belongs in a single pull request:
-1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
-2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
-
-A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
-- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
-- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
-- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
-
-A VAGUE PR title is a catch-all that no single engineer would take on:
-- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
-- "Multiple workflow and integration improvements" — VAGUE (different systems)
-- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+"""
+    + _PR_TEST_INSTRUCTIONS
+    + """
 
 IMPORTANT: Err on the side of REJECTING a match. A good PR addresses ONE concern, even if that concern has multiple symptoms.
 
 Red flags that the combined group would be too broad:
-- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
-- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
-- You'd assign the signals to different engineers based on expertise
-- The PR touches multiple unrelated systems or components
+"""
+    + _PR_TEST_RED_FLAGS
+    + """
 
 If the best candidate group fails the pull request test, do NOT match it — start a new group instead.
 
 If a candidate signal from ANY query is related to the new signal AND its group theme aligns AND the combined group passes the pull request test, respond with:
 {
-  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
-  "match_type": "existing",
-  "signal_id": "<the signal_id of the matching candidate>",
-  "query_index": <0-based index of the query that surfaced this candidate>,
+"""
+    + _EXISTING_MATCH_RESPONSE_FIELDS
+    + """,
   "pr_title": "<the PR title (max 70 chars) covering ALL signals in the group including the new one>"
 }
 
 If no candidate is related, no related group passes the pull request test, or all queries returned no results, respond with:
-{
-  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
-  "match_type": "new",
-  "title": "<short title for a new report>",
-  "summary": "<1-2 sentence summary of what this signal group is about>"
-}
-
-IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
-
-You must respond with valid JSON only, no other text."""
+"""
+    + _NEW_GROUP_RESPONSE
+    + "\n\n"
+    + _RESPONSE_FOOTER
+)
 
 
 def _build_matching_prompt(
