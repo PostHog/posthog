@@ -2,6 +2,12 @@ from dataclasses import dataclass
 
 from prometheus_client import Counter, Gauge, Histogram
 
+# The claim query degrades with queue backlog, and its danger zone sits near the
+# 300s group-lease TTL (a poll slower than TTL/2 hands groups over mostly
+# expired). The old 5s ceiling made every degraded poll indistinguishable from a
+# merely slow one — p95 sat "pinned at 5s" while real polls took minutes.
+POLL_DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 150.0, 300.0)
+
 BATCHES_PROCESSED_TOTAL = Counter(
     "warehouse_pg_consumer_batches_processed_total",
     "Total batches processed by the Postgres consumer",
@@ -29,7 +35,7 @@ RUNS_FAILED_TOTAL = Counter(
 POLL_DURATION_SECONDS = Histogram(
     "warehouse_pg_consumer_poll_duration_seconds",
     "Duration of Postgres poll queries",
-    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+    buckets=POLL_DURATION_BUCKETS,
 )
 
 POLL_BATCHES_FETCHED = Histogram(
@@ -121,7 +127,7 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
         poll_duration_seconds=Histogram(
             f"{p}_poll_duration_seconds",
             "Duration of Postgres poll queries",
-            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+            buckets=POLL_DURATION_BUCKETS,
         ),
         poll_batches_fetched=Histogram(
             f"{p}_poll_batches_fetched",
