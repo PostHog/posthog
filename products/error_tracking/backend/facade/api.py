@@ -12,7 +12,13 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..models import ErrorTrackingIssue, resolve_fingerprints_for_issues
+from ..models import (
+    ErrorTrackingIssue,
+    override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
+    resolve_fingerprints_for_issues,
+    sync_issues_to_clickhouse as sync_issues_to_clickhouse,
+)
+from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
