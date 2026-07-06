@@ -72,8 +72,10 @@ export type AnalyticsOutputs = IngestionOutputs<
  * transformer (the lane can't construct the cdp-owned transformer) and the outputs (the
  * same instance backs the transformer's monitoring). The personhog-routed person/group
  * repositories are also server-injected — like legacy, they carry the personhog rollout and
- * are shared across combined-mode lanes. The analytics scope owns everything else: restriction
- * manager, event filters, overflow redirect, stores, tophog.
+ * are shared across combined-mode lanes. The group-type and event-schema-enforcement managers
+ * are shared here too so their `LazyLoader` caches warm once across lanes rather than per lane.
+ * The analytics scope owns everything else: restriction manager, event filters, overflow
+ * redirect, stores, tophog.
  */
 export type AnalyticsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -85,6 +87,8 @@ export type AnalyticsSharedScope = Scope<{
     hogTransformer: HogTransformer
     outputs: AnalyticsOutputs
     repositories: RoutedRepositories
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    groupTypeManager: GroupTypeManager
 }>
 
 export function createAnalyticsConsumer(
@@ -211,7 +215,7 @@ export function createAnalyticsConsumer(
                     aiSubpipelineFactory,
                     eventFilterManager: container.eventFilterManager,
                     eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
-                    eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
+                    eventSchemaEnforcementManager: container.eventSchemaEnforcementManager,
                     promiseScheduler: container.promiseScheduler,
                     overflowRedirectService: container.overflowRedirectService,
                     overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
@@ -221,10 +225,7 @@ export function createAnalyticsConsumer(
                     ),
                     teamManager: container.teamManager,
                     cookielessManager: container.cookielessManager,
-                    groupTypeManager: new GroupTypeManager(
-                        container.repositories.groupRepository,
-                        container.teamManager
-                    ),
+                    groupTypeManager: container.groupTypeManager,
                     topHog: container.topHog,
                 }
             )

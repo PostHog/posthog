@@ -1,10 +1,12 @@
 import { Message } from 'node-rdkafka'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager-component'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager-component'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
@@ -84,6 +86,8 @@ export async function startAnalyticsTestConsumer(
                 )
             )
             .add('outputs', passthrough(outputs))
+            .add('eventSchemaEnforcementManager', new EventSchemaEnforcementManagerComponent(infra.postgres))
+            .add('groupTypeManager', new GroupTypeManagerComponent(infra.groupRepository, infra.teamManager))
     )
 
     const consumerScope = createAnalyticsConsumer(config, sharedScope, createAiEventSubpipeline)

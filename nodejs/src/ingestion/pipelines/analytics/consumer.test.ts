@@ -1,8 +1,10 @@
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig } from '~/common/personhog'
 import { RoutedRepositories } from '~/common/personhog/personhog-routed-repositories-component'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
@@ -60,6 +62,16 @@ describe('createAnalyticsConsumer', () => {
                 })
                 .add('repositories', {
                     start: () => Promise.resolve({ value: {} as RoutedRepositories, stop: () => Promise.resolve() }),
+                })
+                .add('eventSchemaEnforcementManager', {
+                    start: () =>
+                        Promise.resolve({
+                            value: {} as EventSchemaEnforcementManager,
+                            stop: () => Promise.resolve(),
+                        }),
+                })
+                .add('groupTypeManager', {
+                    start: () => Promise.resolve({ value: {} as GroupTypeManager, stop: () => Promise.resolve() }),
                 })
         )
     }

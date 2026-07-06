@@ -11,6 +11,7 @@ import {
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '~/common/config/redis-pools'
+import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager-component'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig } from '~/common/personhog'
@@ -18,6 +19,7 @@ import { PersonHogRoutedRepositoriesComponent } from '~/common/personhog/personh
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
+import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager-component'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -239,7 +241,7 @@ export class IngestionGeneralServer implements NodeServer {
         // analytics lanes extend this one scope, so — as before — they share a single hog
         // transformer, outputs, and repositories instance.
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
-        const analyticsSharedScope = extend(sharedServicesScope, 'analytics-shared', (container, builder) =>
+        const analyticsSharedBase = extend(sharedServicesScope, 'analytics-shared-base', (container, builder) =>
             builder
                 .add(
                     'hogTransformer',
@@ -249,6 +251,17 @@ export class IngestionGeneralServer implements NodeServer {
                 .add(
                     'repositories',
                     new PersonHogRoutedRepositoriesComponent(this.config, container.postgres, clientLabel)
+                )
+        )
+        // The group-type and event-schema-enforcement managers layer on top of the base because
+        // the group-type manager reads the routed group repository added above. Shared across the
+        // combined-mode analytics lanes so their LazyLoader caches warm once rather than per lane.
+        const analyticsSharedScope = extend(analyticsSharedBase, 'analytics-shared', (container, builder) =>
+            builder
+                .add('eventSchemaEnforcementManager', new EventSchemaEnforcementManagerComponent(container.postgres))
+                .add(
+                    'groupTypeManager',
+                    new GroupTypeManagerComponent(container.repositories.groupRepository, container.teamManager)
                 )
         )
 
