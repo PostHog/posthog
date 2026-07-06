@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -236,6 +236,22 @@ def _request_with_retry(
     return make_tracked_session().get(url, headers=headers, params=params, timeout=timeout)
 
 
+def _parse_json_rows(response: Response, **log_context: Any) -> list[Any] | None:
+    """Parse a Sentry JSON response body, tolerating empty/non-JSON payloads.
+
+    Sentry occasionally returns a 2xx with an empty or non-JSON body, which
+    makes ``response.json()`` raise ``JSONDecodeError`` — that isn't an
+    ``HTTPError``, so it escapes the server-error skip guards and fails the
+    whole sync. Treat an unparseable body as "no rows" (return ``None``) so the
+    caller can stop this page/tag gracefully instead of exploding.
+    """
+    try:
+        return response.json()
+    except JSONDecodeError:
+        logger.warning("sentry_source.empty_or_invalid_json_body_skipped", **log_context)
+        return None
+
+
 def _iter_endpoint_rows(
     base_api_url: str,
     path: str,
@@ -261,7 +277,9 @@ def _iter_endpoint_rows(
         response = _request_with_retry(url=url, headers=headers, params=current_params)
         response.raise_for_status()
 
-        payload = response.json()
+        payload = _parse_json_rows(response, resource_path=path, url=url)
+        if payload is None:
+            break
         yield from payload
 
         pages_read += 1
@@ -416,7 +434,15 @@ def _iter_issue_tag_values_rows(
                         )
                         break
                     raise
-                rows = response.json()
+
+                rows = _parse_json_rows(
+                    response,
+                    organization_slug=organization_slug,
+                    issue_id=issue_id,
+                    tag_key=tag_key,
+                )
+                if rows is None:
+                    break
 
                 should_stop = False
                 for row in rows:

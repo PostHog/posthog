@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, JSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SentrySourceConfig
@@ -36,6 +36,13 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
             raise HTTPError(f"{status_code} Server Error", response=response)
 
     response.raise_for_status = _raise_for_status
+    return response
+
+
+def _empty_body_response(status_code: int = 200, link_header: str = "") -> Mock:
+    # Sentry sometimes returns a 2xx with an empty/non-JSON body, so json() raises.
+    response = _response(None, status_code=status_code, link_header=link_header)
+    response.json.side_effect = JSONDecodeError("Expecting value", "", 0)
     return response
 
 
@@ -555,6 +562,36 @@ class TestSentrySourceValidation:
 
         # The 500 on the "bad tag" values endpoint is skipped; the healthy
         # "browser" tag still yields its values instead of the whole sync crashing.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_skips_tag_on_empty_body(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "bad tag"}, {"key": "browser"}])
+            if "tags/bad%20tag/values/" in url:
+                # Sentry returns a 2xx with an empty body -> json() raises JSONDecodeError.
+                return _empty_body_response()
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The empty 2xx body on the "bad tag" is skipped instead of crashing the
+        # sync with an uncaught JSONDecodeError; the healthy tag still yields.
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
