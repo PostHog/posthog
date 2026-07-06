@@ -36,10 +36,9 @@ def notebook_node_count(content: Any) -> int | None:
     return None
 
 
-def _created_properties(short_id: str, creation_source: str, extra: dict[str, Any]) -> dict[str, Any]:
-    props: dict[str, Any] = {"short_id": short_id, "creation_source": creation_source}
-    props.update({key: value for key, value in extra.items() if value is not None})
-    return props
+def _optional_props(**props: Any) -> dict[str, Any]:
+    """Keep only the props whose value is not None, so optional event fields don't clutter the payload."""
+    return {key: value for key, value in props.items() if value is not None}
 
 
 def capture_notebook_created(
@@ -61,18 +60,18 @@ def capture_notebook_created(
     the facade create functions pass ``team_id`` + ``created_by_id`` for the request-less
     AI/background paths, where attribution falls back to the team when there is no user
     (e.g. group auto-create)."""
-    props = _created_properties(
-        short_id,
-        creation_source,
-        {
-            "mcp_client": mcp_client,
-            "api_key_type": api_key_type,
-            "conversation_id": conversation_id,
-            "topic": topic,
-            "visibility": visibility,
-            "node_count": node_count,
-        },
-    )
+    props = {
+        "short_id": short_id,
+        "creation_source": creation_source,
+        **_optional_props(
+            mcp_client=mcp_client,
+            api_key_type=api_key_type,
+            conversation_id=conversation_id,
+            topic=topic,
+            visibility=visibility,
+            node_count=node_count,
+        ),
+    }
 
     if request is not None and user is not None:
         report_user_action(user, NOTEBOOK_CREATED_EVENT, props, request=request)
@@ -101,16 +100,14 @@ def capture_notebook_read(
     """Emit `notebook read` for a programmatic (non-browser) notebook retrieve. Browser opens are
     the client-side `notebook opened` event, so the caller gates this on non-session auth to keep
     agent traffic out of the human revisit numbers."""
-    props: dict[str, Any] = {"short_id": short_id, "read_source": read_source, "is_creator": is_creator}
-    props.update(
-        {
-            key: value
-            for key, value in {
-                "user_access_level": user_access_level,
-                "mcp_client": mcp_client,
-                "api_key_type": api_key_type,
-            }.items()
-            if value is not None
-        }
-    )
+    props = {
+        "short_id": short_id,
+        "read_source": read_source,
+        "is_creator": is_creator,
+        **_optional_props(
+            user_access_level=user_access_level,
+            mcp_client=mcp_client,
+            api_key_type=api_key_type,
+        ),
+    }
     report_user_action(user, NOTEBOOK_READ_EVENT, props, request=request)
