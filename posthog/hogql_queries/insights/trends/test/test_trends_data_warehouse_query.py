@@ -45,7 +45,7 @@ from posthog.models.instance_setting import override_instance_config
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
