@@ -111,6 +111,8 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         # Wrap rather than mutate the user's query: the outer LIMIT/OFFSET caps the page
         # regardless of the query's own shape (set queries, its own LIMIT, etc.).
         inner = parse_select(data["query"])
+        # limit/offset are int()-coerced so no injection is possible; the user query enters via placeholder.
+        # nosemgrep: hogql-fstring-audit
         wrapped = parse_select(
             f"select * from {{__sqlv2_inner__}} limit {int(data['limit'])} offset {int(data['offset'])}",
             placeholders={"__sqlv2_inner__": inner},
