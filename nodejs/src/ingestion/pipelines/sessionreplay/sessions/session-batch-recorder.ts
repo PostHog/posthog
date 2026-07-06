@@ -224,17 +224,21 @@ export class SessionBatchRecorder {
         const { sessionBlockRecorder, consoleLogRecorder, featureRecorder } = this.sessions.get(teamId, sessionId)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
-        try {
-            featureRecorder.recordMessage(message.message)
-        } catch (e) {
-            logger.warn('🔁', 'session_feature_recorder_error', {
-                error: String(e),
-                sessionId,
-                teamId,
-                partition,
-                batchId: this.batchId,
-            })
-            captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+        // Features derive from `eventsByWindowId`, which is empty on native-anonymizer messages —
+        // skip the recorder (which throws on pre-serialized input) rather than catch it per message.
+        if (!message.message.preSerialized) {
+            try {
+                featureRecorder.recordMessage(message.message)
+            } catch (e) {
+                logger.warn('🔁', 'session_feature_recorder_error', {
+                    error: String(e),
+                    sessionId,
+                    teamId,
+                    partition,
+                    batchId: this.batchId,
+                })
+                captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+            }
         }
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
