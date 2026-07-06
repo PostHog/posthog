@@ -148,7 +148,7 @@ BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_re
 # The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
 # ("Received RST_STREAM with error code 2"). The client's default ReadRows retry only reconnects on
 # ServiceUnavailable, so the INTERNAL escapes as an unhandled InternalServerError and fails the whole
-# read — and with it the import activity, which then re-runs the (potentially large) temp-table copy
+# read, and with it the import activity, which then re-runs the (potentially large) temp-table copy
 # from scratch. Reconnecting resumes the stream from the last-read offset, so widen the default
 # predicate to also retry INTERNAL. Parameters mirror the library's default ReadRows retry.
 BIGQUERY_READ_ROWS_RETRY = Retry(
