@@ -241,21 +241,23 @@ def _ensure_conversions_for_team(
     return goals_warmed, failures
 
 
+def _team_has_cost_sources(team: Team) -> bool:
+    """Cheap indexed check for the prerequisite every cost adapter (native/external/self-managed) shares:
+    at least one warehouse table. A safe superset — having tables doesn't guarantee a valid marketing
+    source, but having none guarantees there isn't one, so we skip the ~550ms Database.create_for.
+    """
+    return DataWarehouseTable.objects.filter(team_id=team.pk, deleted=False).exists()
+
+
 def _ensure_costs_for_team(
     context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
 ) -> tuple[int, int]:
     """Warm the per-source cost table at every supported grain over [start, end] (no attribution
     backfill). The database is built userless with warehouse access control bypassed — the materialization
     INSERT is printed userless anyway, so this yields the maximal (and read-identical) adapter set without
-    a requesting user. Returns (source_grain_pairs_warmed, failures).
+    a requesting user. Caller gates on _team_has_cost_sources, so at least one warehouse table exists.
+    Returns (source_grain_pairs_warmed, failures).
     """
-    # Every cost adapter (native, external, self-managed) needs at least one warehouse table — the factory
-    # filters DataWarehouseTable by the hogql database's table names. With none, discovery yields nothing,
-    # so skip before paying the ~550ms Database.create_for. Safe superset: having tables doesn't guarantee
-    # a valid marketing source, but having none guarantees there isn't one.
-    if not DataWarehouseTable.objects.filter(team_id=team.pk, deleted=False).exists():
-        return 0, 0
-
     # Database.create_for is ~550ms; build once and share across grains/sources for this team.
     database = Database.create_for(
         team=team,
@@ -304,9 +306,15 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     """Drive ensure_precomputed for the marketing precompute tables over the rolling window per team.
 
     Per team, gated on the same flags the read path checks: touchpoints + conversions when the
-    conversion precompute flag is on and the team has goals; costs when the costs precompute flag is on.
-    Each team's setup and each warming block is isolated: an unexpected error (e.g. a broken warehouse
-    source failing Database.create_for) is logged and counted, never aborting the rest of the allowlist.
+    conversion precompute flag is on and the team has goals; costs when the costs precompute flag is on
+    and the team has warehouse tables. Each team's setup and each warming block is isolated: an
+    unexpected error (e.g. a broken warehouse source failing Database.create_for) is logged and counted,
+    never aborting the rest of the allowlist.
+
+    `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
+    error (flag on + its raw material present — goals / warehouse tables), symmetric to each other. They
+    are not success counts: per-chunk outcomes live in `failures` and the MARKETING_PRECOMPUTE_CHUNK_*
+    metrics (a block can complete having warmed zero chunks, e.g. all goals ineligible).
     """
     # Tag every ClickHouse query this op drives (schema introspection during Database.create_for and the
     # materialization INSERTs) so warmer-driven load is attributable in query_log, distinct from the
@@ -314,7 +322,7 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
 
     end = datetime.now(UTC)
-    team_ids = get_selected_team_ids()
+    team_ids = list(dict.fromkeys(get_selected_team_ids()))  # dedupe so a repeated id doesn't warm twice
     context.log.info(
         f"marketing_precompute_start teams={len(team_ids)} window_days={PRECOMPUTE_WINDOW_DAYS} "
         f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
@@ -372,15 +380,18 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
                 context.log.exception(f"marketing_precompute_conversions_failed team={team_id}")
                 failures += 1
 
+        # Symmetric with the conversions gate: costs' prerequisite "raw material" is warehouse tables
+        # (every cost adapter needs one) the way conversions' is goals. Gating here also skips the
+        # ~550ms Database.create_for for teams that can't have any cost source.
         if config.costs_precomputation_enabled:
             try:
-                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
-                sources_warmed, costs_failures = _ensure_costs_for_team(
-                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
-                )
-                failures += costs_failures
-                if sources_warmed:
-                    costs_teams += 1
+                if _team_has_cost_sources(team):
+                    costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                    _sources_warmed, costs_failures = _ensure_costs_for_team(
+                        context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
+                    )
+                    failures += costs_failures
+                    costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
             except Exception:
                 MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
                 context.log.exception(f"marketing_precompute_costs_failed team={team_id}")
@@ -418,8 +429,10 @@ def marketing_precompute_job():
 
 
 @dagster.schedule(
-    # Hourly. Recent windows carry a short TTL (see PRECOMPUTE_TTL_SECONDS), so an hourly cadence
-    # keeps today fresh; older windows are computed once and skipped. Offset from the web jobs.
+    # Hourly. Keeps the expensive part warm — the older windows / attribution backfill, computed once
+    # then skipped. The today-slice carries a deliberately short TTL (PRECOMPUTE_TTL_SECONDS "0d" = 15m,
+    # data still changing), so it can still be stale between hourly runs and recompute inline on read;
+    # that slice is one day, not the backfill, so the cost is bounded. Offset from the web jobs.
     cron_schedule="35 * * * *",
     job=marketing_precompute_job,
     execution_timezone="UTC",

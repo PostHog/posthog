@@ -343,7 +343,9 @@ class TestCostsWarming(APIBaseTest):
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result["costs_teams"] == 0
+        # Team has warehouse tables (patched) so costs was attempted (costs_teams=1); the unmaterializable
+        # source just produces no ensure_precomputed calls — nothing is warmed.
+        assert result["costs_teams"] == 1
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
@@ -424,3 +426,40 @@ class TestCostsWarming(APIBaseTest):
         assert result["costs_teams"] == 0
         db_mock.create_for.assert_not_called()
         ensure_mock.assert_not_called()
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_both_flags_on_warm_conversions_and_costs_for_one_team(self, _db, ensure_mock):
+        # Both products, one team, one pass: the two independent blocks each run and each counter fires.
+        team = self._make_team("A")
+        team.marketing_analytics_config.conversion_goals = [_PRECOMPUTABLE_GOAL]
+        team.marketing_analytics_config.save()
+        with (
+            patch(_FF, _flag_fn(conversion=True, costs=True)),
+            patch(_DWT),
+            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["conversion_teams"] == 1
+        assert result["costs_teams"] == 1
+        assert set(_tables(ensure_mock)) == {
+            LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+            LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+            LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+        }
+
+
+class TestSchedule:
+    def test_skips_when_clickhouse_kill_switch_engaged(self):
+        # Production safety: never add warming load to ClickHouse while a kill switch is engaged.
+        from products.marketing_analytics.dags import marketing_precompute as mp
+
+        non_off = next(level for level in mp.KillSwitchLevel if level != mp.KillSwitchLevel.OFF)
+        with (
+            patch("products.marketing_analytics.dags.marketing_precompute.TEST", False),
+            patch("products.marketing_analytics.dags.marketing_precompute.get_kill_switch_level", return_value=non_off),
+        ):
+            result = mp.marketing_precompute_schedule(dagster.build_schedule_context())
+        assert isinstance(result, dagster.SkipReason)
