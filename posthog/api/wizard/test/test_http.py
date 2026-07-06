@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,12 +7,14 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
 from posthog.models import Organization, PersonalAPIKey, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
@@ -445,6 +448,47 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(response_data["code"], "permission_denied")
         self.assertEqual(response_data["detail"], "You don't have access to this project.")
         self.assertEqual(response_data["attr"], "projectId")
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            },
+        }
+    )
+    def test_authenticate_rejects_oauth_token(self):
+        # The setup step exchanges the caller's browser session for a project API key, so it is
+        # session-only. A valid OAuth token (project:read, would authenticate on token-accepting
+        # endpoints) must get 401 here and must not mint a project key into the cache.
+        app = OAuthApplication.objects.create(
+            name="Some OAuth App",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_wizard_oauth_token",
+            scope="project:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
+        cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
+        self.client.logout()
+
+        response = self.client.post(
+            "/api/wizard/authenticate",
+            data={"hash": "valid_hash", "projectId": self.team.id},
+            format="json",
+            headers={"authorization": "Bearer pha_test_wizard_oauth_token"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("project_api_key", cache.get(cache_key))
 
     def tearDown(self):
         super().tearDown()

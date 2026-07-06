@@ -31,7 +31,6 @@ from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.project import Project
-from posthog.permissions import APIScopePermission
 from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
@@ -126,23 +125,11 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
+    # Actions authenticate themselves: initialize is open, data/query use the wizard hash, and the
+    # session-only actions (authenticate, cloud_run) set their own authentication/permission classes.
     permission_classes = ()
     lookup_field = "hash"
     lookup_url_kwarg = "hash"
-
-    def dangerously_get_permissions(self):
-        # API Level permissions are only required during the authentication step.
-        # For all other actions we use a cache key to authenticate.
-        if self.action == "authenticate":
-            return [IsAuthenticated(), APIScopePermission()]
-
-        raise NotImplementedError()
-
-    def dangerously_get_required_scopes(self):
-        if self.action == "authenticate":
-            return ["project:read"]
-
-        return []
 
     @action(methods=["POST"], detail=False, url_path="initialize")
     def initialize(self, request: Request) -> Response:
@@ -361,6 +348,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         methods=["POST"],
         url_path="authenticate",
         detail=False,
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
         throttle_classes=[SetupWizardAuthenticationRateThrottle],
     )
     def authenticate(self, request, **kwargs):
