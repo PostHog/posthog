@@ -7,6 +7,9 @@ import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
+const { captureException } = vi.hoisted(() => ({ captureException: vi.fn() }))
+vi.mock('@/lib/posthog', () => ({ getPostHogClient: () => ({ captureException }) }))
+
 describe('StateManager', () => {
     let stateManager: StateManager
     let cache: MemoryCache<State>
@@ -31,6 +34,25 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+        captureException.mockClear()
+    })
+
+    describe('_reportException transient suppression', () => {
+        const apiError = (status: number): PostHogApiError =>
+            new PostHogApiError({ status, statusText: '', body: '', url: '/api/projects/1/', method: 'GET' })
+
+        it.each([
+            { label: 'transient 5xx', error: apiError(502), captured: false },
+            { label: 'transient 429', error: apiError(429), captured: false },
+            { label: 'genuine 5xx-adjacent bug', error: new Error('boom'), captured: true },
+        ])('$label → capture=$captured (fetch still degrades to undefined)', async ({ error, captured }) => {
+            ;(stateManager as any)._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            const result = await stateManager.getOrFetchGroupTypes('42')
+
+            expect(result).toBeUndefined()
+            expect(captureException).toHaveBeenCalledTimes(captured ? 1 : 0)
+        })
     })
 
     describe('getUser', () => {

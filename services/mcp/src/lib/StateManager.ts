@@ -3,6 +3,7 @@ import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
+    isTransientApiError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -196,6 +197,14 @@ export class StateManager {
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        // Transient upstream failures (5xx from a restarting backend, 429s) are
+        // not service bugs: these fetches degrade gracefully (stale cache /
+        // best-effort defaults), so capturing them just mints noisy new error
+        // tracking issues per blip. Mirrors the 4xx suppression in
+        // handleToolError — reserve capture for genuine, actionable failures.
+        if (isTransientApiError(error)) {
+            return
+        }
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
         } catch {

@@ -16,6 +16,7 @@ vi.mock('@/api/client', () => ({
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
+import { PostHogApiError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -107,6 +108,10 @@ describe('RequestContext', () => {
     })
 
     describe('getDistinctId', () => {
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
         it('deduplicates concurrent calls into a single API request', async () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
@@ -141,11 +146,55 @@ describe('RequestContext', () => {
             expect(JSON.parse(cached!)).toBe('fresh-id')
         })
 
-        it('throws when API returns an error', async () => {
+        it('throws when API returns a non-transient error', async () => {
+            mockMe.mockReset()
             mockMe.mockResolvedValue({ success: false, error: { message: 'Unauthorized' } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
 
             await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
+            expect(mockMe).toHaveBeenCalledTimes(1)
+        })
+
+        const transient502 = (): PostHogApiError =>
+            new PostHogApiError({
+                status: 502,
+                statusText: 'Bad Gateway',
+                body: '',
+                url: '/api/users/@me/',
+                method: 'GET',
+            })
+
+        it('retries a transient 5xx and resolves the real id on recovery', async () => {
+            vi.useFakeTimers()
+            mockMe.mockReset()
+            mockMe
+                .mockResolvedValueOnce({ success: false, error: transient502() })
+                .mockResolvedValueOnce({ success: true, data: { distinct_id: 'user-9' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+
+            const promise = ctx.getDistinctId()
+            await vi.runAllTimersAsync()
+
+            expect(await promise).toBe('user-9')
+            expect(mockMe).toHaveBeenCalledTimes(2)
+        })
+
+        it('degrades to a stable, non-persisted fallback id when a transient 5xx persists', async () => {
+            vi.useFakeTimers()
+            mockMe.mockReset()
+            mockMe.mockResolvedValue({ success: false, error: transient502() })
+            const redis = fakeRedis()
+            const ctx = new RequestContext(redis, env, makeProps())
+
+            const promise = ctx.getDistinctId()
+            await vi.runAllTimersAsync()
+
+            // Whole-request failure avoided: a fallback id is returned rather than throwing.
+            expect(await promise).toBe('mcp:fallback:test-user')
+            // Initial attempt + 2 retries.
+            expect(mockMe).toHaveBeenCalledTimes(3)
+            // Fallback isn't cached, so a recovered backend resolves the real id next request.
+            expect(await redis.get('mcp:token:test-user:distinctId')).toBeNull()
         })
     })
 

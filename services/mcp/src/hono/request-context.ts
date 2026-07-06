@@ -1,6 +1,6 @@
-import { ApiClient } from '@/api/client'
+import { ApiClient, type Result } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { wrapError } from '@/lib/errors'
+import { isTransientApiError, wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
@@ -12,6 +12,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { hash } from '@/lib/utils'
+import type { ApiUser } from '@/schema/api'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
@@ -22,6 +23,12 @@ import {
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+
+// Distinct-id resolution runs inside the request-state Promise.all, so a bare
+// throw here fails the whole MCP request. Retry a couple times to ride out a
+// transient upstream 5xx (a restarting backend returning 502) before degrading.
+const DISTINCT_ID_MAX_RETRIES = 2
+const DISTINCT_ID_RETRY_BASE_MS = 250
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
@@ -145,13 +152,35 @@ export class RequestContext {
         if (cached) {
             return cached
         }
-        const userResult = await (await this.api()).users().me()
-        if (!userResult.success) {
-            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
+        const userResult = await this.fetchUserWithRetry()
+        if (userResult.success) {
+            const distinctId = userResult.data.distinct_id as string
+            await this.tokenCache.set('distinctId', distinctId)
+            return distinctId
         }
-        const distinctId = userResult.data.distinct_id as string
-        await this.tokenCache.set('distinctId', distinctId)
-        return distinctId
+        // A transient upstream 5xx (restarting backend, gateway blip) shouldn't
+        // fail the whole request — this resolves inside the request-state
+        // Promise.all, so throwing is a single point of failure. Degrade to a
+        // stable per-token fallback id, deliberately not persisted so a
+        // recovered backend resolves the real id on the next request. Genuine
+        // failures (bad/expired key) still throw so the caller surfaces them.
+        if (isTransientApiError(userResult.error)) {
+            return `mcp:fallback:${this.props.userHash}`
+        }
+        throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
+    }
+
+    private async fetchUserWithRetry(): Promise<Result<ApiUser>> {
+        const api = await this.api()
+        let result = await api.users().me()
+        for (let attempt = 0; attempt < DISTINCT_ID_MAX_RETRIES && !result.success; attempt++) {
+            if (!isTransientApiError(result.error)) {
+                return result
+            }
+            await new Promise((resolve) => setTimeout(resolve, DISTINCT_ID_RETRY_BASE_MS * 2 ** attempt))
+            result = await api.users().me()
+        }
+        return result
     }
 
     async getContext(): Promise<Context> {

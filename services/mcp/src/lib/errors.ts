@@ -380,6 +380,21 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 }
 
 /**
+ * True for upstream failures that are transient and safe to retry or tolerate:
+ * 5xx service errors and 429 rate limits (PostHogRateLimitError extends
+ * PostHogApiError with status 429). Unwraps `cause` chains first, so a wrapped
+ * error still classifies. Used to keep restarting-backend blips out of error
+ * tracking and to degrade gracefully instead of hard-failing the request.
+ */
+export function isTransientApiError(error: unknown): boolean {
+    const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogApiError) {
+        return apiError.status >= 500 || apiError.status === 429
+    }
+    return false
+}
+
+/**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
  * object, with `isError` set to true, _not_ as an MCP protocol-level error
