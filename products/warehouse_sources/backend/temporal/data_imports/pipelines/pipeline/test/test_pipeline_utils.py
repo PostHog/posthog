@@ -5,7 +5,7 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import deltalake
@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
     observed_schema_metadata_columns,
     setup_partitioning,
     source_uses_delta_write_column_selection,
@@ -1084,6 +1085,31 @@ def test_apply_enabled_columns_projection_drops_spoofed_internal_lookalikes():
 
     assert result.column_names == ["name", "_ph_debug"]
     assert sorted(dropped) == ["_dlt_secret", "_ph_secret"]
+
+
+@pytest.mark.asyncio
+async def test_observe_and_project_table_observes_then_projects_and_logs():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    observed_columns: dict[str, Any] = {}
+    table = _projection_input_table()
+
+    with patch.object(logger, "adebug", new=AsyncMock()) as mock_adebug:
+        result = await observe_and_project_table(
+            table,
+            ["name"],
+            None,
+            None,
+            None,
+            observed_columns,
+            logger,
+            "Dropped non-enabled columns",
+        )
+
+    assert result.column_names == ["name", "_ph_debug"]
+    # Observed before projection, so deselected columns stay visible to the column picker.
+    assert set(observed_columns) == {"id", "name", "amount", "updated_at"}
+    mock_adebug.assert_called_once()
+    assert "Dropped non-enabled columns" in mock_adebug.call_args.args[0]
 
 
 def test_observed_schema_metadata_columns_excludes_internal_columns():

@@ -413,6 +413,33 @@ def apply_enabled_columns_projection(
     return table.select(kept_names), dropped_names
 
 
+async def observe_and_project_table(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+    observed_columns: dict[str, dict[str, Any]],
+    logger: FilteringBoundLogger,
+    log_message: str,
+) -> pa.Table:
+    """Shared observe-then-project step for `_uses_delta_write_column_selection` pipelines.
+
+    Unions the batch's columns into `observed_columns` (for the column picker) before dropping
+    non-enabled ones, so a pinned selection never hides a column from the picker. `log_message`
+    is logged with the dropped column names appended, letting each pipeline keep its own wording.
+    """
+    for observed_column in observed_schema_metadata_columns(table.schema):
+        observed_columns[observed_column["name"]] = observed_column
+
+    table, dropped_names = apply_enabled_columns_projection(
+        table, enabled_columns, primary_keys, incremental_field, partition_keys
+    )
+    if dropped_names:
+        await logger.adebug(f"{log_message}: {dropped_names}")
+    return table
+
+
 def source_uses_delta_write_column_selection(source_type: str) -> bool:
     """True when the pipeline applies `enabled_columns` by dropping columns before the Delta
     write (and captures the observed columns into `schema_metadata`).

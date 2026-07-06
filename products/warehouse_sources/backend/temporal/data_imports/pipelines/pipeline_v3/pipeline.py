@@ -55,11 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
-    apply_enabled_columns_projection,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
-    observed_schema_metadata_columns,
+    observe_and_project_table,
     source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
@@ -378,10 +377,7 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
-            for observed_column in observed_schema_metadata_columns(pa_table.schema):
-                self._observed_columns[observed_column["name"]] = observed_column
-
-            pa_table, dropped_columns = apply_enabled_columns_projection(
+            pa_table = await observe_and_project_table(
                 pa_table,
                 self._schema.enabled_columns,
                 self._resource.primary_keys,
@@ -391,9 +387,10 @@ class PipelineV3(Generic[ResumableData]):
                     *(self._schema.partitioning_keys or []),
                     *(self._resource.partition_keys or []),
                 ],
+                self._observed_columns,
+                self._logger,
+                "V3 Pipeline: Dropped non-enabled columns before write",
             )
-            if dropped_columns:
-                self._logger.debug(f"V3 Pipeline: Dropped non-enabled columns before write: {dropped_columns}")
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
