@@ -15,10 +15,11 @@ import { cn } from 'lib/utils/css-classes'
  * the rendered **height**; width always follows from the mark's aspect ratio, so call sites never
  * set width and height themselves. Omit `size` to fill the container (`width: 100%`, e.g. the toolbar).
  */
-export type LogoSize = 'sm' | 'md' | 'lg' | 'xl'
+export type LogoSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 const LOGO_SIZE_HEIGHTS: Record<LogoSize, number> = {
-    sm: 24, // compact: watermarks, exporter headers, inline marks
+    xs: 20, // minimal: exporter chrome, where the logo is a byline rather than a header
+    sm: 24, // compact: watermarks, inline marks
     md: 28, // default: the standard logo — landscape renders at 160px wide (player, most surfaces)
     lg: 32, // prominent: page headers users linger on (login, onboarding)
     xl: 48, // hero: emphasis surfaces (coupon campaigns, splash screens)

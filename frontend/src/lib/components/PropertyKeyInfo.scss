@@ -24,10 +24,10 @@
     flex-shrink: 0;
 }
 
-// The logomark SVG is landscape (wider than tall), so it's height-driven to sit inline with text
+// Width-driven so the landscape logomark occupies the same 1rem slot as other source logos
 .PropertyKeyInfo__logo--posthog {
-    width: auto;
-    height: 0.75rem;
+    width: 1rem;
+    height: auto;
 }
 
 .PropertyKeyInfo__logo--langfuse {

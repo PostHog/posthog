@@ -50,13 +50,15 @@ export const Variants: StoryObj = {
 export const Sizes: StoryObj = {
     render: () => (
         <div className="flex flex-col gap-8 p-4">
-            <Row label="size sm / md / lg / xl — the token sets height, width follows">
+            <Row label="size xs / sm / md / lg / xl — the token sets height, width follows">
+                <Logo size="xs" />
                 <Logo size="sm" />
                 <Logo size="md" />
                 <Logo size="lg" />
                 <Logo size="xl" />
             </Row>
             <Row label="same tokens on the logomark">
+                <Logomark size="xs" />
                 <Logomark size="sm" />
                 <Logomark size="md" />
                 <Logomark size="lg" />

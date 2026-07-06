@@ -92,12 +92,12 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <Logo size="sm" className="shrink-0 ml-3" />}
+                        {!whitelabel && <Logo size="xs" className="shrink-0 ml-3" />}
                     </div>
                 )}
                 {showWatermark && (
                     <div className="ExportedInsight__watermark">
-                        <Logo size="sm" />
+                        <Logo size="xs" />
                     </div>
                 )}
                 <div

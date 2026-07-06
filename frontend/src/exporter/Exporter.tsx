@@ -123,7 +123,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                                     target="_blank"
                                 >
-                                    <Logo size="sm" />
+                                    <Logo size="xs" />
                                 </Link>
                             )}
                             <div className="SharedDashboard-header-title">
@@ -144,7 +144,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                             to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                             target="_blank"
                         >
-                            <Logo size="sm" />
+                            <Logo size="xs" />
                         </Link>
                     ) : type === ExportType.Image && !whitelabel ? (
                         <>
@@ -161,7 +161,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-notebook"
                                     target="_blank"
                                 >
-                                    <Logo size="sm" />
+                                    <Logo size="xs" />
                                 </Link>
                                 <div className="SharedDashboard-header-team text-right">
                                     <span className="block">{currentTeam?.name}</span>
@@ -204,7 +204,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 )}
                 {!whitelabel && dashboard && (
                     <div className="text-center pb-4">
-                        {type === ExportType.Image ? <Logo size="sm" /> : null}
+                        {type === ExportType.Image ? <Logo size="xs" /> : null}
                         <div>
                             Made with{' '}
                             <Link
