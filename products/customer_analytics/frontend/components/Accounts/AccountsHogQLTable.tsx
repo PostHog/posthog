@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
+import type { DataColorToken } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -182,6 +183,15 @@ function CustomPropertyCell({
     }
     if (definition.display_type === 'boolean') {
         return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
+    }
+    if (definition.display_type === 'select') {
+        const option = definition.options?.find((candidate) => candidate.label === value)
+        return (
+            <span className="inline-flex items-center gap-1.5">
+                {option && <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />}
+                <span>{value}</span>
+            </span>
+        )
     }
     return <span>{formatCustomPropertyValue(value, definition)}</span>
 }

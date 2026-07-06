@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
@@ -287,6 +288,41 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
+    @parameterized.expand(
+        [
+            ("update_fn", False),
+            ("set_cache_value", True),
+        ]
+    )
+    def test_soft_time_limit_exceeded_propagates_instead_of_failing_fix(self, _name, use_db_data):
+        """SoftTimeLimitExceeded must propagate so the task winds down cleanly,
+        instead of being recorded as a fix failure like a real cache error (which
+        previously happened because it subclasses Exception)."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+
+        verification: dict = {"status": "miss"}
+        if use_db_data:
+            verification["db_data"] = {"flags": ["flag1"]}
+            mock_config.hypercache.set_cache_value.side_effect = SoftTimeLimitExceeded()
+        else:
+            mock_config.update_fn.side_effect = SoftTimeLimitExceeded()
+
+        result = VerificationResult()
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="test_cache",
+                result=result,
+                verification=verification,
+            )
+
+        assert result.fix_failed == 0
+        assert result.cache_miss_fixed == 0
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixBatch(BaseTest):
@@ -452,6 +488,79 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 1
         assert result.total_fixed == 0
+
+    def test_soft_time_limit_exceeded_propagates_and_stops_batch(self):
+        """SoftTimeLimitExceeded from verify_team_fn must propagate so the run winds
+        down, instead of being counted as a verification error and continuing on to
+        the next team in the batch (which previously happened because it subclasses
+        Exception)."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        processed_team_ids: list[int] = []
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            processed_team_ids.append(team.id)
+            if team.id == self.team.id:
+                raise SoftTimeLimitExceeded()
+            return {"status": "match", "issue": None}
+
+        result = VerificationResult()
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team, other_team],
+                    config=mock_config,
+                    verify_team_fn=verify_fn,
+                    cache_type="test_cache",
+                    result=result,
+                )
+
+        assert result.errors == 0
+        assert processed_team_ids == [self.team.id]
+
+    @parameterized.expand(
+        [
+            ("batch_get_from_cache",),
+            ("get_team_ids_to_skip_fix_fn",),
+            ("batch_load_fn",),
+        ]
+    )
+    def test_soft_time_limit_exceeded_in_batch_setup_propagates(self, failing_attr):
+        """A SoftTimeLimitExceeded from any of the batch-level setup calls (cache
+        read, skip-fix check, DB load) must propagate, instead of being logged as a
+        routine fallback warning and letting the batch continue toward the per-team
+        loop."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.hypercache.batch_load_fn.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = set()
+        if failing_attr == "get_team_ids_to_skip_fix_fn":
+            mock_config.get_team_ids_to_skip_fix_fn.side_effect = SoftTimeLimitExceeded()
+        else:
+            getattr(mock_config.hypercache, failing_attr).side_effect = SoftTimeLimitExceeded()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            raise AssertionError("Should never reach per-team verification")
+
+        result = VerificationResult()
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team],
+                    config=mock_config,
+                    verify_team_fn=verify_fn,
+                    cache_type="test_cache",
+                    result=result,
+                )
+
+        assert result.total == 0
 
     def test_batch_load_fn_called_when_available(self) -> None:
         mock_config = MagicMock()

@@ -572,6 +572,14 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
+            "skip isn't something the scout can act on."
+        ),
+    )
 
 
 # --- Report authoring (emit_report / edit_report) --------------------------
@@ -720,6 +728,14 @@ class EmitReportResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the safety judge suppressed the report, why; null when safe.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when the report was authored "
+            "or the skip isn't something the scout can act on."
+        ),
+    )
 
 
 class EditReportRequestSerializer(serializers.Serializer):
@@ -828,6 +844,29 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
     disabled = serializers.ListField(
         child=SignalSourceConfigEntrySerializer(),
         help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class EmitEligibilitySerializer(serializers.Serializer):
+    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+
+    ai_processing_approved = serializers.BooleanField(
+        help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+    )
+    source_enabled = serializers.BooleanField(
+        help_text="Whether the `signals_scout` signal source is enabled for this team.",
+    )
+    can_emit = serializers.BooleanField(
+        help_text=(
+            "True only when both team/org-level gates pass, so scout findings (signal and report "
+            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
+            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
+            "own dry-run `emit` toggle, which is per-config, not team-wide."
+        ),
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
     )
 
 
@@ -1224,6 +1263,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     )
     signal_source_configs = SignalSourceConfigsBucketsSerializer(
         help_text="Signal source configs split into enabled / disabled buckets.",
+    )
+    emit_eligibility = EmitEligibilitySerializer(
+        help_text=(
+            "Whether scout findings can actually reach the inbox for this team — the org-level AI "
+            "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
+            "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
     )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",

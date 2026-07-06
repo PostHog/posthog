@@ -807,9 +807,7 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
-    snapshot_ext_id = previous_state.get("snapshot_external_id")
-    if snapshot_ext_id:
-        extra_state["snapshot_external_id"] = snapshot_ext_id
+    extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")

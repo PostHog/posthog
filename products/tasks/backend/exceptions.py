@@ -18,6 +18,8 @@ class ProcessTaskError(ApplicationError):
         if cause is not None and capture:
             capture_exception(cause, self.context)
 
+        # Retry policies match non_retryable_error_types against this type; the SDK omits it unless set.
+        kwargs.setdefault("type", type(self).__name__)
         super().__init__(message, self.context, **kwargs)
 
 
