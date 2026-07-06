@@ -29,9 +29,14 @@ DEFAULT_SCORE_EXPORT_PREFIX = "score"
 CH_EXPORT_QUERY_TIMEOUT_S = 120
 CH_EXPORT_QUERY_MAX_MEMORY_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB
 
+# Keyset-pagination page size — bounds worker memory and per-query result size per
+# fetch (~100 B/row, so a full page is low hundreds of MB of Python objects).
+# Sized so typical partitions are single-page and pagination only engages on outliers.
+EXPORT_PAGE_MAX_ROWS = 500_000
+
 LIST_PARTITIONS_ACTIVITY_TIMEOUT = timedelta(seconds=30)
-EXPORT_PARTITION_ACTIVITY_TIMEOUT = timedelta(minutes=10)
-# > CH_EXPORT_QUERY_TIMEOUT_S — no heartbeat during the SELECT.
+EXPORT_PARTITION_ACTIVITY_TIMEOUT = timedelta(minutes=20)
+# > CH_EXPORT_QUERY_TIMEOUT_S — heartbeats fire between page fetches, not during a SELECT.
 EXPORT_PARTITION_HEARTBEAT_TIMEOUT = timedelta(minutes=3)
 
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+WORKFLOW_EXECUTION_TIMEOUT = timedelta(hours=1)

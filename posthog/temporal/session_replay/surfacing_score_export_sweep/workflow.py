@@ -7,7 +7,6 @@ import asyncio
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
@@ -79,10 +78,13 @@ def _summarize(
 ) -> ExportScoresSweepResult:
     summary = ExportScoresSweepResult(partitions_dispatched=len(partitions))
     for r in results:
+        if isinstance(r, asyncio.CancelledError):
+            raise r
         if isinstance(r, BaseException):
             summary.partitions_failed += 1
-            if isinstance(r, ActivityError):
-                workflow.logger.warning("surfacing_score_export_sweep.partition_failed", error=str(r))
+            workflow.logger.warning(
+                "surfacing_score_export_sweep.partition_failed", error=str(r), error_type=type(r).__name__
+            )
             continue
         summary.total_rows += r.rows
     workflow.logger.info(

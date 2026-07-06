@@ -8,7 +8,11 @@ import pytest
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
-from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import _rows_to_parquet, export_days
+from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
+    _PARQUET_SCHEMA,
+    _page_table,
+    export_days,
+)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     EXPORT_FLOOR_DAY,
     REEXPORT_WINDOW_DAYS,
@@ -53,13 +57,23 @@ class TestExportDays:
         assert export_days(EXPORT_FLOOR_DAY) == []
 
 
-class TestRowsToParquet:
-    def test_pseudonymizes_ids_and_round_trips(self) -> None:
+def _write_pages(pages: list[list[tuple[int, str, datetime, float]]]) -> bytes:
+    sink = io.BytesIO()
+    writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
+    for page in pages:
+        writer.write_table(_page_table(page, SECRET))
+    writer.close()
+    return sink.getvalue()
+
+
+class TestPartitionParquet:
+    def test_pseudonymizes_ids_and_round_trips_across_pages(self) -> None:
         started_at = datetime(2026, 7, 4, 12, 30, tzinfo=UTC)
         session_id = "0197d1cf-13d0-7c07-a301-d2e19a7c2a55"
-        body = _rows_to_parquet([(42, session_id, started_at, 0.75)], SECRET)
+        body = _write_pages([[(42, session_id, started_at, 0.75)], [(43, "another-session", started_at, 0.25)]])
 
         table = pq.read_table(io.BytesIO(body))
+        assert table.num_rows == 2
         row = table.to_pylist()[0]
         assert row["session_id"] == "5f004a2baeeb5c761c6ba2c70730961c"
         assert row["team_id"] == "a424b2c7c7d5b495e6479d058e5f751c"
@@ -67,7 +81,7 @@ class TestRowsToParquet:
         assert row["surfacing_score"] == pytest.approx(0.75)
         assert session_id not in body.decode("latin-1")
 
-    def test_empty_input_still_writes_a_readable_object_with_the_schema(self) -> None:
-        table = pq.read_table(io.BytesIO(_rows_to_parquet([], SECRET)))
+    def test_no_pages_still_writes_a_readable_object_with_the_schema(self) -> None:
+        table = pq.read_table(io.BytesIO(_write_pages([])))
         assert table.num_rows == 0
         assert table.schema.names == ["session_id", "team_id", "started_at", "surfacing_score"]

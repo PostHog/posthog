@@ -32,6 +32,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     CH_EXPORT_QUERY_TIMEOUT_S,
     DEFAULT_OF_CHUNKS,
     EXPORT_FLOOR_DAY,
+    EXPORT_PAGE_MAX_ROWS,
     REEXPORT_WINDOW_DAYS,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import (
@@ -96,30 +97,40 @@ async def list_export_partitions_activity(_inputs: ExportScoresSweepInputs) -> L
     return ListExportPartitionsResult(partitions=partitions)
 
 
-_PARQUET_SCHEMA = pa.schema(
-    [
-        pa.field("session_id", pa.string(), nullable=False),
-        pa.field("team_id", pa.string(), nullable=False),
-        pa.field("started_at", pa.timestamp("ms", tz="UTC"), nullable=False),
-        pa.field("surfacing_score", pa.float32(), nullable=False),
-    ]
-)
+_PARQUET_FIELDS: list[pa.Field[Any]] = [
+    pa.field("session_id", pa.string(), nullable=False),
+    pa.field("team_id", pa.string(), nullable=False),
+    pa.field("started_at", pa.timestamp("ms", tz="UTC"), nullable=False),
+    pa.field("surfacing_score", pa.float32(), nullable=False),
+]
+_PARQUET_SCHEMA = pa.schema(_PARQUET_FIELDS)
 
 
 def _opted_in_team_ids() -> list[int]:
     return list(Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True))
 
 
-def _fetch_scored_sessions(spec: ExportPartitionSpec, team_ids: list[int]) -> list[tuple[int, str, datetime, float]]:
+# (team_id, session_id, started_at, score)
+_ScoredRow = tuple[int, str, datetime, float]
+
+# Keyset cursor over the (session_id, team_id) page ordering; ("", 0) sorts before every real row.
+_Cursor = tuple[str, int]
+_FIRST_PAGE: _Cursor = ("", 0)
+
+
+def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor) -> list[_ScoredRow]:
     return cast(
-        list[tuple[int, str, datetime, float]],
+        list[_ScoredRow],
         sync_execute(
-            export_sql.fetch_scored_sessions_sql(),
+            export_sql.fetch_scored_sessions_page_sql(),
             {
                 "of_chunks": spec.of_chunks,
                 "chunk_id": spec.chunk_id,
                 "team_ids": team_ids,
                 "day_start": f"{spec.day} 00:00:00",
+                "cursor_session_id": cursor[0],
+                "cursor_team_id": cursor[1],
+                "page_size": EXPORT_PAGE_MAX_ROWS,
             },
             settings={
                 "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
@@ -129,7 +140,7 @@ def _fetch_scored_sessions(spec: ExportPartitionSpec, team_ids: list[int]) -> li
     )
 
 
-def _rows_to_parquet(rows: list[tuple[int, str, datetime, float]], secret: bytes) -> bytes:
+def _page_table(rows: list[_ScoredRow], secret: bytes) -> pa.Table:
     records: list[dict[str, Any]] = []
     for team_id, session_id, started_at, score in rows:
         if started_at.tzinfo is None:
@@ -142,11 +153,7 @@ def _rows_to_parquet(rows: list[tuple[int, str, datetime, float]], secret: bytes
                 "surfacing_score": float(score),
             }
         )
-    records.sort(key=lambda r: (r["team_id"], r["session_id"]))
-    table = pa.Table.from_pylist(records, schema=_PARQUET_SCHEMA)
-    sink = io.BytesIO()
-    pq.write_table(table, sink, compression="snappy")
-    return sink.getvalue()
+    return pa.Table.from_pylist(records, schema=_PARQUET_SCHEMA)
 
 
 def _upload(key: str, body: bytes) -> None:
@@ -170,14 +177,27 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
 
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
     team_ids = await sync_to_async(_opted_in_team_ids, thread_sensitive=False)()
-    rows: list[tuple[int, str, datetime, float]] = []
-    if team_ids:
-        rows = await sync_to_async(_fetch_scored_sessions, thread_sensitive=False)(spec, team_ids)
 
-    activity.heartbeat({"phase": "encode", "day": spec.day, "chunk_id": spec.chunk_id, "rows": len(rows)})
-    body = await sync_to_async(_rows_to_parquet, thread_sensitive=False)(rows, secret)
+    sink = io.BytesIO()
+    writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
+    cursor = _FIRST_PAGE
+    rows_total = 0
+    try:
+        while team_ids:
+            rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, team_ids, cursor)
+            if rows:
+                table = await sync_to_async(_page_table, thread_sensitive=False)(rows, secret)
+                await sync_to_async(writer.write_table, thread_sensitive=False)(table)
+                rows_total += len(rows)
+                cursor = (rows[-1][1], rows[-1][0])
+            if len(rows) < EXPORT_PAGE_MAX_ROWS:
+                break
+            activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
+    finally:
+        writer.close()
+    body = sink.getvalue()
 
-    activity.heartbeat({"phase": "upload", "day": spec.day, "chunk_id": spec.chunk_id})
+    activity.heartbeat({"phase": "upload", "day": spec.day, "chunk_id": spec.chunk_id, "rows": rows_total})
     key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks)
     await sync_to_async(_upload, thread_sensitive=False)(key, body)
 
@@ -185,8 +205,10 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         "surfacing_score_export_sweep.partition_done",
         day=spec.day,
         chunk_id=spec.chunk_id,
-        rows=len(rows),
+        rows=rows_total,
         bytes=len(body),
         key=key,
     )
-    return ExportPartitionResult(day=spec.day, chunk_id=spec.chunk_id, rows=len(rows), bytes_written=len(body), key=key)
+    return ExportPartitionResult(
+        day=spec.day, chunk_id=spec.chunk_id, rows=rows_total, bytes_written=len(body), key=key
+    )
