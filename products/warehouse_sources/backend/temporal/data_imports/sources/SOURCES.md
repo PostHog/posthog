@@ -321,6 +321,7 @@ the row lists both.
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
+| zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
 | zoom                    | HTTP                        | requests                                                        | ✅                          |
 | zuora                   | HTTP                        | requests                                                        | ✅                          |
 
@@ -744,7 +745,6 @@ doesn't conflict with concurrent PRs.
 - zoho_expense
 - zoho_inventory
 - zoho_invoice
-- zonka_feedback
 - zoominfo
 
 ---
