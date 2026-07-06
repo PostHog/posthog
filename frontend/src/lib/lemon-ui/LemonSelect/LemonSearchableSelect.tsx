@@ -18,6 +18,8 @@ import {
 export interface LemonSearchableSelectPropsBase<T> extends LemonSelectPropsBase<T> {
     searchPlaceholder?: string
     searchKeys?: string[]
+    /** `data-attr` for the search input, so its usage can be tracked per call site. */
+    searchInputDataAttr?: string
 }
 
 export interface LemonSearchableSelectPropsClearable<T>
@@ -89,6 +91,7 @@ function filterOptions<T>(
 export function LemonSearchableSelect<T extends string | number | boolean | null>({
     searchPlaceholder,
     searchKeys = ['label'],
+    searchInputDataAttr = 'lemon-searchable-select-search',
     onChange,
     onSelect,
     ...selectProps
@@ -112,13 +115,14 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
                     fullWidth
                     onClick={(e) => e.stopPropagation()}
                     className="mb-1"
+                    data-attr={searchInputDataAttr}
                 />
             ),
             custom: true,
         } as any
 
         return [searchMenuItem, ...filteredOptions] as LemonSelectOptions<T>
-    }, [searchPlaceholder, searchTerm, filteredOptions])
+    }, [searchPlaceholder, searchTerm, filteredOptions, searchInputDataAttr])
 
     const handleChange = (newValue: T | null): void => {
         // Cast to `any` because `onChange` is a union type (T vs T | null) and TS can't infer it here.

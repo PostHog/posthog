@@ -181,6 +181,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                 options={projectDefaultDashboardOptions}
                                 value={projectDefaultDashboardId}
                                 searchPlaceholder="Search dashboards…"
+                                searchInputDataAttr="configure-home-modal-default-dashboard-search"
                                 data-attr="configure-home-modal-set-default-dashboard-select"
                                 onChange={(dashboardId) => {
                                     posthog.capture('homepage configure default dashboard changed')
