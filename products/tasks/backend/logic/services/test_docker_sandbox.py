@@ -43,25 +43,36 @@ def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None or os.environ.get("CI") is not None
 
 
+class TestSandboxProviderGuard:
+    """The docker/modal_docker provider guards run at module import time. They must block
+    production (neither DEBUG nor TEST) but never trip test collection, where settings load
+    with DEBUG off but TEST on. No Docker daemon needed, so this runs in CI unlike the classes below."""
+
+    @pytest.mark.parametrize(
+        "provider,debug,test,expect_raise",
+        [
+            ("docker", False, False, True),  # production: blocked
+            ("docker", True, False, False),  # local dev: allowed via DEBUG
+            ("docker", False, True, False),  # test context: allowed via TEST
+            ("MODAL_DOCKER", False, False, True),  # production: blocked (fires before the modal import)
+        ],
+    )
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_provider_guard(self, mock_settings, provider, debug, test, expect_raise):
+        mock_settings.SANDBOX_PROVIDER = provider
+        mock_settings.DEBUG = debug
+        mock_settings.TEST = test
+
+        if expect_raise:
+            with pytest.raises(RuntimeError, match="for local development only"):
+                get_sandbox_class()
+        else:
+            assert get_sandbox_class() is DockerSandbox
+
+
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestSandboxFactory:
     """Tests for sandbox factory and production safety."""
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_blocked_in_production(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = False
-
-        with pytest.raises(RuntimeError, match="DockerSandbox cannot be used in production"):
-            get_sandbox_class()
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_opt_in_with_debug(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = True
-
-        sandbox_class = get_sandbox_class()
-        assert sandbox_class == DockerSandbox
 
     @patch("products.tasks.backend.logic.services.sandbox.settings")
     def test_modal_sandbox_default_in_debug(self, mock_settings):
