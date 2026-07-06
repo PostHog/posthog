@@ -1,4 +1,8 @@
+import { useMountedLogic } from 'kea'
+
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
+
+import { posthogAiContextBridgeLogic } from '../posthogAiContextBridgeLogic'
 
 // The client-side key for the embedded `taskTrackerSceneLogic` (and paired `runnerPanelLogic`) instance
 // this panel binds — stable so the panel keeps the same in-flight run across re-renders of its host.
@@ -12,6 +16,9 @@ export const MAX_SIDE_PANEL_ID = 'max-side-panel'
  * replaced outright by the posthog_ai product surface.
  */
 export function PhaiSidePanelChat(): JSX.Element {
+    // Coexistence bridge (old -> new): while this panel is open, the active scene's `maxContext` is
+    // mirrored into the surface's `attachedContextLogic`, so sends wrap it as `<posthog_context>`.
+    useMountedLogic(posthogAiContextBridgeLogic)
     return (
         // `flex-1 min-h-0`, NOT `h-full`: the side panel hosts this inside a ScrollArea whose content
         // grows with its children (`min-height: auto`), so a percentage height resolves against the
