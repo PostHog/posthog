@@ -302,6 +302,7 @@ the row lists both.
 | supabase                | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey            | HTTP                        | requests                                                        | ✅                          |
 | taboola                 | HTTP                        | requests                                                        | ✅                          |
+| teamtailor              | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | thinkific               | HTTP                        | requests                                                        | ✅                          |
@@ -680,7 +681,6 @@ doesn't conflict with concurrent PRs.
 - tavus
 - tawk_to
 - teachable
-- teamtailor
 - tempo
 - testrail
 - thinkific_courses
