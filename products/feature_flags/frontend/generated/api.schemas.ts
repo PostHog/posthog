@@ -152,8 +152,6 @@ export interface CopyFlagsRequestApi {
     disable_copied_flag?: boolean
     /** Whether to also copy missing feature flags that this flag depends on */
     copy_dependencies?: boolean
-    /** Optional cache key returned by the dependency eligibility check to reuse the resolved dependency graph */
-    dependency_requirements_cache_key?: string
 }
 
 export interface CopyFlagsSuccessItemApi {
@@ -191,6 +189,11 @@ export interface CopyFlagsResponseApi {
     failed: CopyFlagsResultApi[]
 }
 
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface CopyFlagsDependencyRequirementsRequestApi {
     /** Key of the feature flag to check */
     feature_flag_key: string
@@ -217,8 +220,6 @@ export interface CopyFlagsDependencyRequirementsResponseApi {
     warnings: string[]
     /** Primary human-readable eligibility result */
     reason: string
-    /** Short-lived cache key that lets copy_flags reuse the resolved dependency graph */
-    dependency_requirements_cache_key?: string
 }
 
 export interface OrganizationFeatureFlagRowApi {
@@ -1135,11 +1136,6 @@ export interface FeatureFlagTestEvaluationResponseApi {
     evaluation_distinct_id: string | null
     /** Detailed analysis of each condition in the feature flag */
     conditions: FeatureFlagConditionAnalysisApi[]
-}
-
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }

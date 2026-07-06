@@ -11,10 +11,6 @@
             "description": "Whether to also copy scheduled changes for this flag",
             "type": "boolean"
         },
-        "dependency_requirements_cache_key": {
-            "description": "Optional cache key returned by the dependency eligibility check to reuse the resolved dependency graph",
-            "type": "string"
-        },
         "disable_copied_flag": {
             "default": false,
             "description": "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",

@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import (
     APIBaseTest,
@@ -1002,6 +1002,59 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
+    def test_copy_feature_flag_with_dependencies_succeeds_for_allowed_target_when_another_target_is_denied(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control()
+        copying_user = self._create_user("copy-mixed-target-create-access@posthog.com")
+        allowed_target = Team.objects.create(organization=self.organization)
+        source_dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="mixed-target-parent",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=copying_user,
+            key="mixed-target-dependent",
+            active=True,
+            filters={
+                "groups": [
+                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
+                ]
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=None,
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        self.client.force_login(copying_user)
+
+        response = self._post_copy_flag(
+            flag_to_copy,
+            [allowed_target.id, self.team_2.id],
+            copy_dependencies=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(len(body["success"]), 1)
+        self.assertEqual(body["success"][0]["team_id"], allowed_target.id)
+        self.assertEqual(body["success"][0]["copied_dependency_keys"], [source_dependency.key])
+        self.assertEqual(len(body["failed"]), 1)
+        self.assertEqual(body["failed"][0]["project_id"], self.team_2.id)
+        self.assertIn("permission", body["failed"][0]["error_message"])
+        self.assertTrue(FeatureFlag.objects.filter(team=allowed_target, key=source_dependency.key).exists())
+        self.assertTrue(FeatureFlag.objects.filter(team=allowed_target, key=flag_to_copy.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
     def test_copy_feature_flag_does_not_update_object_denied_target_flag(self):
         from ee.models.rbac.access_control import AccessControl
 
@@ -1324,7 +1377,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         flags_by_key: dict[str, FeatureFlag] = {}
 
         for key in reversed(keys):
-            properties = [self._flag_dependency_property(next_dependency)] if next_dependency else []
+            properties: list[dict[str, Any]] = (
+                [self._flag_dependency_property(next_dependency)] if next_dependency else []
+            )
             flag = FeatureFlag.objects.create(
                 team=self.team_1,
                 created_by=self.user,
@@ -1497,11 +1552,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["reused_dependency_keys"], [])
         self.assertIn("disabled in the source project", requirements["reason"])
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -1808,7 +1859,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(body["dependency_count"], 2)
         self.assertEqual(body["copied_dependency_keys"], ["flag-c", "flag-b"])
         self.assertEqual(body["reused_dependency_keys"], [])
-        self.assertIn("dependency_requirements_cache_key", body)
 
     def test_copy_feature_flag_rejects_more_than_50_target_projects(self):
         flag_to_copy = FeatureFlag.objects.create(
@@ -1894,11 +1944,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["copied_dependency_keys"], ["flag-c"])
         self.assertEqual(requirements["reused_dependency_keys"], ["flag-b"])
 
-        response = self._post_copy_flag(
-            flag_a,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -1973,11 +2019,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["reused_dependency_keys"], [flag_b.key])
         self.assertEqual(requirements["warnings"], [])
 
-        response = self._post_copy_flag(
-            flag_a,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -1995,14 +2037,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependencies_copies_transitive_graph_dependency_first(self):
         flag_a, _, _ = self._create_dependency_chain("flag-a", "flag-b", "flag-c")
 
-        requirements_response = self._post_dependency_requirements(flag_a)
-        cache_key = requirements_response.json()["dependency_requirements_cache_key"]
-
-        response = self._post_copy_flag(
-            flag_a,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=cache_key,
-        )
+        response = self._post_copy_flag(flag_a, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2021,14 +2056,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependencies_preserves_dependency_active_state_when_root_copy_disabled(self):
         flag_a, flag_b = self._create_dependency_chain("flag-a", "flag-b")
 
-        requirements_response = self._post_dependency_requirements(flag_a)
-        cache_key = requirements_response.json()["dependency_requirements_cache_key"]
-
         response = self._post_copy_flag(
             flag_a,
             copy_dependencies=True,
             disable_copied_flag=True,
-            dependency_requirements_cache_key=cache_key,
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2039,75 +2070,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(copied_a.active)
         self.assertTrue(copied_b.active)
         self.assertEqual(copied_a.filters["groups"][0]["properties"][0]["key"], str(copied_b.id))
-
-    def test_copy_feature_flag_with_stale_dependency_requirements_cache_returns_400(self):
-        flag_a, flag_b = self._create_dependency_chain("flag-a", "flag-b")
-
-        requirements_response = self._post_dependency_requirements(flag_a)
-        cache_key = requirements_response.json()["dependency_requirements_cache_key"]
-        flag_b.active = False
-        flag_b.save()
-
-        response = self._post_copy_flag(
-            flag_a,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=cache_key,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("The dependency list changed", response.json()["error"])
-        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_a.key).exists())
-        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_b.key).exists())
-
-    def test_copy_feature_flag_with_cached_dependency_requirements_rechecks_dependency_access(self):
-        from ee.models.rbac.access_control import AccessControl
-
-        self._enable_access_control()
-        copying_user = self._create_user("copy-cached-dependency-denied@posthog.com")
-        source_dependency = FeatureFlag.objects.create(
-            team=self.team_1,
-            created_by=self.user,
-            key="cached-dependency",
-            active=True,
-        )
-        flag_to_copy = FeatureFlag.objects.create(
-            team=self.team_1,
-            created_by=copying_user,
-            key="cached-dependent-flag",
-            active=True,
-            filters={
-                "groups": [
-                    {"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_dependency)]}
-                ]
-            },
-        )
-        self.client.force_login(copying_user)
-
-        requirements_response = self._post_dependency_requirements(flag_to_copy)
-        self.assertEqual(requirements_response.status_code, status.HTTP_200_OK)
-        self.assertTrue(requirements_response.json()["can_copy_dependencies"])
-        cache_key = requirements_response.json()["dependency_requirements_cache_key"]
-
-        AccessControl.objects.create(
-            team=self.team_1,
-            resource="feature_flag",
-            resource_id=str(source_dependency.id),
-            organization_member=None,
-            role=None,
-            access_level="none",
-        )
-
-        response = self._post_copy_flag(
-            flag_to_copy,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=cache_key,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("dependency flags", response.json()["error"])
-        self.assertNotIn(source_dependency.key, response.content.decode())
-        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=source_dependency.key).exists())
-        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_with_dependencies_preserves_key_based_dependency_reference(self):
         source_parent = FeatureFlag.objects.create(
@@ -2142,11 +2104,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["reused_dependency_keys"], [source_parent.key])
         self.assertEqual(requirements["warnings"], [])
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2206,11 +2164,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["reused_dependency_keys"], [numeric_dependency_key])
         self.assertEqual(requirements["warnings"], [])
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2261,11 +2215,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(requirements["reused_dependency_keys"], [])
         self.assertEqual(requirements["warnings"], [])
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2329,11 +2279,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertIn("restricted", requirements["reason"])
         self.assertNotIn(source_parent.key, requirements_response.content.decode())
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2441,11 +2387,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertIn("disabled in the target project", requirements["warnings"][0])
         self.assertIn("Some dependencies will be left unchanged", requirements["reason"])
 
-        response = self._post_copy_flag(
-            dependent_flag,
-            copy_dependencies=True,
-            dependency_requirements_cache_key=requirements["dependency_requirements_cache_key"],
-        )
+        response = self._post_copy_flag(dependent_flag, copy_dependencies=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["failed"], [])
@@ -2463,7 +2405,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_more_than_50_dependencies_returns_400(self):
         previous_dependency = None
         for index in range(51):
-            properties = [self._flag_dependency_property(previous_dependency)] if previous_dependency else []
+            properties: list[dict[str, Any]] = (
+                [self._flag_dependency_property(previous_dependency)] if previous_dependency else []
+            )
             previous_dependency = FeatureFlag.objects.create(
                 team=self.team_1,
                 created_by=self.user,
@@ -3203,7 +3147,7 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         )
 
         scheduled_time = timezone.now() + timedelta(days=1)
-        filters = {
+        filters: dict[str, Any] = {
             "groups": [
                 {"rollout_percentage": 100, "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}]}
             ],
@@ -3284,7 +3228,8 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         self.assertEqual(schedule_parent_cohort_id, target_parent_cohort.id)
         self.assertNotEqual(schedule_parent_cohort_id, source_parent_cohort.id)
 
-        target_parent_child_cohort_id = target_parent_cohort.filters["properties"]["values"][0]["value"]
+        target_parent_filters = cast(dict[str, Any], target_parent_cohort.filters)
+        target_parent_child_cohort_id = target_parent_filters["properties"]["values"][0]["value"]
         self.assertEqual(target_parent_child_cohort_id, target_child_cohort.id)
         self.assertNotEqual(target_parent_child_cohort_id, source_child_cohort.id)
 

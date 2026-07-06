@@ -215,9 +215,6 @@ tools:
             existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
-    feature-flags-copy-flags-dependency-requirements-create:
-        operation: feature_flags_copy_flags_dependency_requirements_create
-        enabled: false
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false

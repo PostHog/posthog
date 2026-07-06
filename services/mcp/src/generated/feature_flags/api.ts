@@ -44,12 +44,6 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
         .describe('Whether to also copy missing feature flags that this flag depends on'),
-    dependency_requirements_cache_key: zod
-        .string()
-        .optional()
-        .describe(
-            'Optional cache key returned by the dependency eligibility check to reuse the resolved dependency graph'
-        ),
 })
 
 /**

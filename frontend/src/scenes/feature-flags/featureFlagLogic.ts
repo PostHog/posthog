@@ -133,7 +133,7 @@ export function hasStaticCohortDependency(featureFlag: FeatureFlagType, cohorts:
             return (
                 !!property &&
                 typeof property === 'object' &&
-                property.type === 'cohort' &&
+                property.type === PropertyFilterType.Cohort &&
                 staticCohortIds.has(property.value)
             )
         })
@@ -682,6 +682,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
         setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setCopyDependencies: (copyDependencies: boolean) => ({ copyDependencies }),
+        loadCopyDependencyRequirements: true,
+        loadCopyDependencyRequirementsSuccess: (
+            copyDependencyRequirements: CopyFlagsDependencyRequirementsResponseApi | null
+        ) => ({ copyDependencyRequirements }),
+        loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -1062,13 +1067,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 copyFlagSuccess: () => false,
             },
         ],
-        copyDependencyRequirements: {
-            loadCopyDependencyRequirements: () => null,
-            loadCopyDependencyRequirementsFailure: () => COPY_DEPENDENCY_REQUIREMENTS_UNAVAILABLE,
-            setCopyDestinationProject: () => null,
-            loadFeatureFlagSuccess: () => null,
-            setFeatureFlag: () => null,
-        },
+        copyDependencyRequirements: [
+            null as CopyFlagsDependencyRequirementsResponseApi | null,
+            {
+                loadCopyDependencyRequirements: () => null,
+                loadCopyDependencyRequirementsSuccess: (_, { copyDependencyRequirements }) =>
+                    copyDependencyRequirements,
+                loadCopyDependencyRequirementsFailure: () => COPY_DEPENDENCY_REQUIREMENTS_UNAVAILABLE,
+                setCopyDestinationProject: () => null,
+                loadFeatureFlagSuccess: () => null,
+                setFeatureFlag: () => null,
+            },
+        ],
+        copyDependencyRequirementsLoading: [
+            false,
+            {
+                loadCopyDependencyRequirements: () => true,
+                loadCopyDependencyRequirementsSuccess: () => false,
+                loadCopyDependencyRequirementsFailure: () => false,
+            },
+        ],
         scheduleDateMarker: [
             null as any,
             {
@@ -1656,67 +1674,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             },
         },
-        copyDependencyRequirements: [
-            null as CopyFlagsDependencyRequirementsResponseApi | null,
-            {
-                loadCopyDependencyRequirements: async (_, breakpoint) => {
-                    const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
-
-                    if (
-                        !currentOrganizationId ||
-                        !currentProjectId ||
-                        !copyDestinationProject ||
-                        !featureFlag.key ||
-                        !hasDirectFlagDependency(featureFlag)
-                    ) {
-                        return null
-                    }
-
-                    const requestedFeatureFlagKey = featureFlag.key
-                    const hasRequestContextChanged = (): boolean =>
-                        values.currentOrganizationId !== currentOrganizationId ||
-                        values.currentProjectId !== currentProjectId ||
-                        values.copyDestinationProject !== copyDestinationProject ||
-                        values.featureFlag.key !== requestedFeatureFlagKey
-
-                    try {
-                        const copyDependencyRequirements = await featureFlagsCopyFlagsDependencyRequirementsCreate(
-                            String(currentOrganizationId),
-                            {
-                                feature_flag_key: requestedFeatureFlagKey,
-                                from_project: currentProjectId,
-                                target_project_ids: [copyDestinationProject],
-                            }
-                        )
-                        await breakpoint()
-                        if (hasRequestContextChanged()) {
-                            return values.copyDependencyRequirements
-                        }
-
-                        return copyDependencyRequirements
-                    } catch (error) {
-                        await breakpoint()
-                        if (hasRequestContextChanged()) {
-                            return values.copyDependencyRequirements
-                        }
-
-                        throw error
-                    }
-                },
-            },
-        ],
         featureFlagCopy: {
             copyFlag: async () => {
                 const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
-                const {
-                    copyDependencyRequirements,
-                    copyDependencies,
-                    copyDestinationProject,
-                    currentProjectId,
-                    copySchedule,
-                    disableCopiedFlag,
-                } = values
+                const { copyDependencies, copyDestinationProject, currentProjectId, copySchedule, disableCopiedFlag } =
+                    values
 
                 if (orgId && currentProjectId && copyDestinationProject) {
                     return await featureFlagsCopyFlagsCreate(String(orgId), {
@@ -1726,8 +1689,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         copy_schedule: copySchedule,
                         disable_copied_flag: disableCopiedFlag,
                         copy_dependencies: copyDependencies,
-                        dependency_requirements_cache_key:
-                            copyDependencyRequirements?.dependency_requirements_cache_key,
                     })
                 }
             },
@@ -1833,6 +1794,53 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
+            const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
+
+            if (
+                !currentOrganizationId ||
+                !currentProjectId ||
+                !copyDestinationProject ||
+                !featureFlag.key ||
+                !hasDirectFlagDependency(featureFlag)
+            ) {
+                actions.loadCopyDependencyRequirementsSuccess(null)
+                return
+            }
+
+            const requestedFeatureFlagKey = featureFlag.key
+            const hasRequestContextChanged = (): boolean =>
+                values.currentOrganizationId !== currentOrganizationId ||
+                values.currentProjectId !== currentProjectId ||
+                values.copyDestinationProject !== copyDestinationProject ||
+                values.featureFlag.key !== requestedFeatureFlagKey
+
+            try {
+                const copyDependencyRequirements = await featureFlagsCopyFlagsDependencyRequirementsCreate(
+                    String(currentOrganizationId),
+                    {
+                        feature_flag_key: requestedFeatureFlagKey,
+                        from_project: currentProjectId,
+                        target_project_ids: [copyDestinationProject],
+                    }
+                )
+                await breakpoint()
+                actions.loadCopyDependencyRequirementsSuccess(
+                    hasRequestContextChanged() ? values.copyDependencyRequirements : copyDependencyRequirements
+                )
+            } catch (error) {
+                await breakpoint()
+                if (hasRequestContextChanged()) {
+                    actions.loadCopyDependencyRequirementsSuccess(values.copyDependencyRequirements)
+                    return
+                }
+
+                actions.loadCopyDependencyRequirementsFailure(
+                    error instanceof Error ? error.message : String(error),
+                    error
+                )
+            }
+        },
         setCopyDestinationProject: () => {
             actions.loadCopyDependencyRequirements()
         },

@@ -1,19 +1,16 @@
 import re
 import copy
-import json
-import hashlib
 from dataclasses import dataclass
 from typing import Any, cast
-from uuid import uuid4
 
-from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
 
@@ -21,7 +18,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
@@ -41,8 +38,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 MAX_COPY_DEPENDENCY_FLAGS = 50
-COPY_DEPENDENCY_GRAPH_CACHE_TTL_SECONDS = 300
-COPY_DEPENDENCY_GRAPH_CACHE_PREFIX = "feature_flag_copy_dependencies"
 RESTRICTED_TARGET_DEPENDENCY_WARNING = (
     "Cannot automatically copy dependencies because one or more matching target dependency flags are restricted."
 )
@@ -50,10 +45,8 @@ RESTRICTED_TARGET_DEPENDENCY_REMAP_WARNING = (
     "Removed one or more flag dependencies because matching target flags are restricted in the target project."
 )
 TARGET_COPY_PERMISSION_ERROR = "You do not have permission to copy flags to this project."
+SOURCE_DEPENDENCY_COPY_PERMISSION_ERROR = "You do not have permission to copy one or more dependency flags."
 TARGET_DEPENDENCY_CREATE_PERMISSION_WARNING = "Cannot automatically copy dependencies because you do not have permission to create feature flags in one or more target projects."
-STALE_DEPENDENCY_REQUIREMENTS_CACHE_ERROR = (
-    "The dependency list changed. Try copying again so PostHog can re-check dependencies."
-)
 EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING = "Pending scheduled changes already attached to the target flag were left unchanged and may change this copied flag later."
 
 
@@ -61,7 +54,6 @@ EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING = "Pending scheduled changes already
 class DependencyCopyGraph:
     dependency_flags: list[FeatureFlag]
     root_dependency_flag_ids: list[int]
-    cache_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,12 +66,20 @@ class DependencyCopyTargetRequirements:
 
 
 @dataclass(frozen=True)
+class ScheduledChangeDependencyContext:
+    source_dependency_keys: dict[str, str]
+    disabled_source_dependency_keys: set[str]
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
 class FeatureFlagCopySourceContext:
     source_dependency_keys: dict[str, str]
     disabled_source_dependency_keys: set[str]
     seen_cohorts_cache: dict[int, CohortOrEmpty]
     sorted_cohort_ids: list[int]
     source_schedules: list[ScheduledChange]
+    schedule_dependency_contexts_by_id: dict[int, ScheduledChangeDependencyContext]
 
 
 class CopyFlagsRequestSerializer(serializers.Serializer):
@@ -106,11 +106,6 @@ class CopyFlagsRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Whether to also copy missing feature flags that this flag depends on",
-    )
-    dependency_requirements_cache_key = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Optional cache key returned by the dependency eligibility check to reuse the resolved dependency graph",
     )
 
 
@@ -179,10 +174,6 @@ class CopyFlagsDependencyRequirementsResponseSerializer(serializers.Serializer):
         help_text="Reasons dependency copying is unavailable or needs user attention",
     )
     reason = serializers.CharField(allow_blank=True, help_text="Primary human-readable eligibility result")
-    dependency_requirements_cache_key = serializers.CharField(
-        required=False,
-        help_text="Short-lived cache key that lets copy_flags reuse the resolved dependency graph",
-    )
 
 
 class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
@@ -363,7 +354,11 @@ class OrganizationFeatureFlagView(
 
     @extend_schema(
         request=CopyFlagsDependencyRequirementsRequestSerializer,
-        responses={200: CopyFlagsDependencyRequirementsResponseSerializer},
+        responses={
+            200: CopyFlagsDependencyRequirementsResponseSerializer,
+            400: OpenApiResponse(response=ErrorResponseSerializer),
+            403: OpenApiResponse(response=ErrorResponseSerializer),
+        },
     )
     @action(
         detail=False,
@@ -378,7 +373,8 @@ class OrganizationFeatureFlagView(
         feature_flag_key = body.get("feature_flag_key")
         from_project = body.get("from_project")
         target_project_ids = body.get("target_project_ids")
-        user_permissions = UserPermissions(user=request.user)
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user=user)
         accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
 
         try:
@@ -386,17 +382,13 @@ class OrganizationFeatureFlagView(
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not self._user_can_edit_flag(cast(User, request.user), flag_to_copy):
+        if not self._user_can_edit_flag(user, flag_to_copy):
             return Response(
                 {"error": "You do not have permission to copy this flag."}, status=status.HTTP_403_FORBIDDEN
             )
 
         try:
-            dependency_graph = self._resolve_dependency_copy_graph(
-                flag_to_copy,
-                cast(User, request.user),
-                cache_result=True,
-            )
+            dependency_graph = self._resolve_dependency_copy_graph(flag_to_copy, user)
         except (PermissionError, ValueError) as error:
             return Response(
                 self._dependency_requirements_unavailable_response(str(error)),
@@ -410,7 +402,11 @@ class OrganizationFeatureFlagView(
 
     @extend_schema(
         request=CopyFlagsRequestSerializer,
-        responses={200: CopyFlagsResponseSerializer},
+        responses={
+            200: CopyFlagsResponseSerializer,
+            400: OpenApiResponse(response=ErrorResponseSerializer),
+            403: OpenApiResponse(response=ErrorResponseSerializer),
+        },
     )
     @action(detail=False, methods=["post"], url_path="copy_flags", required_scopes=["feature_flag:write"])
     def copy_flags(self, request, *args, **kwargs):
@@ -423,8 +419,8 @@ class OrganizationFeatureFlagView(
         copy_schedule = body.get("copy_schedule", False)  # Optional parameter to copy schedules
         disable_copied_flag = body.get("disable_copied_flag", False)
         copy_dependencies = body.get("copy_dependencies", False)
-        dependency_requirements_cache_key = body.get("dependency_requirements_cache_key")
-        user_permissions = UserPermissions(user=request.user)
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user=user)
         accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
 
         try:
@@ -432,7 +428,7 @@ class OrganizationFeatureFlagView(
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not self._user_can_edit_flag(cast(User, request.user), flag_to_copy):
+        if not self._user_can_edit_flag(user, flag_to_copy):
             return Response(
                 {"error": "You do not have permission to copy this flag."}, status=status.HTTP_403_FORBIDDEN
             )
@@ -440,20 +436,7 @@ class OrganizationFeatureFlagView(
         dependency_graph = DependencyCopyGraph(dependency_flags=[], root_dependency_flag_ids=[])
         if copy_dependencies:
             try:
-                if dependency_requirements_cache_key:
-                    cached_dependency_graph = self._get_cached_dependency_copy_graph(
-                        dependency_requirements_cache_key,
-                        flag_to_copy,
-                        cast(User, request.user),
-                    )
-                    if cached_dependency_graph is None:
-                        return Response(
-                            {"error": STALE_DEPENDENCY_REQUIREMENTS_CACHE_ERROR},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    dependency_graph = cached_dependency_graph
-                else:
-                    dependency_graph = self._resolve_dependency_copy_graph(flag_to_copy, cast(User, request.user))
+                dependency_graph = self._resolve_dependency_copy_graph(flag_to_copy, user)
             except PermissionError as error:
                 return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
             except ValueError as error:
@@ -464,7 +447,7 @@ class OrganizationFeatureFlagView(
             source_flag.id: self._get_feature_flag_copy_source_context(
                 source_flag,
                 copy_schedule,
-                cast(User, request.user),
+                user,
             )
             for source_flag in copy_source_flags
         }
@@ -485,34 +468,15 @@ class OrganizationFeatureFlagView(
 
             try:
                 with transaction.atomic():
-                    copied_dependency_keys: list[str] = []
-                    dependency_copy_warnings: list[str] = []
-
-                    if copy_dependencies and dependency_graph.dependency_flags:
-                        target_requirements = self._get_dependency_target_requirements(
-                            dependency_graph,
-                            [target_project_id],
-                            accessible_team_ids=accessible_team_ids,
-                            target_teams_by_project_id={target_project_id: target_team},
-                        )
-                        keys_to_copy = set(target_requirements.copied_dependency_keys)
-                        for dependency_flag in dependency_graph.dependency_flags:
-                            if dependency_flag.key not in keys_to_copy:
-                                continue
-                            dependency_result = self._copy_feature_flag_to_target(
-                                request,
-                                dependency_flag,
-                                target_team,
-                                target_project_id,
-                                copy_schedule,
-                                False,
-                                update_existing_target=False,
-                                source_context=copy_source_contexts[dependency_flag.id],
-                            )
-                            copied_dependency_keys.append(dependency_flag.key)
-                            dependency_copy_warnings.extend(dependency_result.get("flag_dependency_warnings") or [])
-                            if dependency_result.get("schedule_copy_warning"):
-                                dependency_copy_warnings.append(dependency_result["schedule_copy_warning"])
+                    copied_dependency_keys, dependency_copy_warnings = self._copy_dependency_flags_to_target(
+                        request,
+                        dependency_graph,
+                        target_team,
+                        target_project_id,
+                        copy_schedule,
+                        accessible_team_ids,
+                        copy_source_contexts,
+                    )
 
                     result = self._copy_feature_flag_to_target(
                         request,
@@ -540,6 +504,49 @@ class OrganizationFeatureFlagView(
             {"success": successful_projects, "failed": failed_projects},
             status=status.HTTP_200_OK,
         )
+
+    def _copy_dependency_flags_to_target(
+        self,
+        request: Request,
+        dependency_graph: DependencyCopyGraph,
+        target_team: Team,
+        target_project_id: int,
+        copy_schedule: bool,
+        accessible_team_ids: set[int],
+        copy_source_contexts: dict[int, FeatureFlagCopySourceContext],
+    ) -> tuple[list[str], list[str]]:
+        if not dependency_graph.dependency_flags:
+            return [], []
+
+        target_requirements = self._get_dependency_target_requirements(
+            dependency_graph,
+            [target_project_id],
+            accessible_team_ids=accessible_team_ids,
+            target_teams_by_project_id={target_project_id: target_team},
+        )
+        keys_to_copy = set(target_requirements.copied_dependency_keys)
+        copied_dependency_keys: list[str] = []
+        dependency_copy_warnings: list[str] = []
+
+        for dependency_flag in dependency_graph.dependency_flags:
+            if dependency_flag.key not in keys_to_copy:
+                continue
+            dependency_result = self._copy_feature_flag_to_target(
+                request,
+                dependency_flag,
+                target_team,
+                target_project_id,
+                copy_schedule,
+                False,
+                update_existing_target=False,
+                source_context=copy_source_contexts[dependency_flag.id],
+            )
+            copied_dependency_keys.append(dependency_flag.key)
+            dependency_copy_warnings.extend(dependency_result.get("flag_dependency_warnings") or [])
+            if dependency_result.get("schedule_copy_warning"):
+                dependency_copy_warnings.append(dependency_result["schedule_copy_warning"])
+
+        return copied_dependency_keys, dependency_copy_warnings
 
     def _get_source_flag(self, feature_flag_key: str, from_project: int, accessible_team_ids: set[int]) -> FeatureFlag:
         return FeatureFlag.objects.get(
@@ -621,8 +628,6 @@ class OrganizationFeatureFlagView(
             "warnings": target_requirements.warnings,
             "reason": target_requirements.reason,
         }
-        if dependency_graph.cache_key:
-            response["dependency_requirements_cache_key"] = dependency_graph.cache_key
         return response
 
     def _get_dependency_target_requirements(
@@ -668,7 +673,7 @@ class OrganizationFeatureFlagView(
         )
 
         if accessible_team_ids is None:
-            user_permissions = UserPermissions(user=self.request.user)
+            user_permissions = UserPermissions(user=cast(User, self.request.user))
             accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
         if target_teams_by_project_id is None:
             target_teams_by_project_id = self._get_target_teams_by_project_id(target_project_ids)
@@ -825,14 +830,13 @@ class OrganizationFeatureFlagView(
         )
         return True, dependency_keys_to_copy, dependency_keys_to_reuse
 
-    def _resolve_dependency_copy_graph(
-        self, source_flag: FeatureFlag, user: User, cache_result: bool = False
-    ) -> DependencyCopyGraph:
+    def _resolve_dependency_copy_graph(self, source_flag: FeatureFlag, user: User) -> DependencyCopyGraph:
         visited: set[int] = set()
         visiting: set[int] = set()
         discovered_dependency_ids: set[int] = set()
         dependency_flags: list[FeatureFlag] = []
 
+        # Keep this separate from cohort sorting because flag copy enforces permissions and the cap during discovery.
         def visit(flag: FeatureFlag) -> None:
             if flag.id in visiting:
                 raise ValueError(
@@ -853,7 +857,7 @@ class OrganizationFeatureFlagView(
                         f"Removed a flag dependency (source flag reference {dependency_reference}) because the dependency flag could not be resolved in the source project."
                     )
                 if not self._user_can_edit_flag(user, dependency_flag):
-                    raise PermissionError("You do not have permission to copy one or more dependency flags.")
+                    raise PermissionError(SOURCE_DEPENDENCY_COPY_PERMISSION_ERROR)
                 if (
                     dependency_flag.id != source_flag.id
                     and dependency_flag.id not in visited
@@ -876,14 +880,6 @@ class OrganizationFeatureFlagView(
         source_dependency_ids = self._extract_direct_flag_dependency_ids(source_flag)
         root_dependency_flag_ids = [flag.id for flag in dependency_flags if flag.id in source_dependency_ids]
 
-        if cache_result:
-            return DependencyCopyGraph(
-                dependency_flags=dependency_flags,
-                root_dependency_flag_ids=root_dependency_flag_ids,
-                cache_key=self._cache_dependency_copy_graph(
-                    source_flag, user, dependency_flags, root_dependency_flag_ids
-                ),
-            )
         return DependencyCopyGraph(dependency_flags=dependency_flags, root_dependency_flag_ids=root_dependency_flag_ids)
 
     def _extract_direct_flag_dependency_ids(self, flag: FeatureFlag) -> set[int]:
@@ -972,91 +968,6 @@ class OrganizationFeatureFlagView(
 
         return dependency_flags_by_reference
 
-    def _check_dependency_copy_access(self, user: User, dependency_flags: list[FeatureFlag]) -> None:
-        for dependency_flag in dependency_flags:
-            if not self._user_can_edit_flag(user, dependency_flag):
-                raise PermissionError("You do not have permission to copy one or more dependency flags.")
-
-    def _get_cached_dependency_copy_graph(
-        self, cache_key: str | None, source_flag: FeatureFlag, user: User
-    ) -> DependencyCopyGraph | None:
-        if not cache_key:
-            return None
-
-        payload = cache.get(f"{COPY_DEPENDENCY_GRAPH_CACHE_PREFIX}:{cache_key}")
-        if not isinstance(payload, dict):
-            return None
-        if payload.get("user_id") != user.id or payload.get("source_flag_id") != source_flag.id:
-            return None
-
-        dependency_flag_ids = payload.get("dependency_flag_ids")
-        if not isinstance(dependency_flag_ids, list):
-            return None
-        root_dependency_flag_ids = payload.get("root_dependency_flag_ids")
-        if not isinstance(root_dependency_flag_ids, list):
-            return None
-
-        all_flag_ids = [source_flag.id, *dependency_flag_ids]
-        flags = list(
-            FeatureFlag.objects.filter(
-                id__in=all_flag_ids,
-                team=source_flag.team,
-                deleted=False,
-            )
-        )
-        if len(flags) != len(all_flag_ids):
-            return None
-        if self._dependency_graph_fingerprint(flags) != payload.get("fingerprint"):
-            return None
-
-        flags_by_id = {flag.id: flag for flag in flags}
-        dependency_flags = [flags_by_id[flag_id] for flag_id in dependency_flag_ids]
-        self._check_dependency_copy_access(user, dependency_flags)
-        return DependencyCopyGraph(
-            dependency_flags=dependency_flags,
-            root_dependency_flag_ids=root_dependency_flag_ids,
-            cache_key=cache_key,
-        )
-
-    def _cache_dependency_copy_graph(
-        self,
-        source_flag: FeatureFlag,
-        user: User,
-        dependency_flags: list[FeatureFlag],
-        root_dependency_flag_ids: list[int],
-    ) -> str:
-        cache_key = uuid4().hex
-        flags = [source_flag, *dependency_flags]
-        cache.set(
-            f"{COPY_DEPENDENCY_GRAPH_CACHE_PREFIX}:{cache_key}",
-            {
-                "user_id": user.id,
-                "source_flag_id": source_flag.id,
-                "dependency_flag_ids": [flag.id for flag in dependency_flags],
-                "root_dependency_flag_ids": root_dependency_flag_ids,
-                "fingerprint": self._dependency_graph_fingerprint(flags),
-            },
-            COPY_DEPENDENCY_GRAPH_CACHE_TTL_SECONDS,
-        )
-        return cache_key
-
-    def _dependency_graph_fingerprint(self, flags: list[FeatureFlag]) -> str:
-        fingerprint_data = [
-            {
-                "id": flag.id,
-                "key": flag.key,
-                "active": flag.active,
-                "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
-                "filters": flag.get_filters(),
-            }
-            for flag in sorted(flags, key=lambda flag: flag.id)
-        ]
-        return hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True, default=str).encode()).hexdigest()
-
-    def _get_source_dependency_keys(self, source_flag: FeatureFlag, user: User | None = None) -> dict[str, str]:
-        source_dependency_keys, _ = self._get_source_dependency_context(source_flag, user=user)
-        return source_dependency_keys
-
     def _get_source_dependency_context(
         self, source_flag: FeatureFlag, user: User | None = None
     ) -> tuple[dict[str, str], set[str]]:
@@ -1066,21 +977,6 @@ class OrganizationFeatureFlagView(
         return self._get_source_dependency_context_for_references(
             source_flag.team, source_dependency_references, user=user
         )
-
-    def _get_source_dependency_keys_for_references(
-        self,
-        source_team: Team,
-        source_dependency_references: list[str],
-        user: User | None = None,
-        raise_on_access_denied: bool = False,
-    ) -> dict[str, str]:
-        source_dependency_keys, _ = self._get_source_dependency_context_for_references(
-            source_team,
-            source_dependency_references,
-            user=user,
-            raise_on_access_denied=raise_on_access_denied,
-        )
-        return source_dependency_keys
 
     def _get_source_dependency_context_for_references(
         self,
@@ -1108,12 +1004,6 @@ class OrganizationFeatureFlagView(
             disabled_source_dependency_keys,
         )
 
-    def _get_source_dependency_keys_from_payload(
-        self, payload: dict[str, Any], source_team: Team, user: User
-    ) -> dict[str, str]:
-        source_dependency_keys, _ = self._get_source_dependency_context_from_payload(payload, source_team, user)
-        return source_dependency_keys
-
     def _get_source_dependency_context_from_payload(
         self, payload: dict[str, Any], source_team: Team, user: User
     ) -> tuple[dict[str, str], set[str]]:
@@ -1138,6 +1028,7 @@ class OrganizationFeatureFlagView(
             seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
         )
         source_schedules: list[ScheduledChange] = []
+        schedule_dependency_contexts_by_id: dict[int, ScheduledChangeDependencyContext] = {}
         if copy_schedule:
             source_schedules = list(
                 ScheduledChange.objects.filter(
@@ -1147,6 +1038,28 @@ class OrganizationFeatureFlagView(
                     team=source_flag.team,
                 )
             )
+            for source_schedule in source_schedules:
+                schedule_id = cast(int, source_schedule.id)
+                try:
+                    schedule_source_dependency_keys, schedule_disabled_source_dependency_keys = (
+                        self._get_source_dependency_context_from_payload(
+                            source_schedule.payload,
+                            source_flag.team,
+                            user,
+                        )
+                    )
+                except PermissionError as error:
+                    schedule_dependency_contexts_by_id[schedule_id] = ScheduledChangeDependencyContext(
+                        source_dependency_keys={},
+                        disabled_source_dependency_keys=set(),
+                        error_message=str(error),
+                    )
+                    continue
+
+                schedule_dependency_contexts_by_id[schedule_id] = ScheduledChangeDependencyContext(
+                    source_dependency_keys=schedule_source_dependency_keys,
+                    disabled_source_dependency_keys=schedule_disabled_source_dependency_keys,
+                )
             schedule_cohort_ids = self._extract_cohort_ids_from_schedules(
                 source_schedules, source_flag.team, seen_cohorts_cache
             )
@@ -1161,6 +1074,7 @@ class OrganizationFeatureFlagView(
             seen_cohorts_cache=seen_cohorts_cache,
             sorted_cohort_ids=sorted_cohort_ids,
             source_schedules=source_schedules,
+            schedule_dependency_contexts_by_id=schedule_dependency_contexts_by_id,
         )
 
     def _copy_feature_flag_to_target(
@@ -1346,7 +1260,7 @@ class OrganizationFeatureFlagView(
                         request.user,
                         name_to_dest_cohort_id,
                         seen_cohorts_cache,
-                        source_flag.team,
+                        source_context.schedule_dependency_contexts_by_id,
                         source_dependency_keys,
                         disabled_source_dependency_keys,
                         target_team,
@@ -1378,7 +1292,7 @@ class OrganizationFeatureFlagView(
 
     def _remap_flag_dependencies(
         self,
-        filters: dict,
+        filters: dict[str, Any],
         source_dependency_keys: dict[str, str],
         target_team: Team,
         disabled_source_dependency_keys: set[str] | None = None,
@@ -1390,6 +1304,30 @@ class OrganizationFeatureFlagView(
         target project, the dependency is dropped and a warning is returned rather than failing the
         whole copy (the validator would otherwise reject a dangling or disabled dependency).
         """
+        if source_dependency_keys:
+            target_flags_by_key, restricted_target_dependency_keys = self._get_accessible_target_flags_by_key(
+                list(source_dependency_keys.values()),
+                target_team,
+            )
+        else:
+            target_flags_by_key = {}
+            restricted_target_dependency_keys = set()
+        return self._remap_flag_dependencies_with_target_context(
+            filters,
+            source_dependency_keys,
+            target_flags_by_key,
+            restricted_target_dependency_keys,
+            disabled_source_dependency_keys,
+        )
+
+    def _remap_flag_dependencies_with_target_context(
+        self,
+        filters: dict[str, Any],
+        source_dependency_keys: dict[str, str],
+        target_flags_by_key: dict[str, FeatureFlag],
+        restricted_target_dependency_keys: set[str],
+        disabled_source_dependency_keys: set[str] | None = None,
+    ) -> list[str]:
         warnings: list[str] = []
         has_flag_dependency_property = any(
             prop.get("type") == "flag"
@@ -1400,16 +1338,6 @@ class OrganizationFeatureFlagView(
             return warnings
         disabled_source_dependency_keys = disabled_source_dependency_keys or set()
 
-        # Resolve every source dependency key to its target flag in one query per target, rather than
-        # querying once per flag-type property (mirrors the batched source-dependency scan upstream).
-        if source_dependency_keys:
-            target_flags_by_key, restricted_target_dependency_keys = self._get_accessible_target_flags_by_key(
-                list(source_dependency_keys.values()),
-                target_team,
-            )
-        else:
-            target_flags_by_key = {}
-            restricted_target_dependency_keys = set()
         for group in self._iter_filter_groups(filters):
             # Leave groups without a properties key untouched so we don't change the filter shape
             # (an injected empty list would otherwise alter every copied flag's serialized filters).
@@ -1481,21 +1409,12 @@ class OrganizationFeatureFlagView(
         user: User,
         cohort_mapping: dict[str, int],
         cohort_cache: dict[int, CohortOrEmpty],
-        source_team: Team,
+        schedule_dependency_contexts_by_id: dict[int, ScheduledChangeDependencyContext],
         source_dependency_keys: dict[str, str],
         disabled_source_dependency_keys: set[str],
         target_team: Team,
     ) -> list[str]:
-        """
-        Copy all scheduled changes from source flag to target flag.
-
-        Args:
-            source_schedules: List of ScheduledChange objects to copy (already fetched)
-            target_flag: The newly created/updated FeatureFlag instance
-            user: The user performing the copy operation
-            cohort_mapping: Dict mapping source cohort names to target cohort IDs
-            cohort_cache: Dict of cohort_id -> Cohort objects to avoid N+1 queries
-        """
+        """Copy pending schedules, remapping cohort IDs and flag dependencies for the target project."""
         # Validate user has permission to create schedules in target project
         user_access_control = UserAccessControl(user, target_flag.team)
         user_access_level = user_access_control.get_user_access_level(target_flag)
@@ -1512,24 +1431,33 @@ class OrganizationFeatureFlagView(
             )
 
         schedule_dependency_warnings: list[str] = []
+        source_dependency_key_values = set(source_dependency_keys.values())
+        if source_dependency_keys:
+            target_flags_by_key, restricted_target_dependency_keys = self._get_accessible_target_flags_by_key(
+                list(source_dependency_key_values),
+                target_team,
+            )
+        else:
+            target_flags_by_key = {}
+            restricted_target_dependency_keys = set()
+
         # Copy each schedule to the target flag
         for schedule in source_schedules:
             # Remap cohort IDs in schedule payload
             updated_payload = self._remap_cohort_ids_in_payload(schedule.payload, cohort_mapping, cohort_cache)
-            try:
-                schedule_payload_dependency_keys, schedule_payload_disabled_dependency_keys = (
-                    self._get_source_dependency_context_from_payload(
-                        schedule.payload,
-                        source_team,
-                        user,
-                    )
-                )
-            except PermissionError as error:
-                schedule_dependency_warnings.append(str(error))
+            schedule_dependency_context = schedule_dependency_contexts_by_id.get(cast(int, schedule.id))
+            if schedule_dependency_context is None:
+                schedule_dependency_context = ScheduledChangeDependencyContext({}, set())
+
+            if schedule_dependency_context.error_message:
+                schedule_dependency_warnings.append(schedule_dependency_context.error_message)
                 schedule_dependency_warnings.append(
                     "Skipped scheduled change because one or more flag dependencies could not be safely remapped."
                 )
                 continue
+
+            schedule_payload_dependency_keys = schedule_dependency_context.source_dependency_keys
+            schedule_payload_disabled_dependency_keys = schedule_dependency_context.disabled_source_dependency_keys
             schedule_source_dependency_keys = {
                 **source_dependency_keys,
                 **schedule_payload_dependency_keys,
@@ -1537,10 +1465,31 @@ class OrganizationFeatureFlagView(
             schedule_disabled_source_dependency_keys = (
                 disabled_source_dependency_keys | schedule_payload_disabled_dependency_keys
             )
+
+            schedule_target_flags_by_key = target_flags_by_key
+            schedule_restricted_target_dependency_keys = restricted_target_dependency_keys
+            extra_dependency_keys = [
+                dependency_key
+                for dependency_key in schedule_payload_dependency_keys.values()
+                if dependency_key not in source_dependency_key_values
+            ]
+            if extra_dependency_keys:
+                extra_target_flags_by_key, extra_restricted_target_dependency_keys = (
+                    self._get_accessible_target_flags_by_key(extra_dependency_keys, target_team)
+                )
+                schedule_target_flags_by_key = {
+                    **target_flags_by_key,
+                    **extra_target_flags_by_key,
+                }
+                schedule_restricted_target_dependency_keys = (
+                    restricted_target_dependency_keys | extra_restricted_target_dependency_keys
+                )
+
             schedule_warnings = self._remap_flag_dependencies_in_payload(
                 updated_payload,
                 schedule_source_dependency_keys,
-                target_team,
+                schedule_target_flags_by_key,
+                schedule_restricted_target_dependency_keys,
                 schedule_disabled_source_dependency_keys,
             )
             if schedule_warnings:
@@ -1570,14 +1519,19 @@ class OrganizationFeatureFlagView(
         self,
         payload: dict[str, Any],
         source_dependency_keys: dict[str, str],
-        target_team: Team,
+        target_flags_by_key: dict[str, FeatureFlag],
+        restricted_target_dependency_keys: set[str],
         disabled_source_dependency_keys: set[str] | None = None,
     ) -> list[str]:
         filters = self._get_schedule_payload_filters(payload)
         if filters is None:
             return []
-        return self._remap_flag_dependencies(
-            filters, source_dependency_keys, target_team, disabled_source_dependency_keys
+        return self._remap_flag_dependencies_with_target_context(
+            filters,
+            source_dependency_keys,
+            target_flags_by_key,
+            restricted_target_dependency_keys,
+            disabled_source_dependency_keys,
         )
 
     def _remap_cohort_ids_in_payload(

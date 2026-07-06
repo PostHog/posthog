@@ -317,9 +317,6 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.copy_dependencies !== undefined) {
             body['copy_dependencies'] = params.copy_dependencies
         }
-        if (params.dependency_requirements_cache_key !== undefined) {
-            body['dependency_requirements_cache_key'] = params.dependency_requirements_cache_key
-        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,

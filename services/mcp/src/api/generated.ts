@@ -13996,8 +13996,6 @@ export namespace Schemas {
       warnings: string[];
       /** Primary human-readable eligibility result */
       reason: string;
-      /** Short-lived cache key that lets copy_flags reuse the resolved dependency graph */
-      dependency_requirements_cache_key?: string;
     }
 
     export interface CopyFlagsRequest {
@@ -14017,8 +14015,6 @@ export namespace Schemas {
       disable_copied_flag?: boolean;
       /** Whether to also copy missing feature flags that this flag depends on */
       copy_dependencies?: boolean;
-      /** Optional cache key returned by the dependency eligibility check to reuse the resolved dependency graph */
-      dependency_requirements_cache_key?: string;
     }
 
     export interface CopyFlagsSuccessItem {
