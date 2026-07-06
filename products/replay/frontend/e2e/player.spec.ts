@@ -1,5 +1,6 @@
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Locator, Page } from '@playwright/test'
+import snappy from 'snappyjs'
 
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import {
@@ -85,6 +86,19 @@ const RECORDINGS: Record<string, MockRecording> = {
     },
 }
 
+// Frame each blob's JSONL as its own raw-Snappy block prefixed with a 4-byte big-endian length,
+// matching what recording-api serves for blob_v2 and what parseEncodedSnapshots expects.
+function snappyBlocks(texts: string[]): Buffer {
+    const parts: Buffer[] = []
+    for (const text of texts) {
+        const compressed = Buffer.from(snappy.compress(Buffer.from(text, 'utf-8')))
+        const length = Buffer.alloc(4)
+        length.writeUInt32BE(compressed.length, 0)
+        parts.push(length, compressed)
+    }
+    return Buffer.concat(parts)
+}
+
 async function mockRecordingApi(page: Page): Promise<void> {
     for (const [sessionId, recording] of Object.entries(RECORDINGS)) {
         await page.route(
@@ -104,8 +118,13 @@ async function mockRecordingApi(page: Page): Promise<void> {
                     if (delay > 0) {
                         await new Promise((resolve) => setTimeout(resolve, delay))
                     }
-                    const body = keys.map((k) => recording.blobs[Number(k)]).join('\n') + '\n'
-                    return route.fulfill({ status: 200, contentType: 'application/json', body })
+                    // blob_v2 content is served as length-prefixed Snappy blocks (the recording-api wire
+                    // format); the player fetches it with decompress=false and decompresses client-side.
+                    return route.fulfill({
+                        status: 200,
+                        contentType: 'application/octet-stream',
+                        body: snappyBlocks(keys.map((k) => recording.blobs[Number(k)])),
+                    })
                 }
                 return route.fulfill({
                     status: 200,
