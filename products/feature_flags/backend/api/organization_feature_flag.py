@@ -645,10 +645,23 @@ class OrganizationFeatureFlagView(
 
         dependency_flags_by_id = {flag.id: flag for flag in dependency_flags}
         dependency_flag_ids = set(dependency_flags_by_id)
+        dependency_flags_by_key = {flag.key: flag for flag in dependency_flags}
         dependency_order_by_id = {flag.id: index for index, flag in enumerate(dependency_flags)}
-        dependency_ids_by_flag_id = {
-            flag.id: self._extract_direct_flag_dependency_ids(flag) & dependency_flag_ids for flag in dependency_flags
-        }
+        dependency_ids_by_flag_id: dict[int, set[int]] = {}
+        for flag in dependency_flags:
+            direct_dependency_ids: set[int] = set()
+            for dependency_reference in self._extract_direct_flag_dependency_references_from_filters(
+                flag.get_filters()
+            ):
+                dependency_id = self._parse_flag_dependency_id_reference(dependency_reference)
+                if dependency_id is not None and dependency_id in dependency_flag_ids:
+                    direct_dependency_ids.add(dependency_id)
+                    continue
+
+                dependency_flag = dependency_flags_by_key.get(dependency_reference)
+                if dependency_flag is not None:
+                    direct_dependency_ids.add(dependency_flag.id)
+            dependency_ids_by_flag_id[flag.id] = direct_dependency_ids
         root_dependency_flag_ids = sorted(
             [flag_id for flag_id in dependency_graph.root_dependency_flag_ids if flag_id in dependency_flags_by_id],
             key=lambda flag_id: dependency_order_by_id[flag_id],
