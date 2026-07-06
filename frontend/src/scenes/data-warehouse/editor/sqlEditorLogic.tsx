@@ -216,7 +216,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer'
+    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
