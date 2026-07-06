@@ -23,6 +23,7 @@ Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 import json
 import time
 import argparse
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from pathlib import Path
 from gates import (
     MAX_FILES,
     MAX_LINES,
+    POLICY,
     assign_tier,
     category_fully_exempt,
     classify_files,
@@ -50,6 +52,7 @@ from gates import (
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
+from policy import EffectivePolicy, resolve
 from reviewer import Reviewer
 
 try:
@@ -76,6 +79,21 @@ def _repo_root() -> Path:
 
 REPO_ROOT = _repo_root()
 CODEOWNERS_SOFT = REPO_ROOT / ".github" / "CODEOWNERS-soft"
+
+
+def _head_commit_sha() -> str:
+    """HEAD sha of the checked-out policy tree, or 'unknown' if git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 # ── Terminal formatting ──────────────────────────────────────────
@@ -169,6 +187,7 @@ class Pipeline:
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.classification: dict = {}
+        self.effective_policy: EffectivePolicy | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
         self.final_verdict: str = ""
@@ -393,6 +412,11 @@ class Pipeline:
                 breadth=breadth,
             )
 
+        # Resolve any per-folder override for this PR's file set once. Its
+        # effective size gate feeds _check_size; its advisory prose (untrusted)
+        # is threaded to the reviewer prompt; its provenance goes in the bundle.
+        self.effective_policy = resolve(POLICY, file_paths)
+
         self.classification = {
             "tier": tier,
             "t1_subclass": subclass,
@@ -410,6 +434,7 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
+            "folder_policy_prose": self.effective_policy.folder_prose,
         }
 
     def _run_gates(self) -> None:
@@ -492,6 +517,10 @@ class Pipeline:
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
+        # Effective ceiling: a per-folder override (within contract ceiling) can
+        # raise max_files; everything else defaults to the global size gate.
+        max_lines = self.effective_policy.max_lines if self.effective_policy else MAX_LINES
+        max_files = self.effective_policy.max_files if self.effective_policy else MAX_FILES
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
         suffix_parts = []
@@ -500,11 +529,11 @@ class Pipeline:
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
-        if lines > MAX_LINES or files > MAX_FILES:
+        if lines > max_lines or files > max_files:
             return (
                 False,
                 f"too large for auto-review ({lines}L, {files}F substantive{suffix} — "
-                f"ceiling is {MAX_LINES}L / {MAX_FILES}F)",
+                f"ceiling is {max_lines}L / {max_files}F)",
             )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
@@ -680,6 +709,14 @@ class Pipeline:
             "gates": [
                 {"gate": g.gate, "passed": g.passed, "message": g.message} for g in self.gate_results if g is not None
             ],
+            "policy": {
+                "commit_sha": _head_commit_sha(),
+                "policy_file": ".stamphog/policy.yml",
+                "folder_override": self.effective_policy.folder_override_path if self.effective_policy else None,
+                "folder_override_invalid": (
+                    self.effective_policy.folder_override_invalid if self.effective_policy else False
+                ),
+            },
             "reviewer": self.reviewer_output,
             "final_verdict": self.final_verdict,
         }

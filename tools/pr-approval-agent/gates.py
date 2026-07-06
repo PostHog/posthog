@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
+from policy import load_policy
+
 # ── Dependency ecosystems ────────────────────────────────────────
 #
 # Source of truth for how each package ecosystem pairs manifests with
@@ -128,144 +130,18 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 #   "titles" — matched against the PR title only (scrutiny flag, never a
 #              deny) — for words whose path-side hits are false positives
 
-_DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
-    "auth": {
-        "any": [
-            "auth",
-            "login",
-            "signup",
-            "oauth",
-            "saml",
-            "sso",
-            "oidc",
-            "credential",
-            "password",
-            "2fa",
-            "mfa",
-            "authentication",
-            "authenticate",
-            "authorize",
-            "authorization",
-            r"two[_-]?factor",
-        ],
-        # Past participles hard-deny the wrong things as path patterns
-        # (web analytics' authorized_urls.py health check is domain config,
-        # not the auth system) but are natural title words.
-        "titles": [
-            "authenticated",
-            "authorized",
-        ],
-        # "session" and "token" match too broadly in titles and non-auth
-        # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
-        # "permission" matches permission-checking helpers everywhere.
-        # Restrict these to path-only with tighter patterns.
-        # camelCase compounds (e.g. AuthenticatedShell.tsx) don't break on
-        # word boundaries when lowercased, so the "any" words above only
-        # reliably match snake/kebab paths and natural-language titles.
-        "paths": [
-            "session_auth",
-            "session_token",
-            "auth/session",
-            "auth/token",
-            "permission",
-        ],
-    },
-    "crypto_secrets": {
-        "any": [
-            "crypto",
-            "encrypt",
-            "decrypt",
-            "vault",
-        ],
-        # "key", "secret", "cert", "signing" are too broad for titles.
-        # "key" alone matches "keyboard", "hotkey", "localStorage key".
-        # Use path-only with compound patterns.
-        "paths": [
-            "secret",
-            r"api[_-]?key",
-            r"secret[_-]?key",
-            r"private[_-]?key",
-            r"signing[_-]?key",
-            "certificate",
-            r"\.env",
-            r"\.pem",
-        ],
-    },
-    "migrations": {
-        # `migrations/` substring is load-bearing — also catches rust
-        # *_migrations/ dirs applied by sqlx at deploy.
-        "paths": [
-            "migrations/",
-            "schema_change",
-        ],
-    },
-    "infra_cicd": {
-        "any": [
-            "terraform",
-            "kubernetes",
-            "helm",
-        ],
-        # "routing" and bare "deploy" are gone on purpose: every historical
-        # match was app-level (posthog/api/routing.py DRF routers, Slack/Teams
-        # message-routing tests, deploy-timing docs), never infrastructure.
-        # Narrow deploy literals below (bin/deploy, deploy.sh, .github/pr-deploy)
-        # cover real deployment artifacts without re-introducing the false positives.
-        "paths": [
-            r"k8s",
-            "dockerfile",
-            "docker-compose",
-            r"\.github/workflows",
-            r"\.github/pr-deploy",
-            "iam",
-            "cloudflare",
-            "cdn",
-            "waf",
-            r"(?:^|/)bin/deploy",
-            r"deploy\.sh",
-        ],
-    },
-    "billing": {
-        # "subscription" is gone on purpose: in this repo it means scheduled
-        # insight/report deliveries (ee/api/subscription.py, products/exports),
-        # not payments. Real billing surfaces still match via the other words.
-        "any": [
-            "billing",
-            "payment",
-            "stripe",
-            "invoice",
-            "pricing",
-        ],
-    },
-    "public_api": {
-        "any": [
-            "openapi",
-            "api_schema",
-            "swagger",
-            "public_api",
-        ],
-    },
-    "deps_toolchain": {
-        # All path-only — these are literal filenames, not title words.
-        # Manifests (package.json, pyproject.toml, tsconfig, Cargo.toml,
-        # go.mod) deliberately don't hard-deny: without a lockfile change
-        # they cannot pull in third-party code, and 69-80% of manifest-only
-        # denials merged unchanged. The residual risk — manifest "scripts"/
-        # lifecycle hooks execute in CI — is guarded by the reviewer prompt
-        # (see the dependency-manifest rules in reviewer.py), and such PRs
-        # are kept out of the T0 fast path (see is_allow_listed_only usage).
-        # requirements.txt stays: it pins installed code directly, no
-        # lockfile involved. .nvmrc/.tool-versions stay: they change the
-        # runtime for every CI job. Makefile/Dockerfile stay: they execute.
-        "paths": [
-            *(re.escape(name) for name in sorted(_ALL_LOCKFILE_NAMES)),
-            r"requirements[-\w]*\.(txt|in)",
-            "Makefile",
-            "Dockerfile",
-            r"\.tool-versions",
-            r"\.nvmrc",
-        ],
-    },
-}
+# ── Policy-sourced data ──────────────────────────────────────────
+#
+# The deny/allow/size/tier/dismiss data lives in .stamphog/policy.yml and is
+# loaded here at import time, keeping the existing module-level constant names
+# populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS (and
+# DISMISS_TIME_LOCKFILES below) stay code-derived; the loader splices the
+# lockfile names into the deps_toolchain deny paths. A malformed policy raises
+# at import — fail closed, the tool crashes rather than gating on a half-loaded
+# policy.
+POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES)
+
+_DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
 
 def _compile_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
@@ -317,41 +193,14 @@ def _compile_patterns(
 
 DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
-ALLOW_ONLY_EXTENSIONS = {
-    ".md",
-    ".mdx",
-    ".txt",
-    ".rst",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".csv",
-    ".svg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".webp",
-    ".snap",
-    ".lock",
-}
+# Compiled path patterns for stamphog's own policy/engine files. A dismiss-time
+# guard consults these so a retained approval can't silently absorb a policy
+# edit — .md is otherwise blanket-trivial and AGENT_POLICIES.md would slip in.
+_STAMPHOG_POLICY_PATH_PATTERNS = DENY_PATTERNS["stamphog_policy"]["paths"]
 
-ALLOW_PATH_PATTERNS = [
-    "docs/",
-    "README",
-    "CHANGELOG",
-    "LICENSE",
-    "CONTRIBUTING",
-    ".github/CODEOWNERS",
-    ".gitignore",
-    ".editorconfig",
-    "generated/",
-    "__snapshots__/",
-]
+ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
+
+ALLOW_PATH_PATTERNS = list(POLICY.allow_path_patterns)
 
 # ── Dismiss-time allow-list ──────────────────────────────────────
 #
@@ -370,15 +219,7 @@ DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
     *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
 )
 
-_DISMISS_TIME_TEST_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?|fixtures)/"
-    r"|(?:^|/)test_[^/]+\.py$"
-    r"|_test\.(py|go)$"
-    r"|\.test\.(ts|tsx|js|jsx)$"
-    r"|\.spec\.(ts|tsx|js|jsx)$"
-    r"|(?:^|/)conftest\.py$",
-    re.IGNORECASE,
-)
+_DISMISS_TIME_TEST_RE = re.compile(POLICY.dismiss.test_regex, re.IGNORECASE)
 
 # Non-executable-at-dismiss-time on purpose: at dismiss time the path is
 # the only signal, so generated files in runnable backend languages
@@ -387,13 +228,7 @@ _DISMISS_TIME_TEST_RE = re.compile(
 # Real-world cost in this repo: proto regen under
 # posthog/personhog_client/proto/generated/ falls through to re-review,
 # which is rare and cheap.
-_DISMISS_TIME_GENERATED_RE = re.compile(
-    r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
-    r"|\.gen\.(ts|tsx|js|jsx)$"
-    r"|\.generated\.(ts|tsx|js|jsx)$"
-    r"|^frontend/src/queries/schema/",
-    re.IGNORECASE,
-)
+_DISMISS_TIME_GENERATED_RE = re.compile(POLICY.dismiss.generated_regex, re.IGNORECASE)
 
 
 def is_trivial_at_dismiss_time(path: str) -> bool:
@@ -403,15 +238,21 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
     bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
     anything else that can execute or alter build/CI behavior.
     """
+    # Stamphog's own policy/engine files are never trivial at dismiss time —
+    # otherwise a retained approval would let a post-approval policy edit land
+    # unreviewed (AGENT_POLICIES.md is .md, which is blanket-trivial below).
+    if any(rx.search(path) for rx in _STAMPHOG_POLICY_PATH_PATTERNS):
+        return False
+
     name = Path(path).name
     name_lower = name.lower()
     if name_lower in DISMISS_TIME_LOCKFILES:
         return True
 
     suffix = Path(path).suffix.lower()
-    if suffix in {".md", ".mdx"}:
+    if suffix in POLICY.dismiss.trivial_extensions:
         return True
-    if name_lower.startswith(("readme", "changelog")):
+    if name_lower.startswith(POLICY.dismiss.trivial_name_prefixes):
         return True
     if path.startswith("docs/") or "/docs/" in path:
         return True
@@ -503,19 +344,15 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Code under these trees performs auth/OAuth/billing-API handshakes as part of
-# its normal job — every data warehouse import connector (Stripe, Google Ads,
-# Salesforce, …) — so file names legitimately mention auth, oauth, stripe,
+# Per-category path prefixes exempt from deny matching, sourced from each deny
+# category's `exempt_path_prefixes` in the policy file. Categories without an
+# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
+# code that stores customer API keys still deserves the crypto gate. Code under
+# the warehouse-connector trees performs auth/OAuth/billing-API handshakes as
+# part of its normal job, so it legitimately mentions auth, oauth, stripe,
 # api_key, etc. without touching the auth *system* or PostHog's own billing.
-_CONNECTOR_SOURCE_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
-
-# Per-category path prefixes exempt from deny matching. Categories not listed
-# (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
-# code that stores customer API keys still deserves the crypto gate. Add new
-# exempt trees here rather than special-casing in detect_deny_categories.
 DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
-    "auth": _CONNECTOR_SOURCE_PREFIXES,
-    "billing": _CONNECTOR_SOURCE_PREFIXES,
+    category: cat.exempt_path_prefixes for category, cat in POLICY.deny.items() if cat.exempt_path_prefixes
 }
 
 
@@ -698,8 +535,8 @@ def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
 # ── Size gate ────────────────────────────────────────────────────
 
 
-MAX_LINES = 500
-MAX_FILES = 20
+MAX_LINES = POLICY.size_gate.max_lines
+MAX_FILES = POLICY.size_gate.max_files
 
 # Files that inflate a diff without adding review surface: prose docs,
 # regenerated artifacts, and test snapshots. The size ceiling counts only the
@@ -775,16 +612,26 @@ def assign_tier(
     return "T1-agent"
 
 
+def _breadth_within(rule: str, breadth: str) -> bool:
+    """Whether a PR's breadth satisfies a sub-tier's breadth rule from the policy.
+
+    `single-area` requires an exact match; `not-cross-cutting` admits anything
+    but a cross-cutting change.
+    """
+    if rule == "single-area":
+        return breadth == "single-area"
+    return breadth != "cross-cutting"
+
+
 def t1_risk_subclass(
     *,
     lines_total: int,
     files_changed: int,
     breadth: str,
 ) -> str:
-    if lines_total <= 20 and files_changed <= 3 and breadth == "single-area":
-        return "T1a-trivial"
-    if lines_total <= 100 and files_changed <= 5 and breadth != "cross-cutting":
-        return "T1b-small"
-    if lines_total <= 300 and files_changed <= 15 and breadth != "cross-cutting":
-        return "T1c-medium"
+    # First matching sub-tier wins (policy order is narrowest first); T1d is the
+    # engine fallback for anything past the largest configured sub-tier.
+    for label, sub in POLICY.t1_subclasses.items():
+        if lines_total <= sub.max_lines and files_changed <= sub.max_files and _breadth_within(sub.breadth, breadth):
+            return label
     return "T1d-complex"

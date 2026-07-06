@@ -1,0 +1,345 @@
+"""Tests for the declarative policy loader, resolver, and prompt recomposition."""
+
+import sys
+from pathlib import Path
+
+import pytest
+from unittest.mock import MagicMock
+
+import yaml
+
+# reviewer.py is a uv-script; stub its claude_agent_sdk dep like the sibling suites.
+sys.modules.setdefault("claude_agent_sdk", MagicMock())
+sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
+
+import gates  # noqa: E402
+import policy  # noqa: E402
+import reviewer  # noqa: E402
+from policy import PolicyError, _sanitize_folder_prose, default_policy_path, load_policy, resolve  # noqa: E402
+
+_LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
+
+# ── Frozen pre-extraction constants (verbatim, captured before removal) ──
+#
+# Migration guards: these pin the extraction to the exact pre-extraction values
+# so a YAML transcription slip (a mangled regex escape, a dropped entry) cannot
+# pass silently. The first INTENTIONAL policy change must update the frozen copy
+# here in the same PR — that is by design: machine-policy edits always touch two
+# human-reviewed files. (The prose guidance file is deliberately NOT frozen —
+# wording changes are governed by human review via the stamphog_policy deny.)
+
+OLD_DENY_PATTERN_DEFS = {
+    "auth": {
+        "any": [
+            "auth",
+            "login",
+            "signup",
+            "oauth",
+            "saml",
+            "sso",
+            "oidc",
+            "credential",
+            "password",
+            "2fa",
+            "mfa",
+            "authentication",
+            "authenticate",
+            "authorize",
+            "authorization",
+            "two[_-]?factor",
+        ],
+        "titles": ["authenticated", "authorized"],
+        "paths": ["session_auth", "session_token", "auth/session", "auth/token", "permission"],
+    },
+    "crypto_secrets": {
+        "any": ["crypto", "encrypt", "decrypt", "vault"],
+        "paths": [
+            "secret",
+            "api[_-]?key",
+            "secret[_-]?key",
+            "private[_-]?key",
+            "signing[_-]?key",
+            "certificate",
+            "\\.env",
+            "\\.pem",
+        ],
+    },
+    "migrations": {"paths": ["migrations/", "schema_change"]},
+    "infra_cicd": {
+        "any": ["terraform", "kubernetes", "helm"],
+        "paths": [
+            "k8s",
+            "dockerfile",
+            "docker-compose",
+            "\\.github/workflows",
+            "\\.github/pr-deploy",
+            "iam",
+            "cloudflare",
+            "cdn",
+            "waf",
+            "(?:^|/)bin/deploy",
+            "deploy\\.sh",
+        ],
+    },
+    "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
+    "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
+    "deps_toolchain": {
+        "paths": [
+            "cargo\\.lock",
+            "composer\\.lock",
+            "gemfile\\.lock",
+            "go\\.sum",
+            "npm\\-shrinkwrap\\.json",
+            "package\\-lock\\.json",
+            "pipfile\\.lock",
+            "pnpm\\-lock\\.yaml",
+            "poetry\\.lock",
+            "uv\\.lock",
+            "yarn\\.lock",
+            "requirements[-\\w]*\\.(txt|in)",
+            "Makefile",
+            "Dockerfile",
+            "\\.tool-versions",
+            "\\.nvmrc",
+        ]
+    },
+}
+OLD_ALLOW_ONLY_EXTENSIONS = {
+    ".txt",
+    ".yml",
+    ".lock",
+    ".yaml",
+    ".toml",
+    ".jpeg",
+    ".ini",
+    ".jpg",
+    ".png",
+    ".ico",
+    ".cfg",
+    ".csv",
+    ".snap",
+    ".webp",
+    ".gif",
+    ".mdx",
+    ".rst",
+    ".md",
+    ".json",
+    ".svg",
+}
+OLD_ALLOW_PATH_PATTERNS = [
+    "docs/",
+    "README",
+    "CHANGELOG",
+    "LICENSE",
+    "CONTRIBUTING",
+    ".github/CODEOWNERS",
+    ".gitignore",
+    ".editorconfig",
+    "generated/",
+    "__snapshots__/",
+]
+OLD_MAX_LINES = 500
+OLD_MAX_FILES = 20
+OLD_DISMISS_TEST_RE = "(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\\.py$|_test\\.(py|go)$|\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$|(?:^|/)conftest\\.py$"
+OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
+
+# ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
+
+
+def test_deny_defs_equal_pre_extraction_excluding_stamphog_policy() -> None:
+    live = {k: v for k, v in gates._DENY_PATTERN_DEFS.items() if k != "stamphog_policy"}
+    assert live == OLD_DENY_PATTERN_DEFS
+
+
+def test_allow_size_and_dismiss_equal_pre_extraction() -> None:
+    assert set(gates.ALLOW_ONLY_EXTENSIONS) == OLD_ALLOW_ONLY_EXTENSIONS
+    assert list(gates.ALLOW_PATH_PATTERNS) == OLD_ALLOW_PATH_PATTERNS
+    assert gates.MAX_LINES == OLD_MAX_LINES
+    assert gates.MAX_FILES == OLD_MAX_FILES
+    assert gates._DISMISS_TIME_TEST_RE.pattern == OLD_DISMISS_TEST_RE
+    assert gates._DISMISS_TIME_GENERATED_RE.pattern == OLD_DISMISS_GENERATED_RE
+
+
+@pytest.mark.parametrize(
+    "lines, files, breadth, expected",
+    [
+        (20, 3, "single-area", "T1a-trivial"),
+        (20, 3, "two-areas", "T1b-small"),
+        (100, 5, "two-areas", "T1b-small"),
+        (300, 15, "two-areas", "T1c-medium"),
+        (301, 15, "two-areas", "T1d-complex"),
+        (50, 4, "cross-cutting", "T1d-complex"),
+    ],
+)
+def test_tier_thresholds_unchanged(lines: int, files: int, breadth: str, expected: str) -> None:
+    assert gates.t1_risk_subclass(lines_total=lines, files_changed=files, breadth=breadth) == expected
+
+
+# ── 2. Malformed global policy hard-fails at load ──
+
+
+def _valid_policy_dict() -> dict:
+    return yaml.safe_load(default_policy_path().read_text())
+
+
+def _unknown_top_level_key(d: dict) -> None:
+    d["bogus"] = 1
+
+
+def _empty_pattern_list(d: dict) -> None:
+    d["deny"]["auth"]["match"]["any"] = []
+
+
+def _invalid_regex(d: dict) -> None:
+    d["deny"]["auth"]["match"]["paths"] = ["("]
+
+
+def _drop_self_governance(d: dict) -> None:
+    del d["deny"]["stamphog_policy"]
+
+
+def _out_of_contract_delegation(d: dict) -> None:
+    d["overrides"]["deny"] = {"ceiling": 1}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        _unknown_top_level_key,
+        _empty_pattern_list,
+        _invalid_regex,
+        _drop_self_governance,
+        _out_of_contract_delegation,
+    ],
+)
+def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
+    data = _valid_policy_dict()
+    mutate(data)
+    bad = tmp_path / "policy.yml"
+    bad.write_text(yaml.safe_dump(data))
+    with pytest.raises(PolicyError):
+        load_policy(bad, lockfile_names=_LOCKFILE_NAMES)
+
+
+# ── 3. Folder-override resolution ──
+
+
+_VISUAL_REVIEW_FILE = "products/visual_review/AGENT_POLICIES.md"
+
+
+def _write_folder_policy(root: Path, frontmatter: str, prose: str = "advisory prose") -> None:
+    path = root / "products" / "visual_review" / "AGENT_POLICIES.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\n{frontmatter}\n---\n\n{prose}\n")
+
+
+@pytest.fixture
+def fake_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
+    return tmp_path
+
+
+def test_resolve_folder_override_applies_when_scoped(fake_repo: Path) -> None:
+    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/visual_review/sub/b.py"])
+    assert eff.max_files == 50
+    assert eff.max_lines == gates.MAX_LINES
+    assert eff.folder_override_path == _VISUAL_REVIEW_FILE
+    assert eff.folder_override_invalid is False
+    assert eff.folder_prose == "advisory prose"
+
+
+def test_resolve_stray_root_file_disables_override(fake_repo: Path) -> None:
+    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
+    assert eff.max_files == gates.MAX_FILES
+    assert eff.folder_override_path is None
+
+
+def test_resolve_undelegated_key_invalidates_whole_file(fake_repo: Path) -> None:
+    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_lines: 999")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert eff.max_files == gates.MAX_FILES
+    assert eff.folder_override_invalid is True
+    assert eff.folder_prose is None
+
+
+def test_resolve_out_of_ceiling_invalidates_whole_file(fake_repo: Path) -> None:
+    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 99")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert eff.max_files == gates.MAX_FILES
+    assert eff.folder_override_invalid is True
+
+
+@pytest.mark.usefixtures("fake_repo")
+def test_resolve_no_folder_file_uses_global() -> None:
+    eff = resolve(gates.POLICY, ["posthog/api/insight.py"])
+    assert eff.max_files == gates.MAX_FILES
+    assert eff.folder_override_path is None
+    assert eff.folder_override_invalid is False
+
+
+def test_resolve_carries_sanitized_prose(fake_repo: Path) -> None:
+    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50", prose="keep\x07this")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert eff.folder_prose == "keepthis"
+
+
+# ── 4. A policy-file-only PR is never T0 (deny wins over allow-listed ext) ──
+
+
+@pytest.mark.parametrize(
+    "path",
+    [".stamphog/policy.yml", "some/AGENT_POLICIES.md", "tools/pr-approval-agent/review_pr.py"],
+)
+def test_policy_file_only_pr_is_t2_never(path: str) -> None:
+    deny = gates.detect_deny_categories([path])
+    assert deny == ["stamphog_policy"]
+    tier = gates.assign_tier(
+        deny_categories=deny,
+        allow_listed_only=gates.is_allow_listed_only([path]),
+        is_test_only=False,
+        has_new_files=False,
+        lines_total=1,
+        files_changed=1,
+        breadth="single-area",
+        commit_type="chore",
+    )
+    assert tier == "T2-never"
+
+
+# ── 5. Prompt composition wires the guidance file into the system prompt ──
+
+
+def test_reviewer_system_composes_guidance_and_scaffold() -> None:
+    # Wording changes are governed by human review (stamphog_policy deny), not a
+    # frozen snapshot; this only guards the composition seam itself.
+    guidance = policy.review_guidance_path().read_text()
+    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "showstoppers" in guidance
+    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+
+
+# ── 6. Stamphog policy files are not trivial at dismiss time ──
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["products/visual_review/AGENT_POLICIES.md", ".stamphog/policy.yml", "tools/pr-approval-agent/gates.py"],
+)
+def test_policy_paths_not_trivial_at_dismiss_time(path: str) -> None:
+    assert gates.is_trivial_at_dismiss_time(path) is False
+
+
+# ── 7. Folder prose is sanitized and capped ──
+
+
+def test_folder_prose_stripped_of_control_chars() -> None:
+    assert _sanitize_folder_prose("keep\x07this​clean") == "keepthisclean"
+
+
+def test_folder_prose_capped_with_marker() -> None:
+    out = _sanitize_folder_prose("x" * 5000)
+    assert out.startswith("x" * 2000)
+    assert out.endswith("truncated ...]")
+    assert len(out) <= 2000 + 64
