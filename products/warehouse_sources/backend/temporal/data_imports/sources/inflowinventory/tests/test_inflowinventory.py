@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest import mock
 from unittest.mock import MagicMock
 
 import requests
@@ -141,9 +142,9 @@ class TestFetchPage:
         result = _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
         assert result == body
 
-    def test_non_list_body_is_retryable(self) -> None:
+    def test_non_list_body_raises_value_error(self) -> None:
         session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(InflowInventoryRetryableError):
+        with pytest.raises(ValueError):
             _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
 
     def test_first_page_omits_after_param(self) -> None:
@@ -166,31 +167,42 @@ class TestFetchPage:
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
+    @staticmethod
+    def _build_session(response: Any) -> MagicMock:
         session = MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
+        return session
+
+    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
+        session = self._build_session(response)
         monkeypatch.setattr(inflowinventory, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "inFlow Inventory returned HTTP 500"),
-        ],
+            ("ok", 200, True, 200, None),
+            ("unauthorized", 401, False, 401, None),
+            ("forbidden", 403, False, 403, None),
+            ("server_error", 500, False, 500, "inFlow Inventory returned HTTP 500"),
+        ]
     )
+    @mock.patch.object(inflowinventory, "make_tracked_session")
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self,
+        _name: str,
+        status: int,
+        ok: bool,
+        expected_status: int,
+        expected_message: str | None,
+        mock_make_session: MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
+        mock_make_session.return_value = self._build_session(response)
         assert check_access("inflow-key", "co-123") == (expected_status, expected_message)
 
     def test_malformed_company_id_short_circuits(self, monkeypatch: Any) -> None:
@@ -207,22 +219,27 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid inFlow Inventory API key"),
-            (403, False, "Invalid inFlow Inventory API key"),
-            (500, False, "inFlow Inventory returned HTTP 500"),
-        ],
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid inFlow Inventory API key"),
+            ("forbidden", 403, False, "Invalid inFlow Inventory API key"),
+            ("server_error", 500, False, "inFlow Inventory returned HTTP 500"),
+        ]
     )
+    @mock.patch.object(inflowinventory, "make_tracked_session")
     def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
+        self,
+        _name: str,
+        status: int,
+        expected_valid: bool,
+        expected_message: str | None,
+        mock_make_session: MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = status < 400
-        self._patch_session(monkeypatch, response)
+        mock_make_session.return_value = self._build_session(response)
         assert validate_credentials("inflow-key", "co-123") == (expected_valid, expected_message)
 
 

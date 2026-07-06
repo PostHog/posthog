@@ -25,8 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
     InflowInventoryResumeConfig,
-    check_access,
     inflowinventory_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
     ENDPOINTS,
@@ -128,12 +128,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         self, config: InflowinventorySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key, config.company_id)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid inFlow Inventory API key"
-        return False, message or "Could not validate inFlow Inventory credentials"
+        return validate_credentials(config.api_key, config.company_id)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[InflowInventoryResumeConfig]:
         return ResumableSourceManager[InflowInventoryResumeConfig](inputs, InflowInventoryResumeConfig)

@@ -92,11 +92,10 @@ def _fetch_page(
         response.raise_for_status()
 
     data = response.json()
-    # inFlow list endpoints return a bare JSON array of records.
+    # inFlow list endpoints return a bare JSON array of records. A non-list body on a 200 is a
+    # permanent contract violation, not transient, so raise ValueError (not retryable) to fail fast.
     if not isinstance(data, list):
-        raise InflowInventoryRetryableError(
-            f"inFlow Inventory returned an unexpected payload for {path}: {type(data).__name__}"
-        )
+        raise ValueError(f"inFlow Inventory returned an unexpected payload for {path}: {type(data).__name__}")
     return data
 
 
