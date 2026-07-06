@@ -2,6 +2,7 @@ REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
 SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
 SALESFORCE_ORG_MAPPINGS_CACHE_KEY: str = "salesforce-enrichment:global:org_mappings"
 SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY: str = "salesforce-enrichment:stripe:last_watermark"
+ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE: str = "OrgMappingsCacheMissing"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s

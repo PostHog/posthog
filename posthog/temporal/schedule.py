@@ -841,6 +841,9 @@ if settings.CLOUD_DEPLOYMENT:
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    # Conversations tickets are region-local, so unlike the other (US-only) Salesforce
+    # writers this one runs per region — each region's tickets enrich that region's
+    # orgs, which map to disjoint Salesforce Accounts.
     if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
         schedules.append(create_salesforce_conversations_slack_enrichment_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":

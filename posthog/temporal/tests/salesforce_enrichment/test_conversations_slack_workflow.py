@@ -1,12 +1,16 @@
 import json
 import datetime as dt
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from temporalio.exceptions import ActivityError, ApplicationError
+
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import (
+    ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
     ConversationsSlackEnrichmentInputs,
     ConversationsSlackEnrichmentState,
     EnrichConversationsSlackPageResult,
@@ -16,12 +20,35 @@ from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import 
 )
 
 from ee.billing.salesforce_enrichment.conversations_signals import ConversationsSlackSignals
+from ee.billing.salesforce_enrichment.redis_cache import OrgMappingsCacheMissingError
 
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.conversations_slack_workflow"
 
 
 async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
+
+
+def _cache_missing_activity_error() -> ActivityError:
+    error = ActivityError(
+        "enrich page failed",
+        scheduled_event_id=1,
+        started_event_id=1,
+        identity="",
+        activity_type="enrich_conversations_slack_page_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = ApplicationError(
+        "Org mappings cache is missing or unreadable",
+        type=ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
+        non_retryable=True,
+    )
+    return error
+
+
+def _cache_activity_result(total_mappings: int) -> dict[str, Any]:
+    return {"success": True, "total_mappings": total_mappings}
 
 
 def _signals(
@@ -107,7 +134,7 @@ class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(2, 0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.aggregate_conversations_slack_signals_for_orgs")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_enriches_page_successfully(
         self,
@@ -150,7 +177,7 @@ class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", side_effect=Exception("sfdc down"))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.aggregate_conversations_slack_signals_for_orgs")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_sfdc_transport_exception_propagates_for_retry(
         self,
@@ -177,7 +204,7 @@ class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 1))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.aggregate_conversations_slack_signals_for_orgs")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_partial_bulk_update_failure_records_error(
         self,
@@ -208,12 +235,24 @@ class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_returns_empty_on_cache_miss(self, _mock_close, mock_get_page, _mock_heartbeat):
-        mock_get_page.return_value = None
+    async def test_raises_when_cache_is_missing(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.side_effect = OrgMappingsCacheMissingError("org mappings cache key is missing")
 
-        result = await enrich_conversations_slack_page_activity(0, 10000, 100)
+        with pytest.raises(ApplicationError) as exc_info:
+            await enrich_conversations_slack_page_activity(0, 10000, 100)
+
+        assert exc_info.value.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_returns_empty_page_past_end_of_list(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.return_value = []
+
+        result = await enrich_conversations_slack_page_activity(50, 10000, 100)
 
         assert result == EnrichConversationsSlackPageResult(page_size=0, processed=0, updated=0, errors=[])
 
@@ -224,7 +263,7 @@ class TestProductionModeContinueAsNew(SimpleTestCase):
     async def test_continues_as_new_when_page_is_full(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
-                None,
+                _cache_activity_result(20000),
                 EnrichConversationsSlackPageResult(page_size=10000, processed=10000, updated=500, errors=[]),
             ]
         )
@@ -254,3 +293,75 @@ class TestProductionModeContinueAsNew(SimpleTestCase):
         mock_workflow.continue_as_new.assert_not_called()
         assert result["total_orgs_processed"] == 15000
         assert result["total_orgs_updated"] == 750
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_skips_paging_when_no_org_mappings(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(return_value=_cache_activity_result(0))
+        mock_workflow.continue_as_new = MagicMock()
+
+        workflow = SalesforceConversationsSlackEnrichmentWorkflow()
+        result = await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100))
+
+        assert mock_workflow.execute_activity.call_count == 1
+        assert result["total_orgs_processed"] == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_recaches_and_retries_page_when_cache_expires_mid_run(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                _cache_activity_result(15000),
+                EnrichConversationsSlackPageResult(page_size=5000, processed=5000, updated=250, errors=[]),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        workflow = SalesforceConversationsSlackEnrichmentWorkflow()
+        state = ConversationsSlackEnrichmentState(page_offset=10000, total_processed=10000, total_updated=500)
+        result = await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 3
+        # The retried page must target the same offset and page size as the failed one.
+        retried_call = mock_workflow.execute_activity.call_args_list[2]
+        assert retried_call.kwargs["args"] == [10000, 10000, 100]
+        assert result["total_orgs_processed"] == 15000
+        assert result["total_orgs_updated"] == 750
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_returns_gracefully_when_recache_finds_no_mappings(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                _cache_activity_result(0),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        workflow = SalesforceConversationsSlackEnrichmentWorkflow()
+        state = ConversationsSlackEnrichmentState(page_offset=10000, total_processed=10000, total_updated=500)
+        result = await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 2
+        assert result["total_orgs_processed"] == 10000
+        assert result["total_orgs_updated"] == 500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_second_cache_miss_after_recache_propagates(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                _cache_activity_result(15000),
+                _cache_missing_activity_error(),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        workflow = SalesforceConversationsSlackEnrichmentWorkflow()
+        state = ConversationsSlackEnrichmentState(page_offset=10000)
+
+        with pytest.raises(ActivityError):
+            await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100, state=state))

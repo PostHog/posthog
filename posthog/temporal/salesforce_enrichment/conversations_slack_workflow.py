@@ -12,6 +12,7 @@ from django.db import close_old_connections
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -21,6 +22,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import cache_org_mapp
 from ee.billing.salesforce_enrichment.constants import (
     CONVERSATIONS_SLACK_ENRICHMENT_BATCH_SIZE,
     CONVERSATIONS_SLACK_FIELD_MAPPINGS,
+    ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
     POSTHOG_FETCH_MAPPINGS_PAGE_SIZE,
 )
 from ee.billing.salesforce_enrichment.conversations_signals import (
@@ -28,7 +30,7 @@ from ee.billing.salesforce_enrichment.conversations_signals import (
     aggregate_conversations_slack_signals_for_orgs,
 )
 from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_accounts
-from ee.billing.salesforce_enrichment.redis_cache import get_org_mappings_page_from_redis
+from ee.billing.salesforce_enrichment.redis_cache import OrgMappingsCacheMissingError, get_org_mappings_page
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
 LOGGER = get_logger(__name__)
@@ -129,18 +131,24 @@ async def enrich_conversations_slack_page_activity(
         logger = LOGGER.bind()
 
         redis_start = time.monotonic()
-        cached_mappings = await get_org_mappings_page_from_redis(offset, limit)
-        redis_duration_ms = (time.monotonic() - redis_start) * 1000
-
-        if cached_mappings is None:
+        try:
+            cached_mappings = await get_org_mappings_page(offset, limit)
+        except OrgMappingsCacheMissingError as e:
             logger.warning(
                 "org_mappings_cache_miss",
-                reason="cache_expired_or_missing",
-                redis_duration_ms=round(redis_duration_ms, 1),
+                reason=str(e),
+                offset=offset,
+                redis_duration_ms=round((time.monotonic() - redis_start) * 1000, 1),
             )
-            return EnrichConversationsSlackPageResult(page_size=0, processed=0, updated=0, errors=[])
+            raise ApplicationError(
+                "Org mappings cache is missing or unreadable",
+                type=ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
+                non_retryable=True,
+            ) from e
+        redis_duration_ms = (time.monotonic() - redis_start) * 1000
 
         if not cached_mappings:
+            # An empty page past the end of the list means pagination is complete.
             return EnrichConversationsSlackPageResult(page_size=0, processed=0, updated=0, errors=[])
 
         org_to_sf = {m["posthog_org_id"]: m["salesforce_account_id"] for m in cached_mappings}
@@ -246,26 +254,31 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
         state = inputs.state or ConversationsSlackEnrichmentState()
         page_size = POSTHOG_FETCH_MAPPINGS_PAGE_SIZE
 
-        if inputs.max_orgs:
+        if inputs.max_orgs is not None:
             remaining = inputs.max_orgs - state.total_processed
             if remaining <= 0:
                 return self._build_result(state)
             page_size = min(page_size, remaining)
 
         if state.page_offset == 0:
-            await workflow.execute_activity(
-                cache_org_mappings_activity,
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            cache_result = await self._warm_org_mappings_cache()
+            if not cache_result.get("total_mappings"):
+                logger.info("no_salesforce_accounts_found")
+                return self._build_result(state)
 
-        page_result = await workflow.execute_activity(
-            enrich_conversations_slack_page_activity,
-            args=[state.page_offset, page_size, inputs.batch_size],
-            start_to_close_timeout=dt.timedelta(minutes=30),
-            retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
-            heartbeat_timeout=dt.timedelta(minutes=5),
-        )
+        try:
+            page_result = await self._run_enrich_page(state.page_offset, page_size, inputs.batch_size)
+        except ActivityError as e:
+            if not (isinstance(e.cause, ApplicationError) and e.cause.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE):
+                raise
+            # The org mappings cache can expire mid-run; rebuild it once and retry the
+            # page instead of silently truncating the sync. A second miss propagates.
+            logger.warning("org_mappings_cache_missing_rebuilding", page_offset=state.page_offset)
+            cache_result = await self._warm_org_mappings_cache()
+            if not cache_result.get("total_mappings"):
+                logger.info("no_salesforce_accounts_found")
+                return self._build_result(state)
+            page_result = await self._run_enrich_page(state.page_offset, page_size, inputs.batch_size)
 
         state.total_processed += page_result.processed
         state.total_updated += page_result.updated
@@ -274,8 +287,6 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
             state.errors.extend(page_result.errors[: 10 - len(state.errors)])
 
         if page_result.page_size == 0 or page_result.page_size < page_size:
-            if state.page_offset == 0 and page_result.page_size == 0:
-                logger.info("no_salesforce_accounts_found")
             return self._build_result(state)
 
         state.page_offset += page_result.page_size
@@ -293,6 +304,24 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
             )
         )
         return self._build_result(state)  # type: ignore[unreachable]
+
+    @staticmethod
+    async def _warm_org_mappings_cache() -> dict[str, Any]:
+        return await workflow.execute_activity(
+            cache_org_mappings_activity,
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    @staticmethod
+    async def _run_enrich_page(offset: int, page_size: int, batch_size: int) -> EnrichConversationsSlackPageResult:
+        return await workflow.execute_activity(
+            enrich_conversations_slack_page_activity,
+            args=[offset, page_size, batch_size],
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
+            heartbeat_timeout=dt.timedelta(minutes=5),
+        )
 
     @staticmethod
     def _build_result(state: ConversationsSlackEnrichmentState) -> dict[str, Any]:

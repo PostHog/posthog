@@ -12,12 +12,14 @@ from django.db import close_old_connections
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import (
+    ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
     POSTHOG_FETCH_MAPPINGS_PAGE_SIZE,
     POSTHOG_ORG_ID_FIELD,
     POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE,
@@ -25,8 +27,9 @@ from ee.billing.salesforce_enrichment.constants import (
     SALESFORCE_UPDATE_BATCH_SIZE,
 )
 from ee.billing.salesforce_enrichment.redis_cache import (
+    OrgMappingsCacheMissingError,
     get_cached_org_mappings_count,
-    get_org_mappings_page_from_redis,
+    get_org_mappings_page,
     store_org_mappings_in_redis,
 )
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
@@ -102,8 +105,10 @@ async def cache_org_mappings_activity() -> dict[str, Any]:
     logger.info("cache_miss_querying_salesforce", action="org_mappings")
 
     sf = get_salesforce_client()
-    # POSTHOG_ORG_ID_FIELD is a trusted constant defined in constants.py, not user input
-    query = f"SELECT Id, {POSTHOG_ORG_ID_FIELD} FROM Account WHERE {POSTHOG_ORG_ID_FIELD} != null"
+    # POSTHOG_ORG_ID_FIELD is a trusted constant defined in constants.py, not user input.
+    # ORDER BY keeps list order deterministic across rebuilds, so a workflow resuming
+    # at a saved page offset after a mid-run cache rebuild doesn't skip or repeat orgs.
+    query = f"SELECT Id, {POSTHOG_ORG_ID_FIELD} FROM Account WHERE {POSTHOG_ORG_ID_FIELD} != null ORDER BY Id"
 
     result = await asyncio.to_thread(sf.query_all, query)
     mappings = [
@@ -141,18 +146,24 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
 
         # Read mappings directly from Redis
         redis_start = time.monotonic()
-        cached_mappings = await get_org_mappings_page_from_redis(offset, limit)
-        redis_duration_ms = (time.monotonic() - redis_start) * 1000
-
-        if cached_mappings is None:
+        try:
+            cached_mappings = await get_org_mappings_page(offset, limit)
+        except OrgMappingsCacheMissingError as e:
             logger.warning(
                 "org_mappings_cache_miss",
-                reason="cache_expired_or_missing",
-                redis_duration_ms=round(redis_duration_ms, 1),
+                reason=str(e),
+                offset=offset,
+                redis_duration_ms=round((time.monotonic() - redis_start) * 1000, 1),
             )
-            return EnrichPageResult(page_size=0, processed=0, updated=0, errors=[])
+            raise ApplicationError(
+                "Org mappings cache is missing or unreadable",
+                type=ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
+                non_retryable=True,
+            ) from e
+        redis_duration_ms = (time.monotonic() - redis_start) * 1000
 
         if not cached_mappings:
+            # An empty page past the end of the list means pagination is complete.
             return EnrichPageResult(page_size=0, processed=0, updated=0, errors=[])
 
         org_to_sf = {m["posthog_org_id"]: m["salesforce_account_id"] for m in cached_mappings}
@@ -289,7 +300,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         page_size = POSTHOG_FETCH_MAPPINGS_PAGE_SIZE
 
         # Apply max_orgs limit
-        if inputs.max_orgs:
+        if inputs.max_orgs is not None:
             remaining = inputs.max_orgs - state.total_processed
             if remaining <= 0:
                 return self._build_result(state)
@@ -297,11 +308,14 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
 
         # Cache org mappings in Redis on the first execution only
         if state.page_offset == 0:
-            await workflow.execute_activity(
+            cache_result = await workflow.execute_activity(
                 cache_org_mappings_activity,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if not cache_result.get("total_mappings"):
+                logger.info("no_salesforce_accounts_found")
+                return self._build_result(state)
 
         # Enrich one page: reads from Redis, aggregates signals, updates Salesforce
         page_result = await workflow.execute_activity(
@@ -321,8 +335,6 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
 
         # No data or last page — return final result
         if page_result.page_size == 0 or page_result.page_size < page_size:
-            if state.page_offset == 0 and page_result.page_size == 0:
-                logger.info("no_salesforce_accounts_found")
             return self._build_result(state)
 
         # More pages to process — continue as new execution

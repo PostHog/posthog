@@ -4,12 +4,13 @@ import datetime as dt
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.db.models import Count, DateTimeField, Max, Min
-from django.db.models.functions import Coalesce
+from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
+from django.db.models.functions import Cast, Coalesce
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
@@ -17,6 +18,7 @@ from products.conversations.backend.models.constants import Channel
 
 LOGGER = get_logger(__name__)
 MAX_SLACK_MEMBER_PAGES = 100
+_UUID_REGEX = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 
 @dataclass
@@ -116,27 +118,72 @@ def _activity_at() -> Coalesce:
     return Coalesce("last_message_at", "updated_at", "created_at", output_field=DateTimeField())
 
 
+def _tickets_with_verified_org() -> QuerySet[Ticket]:
+    """Tickets whose organization attribution is confirmed through a trusted path.
+
+    ``Ticket.organization_id`` can be stamped from an authoritative
+    ``OrganizationMembership`` lookup, but also from analytics ``$groups``,
+    which are customer-supplied and spoofable. Before an org is used as a
+    Salesforce Account key, re-verify it here: the ticket's customer identity
+    (the widget's real distinct_id, or the provider-supplied email that the
+    Slack/Teams/email channels store in ``distinct_id``/``email_from``) must
+    belong to a member of that organization. Tickets attributed only via the
+    analytics fallback (e.g. cross-region accounts) are skipped, and so are
+    tickets whose claimed identity failed verification
+    (``identity_verified=False``), so an attacker can't inherit a victim's
+    membership by claiming their email or distinct_id.
+    """
+    membership_for_ticket_org = OrganizationMembership.objects.filter(
+        organization_id=OuterRef("organization_uuid")
+    ).filter(
+        Q(user__distinct_id=OuterRef("distinct_id"))
+        | Q(user__email__iexact=OuterRef("distinct_id"))
+        | Q(user__email__iexact=OuterRef("email_from"))
+    )
+    return (
+        # organization_id is free text (analytics-derived values are arbitrary), so
+        # guard the uuid cast with CASE — an unguarded cast would abort the whole
+        # query on the first malformed row. Comparing as uuid also lets the
+        # membership organization_id index anchor the EXISTS.
+        Ticket.objects.annotate(
+            organization_uuid=Case(
+                When(organization_id__regex=_UUID_REGEX, then=Cast("organization_id", output_field=UUIDField())),
+                output_field=UUIDField(),
+            )
+        )
+        .filter(Exists(membership_for_ticket_org))
+        .exclude(identity_verified=False)
+    )
+
+
 def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, object]]:
     if not org_ids:
         return []
 
     return list(
-        Ticket.objects.filter(
+        _tickets_with_verified_org()
+        .filter(
             channel_source=Channel.SLACK,
             organization_id__in=org_ids,
             slack_channel_id__isnull=False,
         )
-        .exclude(organization_id="")
         .exclude(slack_channel_id="")
         .annotate(activity_at=_activity_at())
-        .values("organization_id", "slack_channel_id")
+        # Slack channel IDs are only unique within a workspace, so group by
+        # (org, workspace, channel) to avoid merging unrelated channels.
+        .values("organization_id", "slack_team_id", "slack_channel_id")
         .annotate(
             representative_team_id=Min("team_id"),
-            representative_slack_team_id=Max("slack_team_id"),
             slack_issue_count=Count("id"),
             last_slack_activity=Max("activity_at"),
         )
-        .order_by("organization_id", "-last_slack_activity", "-slack_issue_count", "slack_channel_id")
+        .order_by(
+            "organization_id",
+            "-last_slack_activity",
+            "-slack_issue_count",
+            "slack_channel_id",
+            "slack_team_id",
+        )
     )
 
 
@@ -145,8 +192,8 @@ def _fetch_latest_support_ticket_rows(org_ids: list[str]) -> list[dict[str, obje
         return []
 
     return list(
-        Ticket.objects.filter(organization_id__in=org_ids)
-        .exclude(organization_id="")
+        _tickets_with_verified_org()
+        .filter(organization_id__in=org_ids)
         .annotate(activity_at=_activity_at())
         .values("organization_id", "team_id", "ticket_number", "activity_at")
         .order_by("organization_id", "-activity_at", "-ticket_number")
@@ -161,9 +208,11 @@ def aggregate_conversations_slack_signals_for_orgs(
 ) -> dict[str, ConversationsSlackSignals]:
     """Aggregate Conversations Slack signals for organizations.
 
-    If an organization has multiple Slack channels, choose the most recently active
-    channel, then tie-break by ticket count and channel ID. Salesforce exposes a
-    single Slack channel field, so the issue/user/activity stats are for that
+    Only tickets with verified org attribution count (see
+    ``_tickets_with_verified_org``). If an organization has multiple Slack
+    channels, choose the most recently active workspace-scoped channel, then
+    tie-break by ticket count and channel ID. Salesforce exposes a single
+    Slack channel field, so the issue/user/activity stats are for that
     representative channel.
     """
     if not org_ids:
@@ -193,7 +242,7 @@ def aggregate_conversations_slack_signals_for_orgs(
             slack_channel_id_value if isinstance(slack_channel_id_value, str) and slack_channel_id_value else None
         )
 
-        slack_team_id_value = row.get("representative_slack_team_id")
+        slack_team_id_value = row.get("slack_team_id")
         slack_team_id = slack_team_id_value if isinstance(slack_team_id_value, str) and slack_team_id_value else None
 
         team_id_value = row.get("representative_team_id")
