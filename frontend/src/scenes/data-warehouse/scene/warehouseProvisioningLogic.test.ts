@@ -62,6 +62,40 @@ describe('warehouseProvisioningLogic', () => {
         }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
     })
 
+    it('removes the org record once teardown reports the warehouse deleted', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({ state: 'deleted' } as any)
+        const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(1)
+    })
+
+    it('flags a stuck teardown once it sits in `deleting` past the warn threshold', async () => {
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        // One `deleting` read is still "in progress", not yet "taking long".
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+
+        // 18 consecutive `deleting` reads (~3 min of polling) trips the affordance.
+        await expectLogic(logic, () => {
+            for (let i = 0; i < 17; i++) {
+                logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+            }
+        }).toMatchValues({ deprovisionTakingLong: true })
+
+        // A non-`deleting` read resets the counter.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'ready' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+    })
+
     it('surfaces an info message instead of an error when a sibling project already provisioned (409)', async () => {
         jest.spyOn(dwApi, 'dataWarehouseProvisionCreate').mockRejectedValueOnce({ status: 409 })
         const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue(undefined as any)
