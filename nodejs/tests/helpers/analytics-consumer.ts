@@ -1,13 +1,23 @@
 import { Message } from 'node-rdkafka'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { GroupTypeManagerComponent } from '~/common/groups/group-type-manager'
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { EventSchemaEnforcementManagerComponent } from '~/common/utils/event-schema-enforcement-manager'
+import {
+    BatchWritingGroupStore,
+    BatchWritingGroupStoreComponent,
+} from '~/ingestion/common/groups/batch-writing-group-store'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
+import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import {
+    BatchWritingPersonsStore,
+    BatchWritingPersonsStoreComponent,
+} from '~/ingestion/common/persons/batch-writing-person-store'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
@@ -25,11 +35,16 @@ function passthrough<T extends object>(value: T): Component<T> {
 export interface AnalyticsTestConsumer {
     /** Drives the consumer's Kafka batch handler directly, bypassing a real broker. */
     handleKafkaBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>
-    /** Started scope container — reach the persons/group stores, hog transformer, overflow service here. */
-    container: Record<string, object>
     /** The started consumer, e.g. for its `name` and healthcheck. */
     consumer: { name: string; isHealthy: () => Promise<HealthCheckResult> }
     stop: () => Promise<void>
+    /** The consumer's own persons/group stores, for asserting cache and flush behavior. */
+    personsStore: BatchWritingPersonsStore
+    groupStore: BatchWritingGroupStore
+    /** The CDP hog transformer the scope built, for spying on its methods. */
+    hogTransformer: HogTransformerService
+    /** The overflow redirect service — present only when overflow is enabled for the consumer. */
+    overflowRedirectService?: OverflowRedirectService
 }
 
 /**
@@ -66,6 +81,9 @@ export async function startAnalyticsTestConsumer(
         ...overrides,
     }
 
+    // Captured by the hogTransformer factory closure below when the scope starts it.
+    let hogTransformer: HogTransformerService | undefined
+
     const sharedScope = newScope('analytics-test-shared', (b) =>
         b
             .add('postgres', passthrough(infra.postgres))
@@ -81,17 +99,46 @@ export async function startAnalyticsTestConsumer(
             )
             .add(
                 'hogTransformer',
-                new HogTransformerComponent(() =>
-                    createHogTransformerService(infra.config, { ...infra, monitoringOutputs })
-                )
+                // Capture the built transformer via the factory so tests can spy on it without
+                // the scope having to hand back its container.
+                new HogTransformerComponent(() => {
+                    hogTransformer = createHogTransformerService(infra.config, { ...infra, monitoringOutputs })
+                    return hogTransformer
+                })
             )
             .add('outputs', passthrough(outputs))
             .add('eventSchemaEnforcementManager', new EventSchemaEnforcementManagerComponent(infra.postgres))
             .add('groupTypeManager', new GroupTypeManagerComponent(infra.groupRepository, infra.teamManager))
     )
 
+    // The persons/group stores and overflow service are built inside the consumer scope, not here.
+    // Spy on each component's start() to capture the real instance the scope constructs, then restore
+    // the spy — so tests get typed handles to those internals without the production scope returning
+    // its container. Instance spies the tests add later (e.g. on `personsStore.flush`) still work.
+    const personsStoreStartSpy = jest.spyOn(BatchWritingPersonsStoreComponent.prototype, 'start')
+    const groupStoreStartSpy = jest.spyOn(BatchWritingGroupStoreComponent.prototype, 'start')
+    const overflowStartSpy = jest.spyOn(MainLaneOverflowRedirectComponent.prototype, 'start')
+
     const consumerScope = createAnalyticsConsumer(config, sharedScope, createAiEventSubpipeline)
-    const { consumer, stop, container } = await consumerScope.startForTest()
+    const { consumer, stop } = await consumerScope.start()
+
+    const personsStoreResult = personsStoreStartSpy.mock.results[0]
+    const groupStoreResult = groupStoreStartSpy.mock.results[0]
+    const overflowResult = overflowStartSpy.mock.results[0]
+    personsStoreStartSpy.mockRestore()
+    groupStoreStartSpy.mockRestore()
+    overflowStartSpy.mockRestore()
+
+    if (!personsStoreResult || !groupStoreResult) {
+        throw new Error('Persons/group store was not constructed by the consumer scope')
+    }
+    if (!hogTransformer) {
+        throw new Error('Hog transformer was not constructed by the consumer scope')
+    }
+    const personsStore = (await personsStoreResult.value).value
+    const groupStore = (await groupStoreResult.value).value
+    // Overflow only builds the main-lane component when overflow is enabled for the consumer.
+    const overflowRedirectService = overflowResult ? (await overflowResult.value).value : undefined
 
     if (!capturedHandler) {
         throw new Error('Kafka consumer handler was not captured — did the test jest.mock the kafka consumer module?')
@@ -100,9 +147,12 @@ export async function startAnalyticsTestConsumer(
 
     return {
         handleKafkaBatch: (messages: Message[]) => handler(messages),
-        container,
         consumer,
         stop,
+        personsStore,
+        groupStore,
+        hogTransformer,
+        overflowRedirectService,
     }
 }
 

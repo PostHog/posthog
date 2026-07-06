@@ -102,29 +102,6 @@ export class CommonIngestionConsumerScope<S extends CommonConsumerContainer> {
     }
 
     async start(): Promise<{ consumer: CommonIngestionConsumer; stop: () => Promise<void> }> {
-        const { consumer, stop } = await this.startInternal()
-        return { consumer, stop }
-    }
-
-    /**
-     * Test-only variant of `start()` that additionally exposes the started scope
-     * container, so tests can reach internal components (stores, transformer) the
-     * scope builds itself. Production uses `start()`, which keeps container off its
-     * return type.
-     */
-    async startForTest(): Promise<{
-        consumer: CommonIngestionConsumer
-        stop: () => Promise<void>
-        container: S & { kafkaConsumer: KafkaConsumerInterface }
-    }> {
-        return this.startInternal()
-    }
-
-    private async startInternal(): Promise<{
-        consumer: CommonIngestionConsumer
-        stop: () => Promise<void>
-        container: S & { kafkaConsumer: KafkaConsumerInterface }
-    }> {
         const started = await this.innerScope.start()
         const consumer = new CommonIngestionConsumer(
             this.name,
@@ -132,7 +109,7 @@ export class CommonIngestionConsumerScope<S extends CommonConsumerContainer> {
             started.container.outputs,
             this.producerHealthcheckEnabled
         )
-        return { consumer, stop: started.stop, container: started.container }
+        return { consumer, stop: started.stop }
     }
 }
 
