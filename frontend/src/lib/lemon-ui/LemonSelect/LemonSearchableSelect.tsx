@@ -132,6 +132,22 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     }
 
     return (
-        <LemonSelect {...selectProps} options={optionsWithSearch} onChange={handleChange} onSelect={handleOnSelect} />
+        <LemonSelect
+            {...selectProps}
+            options={optionsWithSearch}
+            onChange={handleChange}
+            onSelect={handleOnSelect}
+            menu={{
+                ...selectProps.menu,
+                onVisibilityChange: (visible) => {
+                    selectProps.menu?.onVisibilityChange?.(visible)
+                    // Clear the filter when the dropdown closes, otherwise a stale search term keeps the
+                    // selected option filtered out and the trigger falls back to rendering the raw value.
+                    if (!visible) {
+                        setSearchTerm('')
+                    }
+                },
+            }}
+        />
     )
 }
