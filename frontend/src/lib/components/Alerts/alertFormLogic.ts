@@ -290,7 +290,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values }) => ({
+    forms(({ props, values, actions }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -334,6 +334,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 })
                 if (entitlementCheck.blocked) {
                     upgradeModalLogic.actions.setUpgradeModalFeatureKey(entitlementCheck.feature)
+                    // Field-level error so the interval row stays marked after the modal closes
+                    actions.setAlertFormManualErrors({ calculation_interval: entitlementCheck.message })
                     throw new Error(entitlementCheck.message)
                 }
 
