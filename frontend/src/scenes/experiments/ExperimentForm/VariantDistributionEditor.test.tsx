@@ -160,7 +160,8 @@ describe('VariantDistributionEditor', () => {
 
         it('does not show "Add variant" button', () => {
             renderEditor()
-            expect(screen.queryByText(/add variant/i)).not.toBeInTheDocument()
+            // nosemgrep: jest-no-byrole-name-queries - negative assertion needs the role+name dimension; text-only would pass if the button is gone but the label appears in other copy
+            expect(screen.queryByRole('button', { name: /add variant/i })).not.toBeInTheDocument()
         })
 
         it('does not show pencil icon (customize split toggle)', () => {
