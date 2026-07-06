@@ -539,6 +539,19 @@ export interface VisionQuotaApi {
 }
 
 /**
+ * * `focused` - Focused
+ * * `balanced` - Balanced
+ * * `comprehensive` - Comprehensive
+ */
+export type SamplingModeEnumApi = (typeof SamplingModeEnumApi)[keyof typeof SamplingModeEnumApi]
+
+export const SamplingModeEnumApi = {
+    Focused: 'focused',
+    Balanced: 'balanced',
+    Comprehensive: 'comprehensive',
+} as const
+
+/**
  * * `google` - Google
  */
 export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
@@ -587,6 +600,12 @@ export interface ReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -653,6 +672,12 @@ export interface PatchedReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
