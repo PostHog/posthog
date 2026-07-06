@@ -98,7 +98,7 @@ class TestGetRows:
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(PartnerStackResumeConfig(starting_after="b"))
         # The initial (cursor=None) page must never be fetched on resume.
-        pages = {"b": ([{"key": "c"}], False)}
+        pages: dict[str | None, tuple[list[dict], bool]] = {"b": ([{"key": "c"}], False)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"key": "c"}]
 
