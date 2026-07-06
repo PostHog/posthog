@@ -6,7 +6,14 @@ BATCH_SIZE = 1000
 # Feature-flag config now lives only on the linked FeatureFlag (the source of truth) and is
 # projected into the deprecated `parameters` API field at read time. Strip these now-dead keys from
 # existing rows' `parameters` blob. Re-running is a no-op once a row has none of the keys.
-FEATURE_FLAG_CONFIG_KEYS = ("feature_flag_variants", "rollout_percentage", "aggregation_group_type_index")
+# Frozen copy of ExperimentService.FEATURE_FLAG_CONFIG_KEYS — migrations don't import app code.
+FEATURE_FLAG_CONFIG_KEYS = (
+    "feature_flag_variants",
+    "rollout_percentage",
+    "aggregation_group_type_index",
+    "feature_flag_payloads",
+    "ensure_experience_continuity",
+)
 
 
 def strip_feature_flag_config(apps, schema_editor):
