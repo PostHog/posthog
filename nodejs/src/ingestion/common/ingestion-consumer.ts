@@ -78,13 +78,17 @@ const backgroundTaskProducesDuration = new Histogram({
 export class CommonIngestionConsumerScope<S extends CommonConsumerContainer> {
     private readonly innerScope: Scope<S & { kafkaConsumer: KafkaConsumerInterface }>
     private readonly producerHealthcheckEnabled: boolean
+    /** `${pipeline}-${lane}`, e.g. `analytics-overflow` — the consumer's service id / scope name. */
+    private readonly name: string
 
     constructor(
-        private readonly name: string,
+        pipeline: string,
+        lane: string,
         config: CommonIngestionConsumerConfig,
         scope: Scope<S>,
         pipelineFactory: PipelineFactory<S>
     ) {
+        this.name = `${pipeline}-${lane}`
         this.producerHealthcheckEnabled = config.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK
         const consumerName = this.name
         this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {

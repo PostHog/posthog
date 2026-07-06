@@ -265,7 +265,7 @@ export class IngestionGeneralServer implements NodeServer {
                 )
         )
 
-        const startAnalytics = (override?: { topic: string; groupId: string }) => {
+        const startAnalytics = (override?: { topic: string; groupId: string; lane: string }) => {
             serviceLoaders.push(async () => {
                 const consumerConfig = override
                     ? {
@@ -274,10 +274,14 @@ export class IngestionGeneralServer implements NodeServer {
                           INGESTION_CONSUMER_GROUP_ID: override.groupId,
                       }
                     : this.config
+                // Combined mode runs three analytics consumers in one process, so the lane (not the
+                // process-level INGESTION_LANE, which they share) is what makes each service id unique.
+                const lane = override?.lane ?? this.config.INGESTION_LANE ?? 'main'
                 const consumerScope = createAnalyticsConsumer(
                     consumerConfig,
                     analyticsSharedScope,
-                    createAiEventSubpipeline
+                    createAiEventSubpipeline,
+                    lane
                 )
                 const { consumer, stop } = await consumerScope.start()
                 return ingestionConsumerService(consumer, stop)
@@ -350,13 +354,25 @@ export class IngestionGeneralServer implements NodeServer {
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
             const consumersOptions = [
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion', lane: 'main' },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                    group_id: 'clickhouse-ingestion-historical',
+                    lane: 'historical',
+                },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                    group_id: 'clickhouse-ingestion-overflow',
+                    lane: 'overflow',
+                },
             ]
 
             for (const consumerOption of consumersOptions) {
-                startAnalytics({ topic: consumerOption.topic, groupId: consumerOption.group_id })
+                startAnalytics({
+                    topic: consumerOption.topic,
+                    groupId: consumerOption.group_id,
+                    lane: consumerOption.lane,
+                })
             }
 
             startClientWarnings({

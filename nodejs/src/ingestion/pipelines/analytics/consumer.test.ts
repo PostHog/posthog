@@ -84,7 +84,12 @@ describe('createAnalyticsConsumer', () => {
     })
 
     it('defers pipeline construction until scope.start()', () => {
-        createAnalyticsConsumer(makeConfig(), makeSharedScope(), jest.fn() as unknown as AiEventSubpipelineFactory)
+        createAnalyticsConsumer(
+            makeConfig(),
+            makeSharedScope(),
+            jest.fn() as unknown as AiEventSubpipelineFactory,
+            'main'
+        )
 
         // The pipeline factory runs inside the extend callback at start time, after the
         // scope's services come up — not at consumer construction time.

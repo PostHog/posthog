@@ -94,7 +94,8 @@ export type AnalyticsSharedScope = Scope<{
 export function createAnalyticsConsumer(
     config: AnalyticsConsumerConfig,
     sharedScope: AnalyticsSharedScope,
-    aiSubpipelineFactory: AiEventSubpipelineFactory
+    aiSubpipelineFactory: AiEventSubpipelineFactory,
+    lane: string
 ) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
     const overflowEnabled =
@@ -182,52 +183,48 @@ export function createAnalyticsConsumer(
             )
     )
 
-    return new CommonIngestionConsumerScope(
-        `analytics-${config.INGESTION_CONSUMER_CONSUME_TOPIC}`,
-        config,
-        scope,
-        ({ container }) =>
-            createJoinedIngestionPipeline(
-                {
-                    eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-                    overflowEnabled,
-                    preservePartitionLocality: config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                    personsPrefetchEnabled: config.PERSONS_PREFETCH_ENABLED,
-                    cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
-                    outputs: container.outputs,
-                    perDistinctIdOptions: {
-                        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-                        PERSON_MERGE_ASYNC_ENABLED: config.PERSON_MERGE_ASYNC_ENABLED,
-                        PERSON_MERGE_SYNC_BATCH_SIZE: config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                        PERSON_MERGE_EVENTS_ENABLED: config.PERSON_MERGE_EVENTS_ENABLED,
-                        PERSON_MERGE_EVENTS_PARTITION_COUNT: config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-                        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                        PERSON_PROPERTIES_UPDATE_ALL: config.PERSON_PROPERTIES_UPDATE_ALL,
-                        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
-                    },
-                    concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
+    return new CommonIngestionConsumerScope('analytics', lane, config, scope, ({ container }) =>
+        createJoinedIngestionPipeline(
+            {
+                eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
+                overflowEnabled,
+                preservePartitionLocality: config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                personsPrefetchEnabled: config.PERSONS_PREFETCH_ENABLED,
+                cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
+                outputs: container.outputs,
+                perDistinctIdOptions: {
+                    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                    PERSON_MERGE_ASYNC_ENABLED: config.PERSON_MERGE_ASYNC_ENABLED,
+                    PERSON_MERGE_SYNC_BATCH_SIZE: config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                    PERSON_MERGE_EVENTS_ENABLED: config.PERSON_MERGE_EVENTS_ENABLED,
+                    PERSON_MERGE_EVENTS_PARTITION_COUNT: config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+                    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    PERSON_PROPERTIES_UPDATE_ALL: config.PERSON_PROPERTIES_UPDATE_ALL,
+                    FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
                 },
-                {
-                    personsStore: container.personsStore,
-                    groupStore: container.groupStore,
-                    hogTransformer: container.hogTransformer,
-                    aiSubpipelineFactory,
-                    eventFilterManager: container.eventFilterManager,
-                    eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
-                    eventSchemaEnforcementManager: container.eventSchemaEnforcementManager,
-                    promiseScheduler: container.promiseScheduler,
-                    overflowRedirectService: container.overflowRedirectService,
-                    overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
-                    featureFlagCalledDedupService: createFeatureFlagCalledDedupService(
-                        container.featureFlagCalledDedupRedisPool,
-                        config
-                    ),
-                    teamManager: container.teamManager,
-                    cookielessManager: container.cookielessManager,
-                    groupTypeManager: container.groupTypeManager,
-                    topHog: container.topHog,
-                }
-            )
+                concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            },
+            {
+                personsStore: container.personsStore,
+                groupStore: container.groupStore,
+                hogTransformer: container.hogTransformer,
+                aiSubpipelineFactory,
+                eventFilterManager: container.eventFilterManager,
+                eventIngestionRestrictionManager: container.eventIngestionRestrictionManager,
+                eventSchemaEnforcementManager: container.eventSchemaEnforcementManager,
+                promiseScheduler: container.promiseScheduler,
+                overflowRedirectService: container.overflowRedirectService,
+                overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
+                featureFlagCalledDedupService: createFeatureFlagCalledDedupService(
+                    container.featureFlagCalledDedupRedisPool,
+                    config
+                ),
+                teamManager: container.teamManager,
+                cookielessManager: container.cookielessManager,
+                groupTypeManager: container.groupTypeManager,
+                topHog: container.topHog,
+            }
+        )
     )
 }

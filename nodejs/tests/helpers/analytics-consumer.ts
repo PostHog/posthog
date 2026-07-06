@@ -119,7 +119,12 @@ export async function startAnalyticsTestConsumer(
     const groupStoreStartSpy = jest.spyOn(BatchWritingGroupStoreComponent.prototype, 'start')
     const overflowStartSpy = jest.spyOn(MainLaneOverflowRedirectComponent.prototype, 'start')
 
-    const consumerScope = createAnalyticsConsumer(config, sharedScope, createAiEventSubpipeline)
+    const consumerScope = createAnalyticsConsumer(
+        config,
+        sharedScope,
+        createAiEventSubpipeline,
+        config.INGESTION_LANE ?? 'main'
+    )
     const { consumer, stop } = await consumerScope.start()
 
     const personsStoreResult = personsStoreStartSpy.mock.results[0]

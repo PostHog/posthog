@@ -87,9 +87,10 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
         config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
     const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+    const lane = config.INGESTION_LANE ?? 'main'
     // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
     // The query name is supplied per call (e.g. "person-properties").
-    const clientLabel = `ai/${config.INGESTION_LANE ?? 'main'}`
+    const clientLabel = `ai/${lane}`
 
     // Parent scope: the overflow Redis repository, shared by the main-lane and
     // overflow-lane redirect services below (set up here, not inline per service).
@@ -152,7 +153,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             )
     )
 
-    return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
+    return new CommonIngestionConsumerScope('ai', lane, config, scope, ({ container }) =>
         createAiIngestionPipeline({
             outputs: container.outputs,
             teamManager: container.teamManager,
