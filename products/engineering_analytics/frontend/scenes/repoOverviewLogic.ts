@@ -127,6 +127,16 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadOverviewFailure: () => true,
             },
         ],
+        // Without this, a failed activity fetch is indistinguishable from a quiet branch — the scene
+        // would show the "no runs" empty state over a real error.
+        repoActivityFailed: [
+            false,
+            {
+                loadRepoActivity: () => false,
+                loadRepoActivitySuccess: () => false,
+                loadRepoActivityFailure: () => true,
+            },
+        ],
     }),
 
     selectors({

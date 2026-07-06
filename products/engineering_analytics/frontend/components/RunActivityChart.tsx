@@ -57,6 +57,14 @@ const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
+
+const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
+    run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
+
+/** False when RunActivityChart would render null, so callers can show their empty state instead. */
+export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
+    return runs.filter(isPlottable).length >= MIN_POINTS
+}
 // The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
 // Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
 const LENS_MS = 24 * 60 * 60 * 1000
@@ -260,10 +268,7 @@ export function RunActivityChart({
         })
 
     // Only completed runs land on the scatter — a still-running run has no final duration to place on Y.
-    const plottable = runs.filter(
-        (run): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
-            run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
-    )
+    const plottable = runs.filter(isPlottable)
     if (plottable.length < MIN_POINTS) {
         return null
     }

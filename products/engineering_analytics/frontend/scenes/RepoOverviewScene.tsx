@@ -19,7 +19,7 @@ import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { RunActivityChart } from '../components/RunActivityChart'
+import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -236,6 +236,7 @@ export function RepoOverviewScene(): JSX.Element {
         activityRuns,
         activityTruncated,
         repoActivityLoading,
+        repoActivityFailed,
         attentionPrs,
         draftCount,
         costByWorkflow,
@@ -370,7 +371,7 @@ export function RepoOverviewScene(): JSX.Element {
                 {/* One dot per commit to the default branch: X = when its CI started, Y = wall-clock CI
                     duration, color = the commit's overall verdict (red if any workflow failed). Replaces the
                     old success-rate line + failed-runs bar — the scatter says time, outcome, and cost at once. */}
-                {activityRuns.length > 0 ? (
+                {hasEnoughRunActivity(activityRuns) ? (
                     <RunActivityChart
                         runs={activityRuns}
                         truncated={activityTruncated}
@@ -379,7 +380,11 @@ export function RepoOverviewScene(): JSX.Element {
                     />
                 ) : (
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                        {repoActivityLoading ? 'Loading…' : `No completed runs on ${defaultBranch} in the window yet.`}
+                        {repoActivityLoading
+                            ? 'Loading…'
+                            : repoActivityFailed
+                              ? `Couldn't load ${defaultBranch} activity. Refresh to retry.`
+                              : `Not enough completed runs on ${defaultBranch} in the window to chart yet.`}
                     </LemonCard>
                 )}
             </Section>
@@ -467,6 +472,7 @@ export function RepoOverviewScene(): JSX.Element {
                             type="line"
                             className="h-24 w-full"
                             renderLabel={(label) => label}
+                            renderTooltipValue={(value) => compactUsd(value)}
                         />
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
                             Estimated Depot CI cost per PR merged, over time. Cost is bucketed by run start, merges by

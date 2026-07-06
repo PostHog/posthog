@@ -15,6 +15,10 @@ go green for this commit, and how long did its CI take":
   least one passed, else ``neutral`` (only cancelled/skipped). One decisive failure turns the commit red,
   matching how a human reads a broken default branch.
 
+Rows are first collapsed to the **latest run per ``(head_sha, workflow_name)``** (the same ``argMax``
+rule as ``ci_rollup``), so a workflow that failed and was re-run to green reads green, and superseded
+attempts don't stretch the commit's wall clock or flip its verdict.
+
 Reuses the ``WorkflowRunActivity`` contract so the same ``RunActivityChart`` renders it. Same
 ``run_started_at >= date_from`` filter as ``workflow_run_activity`` (a commit whose earliest run has no
 parseable start can't be placed on the time axis). Fetches ``_LIMIT + 1`` rows so an overflow reports as
@@ -34,21 +38,32 @@ _LIMIT = 2000
 
 _SELECT = f"""
     SELECT
-        max(id) AS run_id,
+        max(w.id) AS run_id,
         multiIf(
-            countIf(status = 'completed' AND conclusion IN ('failure', 'timed_out')) > 0, 'failure',
-            countIf(status != 'completed') > 0, '',
-            countIf(conclusion = 'success') > 0, 'success',
+            countIf(w.status = 'completed' AND w.conclusion IN ('failure', 'timed_out')) > 0, 'failure',
+            countIf(w.status != 'completed') > 0, '',
+            countIf(w.conclusion = 'success') > 0, 'success',
             'neutral'
         ) AS conclusion,
-        min(run_started_at) AS run_started_at,
-        if(countIf(status != 'completed') = 0, dateDiff('second', min(run_started_at), max(updated_at)), NULL)
+        min(w.run_started_at) AS run_started_at,
+        if(countIf(w.status != 'completed') = 0, dateDiff('second', min(w.run_started_at), max(w.updated_at)), NULL)
             AS duration_seconds,
-        any(head_branch) AS head_branch
-    FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} AND head_branch = {{branch}} __DATE_TO__
-    GROUP BY head_sha
-    ORDER BY min(run_started_at) DESC
+        any(w.head_branch) AS head_branch
+    FROM (
+        SELECT
+            max(r.id) AS id,
+            argMax(r.status, r.run_started_at) AS status,
+            argMax(r.conclusion, r.run_started_at) AS conclusion,
+            max(r.run_started_at) AS run_started_at,
+            max(r.updated_at) AS updated_at,
+            any(r.head_branch) AS head_branch,
+            r.head_sha AS head_sha
+        FROM __RUNS_SOURCE__ AS r
+        WHERE r.run_started_at >= {{date_from}} AND r.head_branch = {{branch}} __DATE_TO__
+        GROUP BY r.head_sha, r.workflow_name
+    ) AS w
+    GROUP BY w.head_sha
+    ORDER BY min(w.run_started_at) DESC
     LIMIT {_LIMIT + 1}
 """
 
@@ -66,7 +81,7 @@ def query_repo_run_activity(
         "branch": ast.Constant(value=branch),
     }
     if date_to is not None:
-        date_to_clause = "AND run_started_at <= {date_to}"
+        date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
