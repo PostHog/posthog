@@ -15,16 +15,27 @@ export function canArchiveExperiment(
 
 /** Whether an experiment can have its exposure frozen (ignoring permissions). */
 export function canFreezeExposure(
-    experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag'>
+    experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag' | 'holdout_id' | 'holdout'>
 ): boolean {
+    const flagFilters = experiment.feature_flag?.filters
     // Freezing exposure narrows the flag to a person cohort, which group-aggregated flags can't use.
-    const isGroupAggregated = experiment.feature_flag?.filters?.aggregation_group_type_index != null
+    const isGroupAggregated = flagFilters?.aggregation_group_type_index != null
+    // Holdout assignment and early access enrollment (super_groups) are evaluated before release
+    // conditions, so the freeze couldn't stop enrollment through them — the backend rejects these.
+    const hasHoldout =
+        experiment.holdout_id != null ||
+        experiment.holdout != null ||
+        !!flagFilters?.holdout ||
+        !!flagFilters?.holdout_groups?.length
+    const hasSuperGroups = !!flagFilters?.super_groups?.length
     return (
         isLaunched(experiment) &&
         !hasEnded(experiment) &&
         !isExperimentPaused(experiment) &&
         !isExperimentExposureFrozen(experiment) &&
-        !isGroupAggregated
+        !isGroupAggregated &&
+        !hasHoldout &&
+        !hasSuperGroups
     )
 }
 

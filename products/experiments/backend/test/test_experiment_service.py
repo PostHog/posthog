@@ -3180,16 +3180,23 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("draft",),
-            ("stopped",),
-            ("paused",),
-            ("already_frozen",),
-            ("group_aggregated",),
-            ("deleted_flag",),
-            ("no_groups",),
+            ("draft", "not been launched"),
+            ("stopped", "already ended"),
+            ("paused", "freeze a paused"),
+            ("already_frozen", "already frozen"),
+            ("group_aggregated", "Group-aggregated"),
+            ("deleted_flag", "has been deleted"),
+            ("no_groups", "no release conditions"),
+            # Holdout assignment and early-access enrollment (super_groups) are evaluated by the
+            # flag matcher before release conditions, so narrowing the release groups to a cohort
+            # cannot stop enrollment through them — freezing must be rejected, not silently partial.
+            ("holdout_linked", "holdout"),
+            ("flag_holdout", "holdout"),
+            ("flag_holdout_groups_legacy", "holdout"),
+            ("flag_super_groups", "early access"),
         ]
     )
-    def test_freeze_exposure_guards_raise(self, state: str):
+    def test_freeze_exposure_guards_raise(self, state: str, expected_error: str):
         service = self._service()
         if state == "draft":
             experiment = self._create_launchable_experiment(name="FE Draft", feature_flag_key=f"fe-{state}-flag")
@@ -3222,9 +3229,37 @@ class TestExperimentService(APIBaseTest):
             flag.filters = {**flag.filters, "groups": []}
             flag.save()
             experiment.refresh_from_db()
+        elif state == "holdout_linked":
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name="FE Holdout",
+                filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout"}],
+                created_by=self.user,
+            )
+            experiment.holdout = holdout
+            experiment.save()
+        elif state == "flag_holdout":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "holdout": {"id": 123, "exclusion_percentage": 10}}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "flag_holdout_groups_legacy":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "holdout_groups": [{"properties": [], "rollout_percentage": 10}]}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "flag_super_groups":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "super_groups": [{"properties": [], "rollout_percentage": 100}]}
+            flag.save()
+            experiment.refresh_from_db()
 
-        with self.assertRaises(ValidationError):
-            service.freeze_exposure(experiment, request=self._make_request())
+        # Population stubbed so any state that (wrongly) passes the guards would freeze successfully
+        # instead of failing later for an unrelated reason like an empty exposed set.
+        with self._stub_freeze_population():
+            with self.assertRaises(ValidationError) as ctx:
+                service.freeze_exposure(experiment, request=self._make_request())
+        assert expected_error.lower() in str(ctx.exception).lower()
 
     def test_flag_update_after_freeze_preserves_frozen_state(self):
         experiment = self._create_running_experiment(name="Freeze Then Edit", feature_flag_key="freeze-edit-flag")

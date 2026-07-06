@@ -1754,9 +1754,23 @@ class ExperimentService:
             raise ValidationError("Experiment's feature flag has been deleted.")
         if flag.aggregation_group_type_index is not None:
             raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
+        # Holdout assignment and early-access enrollment (super_groups) are evaluated by the flag
+        # matcher before release conditions, so narrowing the release groups to a cohort cannot stop
+        # new users from entering through those paths. Fail closed rather than freeze partially.
+        flag_filters = flag.filters or {}
+        if experiment.holdout_id is not None or flag_filters.get("holdout") or flag_filters.get("holdout_groups"):
+            raise ValidationError(
+                "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
+                "evaluated before release conditions, so new users would keep entering the holdout."
+            )
+        if flag_filters.get("super_groups"):
+            raise ValidationError(
+                "This experiment's feature flag has early access conditions, which are evaluated "
+                "before release conditions, so freezing cannot stop new enrollment."
+            )
         # Without release conditions there is nothing to narrow: the transform would be a no-op and
         # the frozen state (derived from the per-group key) could never be detected.
-        if not (flag.filters or {}).get("groups"):
+        if not flag_filters.get("groups"):
             raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
