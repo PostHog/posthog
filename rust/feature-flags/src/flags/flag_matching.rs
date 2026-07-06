@@ -981,6 +981,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 });
             }
@@ -1003,6 +1004,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 }
             }
@@ -1031,6 +1033,7 @@ impl FeatureFlagMatcher {
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) {
         match result {
             Ok(flag_match) => {
@@ -1041,11 +1044,17 @@ impl FeatureFlagMatcher {
                     let merged_person_props = self
                         .get_person_properties(person_property_overrides.as_ref())
                         .ok();
+                    // Merged group properties (DB + overrides, including the injected
+                    // `$group_key`) keyed by group type index, so group-typed condition
+                    // filters resolve against the group rather than the person.
+                    let merged_group_props =
+                        self.merged_group_properties_for_flag(flag, group_property_overrides);
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
                         self.timezone,
                     )
@@ -1094,6 +1103,43 @@ impl FeatureFlagMatcher {
         let group_type = index_to_type_map.get(&group_type_index)?;
         let group_overrides = group_property_overrides?;
         group_overrides.get(group_type)
+    }
+
+    /// Builds merged group properties (DB + overrides) keyed by group type index for
+    /// every group type the flag's conditions reference. Used by detailed condition
+    /// analysis so group-typed filters resolve against the group's properties (and the
+    /// `$group_key` injected into overrides) rather than the person's. Group types
+    /// whose properties can't be resolved are simply omitted.
+    fn merged_group_properties_for_flag(
+        &self,
+        flag: &FeatureFlag,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+    ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
+        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
+        for group in &flag.filters.groups {
+            let condition_aggregation = group
+                .aggregation_group_type_index
+                .flatten()
+                .or(flag.filters.aggregation_group_type_index);
+            if let Some(properties) = &group.properties {
+                for property in properties {
+                    if property.prop_type == PropertyType::Group {
+                        if let Some(gti) = property.group_type_index.or(condition_aggregation) {
+                            referenced_indexes.insert(gti);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut merged = HashMap::new();
+        for gti in referenced_indexes {
+            let overrides = self.resolve_group_overrides(gti, group_property_overrides.as_ref());
+            if let Ok(props) = self.get_group_properties(gti, overrides) {
+                merged.insert(gti, props);
+            }
+        }
+        merged
     }
 
     /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],

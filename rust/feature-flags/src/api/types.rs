@@ -471,7 +471,7 @@ pub trait FromFeatureAndMatch {
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
         // Timezone is only consulted for detailed analysis, which is off here.
-        Self::create_with_analysis(flag, flag_match, false, None, None, Tz::UTC)
+        Self::create_with_analysis(flag, flag_match, false, None, None, None, Tz::UTC)
     }
 
     fn create_with_analysis(
@@ -479,6 +479,7 @@ impl FromFeatureAndMatch for FlagDetails {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<i32, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
         team_timezone: Tz,
     ) -> Self {
@@ -504,6 +505,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     flag,
                     flag_match,
                     property_values,
+                    group_property_values,
                     flag_evaluation_results,
                     team_timezone,
                 ))
@@ -568,6 +570,7 @@ impl FlagDetails {
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<i32, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
         team_timezone: Tz,
     ) -> Vec<ConditionAnalysis> {
@@ -577,6 +580,14 @@ impl FlagDetails {
         for (index, group) in flag.filters.groups.iter().enumerate() {
             let mut property_analyses = Vec::new();
             let mut condition_matched = false;
+
+            // Effective aggregation for this condition: the per-condition group type
+            // when set, otherwise the flag-level one. Used to resolve legacy group
+            // filters that don't carry their own `group_type_index`.
+            let effective_aggregation = group
+                .aggregation_group_type_index
+                .flatten()
+                .or(flag.filters.aggregation_group_type_index);
 
             // Determine if this condition matched based on overall flag result and condition index
             // Only mark as matched if the flag itself matched AND this is the matching condition
@@ -667,7 +678,21 @@ impl FlagDetails {
                         _ => (operator_str.as_str(), "does not match"),
                     };
 
-                    let (property_matched, actual_value) = if let Some(props) = property_values {
+                    // Route each filter to the correct property namespace. Group-typed
+                    // filters (e.g. a group `name` or `$group_key`) must be resolved
+                    // against the named group's properties, not the person's — otherwise
+                    // a matching group condition reports `matched: false` with the
+                    // person's value (or null) as `actual_value`. Mirrors the routing in
+                    // `PropertyContext::resolve_for_filter` used during actual matching.
+                    let resolved_props = match property.prop_type {
+                        crate::properties::property_models::PropertyType::Group => {
+                            let gti = property.group_type_index.or(effective_aggregation);
+                            gti.and_then(|idx| group_property_values.and_then(|m| m.get(&idx)))
+                        }
+                        _ => property_values,
+                    };
+
+                    let (property_matched, actual_value) = if let Some(props) = resolved_props {
                         let actual = props.get(&property.key).cloned();
                         let matched =
                             match_property(property, props, false, team_timezone).unwrap_or(false);
@@ -1258,6 +1283,7 @@ mod tests {
             &flag_match,
             Some(&property_values),
             None,
+            None,
             chrono_tz::Tz::UTC,
         );
 
@@ -1290,6 +1316,92 @@ mod tests {
             !analysis[1].rollout_excluded,
             "Condition 1 should not be rollout_excluded"
         );
+    }
+
+    #[test]
+    fn test_condition_analysis_resolves_group_filters_against_group_properties() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // A group-aggregated flag whose only condition targets a group property.
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "org-flag",
+                "key": "org-flag",
+                "active": true,
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "name",
+                                    "value": "Mjolnir - Test Org",
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0
+                                },
+                                {
+                                    "key": "$group_key",
+                                    "value": "org_123",
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(0),
+            payload: None,
+        };
+
+        // The person happens to carry a conflicting `name`; it must not leak into the
+        // group-typed condition analysis.
+        let mut person_props = HashMap::new();
+        person_props.insert("name".to_string(), json!("Hans Grønskag Hammer"));
+
+        // Group properties keyed by group type index, with `$group_key` injected the way
+        // request handling does for the `groups` param.
+        let mut group_props_for_index = HashMap::new();
+        group_props_for_index.insert("name".to_string(), json!("Mjolnir - Test Org"));
+        group_props_for_index.insert("$group_key".to_string(), json!("org_123"));
+        let group_props: HashMap<i32, HashMap<String, Value>> =
+            HashMap::from([(0, group_props_for_index)]);
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&person_props),
+            Some(&group_props),
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        let props = &analysis[0].properties;
+        assert_eq!(props.len(), 2);
+
+        // Group `name` resolves against the group, not the person.
+        assert_eq!(props[0].key, "name");
+        assert!(props[0].matched, "group name should match");
+        assert_eq!(props[0].actual_value, Some(json!("Mjolnir - Test Org")));
+
+        // `$group_key` resolves from the injected group override rather than reporting null.
+        assert_eq!(props[1].key, "$group_key");
+        assert!(props[1].matched, "$group_key should match");
+        assert_eq!(props[1].actual_value, Some(json!("org_123")));
     }
 
     #[test]
@@ -1339,6 +1451,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             Some(&flag_results),
             chrono_tz::Tz::UTC,
         );
@@ -1371,6 +1484,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             Some(&flag_results),
             chrono_tz::Tz::UTC,
         );
@@ -1404,6 +1518,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             None, // empty — dependency flag 42 absent
             chrono_tz::Tz::UTC,
         );
