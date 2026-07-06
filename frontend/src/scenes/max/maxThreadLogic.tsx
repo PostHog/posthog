@@ -692,6 +692,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: streamData.content,
                     status: 'completed',
                     trace_id: traceId,
+                    // Optimistic client-side stamp for immediate display; the server restamps
+                    // `created_at` on persist, so a reloaded conversation shows the authoritative time.
+                    created_at: dayjs().toISOString(),
                 }
                 actions.addMessage(message)
             }

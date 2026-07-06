@@ -27881,6 +27881,7 @@ class HumanMessage(BaseModel):
         extra="forbid",
     )
     content: str
+    created_at: str | None = None
     id: str | None = None
     parent_tool_call_id: str | None = None
     trace_id: str | None = None

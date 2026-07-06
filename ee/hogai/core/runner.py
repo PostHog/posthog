@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
 
+from django.utils import timezone
+
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -152,7 +154,14 @@ class BaseAgentRunner(ABC):
         self._user = user
         self._session_id = session_id
         self._conversation = conversation
-        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
+        self._latest_message = (
+            new_message.model_copy(
+                deep=True,
+                update={"id": str(uuid4()), "created_at": new_message.created_at or timezone.now().isoformat()},
+            )
+            if new_message
+            else None
+        )
         self._is_new_conversation = is_new_conversation
         self._pending_conversation_update = False
         self._state = None

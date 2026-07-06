@@ -95,6 +95,8 @@ export interface HumanMessage extends BaseAssistantMessage {
     content: string
     ui_context?: MaxUIContext
     trace_id?: string
+    // ISO 8601 send time, stamped server-side. Optional for messages persisted before this field existed.
+    created_at?: string
 }
 
 export interface AssistantFormOption {

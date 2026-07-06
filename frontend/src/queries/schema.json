@@ -25002,6 +25002,9 @@
                 "content": {
                     "type": "string"
                 },
+                "created_at": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
