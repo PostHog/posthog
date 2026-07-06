@@ -28,6 +28,13 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
         deregisterContext: (providerId: string) => ({ providerId }),
         /** Record context item keys already wrapped into a message sent for `taskId`. */
         markContextSent: (taskId: string, keys: string[]) => ({ taskId, keys }),
+        /**
+         * Hide one item (by `attachedContextItemKey`) regardless of which provider contributed it —
+         * the user closing a chip must stick even when the provider re-registers the same item
+         * (e.g. the scene bridge upserting on every scene read).
+         */
+        dismissContext: (key: string) => ({ key }),
+        undismissContext: (key: string) => ({ key }),
     }),
 
     reducers({
@@ -62,14 +69,27 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
                 },
             },
         ],
+        dismissedKeys: [
+            {} as Record<string, true>,
+            {
+                dismissContext: (state, { key }) => ({ ...state, [key]: true as const }),
+                undismissContext: (state, { key }) => {
+                    if (!(key in state)) {
+                        return state
+                    }
+                    const { [key]: _dropped, ...rest } = state
+                    return rest
+                },
+            },
+        ],
     }),
 
     selectors({
         // Flattened across providers, deduped by `${type}:${key ?? value}` (first writer wins).
-        // Items with neither `key` nor `value` carry no payload and are dropped.
+        // Items with neither `key` nor `value` carry no payload and are dropped, as are dismissed keys.
         contextItems: [
-            (s) => [s.providers],
-            (providers): AttachedContextItem[] => {
+            (s) => [s.providers, s.dismissedKeys],
+            (providers, dismissedKeys): AttachedContextItem[] => {
                 const seen = new Set<string>()
                 const out: AttachedContextItem[] = []
                 for (const items of Object.values(providers)) {
@@ -80,7 +100,7 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
                             continue
                         }
                         const key = attachedContextItemKey(item)
-                        if (seen.has(key)) {
+                        if (seen.has(key) || dismissedKeys[key]) {
                             continue
                         }
                         seen.add(key)
