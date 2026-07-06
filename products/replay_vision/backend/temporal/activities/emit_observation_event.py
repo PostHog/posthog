@@ -61,8 +61,8 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "recording_subject_email": recording_subject_email,
         "triggered_by": str(observation.triggered_by),
         "triggered_by_user_id": observation.triggered_by_user_id,
-        "model_used": snapshot.model.value,
-        "provider_used": snapshot.provider.value,
+        "model_used": snapshot.model,
+        "provider_used": snapshot.provider,
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),

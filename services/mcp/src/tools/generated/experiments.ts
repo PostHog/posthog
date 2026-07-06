@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ExperimentHoldoutsCreateBody,
+    ExperimentHoldoutsDestroyParams,
+    ExperimentHoldoutsListQueryParams,
+    ExperimentHoldoutsPartialUpdateBody,
+    ExperimentHoldoutsPartialUpdateParams,
+    ExperimentHoldoutsRetrieveParams,
     ExperimentSavedMetricsCreateBody,
     ExperimentSavedMetricsDestroyParams,
     ExperimentSavedMetricsListQueryParams,
@@ -353,6 +359,137 @@ const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Sc
         },
     })
 
+const ExperimentHoldoutsCreateSchema = ExperimentHoldoutsCreateBody.extend({
+    filters: ExperimentHoldoutsCreateBody.shape['filters'].describe(
+        'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share of users held back from every experiment that references this holdout. `properties` optionally narrows the group by person/group properties (same shape as feature-flag release conditions); pass an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to `holdout-{id}` automatically. Only the first element\'s `rollout_percentage` is embedded into each linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
+    ),
+})
+
+const experimentHoldoutsCreate = (): ToolBase<typeof ExperimentHoldoutsCreateSchema, Schemas.ExperimentHoldout> => ({
+    name: 'experiment-holdouts-create',
+    schema: ExperimentHoldoutsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<Schemas.ExperimentHoldout>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_holdouts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentHoldoutsDestroySchema = ExperimentHoldoutsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentHoldoutsDestroyParams.shape['id']),
+})
+
+const experimentHoldoutsDestroy = (): ToolBase<typeof ExperimentHoldoutsDestroySchema, unknown> => ({
+    name: 'experiment-holdouts-destroy',
+    schema: ExperimentHoldoutsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_holdouts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ExperimentHoldoutsListSchema = ExperimentHoldoutsListQueryParams
+
+const experimentHoldoutsList = (): ToolBase<
+    typeof ExperimentHoldoutsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentHoldoutList>
+> => ({
+    name: 'experiment-holdouts-list',
+    schema: ExperimentHoldoutsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExperimentHoldoutList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_holdouts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'filters', 'created_at', 'updated_at'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/experiments')
+    },
+})
+
+const ExperimentHoldoutsPartialUpdateSchema = ExperimentHoldoutsPartialUpdateParams.omit({ project_id: true })
+    .extend(ExperimentHoldoutsPartialUpdateBody.shape)
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentHoldoutsPartialUpdateParams.shape['id']),
+        filters: ExperimentHoldoutsPartialUpdateBody.shape['filters'].describe(
+            'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — the EXCLUSION percentage. Do NOT set `variant` (the server manages it as `holdout-{id}`). Changing this cascades to every linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
+        ),
+    })
+
+const experimentHoldoutsPartialUpdate = (): ToolBase<
+    typeof ExperimentHoldoutsPartialUpdateSchema,
+    Schemas.ExperimentHoldout
+> => ({
+    name: 'experiment-holdouts-partial-update',
+    schema: ExperimentHoldoutsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<Schemas.ExperimentHoldout>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_holdouts/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentHoldoutsRetrieveSchema = ExperimentHoldoutsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentHoldoutsRetrieveParams.shape['id']),
+})
+
+const experimentHoldoutsRetrieve = (): ToolBase<
+    typeof ExperimentHoldoutsRetrieveSchema,
+    Schemas.ExperimentHoldout
+> => ({
+    name: 'experiment-holdouts-retrieve',
+    schema: ExperimentHoldoutsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentHoldout>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_holdouts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const ExperimentLaunchSchema = ExperimentsLaunchCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsLaunchCreateParams.shape['id']),
 })
@@ -559,6 +696,9 @@ const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetrics
 const ExperimentSavedMetricsListSchema = ExperimentSavedMetricsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
+    event: ExperimentSavedMetricsListQueryParams.shape['event'].describe(
+        "Filter to shared metrics whose query references this event name — matched directly (an EventsNode) or via the step events of any action the metric references. For finding a reusable metric by what it measures; then confirm the match against each row's 'query'."
+    ),
 })
 
 const experimentSavedMetricsList = (): ToolBase<
@@ -573,6 +713,7 @@ const experimentSavedMetricsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
             query: {
+                event: params.event,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -750,7 +891,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
     .extend({
         id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
         running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
         ),
         saved_metrics_ids: SavedMetricsAttachSchema.optional(),
     })
@@ -847,6 +988,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
     'experiment-get': experimentGet,
+    'experiment-holdouts-create': experimentHoldoutsCreate,
+    'experiment-holdouts-destroy': experimentHoldoutsDestroy,
+    'experiment-holdouts-list': experimentHoldoutsList,
+    'experiment-holdouts-partial-update': experimentHoldoutsPartialUpdate,
+    'experiment-holdouts-retrieve': experimentHoldoutsRetrieve,
     'experiment-launch': experimentLaunch,
     'experiment-list': experimentList,
     'experiment-pause': experimentPause,

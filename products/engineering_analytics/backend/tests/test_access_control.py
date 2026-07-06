@@ -24,7 +24,6 @@ from posthog.hogql.database.database import Database
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -40,6 +39,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     link_schema,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 # Every curated query runs HogQL through this method; stub it to empty so a resolved source
 # returns 200 with no rows, leaving the resolver's access-control decision as the only variable.
@@ -118,6 +118,45 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
 
         assert response.status_code == status.HTTP_200_OK
         assert str(self.source_b.id) in {source["id"] for source in response.json()}
+
+    def test_denied_user_cannot_write_quarantine_to_source_b(self) -> None:
+        ExternalDataSource.objects.filter(pk=self.source_b.pk).update(job_inputs={"repository": "PostHog/secret"})
+        github = mock.Mock()
+        github.organization.return_value = "PostHog"
+        github.get_default_branch.return_value = "master"
+        github.get_file_contents.return_value = None
+        github.create_issue.return_value = {"number": 4242, "repository": "secret"}
+        github.create_branch.return_value = {"success": True, "sha": "branchsha"}
+        github.update_file.return_value = {"success": True, "commit_sha": "commitsha"}
+        github.create_pull_request.return_value = {
+            "success": True,
+            "pr_url": "https://github.com/PostHog/secret/pull/99",
+        }
+
+        self.client.force_login(self.no_access_user)
+        with (
+            mock.patch(
+                "products.engineering_analytics.backend.logic.quarantine.GitHubIntegration", return_value=github
+            ),
+            mock.patch("products.engineering_analytics.backend.logic.quarantine.Integration") as integration_cls,
+        ):
+            integration_cls.objects.filter.return_value.first.return_value = object()
+            response = self.client.post(
+                self._url("quarantine/request"),
+                {
+                    "operation": "quarantine",
+                    "selector": "posthog/api/test/test_foo.py::TestFoo::test_bar",
+                    "repo": "PostHog/secret",
+                    "reason": "flaky",
+                    "owner": "@PostHog/team-foo",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "connected GitHub repositories" in response.json()["detail"]
+        github.create_issue.assert_not_called()
+        github.create_branch.assert_not_called()
 
 
 @pytest.mark.ee

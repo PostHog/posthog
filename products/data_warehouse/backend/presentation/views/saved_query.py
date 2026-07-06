@@ -46,17 +46,23 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
+from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
+)
+from products.data_warehouse.backend.presentation.views.column_annotation_base import (
+    DESCRIPTION_HELP_TEXT,
+    upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -69,6 +75,13 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# A DataWarehouseSavedQuery's activity log also records materialization syncs and status
+# transitions (activity="sync_triggered", status changes) that advance the log without the query
+# being edited. Optimistic-concurrency ("modified by someone else") must key off the latest activity
+# that actually changed the query — otherwise every background sync of a materialized view looks
+# like a foreign edit and blocks the next save. This filter scopes activity lookups to query edits.
+QUERY_CHANGE_ACTIVITY_FILTER = {"detail__changes__contains": [{"field": "query"}]}
 
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
@@ -117,7 +130,7 @@ class SyncFrequencyField(serializers.ChoiceField):
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
-    from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
+    from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 
     if saved_query.managed_viewset is not None:
         raise serializers.ValidationError(
@@ -140,6 +153,29 @@ def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
 
     saved_query.revert_materialization()
     saved_query.soft_delete()
+
+
+VIEW_DESCRIPTION_HELP_TEXT = (
+    "Semantic description of what this view represents, surfaced to AI agents. Set it to describe the "
+    "view; send an empty string to clear it. Per-column descriptions are read back in `columns` and set "
+    "via the saved-query column annotation endpoints. " + DESCRIPTION_HELP_TEXT
+)
+
+
+def view_annotation_map(view: DataWarehouseSavedQuery) -> dict[str, str]:
+    """`{column_name: description}` from a view's column annotations (``""`` = view-level)."""
+    return {a.column_name: a.description for a in view.column_annotations.all()}
+
+
+class ViewDescriptionField(serializers.CharField):
+    """View-level description, stored as a column annotation with an empty `column_name`.
+
+    Reads the annotation for display; on write the serializer's create/update upserts or clears it. The
+    view model has no `description` column, so the value is resolved here rather than bound to the model.
+    """
+
+    def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
+        return view_annotation_map(instance).get("")
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -183,6 +219,7 @@ class DataWarehouseSavedQuerySerializerMixin:
 
         context = HogQLContext(team_id=team_id, database=database)
 
+        descriptions = view_annotation_map(view)
         fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
@@ -193,6 +230,7 @@ class DataWarehouseSavedQuerySerializerMixin:
                 fields=field.fields,
                 table=field.table,
                 chain=field.chain,
+                description=descriptions.get(field.name),
             )
             for field in fields
         ]
@@ -205,6 +243,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
 
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    description = ViewDescriptionField(read_only=True, help_text=VIEW_DESCRIPTION_HELP_TEXT)
     sync_frequency = serializers.SerializerMethodField()
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
@@ -219,6 +258,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "name",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
             "columns",
             "status",
@@ -295,6 +335,9 @@ class DataWarehouseSavedQuerySerializer(
     dag_id = serializers.UUIDField(
         write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
     )
+    description = ViewDescriptionField(
+        required=False, allow_blank=True, allow_null=True, help_text=VIEW_DESCRIPTION_HELP_TEXT
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -305,6 +348,7 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
             "columns",
             "status",
@@ -346,6 +390,22 @@ class DataWarehouseSavedQuerySerializer(
             },
         }
 
+    def _write_view_description(self, view: DataWarehouseSavedQuery, description: str | None) -> None:
+        team_id = self.context["team_id"]
+        if description:
+            upsert_annotation(
+                DataWarehouseSavedQueryColumnAnnotation,
+                team_id,
+                parent_field="saved_query",
+                parent=view,
+                column_name="",
+                description=description,
+            )
+        else:
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
+                saved_query=view, column_name=""
+            ).delete()
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -368,6 +428,8 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
         # Sync cadence is configured via materialization, not on creation — drop it so it
         # isn't passed to the model constructor.
         validated_data.pop("sync_frequency", None)
@@ -396,6 +458,8 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             view.save()
+            if has_description:
+                self._write_view_description(view, description)
             try:
                 view.setup_model_paths()
             except Exception:
@@ -433,8 +497,8 @@ class DataWarehouseSavedQuerySerializer(
                 self.context["activity_log"] = activity_log
         # best effort sync to new data modeling DAG representation
         try:
-            from products.data_modeling.backend.models.dag import DAG
-            from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+            from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+            from products.data_modeling.backend.facade.models import DAG
 
             dag_obj = None
             if dag_id:
@@ -450,6 +514,8 @@ class DataWarehouseSavedQuerySerializer(
 
     def update(self, instance: Any, validated_data: Any) -> Any:
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
@@ -481,7 +547,11 @@ class DataWarehouseSavedQuerySerializer(
             if validated_data.get("query", None) and not soft_update:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .values_list("id", flat=True)
                     .first()
@@ -499,6 +569,9 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance.sync_frequency_interval = sync_frequency_interval
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+
+            if has_description:
+                self._write_view_description(view, description)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
@@ -561,9 +634,13 @@ class DataWarehouseSavedQuerySerializer(
             if activity_log:
                 self.context["activity_log"] = activity_log
             else:
-                # get latest activity log for this model
+                # get latest query-changing activity log for this model (see QUERY_CHANGE_ACTIVITY_FILTER)
                 latest_activity_log = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .first()
                 )
@@ -586,8 +663,8 @@ class DataWarehouseSavedQuerySerializer(
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
-                from products.data_modeling.backend.models.dag import DAG
-                from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+                from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+                from products.data_modeling.backend.facade.models import DAG
 
                 dag_obj = None
                 if dag_id:
@@ -616,10 +693,13 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
 
         context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
-        select_ast = parse_select(query["query"])
+        try:
+            select_ast = parse_select(query["query"])
 
-        find_placeholders = FindPlaceholders()
-        find_placeholders.visit(select_ast)
+            find_placeholders = FindPlaceholders()
+            find_placeholders.visit(select_ast)
+        except ExposedHogQLError as err:
+            raise exceptions.ValidationError(detail=f"Invalid query: {err}")
         if len(find_placeholders.placeholder_fields) > 0:
             placeholder = find_placeholders.placeholder_fields.pop()
             placeholder_string = ".".join(str(field) for field in placeholder if field is not None)
@@ -726,7 +806,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         serializer.save(team_id=self.team_id, created_by=self.request.user)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError
 
         folder: DataWarehouseSavedQueryFolder = self.get_object()
         remaining_queries = {
@@ -791,6 +871,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             queryset.prefetch_related(
                 "created_by",
                 "managed_viewset",
+                "column_annotations",
                 Prefetch(
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
@@ -830,12 +911,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # This avoids the annotation when we're getting a single object for update/create/etc.
         action = self.action if hasattr(self, "action") else None
         if action == "list" or action == "retrieve":
-            # Add latest activity id annotation to avoid N+1 queries
+            # Add latest query-changing activity id annotation to avoid N+1 queries. Scoped to query
+            # edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs don't advance the head.
             latest_activity = (
                 ActivityLog.objects.filter(
                     scope="DataWarehouseSavedQuery",
                     item_id=Cast(OuterRef("id"), output_field=TextField()),
                     team_id=self.team_id,
+                    **QUERY_CHANGE_ACTIVITY_FILTER,
                 )
                 .order_by("-created_at")
                 .values("id")[:1]
@@ -866,7 +949,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
+        from products.data_modeling.backend.facade.api import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
@@ -898,9 +981,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
+        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule, materialize_saved_query
+
         saved_query = self.get_object()
 
-        trigger_saved_query_schedule(saved_query)
+        if is_saved_query_on_v2_schedule(saved_query):
+            materialize_saved_query(saved_query)
+        else:
+            trigger_saved_query_schedule(saved_query)
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -935,8 +1023,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         # set data modeling node type to view
         try:
-            from products.data_modeling.backend.models.node import NodeType
-            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+            from products.data_modeling.backend.facade.api import update_node_type
+            from products.data_modeling.backend.facade.models import NodeType
 
             update_node_type(saved_query, NodeType.VIEW)
         except Exception as e:
@@ -994,8 +1082,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         # set data modeling node type to matview
         try:
-            from products.data_modeling.backend.models.node import NodeType
-            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+            from products.data_modeling.backend.facade.api import update_node_type
+            from products.data_modeling.backend.facade.models import NodeType
 
             update_node_type(saved_query, NodeType.MAT_VIEW)
         except Exception as e:

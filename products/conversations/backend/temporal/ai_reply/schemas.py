@@ -27,6 +27,11 @@ class BuildContextOutput:
     # Team opted into letting the agent investigate the customer's own data (wider read scopes
     # on diagnostic tickets). Off by default: a crafted ticket can't unlock those scopes alone.
     diagnostics_allowed: bool = False
+    # Publishable ticket types whose reply mode is `bot_reply` for THIS ticket's channel — i.e.
+    # the reply would be auto-sent to the (untrusted) author. Computed here (needs the team's
+    # ai_reply_modes + the ticket's channel) so the workflow can gate data-read scopes on whether
+    # the reply is actually auto-publishable, not just on ticket type. Empty = nothing auto-sends.
+    auto_publish_ticket_types: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -82,9 +87,15 @@ class DraftInput:
     prior_missing: list[str] = field(default_factory=list)
     always_on_context: str = ""
     ticket_type: str = "how_to"
-    # When true (diagnostic tickets), the draft sandbox gets the wider DIAGNOSTIC_DRAFT_SCOPES
-    # so the agent can investigate the customer's actual data instead of doc-lookup only.
+    # Classifier hint: the ticket needs data investigation. Gates the diagnostic prompt block.
     needs_diagnostics: bool = False
+    # Org opt-in (ai_diagnostics_enabled): required for the read_only scope preset. Combined
+    # with `auto_publishable` in draft.py — data tools are granted only when opted in AND the
+    # reply won't be auto-sent to the (untrusted) author.
+    diagnostics_allowed: bool = False
+    # This reply would be auto-sent publicly (publishable type + channel set to bot_reply). When
+    # True the draft stays doc/BK-only so project data can't reach the author, even if opted in.
+    auto_publishable: bool = False
 
 
 @dataclass
@@ -160,6 +171,15 @@ class ReviewReplyInput:
 class ReviewReplyOutput:
     safe: bool
     reason: str = ""
+
+
+@dataclass
+class PersistKnowledgeGapInput:
+    team_id: int
+    ticket_id: str
+    missing: list[str] = field(default_factory=list)
+    ticket_type: str = ""
+    outcome: str = ""
 
 
 class SupportReplySource(BaseModel):

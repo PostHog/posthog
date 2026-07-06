@@ -6,10 +6,12 @@ from functools import partial
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     _convert_timestamp_to_date,
     _extract_type_and_id_from_urn,
     _flatten_linkedin_record,
+    _get_integration,
     linkedin_ads_client,
     linkedin_ads_source,
 )
@@ -395,6 +398,81 @@ class TestLinkedinAdsClientFunction:
         linkedin_ads_client(config, team_id=789)
 
         assert calls == ["close_old_connections", "Integration.objects.get"]
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.close_old_connections"
+)
+_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.time.sleep"
+
+
+class TestGetIntegrationDbResilience:
+    def test_retries_on_dropped_connection_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH),
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_rides_out_pool_wait_timeout_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+        assert get.call_count == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted integration row is non-retryable — don't mask it as a transient drop.
+        assert get.call_count == 1
 
 
 @mock.patch(

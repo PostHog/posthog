@@ -356,6 +356,7 @@ export const TracingSpansDurationHistogramCreateParams = /* @__PURE__ */ zod.obj
 })
 
 export const tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault = true
 
 export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -427,8 +428,14 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 )
                 .default(tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    'When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.'
+                ),
         })
-        .describe('The sparkline / duration-histogram query to execute.'),
+        .describe('The duration-histogram query to execute.'),
 })
 
 export const TracingSpansQueryCreateParams = /* @__PURE__ */ zod.object({
@@ -588,6 +595,7 @@ export const TracingSpansSparklineCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = false
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -659,8 +667,14 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    "When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume."
+                ),
         })
-        .describe('The sparkline / duration-histogram query to execute.'),
+        .describe('The sparkline query to execute.'),
 })
 
 export const tracingSpansTraceCreatePathTraceIdRegExp = new RegExp('^[a-zA-Z0-9]+$')

@@ -26,6 +26,7 @@ class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
+    HOST_UNREACHABLE = "host_unreachable"
     SLOT_MISSING = "slot_missing"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
@@ -78,6 +79,13 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Could not connect to the source database. PostHog will keep retrying — if this persists, "
         "check that the database is reachable and accepting connections.",
         True,
+    ),
+    CDCErrorCategory.HOST_UNREACHABLE: (
+        "PostHog has no network route to the source database host, so it can't be reached. Check "
+        "that the host and port are correct and reachable from the public internet (PostHog's IP "
+        "addresses allowed through, and the host not resolving to a private or unreachable "
+        "address), then re-enable change data capture.",
+        False,
     ),
     CDCErrorCategory.SLOT_MISSING: (
         "The replication slot no longer exists on the source database, so changes can no longer be "

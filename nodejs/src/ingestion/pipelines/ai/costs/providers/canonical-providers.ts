@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-26 20:30:29 UTC
+// Generated at: 2026-07-06 11:30:46 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,6 +21,7 @@ export type CanonicalProvider =
     | 'anthropic-2'
     | 'anthropic-claude-on-aws'
     | 'arcee-ai'
+    | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
@@ -48,6 +49,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -77,6 +79,7 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream-fp8'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
     | 'minimax'
@@ -99,6 +102,7 @@ export type CanonicalProvider =
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
+    | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'
@@ -120,7 +124,6 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sakana'
     | 'sambanova'
-    | 'sambanova-bf16'
     | 'sambanova-fp8'
     | 'sambanova-minimax-m2-7-dedicated'
     | 'sambanova-turbo'
@@ -128,7 +131,6 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'

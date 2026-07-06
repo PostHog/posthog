@@ -54,6 +54,7 @@ class DeltaBatchConsumerAdapter:
     executing_state: str = SourceBatchStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
+    per_group_connections: bool = True
 
     async def fetch_and_lock(
         self,
@@ -61,11 +62,15 @@ class DeltaBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
         return await BatchQueue.get_unprocessed_and_lock(
             conn,
+            owner_token=owner_token,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
+            lease_ttl_seconds=lease_ttl_seconds,
         )
 
     async def unlock(
@@ -73,8 +78,17 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token)
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        await BatchQueue.release_all_owned_leases(conn, owner_token=owner_token)
 
     async def update_status(
         self,
@@ -153,8 +167,28 @@ class DeltaBatchConsumerAdapter:
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
-        return await BatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+        return await BatchQueue.verify_advisory_lock(
+            conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token
+        )
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        return await BatchQueue.renew_lease(
+            conn,
+            team_id=team_id,
+            schema_id=schema_id,
+            owner_token=owner_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+        )
 
     async def get_stale_executing(
         self,
@@ -163,7 +197,9 @@ class DeltaBatchConsumerAdapter:
         grace_seconds: int,
         keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=keep_locks)
+        # keep_locks is meaningless for the lease sink: get_stale_executing holds
+        # no locks and the lease LEFT JOIN already excludes live groups.
+        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,

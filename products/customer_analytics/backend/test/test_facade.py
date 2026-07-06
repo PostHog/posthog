@@ -1,7 +1,14 @@
+from uuid import uuid4
+
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, User
+from django.apps import apps
+
+from parameterized import parameterized
+
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
@@ -11,8 +18,16 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.logic.custom_property_definitions import InvalidCustomPropertyOptions
+from products.customer_analytics.backend.logic.custom_property_values import set_custom_property_value
+from products.customer_analytics.backend.models import (
+    Account,
+    CustomPropertyDefinition,
+    CustomPropertySource,
+    CustomPropertyValue,
+)
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
@@ -485,3 +500,269 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             )
             is None
         )
+
+
+class TestCustomPropertyDefinitionOptionsFacade(TeamScopedTestMixin, BaseTest):
+    OPTIONS = [
+        {"label": "Red", "color": "preset-1"},
+        {"label": "Blue", "color": "preset-2"},
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _create_select(self, options=None):
+        return facade.create_custom_property_definition(
+            team_id=self.team.id,
+            name="Stage",
+            description=None,
+            display_type="select",
+            is_big_number=False,
+            options=self.OPTIONS if options is None else options,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _update(self, definition_id, **fields):
+        return facade.update_custom_property_definition(
+            team_id=self.team.id,
+            definition_id=definition_id,
+            fields=fields,
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def _set_value(self, definition_id, value, account_id=None):
+        return set_custom_property_value(
+            team_id=self.team.id,
+            account_id=account_id or self.account.id,
+            definition_id=definition_id,
+            value=value,
+        )
+
+    def _values(self, definition_id):
+        return CustomPropertyValue.objects.for_team(self.team.id).filter(definition_id=definition_id)
+
+    def test_create_assigns_option_ids(self):
+        view = self._create_select()
+
+        assert view.options is not None
+        assert [option.label for option in view.options] == ["Red", "Blue"]
+        assert all(option.id for option in view.options)
+
+    def test_create_select_without_options_raises(self):
+        with pytest.raises(InvalidCustomPropertyOptions):
+            self._create_select(options=[])
+
+    def test_rename_backfills_active_and_historical_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue")  # supersedes: the "Red" row becomes historical
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Crimson", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Blue", "color": "preset-2"},
+            ],
+        )
+
+        stored = list(self._values(view.id).order_by("created_at").values_list("value_str", "is_deleted"))
+        assert stored == [("Crimson", True), ("Blue", False)]
+
+    def test_removed_option_soft_deletes_active_values(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, options=[{"id": view.options[1].id, "label": "Blue", "color": "preset-2"}])
+
+        assert updated is not None and [option.label for option in updated.options] == ["Blue"]
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is True
+
+    def test_label_swap_between_options_does_not_cascade(self):
+        view = self._create_select()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        self._set_value(view.id, "Red")
+        self._set_value(view.id, "Blue", account_id=other_account.id)
+
+        self._update(
+            view.id,
+            options=[
+                {"id": view.options[0].id, "label": "Blue", "color": "preset-1"},
+                {"id": view.options[1].id, "label": "Red", "color": "preset-2"},
+            ],
+        )
+
+        by_account = {row.account_id: row.value_str for row in self._values(view.id)}
+        assert by_account == {self.account.id: "Blue", other_account.id: "Red"}
+
+    def test_converting_select_to_text_keeps_values_and_clears_options(self):
+        view = self._create_select()
+        self._set_value(view.id, "Red")
+
+        updated = self._update(view.id, display_type="text")
+
+        assert updated is not None and updated.options is None
+        row = self._values(view.id).get()
+        assert row.value_str == "Red"
+        assert row.is_deleted is False
+
+
+class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        self.view = saved_query_model.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}
+        )
+        self.definition = CustomPropertyDefinition.objects.create(team=self.team, name="MRR")
+
+    def _create(self, **overrides):
+        kwargs: dict = {
+            "team_id": self.team.id,
+            "definition_id": self.definition.id,
+            "saved_query_id": self.view.id,
+            "source_column": "mrr",
+            "key_column": "org_id",
+            "is_enabled": True,
+            "user": self.user,
+        }
+        kwargs.update(overrides)
+        return facade.create_custom_property_source(**kwargs)
+
+    def test_create_returns_contract(self):
+        result = self._create()
+
+        assert isinstance(result, contracts.CustomPropertySourceView)
+        assert result.definition == self.definition.id
+        assert result.saved_query == self.view.id
+        assert result.source_column == "mrr"
+        assert result.is_enabled is True
+        assert result.id is not None
+        assert CustomPropertySource.objects.for_team(self.team.id).filter(id=result.id).exists()
+
+    def test_create_rejects_saved_query_from_another_team(self):
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_view = saved_query_model.objects.create(team=other_team, name="other_view", columns={})
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create(saved_query_id=other_view.id)
+
+    def test_create_rejects_definition_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_definition = CustomPropertyDefinition.objects.create(team=other_team, name="Other MRR")
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create(definition_id=other_definition.id)
+
+    def test_create_rejects_second_source_for_same_definition(self):
+        self._create()
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create()
+
+    def test_update_reenable_resets_failure_streak_and_clears_error(self):
+        source = self._create()
+        CustomPropertySource.objects.filter(id=source.id).update(
+            is_enabled=False, consecutive_failures=5, last_sync_error="boom"
+        )
+
+        result = facade.update_custom_property_source(
+            team_id=self.team.id, source_id=source.id, fields={"is_enabled": True}
+        )
+        assert result is not None
+
+        assert result.is_enabled is True
+        assert result.consecutive_failures == 0
+        assert result.last_sync_error is None
+
+    def test_update_returns_none_for_missing_source(self):
+        result = facade.update_custom_property_source(
+            team_id=self.team.id, source_id=str(uuid4()), fields={"is_enabled": False}
+        )
+        assert result is None
+
+    def test_delete_removes_source(self):
+        source = self._create()
+
+        assert facade.delete_custom_property_source(team_id=self.team.id, source_id=source.id) is True
+        assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
+
+    @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
+    def test_create_enqueues_initial_sync_only_when_enabled(self, _name, is_enabled, expect_enqueued):
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            self._create(is_enabled=is_enabled)
+
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once_with(
+                "customer_analytics.process_custom_property_sync",
+                kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+            )
+        else:
+            mock_app.send_task.assert_not_called()
+
+    def test_reenabling_a_source_enqueues_a_sync(self):
+        source = self._create(is_enabled=False)
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields={"is_enabled": True})
+
+        mock_app.send_task.assert_called_once_with(
+            "customer_analytics.process_custom_property_sync",
+            kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+        )
+
+    @parameterized.expand(
+        [
+            ("noop", {}, False),
+            ("already_enabled", {"is_enabled": True}, False),
+            ("column_change", {"source_column": "org_id"}, True),
+        ]
+    )
+    def test_update_enqueues_only_on_meaningful_change(self, _name, fields, expect_enqueued):
+        source = self._create()
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields=fields)
+
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once()
+        else:
+            mock_app.send_task.assert_not_called()
+
+    def test_external_batch_rejects_source_backed_definition(self):
+        self._create()
+        create_account(team_id=self.team.id, name="Acme", external_id="acme")
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme", properties={str(self.definition.id): 100}
+        )
+
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED
+        assert result.values is None
+
+    def test_get_definition_carries_source(self):
+        uac = UserAccessControl(user=self.user, team=self.team)
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        assert view is not None
+        assert view.source is None
+
+        source = self._create()
+        view = facade.get_custom_property_definition(self.team.id, self.definition.id, user_access_control=uac)
+        assert view is not None
+        assert view.source is not None
+        assert view.source.id == source.id
+        assert view.source.source_column == "mrr"
+
+    def test_manual_value_write_rejected_on_source_backed_definition(self):
+        self._create()
+        account = create_account(team_id=self.team.id, external_id="org_1")
+
+        with pytest.raises(facade.CustomPropertyValueSourceManaged):
+            facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)

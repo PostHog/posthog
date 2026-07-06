@@ -148,6 +148,11 @@ class TestSampleAndEmbedForJobActivity:
             assert kwargs["metadata"] == {"job_id": "job-abc"}
             assert "Evaluation:" in kwargs["content"]
 
+        # document_id is scoped per (event, job) so two jobs sampling the same event don't collapse
+        # to one ReplacingMergeTree row; Stage B strips the suffix back to the event uuid.
+        document_ids = [call.kwargs["document_id"] for call in calls]
+        assert document_ids == ["uuid-1::job-abc", "uuid-2::job-abc", "uuid-3::job-abc"]
+
         # Third row's N/A verdict is surfaced in the composed text
         na_content = calls[2].kwargs["content"]
         assert "Verdict: n/a" in na_content

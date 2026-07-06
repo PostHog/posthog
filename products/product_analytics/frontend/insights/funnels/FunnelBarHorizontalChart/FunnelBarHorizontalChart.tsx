@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
 
-import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+import { type TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -43,7 +43,7 @@ export function FunnelBarHorizontalChart({
     inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const fillerColor = useMemo(() => getFillerColor(), [isDarkModeOn])
 
     const { insightProps } = useValues(insightLogic)
@@ -102,6 +102,25 @@ export function FunnelBarHorizontalChart({
                     const isOptional = isStepOptional(stepIndex + 1)
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
+                        // Stacked breakdown + compare: the drop-off band aggregates every value for the
+                        // period, so open the period's whole-step drop-off — compare-scoped, but with no
+                        // breakdown filter. Pure compare tags each drop-off with its period's
+                        // breakdownIndex instead, so it routes through the series branch below.
+                        if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
+                            if (meta.compareLabel) {
+                                openPersonsModalForSeries({
+                                    step,
+                                    series: {
+                                        ...step,
+                                        breakdown: undefined,
+                                        breakdown_value: undefined,
+                                        compare_label: meta.compareLabel,
+                                    },
+                                    converted: false,
+                                })
+                            }
+                            return
+                        }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
                         // route the matching period series (converted vs. dropped-off) — handled before the
                         // generic drop-off branch, which would otherwise open the aggregate step.
@@ -137,6 +156,7 @@ export function FunnelBarHorizontalChart({
                             context={ctx}
                             step={step}
                             stepIndex={stepIndex}
+                            firstStep={steps[0]}
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}

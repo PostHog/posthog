@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+from copy import deepcopy
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -233,6 +234,47 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         if annotated is not None:
             return annotated
         return experiment_has_legacy_metrics(obj)
+
+    def to_representation(self, instance: Experiment) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        self._project_feature_flag_config(data, instance.feature_flag)
+        return data
+
+    @staticmethod
+    def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
+        """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
+
+        The flag is the source of truth for variants/rollout/aggregation group type — `parameters`
+        is a deprecated compatibility surface (see the experiment model's `parameters` comment).
+        Reading these keys from the flag instead of the stored column lets us stop persisting the
+        `parameters` mirror without changing the API response. The linked flag is already serialized
+        into `data["feature_flag"]`, so this adds no queries.
+        """
+        if flag is None:
+            return
+        parameters = dict(data.get("parameters") or {})
+
+        variants = deepcopy(flag.variants)
+        for variant in variants:
+            # Mirror ExperimentParametersField.to_representation: the UI edits splits via split_percent.
+            if isinstance(variant, dict) and "rollout_percentage" in variant:
+                variant["split_percent"] = variant["rollout_percentage"]
+        parameters["feature_flag_variants"] = variants
+
+        filters = flag.get_filters()
+        aggregation_group_type_index = filters.get("aggregation_group_type_index")
+        if aggregation_group_type_index is not None:
+            parameters["aggregation_group_type_index"] = aggregation_group_type_index
+        else:
+            parameters.pop("aggregation_group_type_index", None)
+
+        groups = filters.get("groups") or []
+        if groups and groups[0].get("rollout_percentage") is not None:
+            parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
+        else:
+            parameters.pop("rollout_percentage", None)
+
+        data["parameters"] = parameters
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):

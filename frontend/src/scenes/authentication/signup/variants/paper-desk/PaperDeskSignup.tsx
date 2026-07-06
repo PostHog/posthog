@@ -154,7 +154,7 @@ function PendingInvitePanel(): JSX.Element {
             {pendingInviteResent ? (
                 <div className="flex gap-2 items-start py-2.5 px-3 text-sm text-primary text-left bg-success-highlight border border-success rounded">
                     <span className="font-bold text-success">✓</span>
-                    <span>Sent. Look for an email from {org} — the link inside takes you straight in.</span>
+                    <span>Sent. Look for an email from {org}. The link inside takes you straight in.</span>
                 </div>
             ) : (
                 <div className="flex flex-col gap-2.5">

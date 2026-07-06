@@ -640,6 +640,11 @@ class TestClickHouseSourceNonRetryableErrors:
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
             "Table default.some_dropped_table not found or has no columns",
+            # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
+            # e.g. an AggregateFunction state column on an aggregating materialized view.
+            "HTTPDriver for https://host:8443 received ClickHouse error code 50\n Code: 50. "
+            "DB::Exception: The type 'AggregateFunction(uniq, String)' of a column 'profile_id' "
+            "is not supported for conversion into Arrow data format: While executing Arrow. (UNKNOWN_TYPE)",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -675,6 +680,13 @@ class TestIsTransientConnectDrop:
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            # The exact wrapped message that reached error tracking: the egress proxy
+            # returned a 502 while opening the CONNECT tunnel to a ClickHouse host.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "502 Bad gateway'))) executing HTTP request attempt 1",
+            "Tunnel connection failed: 503 Service Unavailable",
+            "Tunnel connection failed: 504 Gateway Timeout",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -687,6 +699,8 @@ class TestIsTransientConnectDrop:
             "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
             "Code: 516. DB::Exception: Authentication failed",
             "HTTPDriver for https://host:8443 returned response code 404",
+            # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
+            "Tunnel connection failed: 407 Proxy Authentication Required",
         ],
     )
     def test_does_not_match_deterministic_failures(self, message):

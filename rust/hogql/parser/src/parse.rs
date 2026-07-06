@@ -1399,15 +1399,18 @@ pub(crate) fn interval_call_name(unit: &str) -> Option<&'static str> {
 /// (`INTERVAL 5 SECOND`) uses the case-insensitive helper because
 /// keywords come from the lexer (which is case-insensitive).
 pub(crate) fn interval_call_name_case_sensitive(unit: &str) -> Option<&'static str> {
-    match unit.trim_end_matches('s') {
-        "second" => Some("toIntervalSecond"),
-        "minute" => Some("toIntervalMinute"),
-        "hour" => Some("toIntervalHour"),
-        "day" => Some("toIntervalDay"),
-        "week" => Some("toIntervalWeek"),
-        "month" => Some("toIntervalMonth"),
-        "quarter" => Some("toIntervalQuarter"),
-        "year" => Some("toIntervalYear"),
+    // cpp matches each unit against exactly its singular OR single-`s` plural.
+    // `trim_end_matches('s')` would strip *every* trailing `s`, over-accepting
+    // doubled plurals (`dayss`, `secondss`) that cpp rejects.
+    match unit {
+        "second" | "seconds" => Some("toIntervalSecond"),
+        "minute" | "minutes" => Some("toIntervalMinute"),
+        "hour" | "hours" => Some("toIntervalHour"),
+        "day" | "days" => Some("toIntervalDay"),
+        "week" | "weeks" => Some("toIntervalWeek"),
+        "month" | "months" => Some("toIntervalMonth"),
+        "quarter" | "quarters" => Some("toIntervalQuarter"),
+        "year" | "years" => Some("toIntervalYear"),
         _ => None,
     }
 }

@@ -224,6 +224,8 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const visionScannersCreateBodyNameMax = 255
 
+export const visionScannersCreateBodyDescriptionMax = 1000
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -232,7 +234,11 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(visionScannersCreateBodyNameMax)
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersCreateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
@@ -257,7 +263,9 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersCreateBodySamplingRateMin)
         .max(visionScannersCreateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')
@@ -288,6 +296,8 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
  */
 export const visionScannersPartialUpdateBodyNameMax = 255
 
+export const visionScannersPartialUpdateBodyDescriptionMax = 1000
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -297,7 +307,11 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(visionScannersPartialUpdateBodyNameMax)
         .optional()
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
@@ -324,7 +338,9 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersPartialUpdateBodySamplingRateMin)
         .max(visionScannersPartialUpdateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')
@@ -386,5 +402,51 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+        scanner_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
+
+/**
+ * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
+ */
+export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
+
+export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
+
+export const visionScannersSuggestTagsCreateBodyTagsMax = 200
+
+export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
+export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
+
+export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        prompt: zod
+            .string()
+            .max(visionScannersSuggestTagsCreateBodyPromptMax)
+            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
+        tags: zod
+            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
+            .max(visionScannersSuggestTagsCreateBodyTagsMax)
+            .optional()
+            .describe('The current tag vocabulary, so suggestions never duplicate a tag the user already has.'),
+        multi_label: zod
+            .boolean()
+            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
+            .describe('Whether the classifier assigns multiple tags per session.'),
+        allow_freeform_tags: zod
+            .boolean()
+            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
+            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
+        scanner_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')

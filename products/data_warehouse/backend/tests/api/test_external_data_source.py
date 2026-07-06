@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import psycopg
@@ -38,11 +38,13 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
+    get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -1656,6 +1658,18 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
         )
+        snowflake_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="Analytics Snowflake",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"account_id": "acct", "database": "TPCH_SF1"},
+            connection_metadata={"engine": "snowflake", "database": "TPCH_SF1"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -1664,6 +1678,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             payload,
             [
+                {
+                    "id": str(snowflake_source.pk),
+                    "prefix": "Analytics Snowflake",
+                    "engine": "snowflake",
+                },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
@@ -2982,7 +3001,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertIn("not supported for direct-query sources", str(response.json()))
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3757,7 +3776,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3773,7 +3792,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -3930,6 +3949,15 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_unknown_source_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "GoogleAds-"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Unknown source_type 'GoogleAds-'"
+
     def test_database_schema_stripe_credentials(self):
         with (
             patch(
@@ -3995,6 +4023,76 @@ class TestExternalDataSource(APIBaseTest):
 
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("expected_source_error", False),
+            ("unexpected_source_error", True),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_captures_only_unexpected_source_errors(
+        self, _name, expect_capture, mock_get_source, mock_capture_exception
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            BigQueryDatasetNotFoundError,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+
+        error: Exception = (
+            RuntimeError("schema discovery exploded")
+            if expect_capture
+            else BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR)
+        )
+        source = BigQuerySource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=error),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "BigQuery"},
+            )
+
+        assert response.status_code == 400
+        if expect_capture:
+            # Unexpected errors return the safe generic fallback, never the raw exception string.
+            assert response.json()["message"] == "Could not fetch schemas from source."
+            mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
+        else:
+            # Expected per-source errors surface the classifier's friendly copy.
+            assert response.json()["message"] == str(error)
+            mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_rejects_source_without_schema_discovery(self, mock_get_source, mock_capture_exception):
+        # AmazonS3 deliberately omits get_schemas, so the base raises NotImplementedError. The endpoint
+        # must return a clean 400 without capturing it as a server error, mirroring `setup`.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
+
+        source = AmazonS3Source()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "AmazonS3"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "Source type 'AmazonS3' does not support schema discovery."
+        mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
         """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
@@ -5110,6 +5208,334 @@ class TestExternalDataSource(APIBaseTest):
         assert persisted_host in source.job_inputs["manifest_json"]
         # The credential probe only runs once the re-entry gate has passed.
         assert mock_validate_credentials.called == (expected_status == 200)
+
+    def _custom_oauth2_source(self, token_url: str) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": token_url},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_oauth2_client_secret": "cs_existing"},
+        )
+
+    @parameterized.expand(
+        [("without_credentials", {}, 400), ("with_credentials", {"auth_oauth2_client_secret": "cs_new"}, 200)]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_oauth2_token_url_change_requires_reentry(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The OAuth2 token endpoint receives the stored client_secret. Repointing token_url to a new
+        # host without re-supplying the secret would exfiltrate it to a server the editor chose — so it
+        # is gated exactly like a base_url change. This is the net-new credential-redirect coverage that
+        # the Smokescreen egress proxy structurally cannot provide.
+        source = self._custom_oauth2_source("https://auth.example.com/oauth2/token")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://attacker.example.net/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    def _custom_oauth2_integration_source(self) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2_int",
+            job_inputs={
+                "manifest_json": json.dumps(manifest),
+                "auth_oauth2_integration_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_reentry", {}, 400),
+            ("partial_reentry", {"auth_oauth2_client_secret": "cs_new"}, 400),
+            (
+                "full_reentry",
+                {"auth_oauth2_client_secret": "cs_new", "auth_oauth2_refresh_token": "rt_new"},
+                200,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_row_backed_source_host_change_requires_full_reentry(
+        self, _name, extra_inputs, expected_status, mock_validate_credentials
+    ):
+        # A row-backed OAuth2 source keeps no secret in job_inputs — the token lives in the bound
+        # CustomOAuth2Integration row and is injected at sync time. A manifest host change would still
+        # redirect the row's injected token, so the gate fires unless the editor re-enters every secret
+        # the row holds (which validation then rotates into the row) — a partial re-entry still
+        # preserves a secret the editor may not know.
+        source = self._custom_oauth2_integration_source()
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token"},
+            sensitive_config={"client_secret": "cs", "refresh_token": "rt"},
+        )
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_inputs}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_source_cannot_clear_pointer_to_move_host_while_bound(self, mock_validate_credentials):
+        # Bypass guard: clearing auth_oauth2_integration_id does not unbind the CustomOAuth2Integration row,
+        # so an editor must not be able to clear the pointer, move the manifest host, then re-add the pointer
+        # to redirect the still-bound token. A row bound to the source makes the host-change gate fire even
+        # when job_inputs currently omits the pointer.
+        source = self._custom_oauth2_integration_source()
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token"},
+            sensitive_config={"client_secret": "s"},
+        )
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), "auth_oauth2_integration_id": ""}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    def _valid_oauth2_manifest(self) -> dict:
+        return {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/token",
+                    "grant_type": "refresh_token",
+                },
+            },
+            "resources": [
+                {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "data"}}
+            ],
+        }
+
+    def _mock_oauth2_network(self, mock_token_session, mock_probe_session) -> None:
+        token_response = MagicMock()
+        token_response.status_code = 200
+        token_response.raw.read.return_value = json.dumps(
+            {"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        ).encode()
+        mock_token_session.return_value.post.return_value = token_response
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_create_custom_oauth2_source_adopts_secrets_into_bound_row(
+        self, mock_token_session, mock_probe_session, _mock_trigger
+    ):
+        # The whole flow through the real create endpoint: secrets typed on the source config screen
+        # end up in a CustomOAuth2Integration row bound to the new source, and the persisted
+        # job_inputs carry only the server-written pointer — never the raw secrets. A client-supplied
+        # pointer is dropped, so it cannot pre-seed the adoption.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "customoauth_",
+                "payload": {
+                    "manifest_json": json.dumps(self._valid_oauth2_manifest()),
+                    "auth_oauth2_client_secret": "cs",
+                    "auth_oauth2_refresh_token": "orig-RT",
+                    "auth_oauth2_integration_id": "22222222-2222-2222-2222-222222222222",
+                    "schemas": [{"name": "users", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.external_data_source_id == source.pk
+        assert row.created_by_id == self.user.pk
+        assert row.sensitive_config["client_secret"] == "cs"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_setup_custom_oauth2_source_stores_pointer_not_secrets(
+        self, mock_token_session, mock_probe_session, _mock_trigger
+    ):
+        # `setup` validates first and then re-parses the raw payload with the credential gate skipped —
+        # the adoption rewrite must be propagated onto that payload, or the created source would keep
+        # the raw secrets in job_inputs and orphan the row.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Custom",
+                "prefix": "customoauthsetup_",
+                "payload": {
+                    "manifest_json": json.dumps(self._valid_oauth2_manifest()),
+                    "auth_oauth2_client_secret": "cs",
+                    "auth_oauth2_refresh_token": "orig-RT",
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.external_data_source_id == source.pk
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_update_reenters_oauth2_secrets_into_bound_row(self, mock_token_session, mock_probe_session):
+        # Reconnect happens on the source config screen: re-entered secrets must land in the bound row
+        # (not in job_inputs) via the update path's re-serialization.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+        manifest = self._valid_oauth2_manifest()
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="customoauthreconnect_",
+            job_inputs={"manifest_json": json.dumps(manifest)},
+        )
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            created_by=self.user,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "old-cs", "refresh_token": "old-rt"},
+        )
+        source.job_inputs["auth_oauth2_integration_id"] = str(row.pk)
+        source.save(update_fields=["job_inputs"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "manifest_json": json.dumps(manifest),
+                    "auth_oauth2_client_secret": "new-cs",
+                    "auth_oauth2_refresh_token": "new-rt",
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        source.refresh_from_db()
+        row.refresh_from_db()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.sensitive_config["client_secret"] == "new-cs"
+        # Validation minted with the re-entered token and persisted the provider's rotation.
+        assert mock_token_session.return_value.post.call_args.kwargs["data"]["refresh_token"] == "new-rt"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_cannot_repoint_oauth2_integration_id(self, _mock_validate_credentials):
+        # The pointer is server-managed: an editor submitting a different integration UUID must have it
+        # pinned back to the stored one, or they could route another row's credentials to this source.
+        source = self._custom_oauth2_integration_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {"auth_oauth2_integration_id": "33333333-3333-3333-3333-333333333333"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_oauth2_integration_id"] == "11111111-1111-1111-1111-111111111111"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
@@ -6598,6 +7024,50 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    @parameterized.expand(
+        [
+            # name, query string, expected source-type keys (None = unfiltered, expect full catalog)
+            ("unfiltered", "", None),
+            ("single_type", "?source_type=Stripe", {"Stripe"}),
+            ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+        ]
+    )
+    def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 200
+        if expected_keys is None:
+            assert len(response.json()) > 2  # sanity: unfiltered returns the full catalog
+        else:
+            assert set(response.json().keys()) == expected_keys
+
+    def test_get_wizard_sources_unknown_source_type_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
+        )
+        assert response.status_code == 400
+        assert "NotARealSource" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            # name, endpoint suffix, body
+            ("create", "", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            (
+                "database_schema",
+                "database_schema/",
+                {"source_type": "Postgres", "password": {"secretRef": "ref-123"}, "host": "db.example.com"},
+            ),
+        ]
+    )
+    def test_unresolved_secret_ref_rejected(self, _name, suffix, body):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{suffix}",
+            data=body,
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "secretRef" in response.json()["message"]
 
     @parameterized.expand(
         [
@@ -10099,3 +10569,35 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
+
+
+class TestGetDirectConnectionMetadata(SimpleTestCase):
+    def _source_impl(self, error: Exception, non_retryable: dict | None = None) -> Mock:
+        impl = Mock()
+        impl.get_connection_metadata.side_effect = error
+        impl.get_non_retryable_errors.return_value = non_retryable or {}
+        return impl
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_expected_connection_error_is_not_captured(self, mock_capture):
+        # An unreachable customer host fails the best-effort metadata probe — already surfaced by
+        # credential validation, so it must degrade to the fallback without flooding error tracking.
+        impl = self._source_impl(
+            psycopg.OperationalError('connection to server at "192.0.2.1", port 5432 failed: Network is unreachable')
+        )
+        fallback = {"database": "existing"}
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=fallback)
+
+        self.assertEqual(result, fallback)
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_unexpected_error_is_still_captured(self, mock_capture):
+        error = ValueError("unexpected bug in metadata probe")
+        impl = self._source_impl(error)
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=None)
+
+        self.assertEqual(result, {})
+        mock_capture.assert_called_once_with(error)

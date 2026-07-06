@@ -2,8 +2,15 @@
 Postgres-based job queue for warehouse source batch processing.
 
 Replaces the Kafka topic `warehouse_sources_jobs` with direct Postgres inserts
-and advisory-lock-based coordination. All SQL is isolated here so that the
-producer (Temporal activity) and consumer share a single interface to the queue.
+and lease-based coordination. All SQL is isolated here so that the producer
+(Temporal activity) and consumer share a single interface to the queue.
+
+Group ownership uses a row-based lease (`sourcegrouplease`) keyed by
+(team_id, schema_id): claimed via a conditional upsert, renewed by the
+consumer heartbeat, and reclaimable by any pod once it expires. This replaces
+the old session-scoped Postgres advisory lock, whose ownership was tied to a
+live server session and so could be orphaned indefinitely on SIGKILL, pgbouncer
+session lingering, or node loss — wedging the whole loader fleet.
 """
 
 from __future__ import annotations
@@ -20,15 +27,24 @@ from psycopg.rows import dict_row
 BATCH_TABLE = "sourcebatch"
 STATUS_TABLE = "sourcebatchstatus"
 STATUS_VIEW = "v_latest_source_batch_status"
+LEASE_TABLE = "sourcegrouplease"
 
-# Namespace for advisory locks to avoid collisions with other PostHog subsystems.
-ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
+# Default group-lease validity window, in seconds. The consumer renews the
+# lease on its heartbeat (~every grace/3); a group whose owner stops renewing
+# becomes reclaimable once this window elapses. Coordinated with the consumer's
+# recovery_grace_seconds so lease reclamation and the executing-status recovery
+# sweep fire together.
+LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
 # partitions. Not a correctness filter — older partitions are already
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
+
+# Quiet time (no batch inserts or status writes) before lock takeover treats a run as
+# abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
+TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 
 
 def pending_batch_select_columns(status_alias: str) -> str:
@@ -43,6 +59,34 @@ def pending_batch_select_columns(status_alias: str) -> str:
     """
 
 
+def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "LEFT") -> str:
+    """Per-batch latest-status lookup, driven by the (batch_id, created_at DESC, id DESC) index.
+
+    Replaces joins against the ``DISTINCT ON`` latest-status view: the view has
+    to reduce the *entire* status table before the planner can join it, so its
+    cost grows with total queue history no matter how few batches the outer
+    query touches — under backlog that made every poll and sweep degrade
+    together. A lateral LIMIT 1 probe costs one index descent per outer batch
+    instead.
+
+    ``join="LEFT"`` keeps outer batches with no status row (``status_alias``
+    columns come back NULL); ``join="INNER"`` drops them.
+    """
+    join_kw = "LEFT JOIN" if join == "LEFT" else "JOIN"
+    return f"""
+        {join_kw} LATERAL (
+            SELECT id, batch_id, job_state, attempt, exec_time, error_response, created_at
+            FROM {STATUS_TABLE}
+            WHERE batch_id = {batch_alias}.id
+              AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ) {status_alias} ON true
+    """
+
+
+# Retained for the duckgres sink, which still coordinates via session advisory
+# locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
 async def unlock_advisory_locks(
     conn: psycopg.AsyncConnection[Any],
     *,
@@ -218,16 +262,26 @@ class BatchQueue:
     async def get_unprocessed_and_lock(
         conn: psycopg.AsyncConnection[Any],
         *,
+        owner_token: str,
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
     ) -> list[PendingBatch]:
-        """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable.
+        """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
+
+        Group ownership is a row in ``sourcegrouplease`` keyed by
+        (team_id, schema_id). The outer query claims-or-renews the lease for
+        each candidate group in a single writable CTE: a group is returned only
+        when the lease is free (no row), already owned by ``owner_token``, or
+        expired (a previous owner abandoned it). A live lease held by another
+        pod fails the conditional ``DO UPDATE`` and that group's rows are
+        dropped by the ``JOIN claimed``. This replaces the old session advisory
+        lock so an abandoned group simply expires rather than wedging the fleet.
 
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
-        fully resolved before any advisory lock is acquired.  Without this,
-        Postgres is free to evaluate pg_try_advisory_lock on rows that are
-        later discarded by other predicates or by LIMIT, creating phantom
-        locks that unlock_for_batches never releases.
+        fully resolved before the lease claim runs. ``candidate_groups`` is
+        ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
+        affect the same (team_id, schema_id) row twice in one statement.
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
         the age of the latest status row: a batch is only eligible when
@@ -244,9 +298,22 @@ class BatchQueue:
 
         In-flight schema gating: a batch is also excluded if its
         ``(team_id, schema_id)`` already has an ``executing`` batch (i.e. the
-        per-schema advisory lock is held by the pod processing it). This keeps a
-        schema's other queued runs from consuming the ``LIMIT`` window ahead of
-        the advisory-lock filter and starving other schemas' claimable work.
+        group is being processed by its lease holder). This keeps a schema's
+        other queued runs from consuming the ``LIMIT`` window ahead of the lease
+        claim and starving other schemas' claimable work.
+
+        Per-team fairness: candidates are interleaved round-robin across teams so one
+        team's deep backlog cannot monopolize the ``LIMIT`` window; within a team,
+        oldest-first order (and so per-run ``batch_index`` ordering) is preserved.
+
+        Disjoint windows across pods: groups live-leased by *another* owner are
+        excluded from candidates entirely, not merely dropped at the claim step.
+        Otherwise every pod computes the same top-``LIMIT`` window and groups
+        already owned elsewhere occupy window slots that losing pods can never
+        claim — with enough of them at the head of the queue the whole window is
+        dead weight and fleet concurrency collapses to roughly one window's worth.
+        Own-leased groups stay in the window so a pod can keep draining a group it
+        already holds.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -255,7 +322,7 @@ class BatchQueue:
                     SELECT
                         {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
-                    LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    {latest_status_lateral("b", "s")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (
@@ -270,7 +337,7 @@ class BatchQueue:
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {BATCH_TABLE} b_prev
-                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            {latest_status_lateral("b_prev", "s_prev")}
                             WHERE b_prev.run_uuid = b.run_uuid
                                 AND b_prev.batch_index < b.batch_index
                                 AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -284,31 +351,64 @@ class BatchQueue:
                                     )
                                 )
                         )
-                        AND b.run_uuid NOT IN (
-                            SELECT DISTINCT b2.run_uuid
+                        AND NOT EXISTS (
+                            SELECT 1
                             FROM {BATCH_TABLE} b2
-                            JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
-                            WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            {latest_status_lateral("b2", "s2", join="INNER")}
+                            WHERE b2.run_uuid = b.run_uuid
+                                AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
                         )
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {BATCH_TABLE} b_busy
-                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            {latest_status_lateral("b_busy", "s_busy", join="INNER")}
                             WHERE b_busy.team_id = b.team_id
                                 AND b_busy.schema_id = b.schema_id
                                 AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s_busy.job_state = 'executing'
                         )
-                    ORDER BY b.created_at ASC, b.batch_index ASC
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {LEASE_TABLE} l_live
+                            WHERE l_live.team_id = b.team_id
+                                AND l_live.schema_id = b.schema_id
+                                AND l_live.expires_at > now()
+                                AND l_live.owner_token != %(owner)s
+                        )
+                    ORDER BY
+                        row_number() OVER (
+                            PARTITION BY b.team_id ORDER BY b.created_at ASC, b.batch_index ASC
+                        ) ASC,
+                        b.created_at ASC,
+                        b.batch_index ASC
                     LIMIT %(limit)s
+                ),
+                candidate_groups AS (
+                    SELECT DISTINCT team_id, schema_id FROM candidates
+                ),
+                claimed AS (
+                    INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                    SELECT team_id, schema_id, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now()
+                    FROM candidate_groups
+                    ON CONFLICT (team_id, schema_id) DO UPDATE
+                        SET owner_token = excluded.owner_token,
+                            expires_at = excluded.expires_at,
+                            acquired_at = CASE
+                                WHEN {LEASE_TABLE}.owner_token = excluded.owner_token THEN {LEASE_TABLE}.acquired_at
+                                ELSE now()
+                            END,
+                            updated_at = now()
+                        WHERE {LEASE_TABLE}.expires_at < now()
+                           OR {LEASE_TABLE}.owner_token = excluded.owner_token
+                    RETURNING team_id, schema_id
                 )
                 SELECT c.*
                 FROM candidates c
-                WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
+                JOIN claimed USING (team_id, schema_id)
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds},
+                {"limit": limit, "backoff": retry_backoff_base_seconds, "owner": owner_token, "ttl": lease_ttl_seconds},
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -337,26 +437,53 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def renew_lease(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+    ) -> bool:
+        """Extend this owner's group lease. Returns False if the lease was lost (row gone or reclaimed)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                UPDATE {LEASE_TABLE}
+                SET expires_at = now() + make_interval(secs => %(ttl)s), updated_at = now()
+                WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                RETURNING 1
+                """,
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token, "ttl": lease_ttl_seconds},
+            )
+            return (await cur.fetchone()) is not None
+
+    @staticmethod
     async def verify_advisory_lock(
         conn: psycopg.AsyncConnection[Any],
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
-        """Check if this session still holds the advisory lock for (team_id, schema_id)."""
+        """Check whether ``owner_token`` still holds a live group lease for (team_id, schema_id).
+
+        Named ``verify_advisory_lock`` for interface continuity with the
+        consumer engine and the duckgres sink; ownership is now a lease row, not
+        a session advisory lock.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 SELECT EXISTS (
-                    SELECT 1 FROM pg_locks
-                    WHERE locktype = 'advisory'
-                      AND classid = {ADVISORY_LOCK_NAMESPACE}
-                      AND objid = hashtext(%(key)s)
-                      AND pid = pg_backend_pid()
-                      AND granted = true
+                    SELECT 1 FROM {LEASE_TABLE}
+                    WHERE team_id = %(team_id)s
+                      AND schema_id = %(schema_id)s
+                      AND owner_token = %(owner)s
+                      AND expires_at > now()
                 )
                 """,
-                {"key": f"{team_id}:{schema_id}"},
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
             )
             row = await cur.fetchone()
             return bool(row and row[0])
@@ -366,48 +493,39 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
-        keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
+        """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
 
-        Uses a MATERIALIZED CTE for the same reason as get_unprocessed_and_lock:
-        candidate rows are fully resolved before any advisory lock is probed.
+        A batch is orphaned when its latest status is 'executing', that status
+        row is older than ``grace_seconds`` (the heartbeat stopped refreshing
+        it), and no live lease covers its (team_id, schema_id) group. Unlike the
+        old advisory-lock probe — which a lingering pgbouncer session could hold
+        indefinitely and block recovery — an abandoned lease simply expires, so
+        this sweep can always reclaim a genuinely orphaned group.
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
-
-        When ``keep_locks`` is True the caller is responsible for releasing the
-        probe locks after it has finished acting on the returned batches.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
-                    SELECT
-                        {pending_batch_select_columns("s")}
-                    FROM {BATCH_TABLE} b
-                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
-                    WHERE
-                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND s.job_state = 'executing'
-                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    ORDER BY b.created_at ASC, b.batch_index ASC
-                )
-                SELECT c.*
-                FROM candidates c
-                WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
-                ORDER BY c.created_at ASC, c.batch_index ASC
+                SELECT
+                    {pending_batch_select_columns("s")}
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s", join="INNER")}
+                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+                WHERE
+                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND s.job_state = 'executing'
+                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                    AND (l.team_id IS NULL OR l.expires_at <= now())
+                ORDER BY b.created_at ASC, b.batch_index ASC
                 """,
                 {"grace": grace_seconds},
             )
             rows = await cur.fetchall()
 
-        result = [PendingBatch(**row) for row in rows]
-
-        if not keep_locks:
-            await BatchQueue.unlock_for_batches(conn, batches=result)
-
-        return result
+        return [PendingBatch(**row) for row in rows]
 
     @staticmethod
     async def fail_run(
@@ -422,7 +540,7 @@ class BatchQueue:
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
             FROM {BATCH_TABLE} b
-            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            {latest_status_lateral("b", "s")}
             WHERE
                 b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.run_uuid = %(run_uuid)s
@@ -448,7 +566,7 @@ class BatchQueue:
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
             FROM {BATCH_TABLE} b
-            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            {latest_status_lateral("b", "s")}
             WHERE
                 b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.job_id = %(job_id)s
@@ -485,7 +603,7 @@ class BatchQueue:
                         b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
                         s.created_at AS failed_at
                     FROM {BATCH_TABLE} b
-                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    {latest_status_lateral("b", "s", join="INNER")}
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND s.job_state = 'failed'
@@ -518,14 +636,41 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
-        """Release advisory locks once per returned batch row.
+        """Release the group leases for ``batches``' (team_id, schema_id) groups held by ``owner_token``.
 
-        The MATERIALIZED CTE in get_unprocessed_and_lock ensures locks are
-        only acquired on rows that actually appear in the result set, so
-        one unlock per row balances the depth exactly.
+        The ``owner_token`` predicate is load-bearing: if this owner's lease
+        already expired and another pod reclaimed the group, the delete must be
+        a no-op rather than removing the new owner's lease.
         """
-        await unlock_advisory_locks(conn, batches=batches, namespace=ADVISORY_LOCK_NAMESPACE)
+        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        if not pairs:
+            return
+        team_ids = [team_id for team_id, _ in pairs]
+        schema_ids = [schema_id for _, schema_id in pairs]
+        await conn.execute(
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE owner_token = %(owner)s
+              AND (team_id, schema_id) IN (
+                  SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+              )
+            """,
+            {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
+        )
+
+    @staticmethod
+    async def release_all_owned_leases(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown."""
+        await conn.execute(
+            f"DELETE FROM {LEASE_TABLE} WHERE owner_token = %(owner)s",
+            {"owner": owner_token},
+        )
 
     @staticmethod
     def get_run_activity_summary(
@@ -536,23 +681,23 @@ class BatchQueue:
     ) -> RunActivitySummary:
         """Check the queue DB for batch activity belonging to a holder's run.
 
-        Returns a summary indicating whether any non-terminal batches exist and
-        the age of the most recent status update. Used by the lock takeover
-        decision matrix to distinguish genuinely stale RUNNING jobs from ones
-        with active consumer processing.
+        Used by the lock takeover decision matrix to distinguish genuinely stale
+        RUNNING jobs from ones the loader still has work for. Unclaimed batches
+        (no status row yet — hence the LEFT JOIN) count as non-terminal, and both
+        batch inserts and status writes count as activity.
         """
-        STALE_THRESHOLD_SECONDS = 30 * 60  # 30 minutes
-
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
                 SELECT
+                    COUNT(*) AS batch_count,
                     COUNT(*) FILTER (
-                        WHERE s.job_state NOT IN ('succeeded', 'failed')
+                        WHERE s.batch_id IS NULL
+                            OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
-                    MAX(s.created_at) AS latest_status_at
+                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
                 FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                {latest_status_lateral("b", "s")}
                 WHERE
                     b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b.job_id = %(job_id)s
@@ -562,15 +707,44 @@ class BatchQueue:
             )
             row = cur.fetchone()
 
-        if row is None or row["latest_status_at"] is None:
+        if row is None or row["batch_count"] == 0 or row["latest_activity_at"] is None:
             return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
         non_terminal_count: int = row["non_terminal_count"]
-        latest_status_at: datetime = row["latest_status_at"]
-        age_seconds = (datetime.now(latest_status_at.tzinfo) - latest_status_at).total_seconds()
+        latest_activity_at: datetime = row["latest_activity_at"]
+        age_seconds = (datetime.now(latest_activity_at.tzinfo) - latest_activity_at).total_seconds()
 
         return RunActivitySummary(
             has_batches=True,
             has_non_terminal=non_terminal_count > 0,
-            is_stale=age_seconds > STALE_THRESHOLD_SECONDS,
+            is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
         )
+
+    @staticmethod
+    def count_batches_for_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+    ) -> int:
+        """Count queue batches enqueued for a job, regardless of status.
+
+        Unlike ``get_run_activity_summary`` (which inner-joins the status view and so
+        reports ``has_batches=False`` for batches the loader hasn't claimed yet), this
+        counts raw batch rows. It lets a caller tell a run that enqueued *nothing* (safe
+        to finalize) apart from one whose batches are merely unclaimed — where the loader
+        still owns completion and failing the job would strand a late load. The pruning
+        window bounds the scan to batches the queue still retains, so a ``0`` here is only
+        trustworthy for jobs newer than ``PARTITION_PRUNING_INTERVAL``.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS batch_count
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return int(row["batch_count"]) if row else 0

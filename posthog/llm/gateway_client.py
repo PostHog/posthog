@@ -1,15 +1,21 @@
+import json
 from typing import Literal
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import httpx
+import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
+
+logger = structlog.get_logger(__name__)
 
 Product = Literal[
     "llm_gateway",
     "posthog_code",
     "background_agents",
+    "slack_app",
     "slack_app_routing",
     "wizard",
     "django",
@@ -152,3 +158,78 @@ def get_async_anthropic_gateway_client(
         default_headers=default_headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
+
+
+def _gateway_misconfig(url: str, api_key: str) -> str | None:
+    """Return a reason string if the gateway env is half-applied or malformed, else None."""
+    if not (url and api_key):
+        return "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"
+    # The SDK appends /chat/completions, so base_url must already carry the /v1 path.
+    if not urlparse(url).path.rstrip("/").endswith("/v1"):
+        return "AI_GATEWAY_URL must include the OpenAI base path, e.g. https://<host>/v1"
+    return None
+
+
+def resolve_ai_gateway_config() -> tuple[str, str] | None:
+    """Return the validated (url, api_key) for the internal Go ai-gateway, or None.
+
+    None when neither env var is set (the caller uses its normal path), and ALSO when the config
+    is half-applied or the URL is malformed: that logs a warning and returns None so the caller
+    falls back to the current flow rather than failing the call (the fallback comes out once
+    rollout completes).
+    """
+    url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
+    if not (url or api_key):
+        return None
+    misconfig = _gateway_misconfig(url, api_key)
+    if misconfig:
+        logger.warning("ai_gateway_misconfigured_falling_back", reason=misconfig)
+        return None
+    return url, api_key
+
+
+def ai_product_headers(ai_product: str | None) -> dict[str, str] | None:
+    """X-PostHog-Properties header tagging the captured generation with its AIO product.
+
+    The slugless Go gateway has no product route, so callers pass the product here to keep
+    per-product attribution on the shared ``phs_`` token. Don't use a ``$ai_`` prefix — the
+    gateway strips those as reserved.
+    """
+    if not ai_product:
+        return None
+    return {"X-PostHog-Properties": json.dumps({"ai_product": ai_product})}
+
+
+def build_openai_client(product: Product, ai_product: str | None = None) -> OpenAI:
+    """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
+    else the Python LLM gateway via :func:`get_llm_client`.
+
+    ``product`` names the Python-gateway route used in the fallback; the slugless Go gateway
+    derives the team from its ``phs_`` bearer and ignores it. ``ai_product`` tags the captured
+    generation in gateway mode (the Python-gateway fallback derives the tag from ``product``).
+    trust_env=False keeps the in-cluster call off the egress proxy.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway:
+        url, api_key = gateway
+        return OpenAI(
+            api_key=api_key,
+            base_url=url,
+            default_headers=ai_product_headers(ai_product),
+            http_client=httpx.Client(trust_env=False),
+        )
+    return get_llm_client(product)
+
+
+def build_async_openai_client(product: Product, ai_product: str | None = None) -> AsyncOpenAI:
+    """Async variant of :func:`build_openai_client`."""
+    gateway = resolve_ai_gateway_config()
+    if gateway:
+        url, api_key = gateway
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url=url,
+            default_headers=ai_product_headers(ai_product),
+            http_client=httpx.AsyncClient(trust_env=False),
+        )
+    return get_async_llm_client(product)

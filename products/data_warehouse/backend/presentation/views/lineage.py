@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -131,6 +131,16 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         "type": "table",
                         "name": table.name if table else external_table,
                     }
+
+    view_names = [name for name, data in node_data.items() if data["type"] == "view"]
+    latest_runs = dict(
+        DataModelingJob.objects.filter(team_id=team_id, saved_query__name__in=view_names)
+        .order_by("saved_query__name", "-last_run_at")
+        .distinct("saved_query__name")
+        .values_list("saved_query__name", "last_run_at")
+    )
+    for name, last_run_at in latest_runs.items():
+        node_data[name]["last_run_at"] = last_run_at
 
     # Order nodes by dependency order
     ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])

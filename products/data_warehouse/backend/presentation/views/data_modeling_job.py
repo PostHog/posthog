@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.ph_client import feature_enabled_or_false
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
 
 DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 

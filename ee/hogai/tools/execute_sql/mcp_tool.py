@@ -62,13 +62,16 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
         else:
             try:
-                query = await self._validate_hogql_query(args.query)
+                validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
                 message = f"Query validation failed: {e.validation_message}"
                 suggestion = await self._maybe_import_suggestion(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
                 raise MaxToolRetryableError(message)
+
+            variables = await self._abuild_query_variables(validated.query)
+            query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
 
             # Warn (non-fatally) when the query references events/properties absent from the project
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`

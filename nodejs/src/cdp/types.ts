@@ -240,6 +240,7 @@ export type MinimalAppMetric = {
         | 'email_spam'
         | 'email_unsubscribed'
         | 'quota_limited'
+        | 'conversion'
     count: number
 }
 
@@ -291,6 +292,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
+    emailAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -305,10 +307,11 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // lifecycle row producer reads this to drive the `attempts` + `is_retry`
     // columns in `hog_invocation_results`.
     rerunAttempts?: number
-    // ISO timestamp of the *original* cyclotron-scheduled time. Carried through
-    // reruns so the lifecycle row producer can populate `first_scheduled_at`
-    // verbatim — ReplacingMergeTree would otherwise collapse retries to the
-    // latest version and lose the original.
+    // ISO timestamp of the *original* cyclotron-scheduled time. Stamped on the
+    // first 'running' lifecycle row and carried through both cyclotron fetch
+    // retries and reruns so the producer can populate `first_scheduled_at`
+    // verbatim — ReplacingMergeTree would otherwise collapse to the latest
+    // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
@@ -364,13 +367,19 @@ export type HogFlowInvocationContext = {
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
     conversionMatched?: boolean
+    // Once-per-run guard for the property-based conversion metric. Executor-owned:
+    // shouldExitEarly runs on every resume, so without this a persistently-true
+    // conversion filter would emit a `conversion` metric on every step. Event-based
+    // conversions are counted by the matcher and never touch this flag.
+    conversionCounted?: boolean
     variables?: Record<string, any>
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
     // the rerun filter actually applies to flows.
     rerunAttempts?: number
-    // Carried verbatim through retries so `first_scheduled_at` survives the
+    // Stamped on the first 'running' row and carried verbatim through cyclotron
+    // fetch retries and reruns so `first_scheduled_at` survives the
     // ReplacingMergeTree collapse on the hog_invocation_results table.
     firstScheduledAt?: string
 }
@@ -392,6 +401,7 @@ export type HogFunctionInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -511,6 +521,25 @@ export type WarehouseWebhookPayload = {
     team_id: number
     schema_id: string
     payload: Record<string, any>
+}
+
+export type MessageAssetRow = {
+    team_id: number
+    function_kind: 'hog_flow' | 'hog_function'
+    function_id: string
+    parent_run_id: string
+    invocation_id: string
+    action_id: string
+    kind: 'email'
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: 'sent'
+    sent_at: string // ISO microsecond DateTime64
+    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
+    is_deleted: 0 | 1
+    html: string
 }
 
 export type Response = {

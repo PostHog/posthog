@@ -43,7 +43,6 @@ function defaultSpec(): Record<string, unknown> {
         triggers: [
             { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
         ],
-        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
     }
 }
 
@@ -134,7 +133,6 @@ describe('typed bundle authoring API: real e2e', () => {
                             auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                         },
                     ],
-                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 },
             }
             const put = await request(c.janitor).put(`/revisions/${rid}/bundle`).send(payload)

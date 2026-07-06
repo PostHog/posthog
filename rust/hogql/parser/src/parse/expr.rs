@@ -1281,75 +1281,46 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 ));
             }
             if let Some((count_str, unit)) = raw.split_once(' ') {
-                // cpp's `visitColumnExprIntervalString` requires the
-                // count to be a non-negative decimal integer (`isdigit`
-                // per char, `stoi` for the convert), and matches the
-                // unit against a literal-lowercase set (so `SECOND`
-                // rejects with "Unsupported interval unit: SECOND").
-                // Rust used to lowercase the unit and silently
-                // substitute `Constant(0)` for any unparseable count
-                // — `INTERVAL 'twenty days'` quietly became "0 days".
-                let count_valid =
-                    !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
-                if !count_valid {
+                // `INTERVAL '<count> <unit>'` carries both inside one string;
+                // cpp's `visitColumnExprIntervalString` validates and emits it.
+                return self.emit_interval_combined_string(count_str, unit, str_tok);
+            }
+            // The string has no internal space (the split failed) and — per the
+            // branch guard — no trailing unit keyword. cpp's ALL(*) still prefers
+            // `ColumnExprInterval` (expr+unit) when the no-space string is only the
+            // HEAD of a longer unit-terminated value (`interval 'a' || 'b' hour`),
+            // so try that form first. If it fails (no unit keyword closes the
+            // value, e.g. bare `interval ''` / `interval 'x' + 1`), cpp falls back
+            // to `ColumnExprIntervalString`, whose visitor rejects a string that
+            // isn't `<count> <unit>`. Reproduce that rejection rather than leaking
+            // the expr+unit form's "expected interval unit keyword" syntax error.
+            // A fatal error from the value parse (a committed nested rejection)
+            // surfaces as-is, matching cpp.
+            let cp = self.checkpoint();
+            return match self.parse_interval_value_unit_form() {
+                Ok(v) => Ok(v),
+                Err(e) if e.fatal => Err(e),
+                Err(_) => {
+                    self.restore(cp)?;
                     self.bump()?;
-                    return Err(ParseError::not_implemented_fatal(
-                        format!("Unsupported interval count: {count_str}"),
+                    Err(ParseError::not_implemented_fatal(
+                        "Unsupported interval type: must be in the format '<count> <unit>'",
                         str_tok.start,
                         str_tok.end,
-                    ));
+                    ))
                 }
-                let count: i64 = match count_str.parse() {
-                    Ok(n) => n,
-                    Err(_) => {
-                        self.bump()?;
-                        return Err(ParseError::not_implemented_fatal(
-                            "Unknown error: stoi: out of range",
-                            str_tok.start,
-                            str_tok.end,
-                        ));
-                    }
-                };
-                // cpp's unit check is literal-lowercase — case-sensitive
-                // against the lowercase singular / plural forms. Match
-                // that here rather than `interval_call_name`'s
-                // case-insensitive helper.
-                let unit_name = interval_call_name_case_sensitive(unit);
-                if let Some(unit_name) = unit_name {
-                    self.bump()?;
-                    return Ok(self
-                        .emit
-                        .call(unit_name, vec![self.emit.constant(self.emit.int(count))]));
-                }
-                // Unit not lowercase / not recognised — cpp errors
-                // here even though the count was valid.
-                self.bump()?;
-                return Err(ParseError::not_implemented_fatal(
-                    format!("Unsupported interval unit: {unit}"),
-                    str_tok.start,
-                    str_tok.end,
-                ));
-            }
-            // Reaching here means the string has no internal space (the split
-            // failed) and — per the branch guard — no trailing unit keyword:
-            // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
-            // rejects (it isn't `<count> <unit>`). The unvisited-clause case
-            // (`{x} order by interval 'p'`) was already handled by the
-            // suppress short-circuit above, so a strict reject is all that's
-            // left — fall through to the expr+unit form: parse the string as
-            // the value expression and let the trailing unit keyword
-            // close the INTERVAL.
+            };
         }
-        // `INTERVAL <expr> <unit>` — the grammar admits a full
-        // columnExpr for the value, so we parse at BP=0 (greedy).
-        // The unit-keyword tokens (SECOND/MINUTE/…/YEAR) aren't binary
-        // or postfix operators, so the Pratt loop naturally halts
-        // before them. AND/OR/BETWEEN that surround the INTERVAL in
-        // an outer expression bind correctly because the SECOND
-        // keyword terminates the interval value before they're seen
-        // — the outer call gets to those operators after parse_interval_expr
-        // returns.
-        //
+        self.parse_interval_value_unit_form()
+    }
+
+    /// `INTERVAL <expr> <unit>` (cpp's `ColumnExprInterval`): parse a full
+    /// columnExpr value at BP=0 (greedy), then require one of the eight singular
+    /// unit keywords. The unit-keyword tokens (`SECOND`/`MINUTE`/…/`YEAR`) aren't
+    /// binary or postfix operators, so the Pratt loop halts before them; AND / OR
+    /// / BETWEEN that surround the INTERVAL in an outer expression bind correctly
+    /// because the unit keyword terminates the value before they're seen.
+    fn parse_interval_value_unit_form(&mut self) -> Result<E::Value, ParseError> {
         // Flag the value's leading primary so a nested INTERVAL there yields
         // the unit to us rather than eating it (see `parse_primary`). One-shot:
         // `parse_primary` takes it, so only that first primary is affected.
@@ -1369,7 +1340,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // identifier / quoted identifier is never a unit — cpp rejects
         // all of those (`INTERVAL 1 hours`, `INTERVAL 1 "hour"`). The
         // plural-tolerant `INTERVAL '5 days'` form is the *string*
-        // branch above, handled before this point.
+        // branch in `parse_interval_expr`, handled before this point.
         let unit_tok = self.bump()?;
         let unit_name = match unit_tok.kind {
             TokenKind::Keyword(
@@ -1430,35 +1401,51 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 str_tok.end,
             ));
         };
-        let count_valid = !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
-        if !count_valid {
-            self.bump()?;
+        self.emit_interval_combined_string(count_str, unit, str_tok)
+    }
+
+    /// Validate and emit a `<count> <unit>` combined-string INTERVAL (cpp's
+    /// `visitColumnExprIntervalString`). `str_tok` is the string literal at the
+    /// cursor; it is consumed here, and anchors every error. Shared by the
+    /// top-level combined-string branch of `parse_interval_expr` and the nested
+    /// `parse_interval_string_only`.
+    ///
+    /// The count must be a non-empty run of ASCII digits (cpp digit-checks each
+    /// char). ClickHouse stores intervals as Int64, so the count is accepted
+    /// across the full Int64 range; a digit string past Int64 max is rejected as
+    /// too large. The unit is matched case-sensitively against cpp's
+    /// literal-lowercase singular / plural set (so `SECOND` rejects).
+    fn emit_interval_combined_string(
+        &mut self,
+        count_str: &str,
+        unit: &str,
+        str_tok: Token,
+    ) -> Result<E::Value, ParseError> {
+        self.bump()?;
+        if count_str.is_empty() || !count_str.bytes().all(|b| b.is_ascii_digit()) {
             return Err(ParseError::not_implemented_fatal(
-                format!("Unsupported interval count: {count_str}"),
+                format!("Unsupported interval count: '{count_str}' is not a valid integer"),
                 str_tok.start,
                 str_tok.end,
             ));
         }
-        let count: i64 = match count_str.parse() {
+        let count: i64 = match count_str.parse::<i64>() {
             Ok(n) => n,
             Err(_) => {
-                self.bump()?;
                 return Err(ParseError::not_implemented_fatal(
-                    "Unknown error: stoi: out of range",
+                    format!("Unsupported interval count: '{count_str}' is too large"),
                     str_tok.start,
                     str_tok.end,
                 ));
             }
         };
         let Some(unit_name) = interval_call_name_case_sensitive(unit) else {
-            self.bump()?;
             return Err(ParseError::not_implemented_fatal(
                 format!("Unsupported interval unit: {unit}"),
                 str_tok.start,
                 str_tok.end,
             ));
         };
-        self.bump()?;
         Ok(self
             .emit
             .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))

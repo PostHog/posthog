@@ -29,6 +29,7 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     hide_direct_mysql_table,
     hide_direct_postgres_table,
+    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_xmin_enabled_for_team,
@@ -36,6 +37,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_webhook_events,
     reproject_direct_mysql_table,
     reproject_direct_postgres_table,
+    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -171,14 +173,17 @@ class RowFiltersField(serializers.JSONField):
     """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
 
 
-def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str | None:
     """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
-    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    clause. Direct-query sources read tables live and CDC streams WAL changes — both bypass that
     query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+
+    This covers every direct engine (Postgres, MySQL, Snowflake): none of the live-query executors
+    apply the predicates, so accepting a filter would be a silent data-restriction bypass.
     """
-    if is_direct_postgres:
+    if is_direct_query:
         return (
-            "Row filters are not supported for direct Postgres sources — "
+            "Row filters are not supported for direct-query sources — "
             "tables are queried live and filters cannot be enforced at the source."
         )
     if is_cdc:
@@ -302,8 +307,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
-        "Empty until the source has been refreshed via `refresh_schemas`.",
+        help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
+        "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
+        "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
@@ -372,17 +378,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
         metadata = schema.schema_metadata or {}
         columns = metadata.get("columns") if isinstance(metadata, dict) else None
-        if not isinstance(columns, list):
-            return []
-        return [
-            {
-                "name": column.get("name"),
-                "data_type": column.get("data_type"),
-                "is_nullable": column.get("is_nullable"),
-            }
-            for column in columns
-            if isinstance(column, dict) and isinstance(column.get("name"), str)
-        ]
+        if isinstance(columns, list):
+            sql_columns = [
+                {
+                    "name": column.get("name"),
+                    "data_type": column.get("data_type"),
+                    "is_nullable": column.get("is_nullable"),
+                }
+                for column in columns
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            ]
+            if sql_columns:
+                return sql_columns
+        # `schema_metadata` is only written on source creation and explicit schema reload
+        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
+        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
+        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
+        # UI can still list columns (and surface their existing annotations) and let users edit them.
+        table = schema.table
+        return table.get_user_facing_columns() if table is not None else []
 
     @extend_schema_field(
         {
@@ -570,7 +584,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
             )
             if reason := unsupported_row_filter_reason(
-                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+                is_direct_query=instance.source.is_direct_query, is_cdc=target_is_cdc
             ):
                 raise ValidationError(reason)
             try:
@@ -850,9 +864,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                reproject = (
-                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
-                )
+                if source.is_direct_postgres:
+                    reproject = reproject_direct_postgres_table
+                elif source.is_direct_snowflake:
+                    reproject = reproject_direct_snowflake_table
+                else:
+                    reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
                     instance,
                     source=source,
@@ -862,6 +879,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is False and instance.should_sync is True:
                 if source.is_direct_postgres:
                     hide_direct_postgres_table(instance.table)
+                elif source.is_direct_snowflake:
+                    hide_direct_snowflake_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1319,6 +1338,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.source.is_direct_query:
             if instance.source.is_direct_postgres:
                 hide_direct_postgres_table(instance.table)
+            elif instance.source.is_direct_snowflake:
+                hide_direct_snowflake_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

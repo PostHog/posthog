@@ -5,7 +5,7 @@ from dagster import build_op_context
 
 from posthog.models import Organization, Team
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.dags.managed_viewset_sync import sync_managed_viewsets_job, sync_managed_viewsets_op
 from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
 

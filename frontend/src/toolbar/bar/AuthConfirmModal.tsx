@@ -139,7 +139,7 @@ export function AuthConfirmModal({ visible, onClose }: AuthConfirmModalProps): J
                 <p className="flex items-center gap-1">
                     <IconWarning className="text-warning shrink-0" />
                     <span>
-                        Only continue if you recognize this domain as your PostHog instance — signing in elsewhere could
+                        Only continue if you recognize this domain as your PostHog instance. Signing in elsewhere could
                         expose your account.
                     </span>
                 </p>

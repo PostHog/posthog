@@ -3,12 +3,14 @@ from datetime import date, datetime
 from pathlib import Path
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 
@@ -16,16 +18,17 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_costs_sql import DISTRIBUTED_MARKETING_COSTS_TABLE
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     GoogleAdsConfig,
     MarketingSourceAdapter,
     QueryContext,
 )
+from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_marketing_costs"
 
@@ -208,3 +211,49 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         result_rows, result_cols = self._execute(read)
         total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
         assert total_cost == 150.0, f"expected latest job cost 150 (argMax), got {total_cost} (sum would be 250)"
+
+    def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
+        # One source materializes, one can't. The result must read the native table for the materialized
+        # source and keep only the other on the live S3 union — not fall back to S3 for everything.
+        runner = MarketingAnalyticsTableQueryRunner(
+            query=MarketingAnalyticsTableQuery(
+                dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"), limit=100, offset=0, properties=[]
+            ),
+            team=self.team,
+        )
+        runner.config.costs_precomputation_enabled = True
+
+        good = Mock()
+        good.get_source_id.return_value = "good"
+        good.supports_level.return_value = True
+        good.config.source_id = "good"
+        good.build_materialization_query.return_value = parse_select("SELECT 1")
+
+        bad = Mock()
+        bad.get_source_id.return_value = "bad"
+        bad.supports_level.return_value = True
+        bad.config.source_id = "bad"
+        bad.build_materialization_query.return_value = None  # cannot materialize -> stays on S3
+        bad.build_query.return_value = parse_select("SELECT 'live_s3_marker' AS source")
+
+        date_range = QueryDateRange(
+            date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            team=self.team,
+            interval=None,
+            now=datetime(2023, 2, 1),
+        )
+        ready = Mock(ready=True, job_ids=["00000000-0000-0000-0000-000000000001"])
+        with (
+            patch.object(MarketingSourceFactory, "create_adapters", lambda self: [good, bad]),
+            patch.object(MarketingSourceFactory, "get_valid_adapters", lambda self, adapters: adapters),
+            patch(
+                "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.ensure_precomputed",
+                return_value=ready,
+            ),
+        ):
+            result = runner._build_costs_from_precompute(date_range)
+
+        assert result is not None, "one unmaterializable source must not force every source back to S3"
+        hogql = result.to_hogql()
+        assert "marketing_costs_preaggregated" in hogql, "materialized source should read the native table"
+        assert "live_s3_marker" in hogql, "unmaterializable source should stay on the live S3 union"
