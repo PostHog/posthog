@@ -63,6 +63,7 @@ describe('TaxonomicBreakdownFilter', () => {
             await userEvent.hover(button)
             await waitFor(() => {
                 const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/product-analytics/trends/breakdowns')
             })
         })
@@ -110,6 +111,7 @@ describe('TaxonomicBreakdownFilter', () => {
             await waitFor(() => {
                 expect(screen.getByText(/single cohort breakdown/i)).toBeInTheDocument()
                 const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute(
                     'href',
                     'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
