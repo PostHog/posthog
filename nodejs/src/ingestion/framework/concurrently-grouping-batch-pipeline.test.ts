@@ -379,6 +379,78 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             // exceeds the group cap either (one active item per active group).
             expect(peakItems).toBe(maxConcurrency)
         })
+
+        it('preserves per-key ordering when a group parks for a permit and more same-key items arrive', async () => {
+            // The key is claimed in activeProcessing synchronously when a group is started, so a
+            // same-key item fed while that group is still parked waiting for a permit must queue
+            // behind it rather than spawn a second concurrent runner. Two slow occupants (Y, Z) hold
+            // both permits so A genuinely parks; if the claim regressed to happen only once the permit
+            // is granted, a1 and a2 would run concurrently and A's peak concurrency would be 2.
+            const processingOrder: string[] = []
+            const activeByGroup = new Map<string, number>()
+            const peakByGroup = new Map<string, number>()
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                const active = (activeByGroup.get(input.group) ?? 0) + 1
+                activeByGroup.set(input.group, active)
+                peakByGroup.set(input.group, Math.max(peakByGroup.get(input.group) ?? 0, active))
+                processingOrder.push(`start-${input.value}`)
+                await new Promise((resolve) => setTimeout(resolve, input.group === 'A' ? 10 : 100))
+                processingOrder.push(`end-${input.value}`)
+                activeByGroup.set(input.group, (activeByGroup.get(input.group) ?? 1) - 1)
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+                (input) => input.group,
+                processor,
+                previousPipeline,
+                2
+            )
+
+            // Two slow groups fill both permits. Fed before the drain parks so they start on the
+            // first next(); later same-key feeds go through the pipeline to wake the parked drain.
+            previousPipeline.feed([
+                createOkContext({ value: 'y1', group: 'Y' }, context1),
+                createOkContext({ value: 'z1', group: 'Z' }, context2),
+            ])
+
+            const drained: PipelineResultWithContext<any, any>[] = []
+            const run = (async () => {
+                let result = await pipeline.next()
+                while (result !== null) {
+                    drained.push(...result)
+                    result = await pipeline.next()
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // A's first item parks (no permit free) and claims key A. Fed through the pipeline so the
+            // wake-up reaches the parked drain.
+            pipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context3)])
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // A's second item, fed while A is still parked, must queue — not start a second A runner.
+            pipeline.feed([createOkContext({ value: 'a2', group: 'A' }, context4)])
+            await jest.advanceTimersByTimeAsync(0)
+            expect(processingOrder).toEqual(['start-y1', 'start-z1'])
+
+            // Free both permits and let everything drain.
+            await jest.advanceTimersByTimeAsync(1000)
+            await run
+
+            expect(drained).toHaveLength(4)
+            // A never ran two items at once, and a1 fully preceded a2.
+            expect(peakByGroup.get('A')).toBe(1)
+            expect(processingOrder.filter((s) => s.endsWith('a1') || s.endsWith('a2'))).toEqual([
+                'start-a1',
+                'end-a1',
+                'start-a2',
+                'end-a2',
+            ])
+        })
     })
 
     describe('non-success results', () => {
