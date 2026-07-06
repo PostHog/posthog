@@ -405,25 +405,34 @@ class TestCostPerMergeSeries(BaseTest):
         assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
         by_day = {bucket.bucket_start: bucket for bucket in buckets}
 
-        # A bucket with both cost and merges divides out to cost-per-merge.
+        # estimated_cost_usd / merges stay bucket-local; the ratio is the trailing 7-day rolling window.
         assert by_day[datetime(2026, 6, 2)].estimated_cost_usd == pytest.approx(0.016)
         assert by_day[datetime(2026, 6, 2)].merges == 4
-        assert by_day[datetime(2026, 6, 2)].cost_per_merge_usd == pytest.approx(0.004)
-        assert by_day[datetime(2026, 6, 3)].cost_per_merge_usd == pytest.approx(0.004)
+        assert by_day[datetime(2026, 6, 2)].cost_per_merge_usd == pytest.approx(0.016 / 4)
+        assert by_day[datetime(2026, 6, 3)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 6)
 
-        # Merges but no costable cost -> cost None, so cost-per-merge is None (not 0).
+        # A merge-only day still gets a ratio from the trailing window's cost.
         assert by_day[datetime(2026, 6, 5)].estimated_cost_usd is None
         assert by_day[datetime(2026, 6, 5)].merges == 3
-        assert by_day[datetime(2026, 6, 5)].cost_per_merge_usd is None
+        assert by_day[datetime(2026, 6, 5)].cost_per_merge_usd == pytest.approx((0.016 + 0.008) / 9)
 
-        # Cost but no merges -> guarded against divide-by-zero: cost-per-merge is None.
+        # A cost-only day likewise divides by the trailing window's merges (no divide-by-zero hole).
         assert by_day[datetime(2026, 6, 6)].estimated_cost_usd == pytest.approx(0.016)
         assert by_day[datetime(2026, 6, 6)].merges == 0
-        assert by_day[datetime(2026, 6, 6)].cost_per_merge_usd is None
+        assert by_day[datetime(2026, 6, 6)].cost_per_merge_usd == pytest.approx((0.016 + 0.008 + 0.016) / 9)
 
-        # An untouched bucket is fully zero-filled.
+        # Once the trailing window slides past the merges (Jun 5 + 7d), cost alone yields no ratio.
+        assert by_day[datetime(2026, 6, 12)].cost_per_merge_usd is None
+
+        # An untouched bucket keeps its raw fields zero-filled but inherits the trailing ratio while
+        # the window still covers data (Jun 10 window = Jun 4..10: Jun 6 cost / Jun 5 merges).
         empty = by_day[datetime(2026, 6, 10)]
-        assert (empty.estimated_cost_usd, empty.merges, empty.cost_per_merge_usd) == (None, 0, None)
+        assert (empty.estimated_cost_usd, empty.merges) == (None, 0)
+        assert empty.cost_per_merge_usd == pytest.approx(0.016 / 3)
+
+        # A bucket whose whole trailing window is empty is fully null.
+        dead = by_day[datetime(2026, 6, 20)]
+        assert (dead.estimated_cost_usd, dead.merges, dead.cost_per_merge_usd) == (None, 0, None)
 
     def test_empty_when_jobs_source_unsynced(self) -> None:
         curated = self._curated([], [], jobs_synced=False)

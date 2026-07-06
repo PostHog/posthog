@@ -475,8 +475,10 @@ export function RepoOverviewScene(): JSX.Element {
                             renderTooltipValue={(value) => compactUsd(value)}
                         />
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Estimated Depot CI cost per PR merged, over time. Cost is bucketed by run start, merges by
-                            merge time — the same coarse split the daily depot tooling uses.
+                            Estimated Depot CI cost per PR merged. Each point divides a trailing window's CI cost by its
+                            merges (24 h, 7 d, or 4 w to match the grain), so quiet buckets don't punch holes in the
+                            trend. Cost counts by run start, merges by merge time — the same coarse split the daily
+                            depot tooling uses.
                         </div>
                     </LemonCard>
                 ) : null}

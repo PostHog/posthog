@@ -363,6 +363,14 @@ _COST_SERIES_SELECT = """
     LIMIT 1000000
 """
 
+# The headline ratio is a trailing rolling window, not a per-bucket division: a strict per-bucket
+# cost/merges has a hole in every bucket that shipped nothing (most hours, quiet weekends), and it
+# pairs a bucket's spend with that same bucket's merges even though a PR's CI usually ran before its
+# merge bucket. Summing cost and merges over a trailing window sized to the grain smooths both out
+# while keeping the whole-bill economics (master/scheduled spend included). Buckets near date_from
+# see a partial window — the scans are window-bounded, so there's no pre-window data to reach back to.
+_ROLLING_BUCKETS: dict[Granularity, int] = {"hour": 24, "day": 7, "week": 4}
+
 # Merged PRs per bucket — the divisor. All authors and bots, no draft/bot filter, so the population
 # matches the cost numerator (every run counted, whoever triggered it); a merged PR is never a draft.
 _MERGES_SERIES_SELECT = """
@@ -383,7 +391,8 @@ def query_cost_per_merge_series(
     """CI cost per merged PR across [date_from, date_to], bucketed to fit the window, oldest first.
 
     Returns ``(granularity, buckets)``. ``buckets`` is zero-filled across the whole window so the trend
-    has no gaps. When the job-level source isn't synced there's no cost to divide, so ``buckets`` is
+    has no gaps; each bucket's ``cost_per_merge_usd`` is the trailing-window ratio (see
+    ``_ROLLING_BUCKETS``) while ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced there's no cost to divide, so ``buckets`` is
     empty (the UI shows the same "sync jobs" state as the other cost surfaces); the granularity is still
     returned so the caller can label an empty chart consistently.
     """
@@ -430,16 +439,22 @@ def query_cost_per_merge_series(
         for bucket_start, merges in merges_response.results or []
     }
 
+    spine = window_buckets(date_from, date_to, granularity)
+    window = _ROLLING_BUCKETS[granularity]
     buckets: list[CostPerMergeBucket] = []
-    for bucket in window_buckets(date_from, date_to, granularity):
-        cost = cost_by_bucket.get(bucket)
-        merges = merges_by_bucket.get(bucket, 0)
+    for index, bucket in enumerate(spine):
+        trailing = spine[max(0, index - window + 1) : index + 1]
+        trailing_costs = [cost_by_bucket[b] for b in trailing if cost_by_bucket.get(b) is not None]
+        trailing_cost = sum(trailing_costs) if trailing_costs else None
+        trailing_merges = sum(merges_by_bucket.get(b, 0) for b in trailing)
         buckets.append(
             CostPerMergeBucket(
                 bucket_start=bucket,
-                estimated_cost_usd=cost,
-                merges=merges,
-                cost_per_merge_usd=(cost / merges) if (cost is not None and merges) else None,
+                estimated_cost_usd=cost_by_bucket.get(bucket),
+                merges=merges_by_bucket.get(bucket, 0),
+                cost_per_merge_usd=(trailing_cost / trailing_merges)
+                if (trailing_cost is not None and trailing_merges)
+                else None,
             )
         )
     return granularity, buckets

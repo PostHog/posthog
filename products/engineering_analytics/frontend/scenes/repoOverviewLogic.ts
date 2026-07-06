@@ -209,9 +209,9 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 ),
         ],
         // Cost-per-merged-PR trend for the Cost section — the "is CI spend per shipped change creeping
-        // up" chart. Buckets with no merges carry a null cost_per_merge_usd; plotted as 0 so the axis
-        // stays anchored (a quiet weekend reads as a dip, not a gap). Null when the series is empty
-        // (job source unsynced), so the section falls back to its existing empty state.
+        // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
+        // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
+        // is empty (job source unsynced), so the section falls back to its existing empty state.
         costPerMergeSeries: [
             (s) => [s.overview],
             (overview): { values: number[]; labels: string[] } | null => {

@@ -623,11 +623,13 @@ class WorkflowHealthItem:
 @dataclass(frozen=True)
 class CostPerMergeBucket:
     """One time bucket of the repo's CI cost normalized by merged PRs — the "is CI spend per shipped
-    change trending up" series. ``cost_per_merge_usd`` is the headline: estimated Depot cost of every
-    run in the bucket (by run start) divided by PRs merged in it (by merge time). Cost is bucketed on
-    run start and merges on merge time, so a PR whose CI ran late in one bucket and merged early in the
-    next splits across them — the same coarse alignment the daily depot tooling uses; it washes out over
-    a window. Empty buckets are zero-filled: ``merges`` 0, both cost figures None (nothing to divide).
+    change trending up" series. ``cost_per_merge_usd`` is the headline: estimated Depot cost over a
+    trailing window ending at this bucket (24 h / 7 d / 4 w to match the grain) divided by PRs merged
+    in the same trailing window. The rolling ratio exists because a strict per-bucket division has a
+    hole in every bucket that shipped nothing and pairs spend with merges that usually happened a
+    bucket later. Cost counts by run start and merges by merge time — the same coarse alignment the
+    daily depot tooling uses. ``estimated_cost_usd`` and ``merges`` stay bucket-local (the raw inputs);
+    empty buckets are zero-filled: ``merges`` 0, cost None.
     """
 
     # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
@@ -637,8 +639,9 @@ class CostPerMergeBucket:
     estimated_cost_usd: float | None
     # PRs merged in this bucket (all authors, bots included — matches the cost numerator's population).
     merges: int
-    # estimated_cost_usd / merges. None when merges is 0 or cost is None, so a "no merges" bucket is
-    # never shown as an infinite or zero cost-per-merge.
+    # Trailing-window cost / trailing-window merges (window sized to the grain). None when the trailing
+    # window had no merges or no costable cost, so a dead stretch is never shown as an infinite or zero
+    # cost-per-merge.
     cost_per_merge_usd: float | None
 
 

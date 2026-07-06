@@ -659,7 +659,9 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
             },
             "merges": {"help_text": "PRs merged in this bucket (all authors, bots included)."},
             "cost_per_merge_usd": {
-                "help_text": "estimated_cost_usd / merges. Null when the bucket had no merges or no costable cost.",
+                "help_text": "Rolling ratio: trailing-window CI cost divided by trailing-window merges "
+                "(24 h / 7 d / 4 w to match the granularity). Null when the trailing window had no merges "
+                "or no costable cost.",
                 "allow_null": True,
             },
         }

@@ -248,6 +248,22 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
     return demo_runs
 
 
+def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
+    # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day —
+    # the cost-per-merge trend then collapses into a single bucket. Re-spread merged PRs evenly across
+    # the seeded window (deterministic, index arithmetic) so the trend has a divisor in every bucket.
+    span_hours = _MASTER_DAYS * 24
+    merged = [pr for pr in prs if pr.get("merged_at")]
+    for index, pr in enumerate(merged):
+        merged_at = anchor - timedelta(hours=(index * 11) % span_hours, minutes=(index * 13) % 60)
+        created_raw = pr.get("created_at")
+        if created_raw:
+            created = datetime.fromisoformat(created_raw)
+            if merged_at < created:
+                merged_at = created + timedelta(hours=1)
+        pr["merged_at"] = merged_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _demo_multi_push(
     prs: list[dict[str, Any]], runs: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -354,6 +370,8 @@ class Command(BaseCommand):
         demo_pr, demo_runs = _demo_multi_push(prs, runs)
         prs.append(demo_pr)
         runs.extend(demo_runs)
+        # Spread merge times across the window so the cost-per-merge trend has a divisor per bucket.
+        _spread_merges(prs, _fixture_anchor(prs, runs))
         # The synthetic stream owns master: the snapshot's own master rows are a dozen SHAs whose
         # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
         # every real duration to the baseline. PR-branch rows stay untouched.
