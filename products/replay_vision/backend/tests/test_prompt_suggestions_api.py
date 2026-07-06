@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from unittest.mock import patch
 
@@ -77,6 +78,20 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def test_generate_requires_rated_observations(self) -> None:
         resp = self.client.post(self._suggestions_url("generate/"))
         self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_quality_flag_off_hides_endpoints(self) -> None:
+        # `replay-vision-quality` gates the sub-feature even when product-level `replay-vision` is on.
+        self._create_rated_observation("sess-1", True)
+
+        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key != "replay-vision-quality"
+
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+            current_resp = self.client.get(self._suggestions_url("current/"))
+            generate_resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(current_resp.status_code, 404, current_resp.content)
+        self.assertEqual(generate_resp.status_code, 404, generate_resp.content)
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
     def test_current_reports_staleness_when_ratings_change(self) -> None:
