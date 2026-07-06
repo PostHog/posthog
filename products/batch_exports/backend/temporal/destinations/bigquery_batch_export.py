@@ -102,10 +102,21 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ServiceAccountOwnershipError",
     # Raised when the BigQuery integration is not found.
     "BigQueryIntegrationNotFoundError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "BigQueryIncompatibleSchemaError",
 )
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+
+class BigQueryIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
@@ -1046,6 +1057,21 @@ class BigQueryClient:
                 )
                 await asyncio.sleep(backoff)
                 attempt += 1
+            except BadRequest as err:
+                if err.reason != "invalidQuery" or "Required field" not in str(err):
+                    raise
+                try:
+                    field_name = str(err).split(" ")[2]
+                except:
+                    field_name = "unknown"
+
+                self.external_logger.warning(
+                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table.",
+                    field_name,
+                    error_code=err.code,
+                    exc_info=True,
+                )
+                raise BigQueryIncompatibleSchemaError(repr(field_name))
 
             else:
                 return result
