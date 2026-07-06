@@ -8,11 +8,15 @@ Run via manage.py shell so Django is configured; set OUT_DIR to the experiment's
 Reads the most-recent `ReviewReport` for team 1 (the eval team) and its artefacts, then writes
 `<OUT_DIR>/<LABEL>.md` with: the config snapshot, the chunking, the
 per-perspective breakdown, the raw→dedup→valid funnel, the review-unit count, wall-clock, a
-best-effort local `$ai_generation` token tally, and the full findings list with validator verdicts.
+best-effort cache-aware local `$ai_generation` spend split (fresh/cache-write/cache-read/output
+per model × stage, list-price `true_usd` vs gateway `gw_usd`, per-unit turn-1 cache reads), and
+the full findings list with validator verdicts.
 The findings list is the raw material for the coverage-vs-old-10 scoring pass.
 """
 
 import os
+import re
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -36,39 +40,255 @@ def _fmt_lines(lines) -> str:
     return ",".join(f"{lr.start}-{lr.end}" if lr.end else str(lr.start) for lr in lines) or "—"
 
 
-def _tokens_by_provider(start_dt):
-    """Best-effort local `$ai_generation` tally since the run started, grouped by `$ai_model`.
+# List prices per token, mirroring LiteLLM's cost map (the source of the gateway's
+# `$ai_total_cost_usd`) as of 2026-07-06: (fresh_input, output, cache_read, cache_write).
+# The write rate here is the 5-minute-TTL one (1.25× input); 1h-TTL writes bill at 2× input
+# and the events don't carry the 5m/1h split, so `true_usd` prices all writes at 1.25× and the
+# gateway's `$ai_cache_creation_cost_usd` (when emitted) is the accurate write-side cost.
+_LIST_PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-sonnet-5": (2e-06, 1e-05, 2e-07, 2.5e-06),
+    "claude-opus-4-8": (5e-06, 2.5e-05, 5e-07, 6.25e-06),
+    "claude-fable-5": (1e-05, 5e-05, 1e-06, 1.25e-05),
+    "claude-haiku-4-5": (1e-06, 5e-06, 1e-07, 1.25e-06),
+}
 
-    Returns (rows, grand_total) or (None, None) if the events aren't queryable locally (they may live in
-    a cloud project, or not be ingested yet). Never raises — tokens are a secondary metric; the review-unit
-    count below is the reliable, model-held-constant cost signal. We group by raw model rather than a
-    reviewer-vs-support split because the reviewer and dedup/validate can run on the same model.
+# Anthropic's long-context boundary for one request. The gateway's LiteLLM map prices these
+# models flat, so the `>200K` column is a diagnostic count, not a pricing input.
+_LONG_CTX_TOKENS = 200_000
+
+
+def _price_for(model: str) -> tuple[float, float, float, float] | None:
+    """List-price row for a model as `$ai_model` reports it; handles date-suffixed variants."""
+    if model in _LIST_PRICES:
+        return _LIST_PRICES[model]
+    stripped = re.sub(r"-\d{8}$", "", model)
+    if stripped in _LIST_PRICES:
+        return _LIST_PRICES[stripped]
+    for known, prices in _LIST_PRICES.items():
+        if known in model:
+            return prices
+    return None
+
+
+def _stage_of(task_title: str, ai_stage: str) -> str:
+    """Pipeline stage of one gen: sandbox units carry `[sandbox_prompt:<step>]` in `task_title`;
+    the one-shot chunking/dedup gateway calls carry `ai_stage` instead."""
+    m = re.match(r"\[sandbox_prompt:([a-z0-9_-]+)\]", task_title or "")
+    step = m.group(1) if m else (ai_stage or "")
+    for prefix, stage in (
+        ("issues-review", "review"),
+        ("blind-spots", "blind-spot"),
+        ("validation", "validation"),
+        ("chunking", "chunking"),
+        ("dedup", "dedup"),
+    ):
+        if step.startswith(prefix):
+            return stage
+    return f"other:{step}" if step else "other"
+
+
+def _spend_rows(start_dt):
+    """Per-gen `$ai_generation` rows since the run started, time-ordered. Raises on CH errors."""
+    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — optional, only for the spend tally
+
+    return sync_execute(
+        """
+        SELECT
+            timestamp,
+            JSONExtractString(properties, '$ai_model') AS model,
+            JSONExtractString(properties, 'ai_stage') AS ai_stage,
+            JSONExtractString(properties, 'task_title') AS task_title,
+            JSONExtractString(properties, 'task_run_id') AS task_run_id,
+            toFloat64OrZero(JSONExtractString(properties, '$ai_input_tokens')) AS input_tokens,
+            toFloat64OrZero(JSONExtractString(properties, '$ai_output_tokens')) AS output_tokens,
+            toFloat64OrZero(JSONExtractString(properties, '$ai_cache_read_input_tokens')) AS cache_read,
+            toFloat64OrZero(JSONExtractString(properties, '$ai_cache_creation_input_tokens')) AS cache_write,
+            toFloat64OrNull(JSONExtractString(properties, '$ai_total_cost_usd')) AS gw_cost,
+            toFloat64OrNull(JSONExtractString(properties, '$ai_input_cost_usd')) AS gw_input_cost,
+            toFloat64OrNull(JSONExtractString(properties, '$ai_output_cost_usd')) AS gw_output_cost,
+            toFloat64OrNull(JSONExtractString(properties, '$ai_cache_read_cost_usd')) AS gw_cache_read_cost,
+            toFloat64OrNull(JSONExtractString(properties, '$ai_cache_creation_cost_usd')) AS gw_cache_write_cost
+        FROM events
+        WHERE event = '$ai_generation' AND timestamp >= %(start)s
+        ORDER BY timestamp
+        """,
+        {"start": start_dt},
+    )
+
+
+def _fmt_tok(n: float) -> str:
+    return f"{int(n):,}"
+
+
+def _fmt_usd(x: float | None) -> str:
+    return "—" if x is None else f"${x:,.2f}"
+
+
+def _spend_report(start_dt):
+    """Cache-aware spend section for the dump, plus a one-line stdout headline.
+
+    `$ai_input_tokens` from the gateway is the FULL prompt (fresh + cache read + cache write) —
+    summing it at input price is the old, naive method and overstates true cost ~5× on
+    cache-heavy runs. Here every gen splits into fresh (`input - read - write`, 1×) /
+    cache write (1.25×) / cache read (0.1×) / output per (model × stage); `true_usd` prices that
+    split at list, `gw_usd` is the gateway's LiteLLM-computed `$ai_total_cost_usd`, and the
+    per-side `$ai_*_cost_usd` fields cross-check the split. Returns (md_lines, headline);
+    never raises — spend is a secondary metric next to the review-unit count.
     """
     try:
-        from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — optional, only for the token tally
-
-        rows = sync_execute(
-            """
-            SELECT JSONExtractString(properties, '$ai_model') AS model,
-                   count() AS gens,
-                   sum(toFloat64OrZero(JSONExtractString(properties, '$ai_input_tokens'))) AS input_tokens,
-                   sum(toFloat64OrZero(JSONExtractString(properties, '$ai_output_tokens'))) AS output_tokens
-            FROM events
-            WHERE event = '$ai_generation' AND timestamp >= %(start)s
-            GROUP BY model ORDER BY gens DESC
-            """,
-            {"start": start_dt},
-        )
-        if not rows:
-            return None, None
-        grand_total = [0, 0, 0]
-        for _model, gens, tin, tout in rows:
-            grand_total[0] += int(gens)
-            grand_total[1] += int(tin)
-            grand_total[2] += int(tout)
-        return rows, grand_total
+        rows = _spend_rows(start_dt)
     except Exception as e:  # pragma: no cover - best effort
-        return f"unavailable ({type(e).__name__}: {e})", None
+        return [f"- cache-aware spend: unavailable ({type(e).__name__}: {e})"], None
+    if not rows:
+        return [
+            "- cache-aware spend: no `$ai_generation` events in the window "
+            "(likely emitted to a cloud project, or not yet ingested)."
+        ], None
+
+    by_bucket: dict[tuple[str, str], list[float]] = defaultdict(lambda: [0.0] * 6)  # gens/fresh/write/read/out/longctx
+    true_by_bucket: dict[tuple[str, str], float | None] = defaultdict(float)
+    gw_by_bucket: dict[tuple[str, str], float] = defaultdict(float)
+    gw_missing = 0
+    naive_usd = 0.0
+    gw_sides = {"input": [0.0, 0], "output": [0.0, 0], "cache_read": [0.0, 0], "cache_write": [0.0, 0]}
+    true_sides = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0}
+    turn1: dict[str, tuple] = {}  # task_run_id -> (ts, stage, cache_read, cache_write); rows are time-ordered
+
+    for ts, model, ai_stage, task_title, task_run_id, tin, tout, cread, cwrite, gw, gwi, gwo, gwr, gww in rows:
+        stage = _stage_of(task_title, ai_stage)
+        fresh = max(0.0, tin - cread - cwrite)
+        key = (model or "(unknown)", stage)
+        agg = by_bucket[key]
+        agg[0] += 1
+        agg[1] += fresh
+        agg[2] += cwrite
+        agg[3] += cread
+        agg[4] += tout
+        agg[5] += 1 if tin > _LONG_CTX_TOKENS else 0
+
+        prices = _price_for(model or "")
+        if prices is None:
+            true_by_bucket[key] = None
+        else:
+            p_in, p_out, p_read, p_write = prices
+            if true_by_bucket[key] is not None:
+                true_by_bucket[key] += fresh * p_in + cwrite * p_write + cread * p_read + tout * p_out
+            naive_usd += tin * p_in + tout * p_out
+            true_sides["input"] += fresh * p_in
+            true_sides["output"] += tout * p_out
+            true_sides["cache_read"] += cread * p_read
+            true_sides["cache_write"] += cwrite * p_write
+        if gw is None:
+            gw_missing += 1
+        else:
+            gw_by_bucket[key] += gw
+        for side, value in (("input", gwi), ("output", gwo), ("cache_read", gwr), ("cache_write", gww)):
+            if value is not None:
+                gw_sides[side][0] += value
+                gw_sides[side][1] += 1
+        if task_run_id and task_run_id not in turn1 and stage in ("review", "blind-spot", "validation"):
+            turn1[task_run_id] = (ts, stage, cread, cwrite)
+
+    lines: list[str] = []
+    w = lines.append
+    w("### Cache-aware spend (local `$ai_generation`, best-effort)\n")
+    w("| model | stage | gens | fresh in | cache write | cache read | output | >200K gens | true $ | gw $ |")
+    w("| ----- | ----- | ---- | -------- | ----------- | ---------- | ------ | ---------- | ------ | ---- |")
+    totals = [0.0] * 6
+    true_total = 0.0
+    gw_total = 0.0
+    unpriced: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])  # model -> [gens, gw_usd]
+    for key in sorted(by_bucket, key=lambda k: -gw_by_bucket.get(k, 0.0)):
+        model, stage = key
+        agg = by_bucket[key]
+        t = true_by_bucket[key]
+        g = gw_by_bucket.get(key, 0.0)
+        w(
+            f"| {model} | {stage} | {int(agg[0])} | {_fmt_tok(agg[1])} | {_fmt_tok(agg[2])} | {_fmt_tok(agg[3])} "
+            f"| {_fmt_tok(agg[4])} | {int(agg[5])} | {_fmt_usd(t)} | {_fmt_usd(g)} |"
+        )
+        for i in range(6):
+            totals[i] += agg[i]
+        if t is None:
+            unpriced[model][0] += agg[0]
+            unpriced[model][1] += g
+        else:
+            true_total += t
+        gw_total += g
+    w(
+        f"| **total** |  | **{int(totals[0])}** | **{_fmt_tok(totals[1])}** | **{_fmt_tok(totals[2])}** "
+        f"| **{_fmt_tok(totals[3])}** | **{_fmt_tok(totals[4])}** | **{int(totals[5])}** "
+        f"| **{_fmt_usd(true_total)}** | **{_fmt_usd(gw_total)}** |"
+    )
+    w("")
+    gw_priced = gw_total - sum(g for _gens, g in unpriced.values())
+    w(
+        "- `true $` = list-price back-calc (fresh 1× + cache write 1.25× + cache read 0.1× + output); "
+        "`gw $` = gateway `$ai_total_cost_usd` (LiteLLM). "
+        + (f"Δ (priced buckets) = {(gw_priced - true_total) / true_total:+.1%}." if true_total else "Δ not computable.")
+    )
+    for model, (gens, g) in unpriced.items():
+        w(f"- `true $` total excludes unpriced model `{model}` ({int(gens)} gen(s), gw {_fmt_usd(g)}).")
+    if gw_missing:
+        w(f"- {gw_missing} gen(s) had no `$ai_total_cost_usd` — `gw $` undercounts by those gens.")
+    if naive_usd and true_total:
+        w(
+            f"- naive method (all prompt tokens at input price): ${naive_usd:,.2f} — "
+            f"{naive_usd / true_total:.1f}× the true cost; never gate on it."
+        )
+    if any(count for _total, count in gw_sides.values()):
+        input_total, input_count = gw_sides["input"]
+        read_total, read_count = gw_sides["cache_read"]
+        write_total, write_count = gw_sides["cache_write"]
+        out_total, out_count = gw_sides["output"]
+        w(
+            "- gateway per-side cross-check (gens emitting the field; LiteLLM's `input_cost` "
+            "is the whole input side, cache included):"
+        )
+        checks = [
+            (
+                "input side (fresh + cache write + cache read)",
+                input_total,
+                input_count,
+                true_sides["input"] + true_sides["cache_write"] + true_sides["cache_read"],
+            ),
+            ("· of which cache read", read_total, read_count, true_sides["cache_read"]),
+            ("· of which cache write", write_total, write_count, true_sides["cache_write"]),
+            ("· of which fresh (derived)", input_total - read_total - write_total, input_count, true_sides["input"]),
+            ("output", out_total, out_count, true_sides["output"]),
+        ]
+        for label, total, count, true_value in checks:
+            delta = f" (true ${true_value:,.4f}, Δ {(total - true_value) / true_value:+.1%})" if true_value else ""
+            w(f"  - {label}: ${total:,.4f} over {count} gen(s){delta}")
+        if write_count and true_sides["cache_write"] and write_total > true_sides["cache_write"] * 1.05:
+            w(
+                "  - write-side excess over the 1.25× back-calc = 1h-TTL cache writes "
+                "(billed 2×; the token split can't see the TTL)."
+            )
+    if totals[5]:
+        w(
+            f"- {int(totals[5])} gen(s) ran with >200K-token prompts; the gateway map prices these models "
+            "flat, so no long-context premium is included in either column."
+        )
+    w("")
+
+    if turn1:
+        hits = sum(1 for _ts, _stage, cread, _cwrite in turn1.values() if cread > 0)
+        w("### Turn-1 cache reads per sandbox unit (cross-sandbox sharing tripwire)\n")
+        w("| unit | stage | first gen | t1 cache read | t1 cache write |")
+        w("| ---- | ----- | --------- | ------------- | -------------- |")
+        for run_id, (ts, stage, cread, cwrite) in sorted(turn1.items(), key=lambda kv: kv[1][0]):
+            w(f"| …{run_id[-8:]} | {stage} | {ts:%H:%M:%S} | {_fmt_tok(cread)} | {_fmt_tok(cwrite)} |")
+        w("")
+        w(f"- units with turn-1 cache_read > 0: **{hits}/{len(turn1)}** (report the distribution, not a median).")
+        w("")
+
+    headline = (
+        f"SPEND gens={int(totals[0])} true_usd={_fmt_usd(true_total)} gw_usd={_fmt_usd(gw_total)} "
+        f"naive_usd={_fmt_usd(naive_usd) if naive_usd else '—'} "
+        f"turn1_hits={sum(1 for v in turn1.values() if v[2] > 0)}/{len(turn1)}"
+    )
+    return lines, headline
 
 
 report = ReviewReport.objects.for_team(TEAM).order_by("-created_at").first()
@@ -115,11 +335,11 @@ for a in arts:
 dedup_count = len(findings)
 valid_count = sum(1 for k in findings if (v := verdicts.get(k)) and v.is_valid)
 
-# Tokens (best-effort).
+# Spend (best-effort).
 start_dt = (
     datetime.fromtimestamp(RUN_START_EPOCH, tz=UTC) if RUN_START_EPOCH else datetime.now(UTC) - timedelta(hours=2)
 )
-token_rows, token_totals = _tokens_by_provider(start_dt)
+spend_lines, spend_headline = _spend_report(start_dt)
 
 now = datetime.now(UTC).isoformat(timespec="seconds")
 lines: list[str] = []
@@ -150,21 +370,8 @@ w("")
 w(
     f"- **review units** = every (perspective|blind-spot × chunk) sandbox review that ran = the model-held-constant cost proxy."
 )
-if token_totals:
-    w("- **local `$ai_generation` tokens (best-effort, may be pre-ingestion / partial):**")
-    w("")
-    w("  | model | gens | input tok | output tok |")
-    w("  | ----- | ---- | --------- | ---------- |")
-    for model, gens, tin, tout in token_rows:
-        w(f"  | {model or '(unknown)'} | {int(gens)} | {int(tin)} | {int(tout)} |")
-    g, ti, to = token_totals
-    w(f"  | **total** | **{g}** | **{ti}** | **{to}** |")
-elif isinstance(token_rows, str):
-    w(f"- local `$ai_generation` tokens: {token_rows}")
-else:
-    w(
-        "- local `$ai_generation` tokens: no matching events found in the window (likely emitted to a cloud project, or not yet ingested)."
-    )
+for line in spend_lines:
+    w(line)
 w("")
 
 w("## Chunking\n")
@@ -208,3 +415,5 @@ with open(path, "w") as fh:
 print(  # noqa: T201 — playground eval script, stdout is the intended output channel
     f"DUMP_OK label={LABEL} chunks={chunk_count} units={review_units} raw={raw_issues} dedup={dedup_count} valid={valid_count} -> {path}"
 )
+if spend_headline:
+    print(spend_headline)  # noqa: T201 — playground eval script, stdout is the intended output channel
