@@ -81,7 +81,9 @@ class TestRelationshipLogic(BaseTest):
         rel = relationships.assign(
             team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
         )
-        ended = relationships.end_relationship(team_id=self.team.id, relationship_id=str(rel.id))
+        ended = relationships.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
+        )
         assert ended.ended_at is not None
 
 
@@ -242,7 +244,7 @@ class TestRelationshipFacade(BaseTest):
             user=self.user,
             created_by=self.user,
         )
-        relationships.end_relationship(team_id=self.team.id, relationship_id=str(rel.id))
+        relationships.end_relationship(team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id))
         assert facade.list_account_relationships(team_id=self.team.id, account_id=self.account.id) == []
         history = facade.list_account_relationships(
             team_id=self.team.id, account_id=self.account.id, include_history=True
@@ -251,6 +253,73 @@ class TestRelationshipFacade(BaseTest):
         assert history[0].ended_at is not None
         assert history[0].user is not None
         assert history[0].user.email == self.user.email
+
+    def test_assign_and_end_roundtrip(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        assigned = facade.assign_account_relationship(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition_id=definition.id,
+            user_id=self.user.id,
+            created_by=self.user,
+        )
+        assert assigned.ended_at is None
+        assert assigned.user is not None
+        assert assigned.user.email == self.user.email
+        ended = facade.end_account_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=assigned.id
+        )
+        assert ended is not None
+        assert ended.ended_at is not None
+        assert (
+            facade.end_account_relationship(
+                team_id=self.team.id, account_id=self.account.id, relationship_id=assigned.id
+            )
+            is None
+        )
+
+    def test_assign_validates_definition_and_assignee(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        outsider = User.objects.create_user("outsider@example.com", None, "")
+        with self.assertRaises(facade.AccountRelationshipDefinitionNotFound):
+            facade.assign_account_relationship(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                definition_id="00000000-0000-0000-0000-000000000000",
+                user_id=self.user.id,
+                created_by=self.user,
+            )
+        with self.assertRaises(facade.AccountRelationshipAssigneeNotInOrganization):
+            facade.assign_account_relationship(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                definition_id=definition.id,
+                user_id=outsider.id,
+                created_by=self.user,
+            )
+
+    def test_end_is_scoped_to_the_account(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        other_account = Account.objects.create_account(team=self.team, name="Other")
+        assigned = facade.assign_account_relationship(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition_id=definition.id,
+            user_id=self.user.id,
+            created_by=self.user,
+        )
+        assert (
+            facade.end_account_relationship(
+                team_id=self.team.id, account_id=other_account.id, relationship_id=assigned.id
+            )
+            is None
+        )
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization, name="other")

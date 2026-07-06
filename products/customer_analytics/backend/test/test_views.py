@@ -2233,7 +2233,9 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         ended = relationships_logic.assign(
             team_id=self.team.id, account=self.account, definition=fde, user=self.user, created_by=self.user
         )
-        relationships_logic.end_relationship(team_id=self.team.id, relationship_id=str(ended.id))
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(ended.id)
+        )
 
         response = self.client.get(self.endpoint)
 
@@ -2272,3 +2274,17 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/accounts/{other_account.id}/relationships/")
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_assign_and_end_roundtrip(self):
+        definition = self._create_relationship_definition()
+
+        created = self.client.post(self.endpoint, {"definition": str(definition.id), "user": self.user.id})
+        self.assertEqual(status.HTTP_201_CREATED, created.status_code, created.json())
+        self.assertEqual(created.json()["definition"]["id"], str(definition.id))
+        self.assertEqual(created.json()["user"]["id"], self.user.id)
+        self.assertIsNone(created.json()["ended_at"])
+
+        ended = self.client.post(f"{self.endpoint}{created.json()['id']}/end/")
+        self.assertEqual(status.HTTP_200_OK, ended.status_code, ended.json())
+        self.assertIsNotNone(ended.json()["ended_at"])
+        self.assertEqual([], self.client.get(self.endpoint).json())

@@ -307,6 +307,16 @@ export namespace Schemas {
       readonly ended_at: string | null;
     }
 
+    /**
+     * Input for assigning a user to an account relationship.
+     */
+    export interface AccountRelationshipWrite {
+      /** Id of the relationship definition to assign. */
+      definition: string;
+      /** PostHog user id of the assignee. Must be a member of the account's organization. */
+      user: number;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
