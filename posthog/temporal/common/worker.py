@@ -350,6 +350,10 @@ async def create_worker(
         client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
+        # This worker traces activity/workflow execution through the OpenTelemetryPlugin below.
+        # Keeping the client-level TracingInterceptor as well would emit a second, duplicate span
+        # for every activity and workflow, so drop it here.
+        add_otel_tracing_interceptor=False,
     )
     supported_interceptors = [
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
