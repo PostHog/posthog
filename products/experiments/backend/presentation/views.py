@@ -359,6 +359,14 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
+        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # request. Starting a task is a task write, so require task:write on the token, not
+        # just experiment:write.
+        if self.action in ("end", "ship_variant"):
+            scopes = ["experiment:write"]
+            if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("task:write")
+            return scopes
         return None
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
@@ -468,7 +476,9 @@ class EnterpriseExperimentsViewSet(
         request=EndExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True)
     def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         End a running experiment without shipping a variant.
@@ -511,7 +521,9 @@ class EnterpriseExperimentsViewSet(
         request=ShipVariantSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True, url_path="ship_variant")
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Ship a variant and (optionally) end the experiment.
