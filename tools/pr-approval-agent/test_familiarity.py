@@ -31,12 +31,7 @@ from policy import (  # noqa: E402
 
 _LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
 _THRESHOLDS = FamiliarityPolicy(
-    strong=FamiliarityStrong(
-        min_blame_overlap_pct=50,
-        alt_min_prior_prs=3,
-        alt_min_files_prev_frac=0.8,
-        alt_max_days_since_touch=90,
-    ),
+    strong=FamiliarityStrong(min_blame_overlap_pct=50),
     moderate=FamiliarityModerate(min_prior_prs=3, max_days_since_touch=180),
 )
 
@@ -204,19 +199,18 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "blame, prior, frac, days, expected",
+    "blame, prior, days, expected",
     [
-        (60, 0, 0.0, None, "STRONG"),  # blame overlap alone
-        (49, 3, 0.9, 90, "STRONG"),  # alt trio alone, below blame threshold
-        (10, 3, 0.8, 91, "MODERATE"),  # alt fails on days, moderate holds
-        (10, 3, 0.79, 90, "MODERATE"),  # alt fails on frac, moderate holds
-        (10, 2, 0.9, 10, "NONE"),  # moderate fails on prior_prs
-        (10, 3, 0.9, None, "NONE"),  # no last touch → neither strong-alt nor moderate
-        (10, 3, 0.9, 181, "NONE"),  # moderate fails on days
+        (60, 0, None, "STRONG"),  # blame overlap alone, nothing else
+        (50, 0, None, "STRONG"),  # boundary inclusive
+        (49, 3, 90, "MODERATE"),  # just under blame threshold, moderate holds
+        (10, 2, 10, "NONE"),  # moderate fails on prior_prs
+        (10, 3, None, "NONE"),  # no last touch → moderate cannot hold
+        (10, 3, 181, "NONE"),  # moderate fails on days
     ],
 )
-def test_band_thresholds(blame: float, prior: int, frac: float, days: int | None, expected: str) -> None:
-    assert familiarity._band(blame, prior, frac, days, _THRESHOLDS) == expected
+def test_band_thresholds(blame: float, prior: int, days: int | None, expected: str) -> None:
+    assert familiarity._band(blame, prior, days, _THRESHOLDS) == expected
 
 
 # ── Policy loader wiring ─────────────────────────────────────────
@@ -228,10 +222,8 @@ def _valid_policy_dict() -> dict:
 
 def test_familiarity_section_loaded() -> None:
     policy = load_policy(lockfile_names=_LOCKFILE_NAMES)
-    assert policy.familiarity.strong.min_blame_overlap_pct == 50
-    assert policy.familiarity.strong.alt_min_prior_prs == 3
-    assert policy.familiarity.strong.alt_min_files_prev_frac == 0.8
-    assert policy.familiarity.moderate.min_prior_prs == 3
+    assert policy.familiarity.strong.min_blame_overlap_pct == 70
+    assert policy.familiarity.moderate.min_prior_prs == 5
     assert policy.familiarity.moderate.max_days_since_touch == 180
 
 
@@ -244,7 +236,7 @@ def _unknown_familiarity_key(d: dict) -> None:
 
 
 def _missing_familiarity_subkey(d: dict) -> None:
-    del d["familiarity"]["strong"]["alt_min_prior_prs"]
+    del d["familiarity"]["strong"]["min_blame_overlap_pct"]
 
 
 def _negative_prior_prs(d: dict) -> None:
@@ -255,10 +247,6 @@ def _blame_pct_over_100(d: dict) -> None:
     d["familiarity"]["strong"]["min_blame_overlap_pct"] = 150
 
 
-def _frac_over_one(d: dict) -> None:
-    d["familiarity"]["strong"]["alt_min_files_prev_frac"] = 2.0
-
-
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -267,7 +255,6 @@ def _frac_over_one(d: dict) -> None:
         _missing_familiarity_subkey,
         _negative_prior_prs,
         _blame_pct_over_100,
-        _frac_over_one,
     ],
 )
 def test_malformed_familiarity_hard_fails(tmp_path: Path, mutate) -> None:

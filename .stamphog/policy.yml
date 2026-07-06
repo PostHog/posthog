@@ -186,15 +186,16 @@ overrides:
     'size_gate.max_files':
         ceiling: 50
 # Author-familiarity signal — judgment layer only, never a gate. Non-delegable
-# (absent from `overrides`). Numbers are placeholders pending a running backtest;
-# tuning them is a YAML-only diff. STRONG = blame overlap ≥ min_blame_overlap_pct
-# OR the alt_ trio all satisfied; MODERATE = its pair satisfied; else NONE.
+# (absent from `overrides`). STRONG = blame overlap ≥ min_blame_overlap_pct;
+# MODERATE = both of its keys satisfied; else NONE.
+# Rationale: calibrated against 120 days of refused/escalated verdict outcomes
+# (Jul 2026 backtest). Blame overlap was the only metric that rose monotonically
+# with the human rubber-stamp rate; prior-PR counts, previously-modified-file
+# fractions, and recency were flat at every cutoff, so STRONG is blame-only and
+# MODERATE is advisory. Tuning these is a YAML-only diff.
 familiarity:
     strong:
-        min_blame_overlap_pct: 50
-        alt_min_prior_prs: 3
-        alt_min_files_prev_frac: 0.8
-        alt_max_days_since_touch: 90
+        min_blame_overlap_pct: 70
     moderate:
-        min_prior_prs: 3
+        min_prior_prs: 5
         max_days_since_touch: 180

@@ -118,11 +118,10 @@ class OverrideContract:
 
 @dataclass(frozen=True)
 class FamiliarityStrong:
-    # STRONG = blame overlap ≥ threshold OR the alt_ trio all satisfied.
+    # STRONG = blame overlap ≥ threshold. Deliberately the only criterion: the
+    # Jul 2026 backtest found blame overlap the sole monotonic predictor of
+    # human rubber-stamps; composite path/recency rules measured nothing.
     min_blame_overlap_pct: float
-    alt_min_prior_prs: int
-    alt_min_files_prev_frac: float
-    alt_max_days_since_touch: int
 
 
 @dataclass(frozen=True)
@@ -328,24 +327,13 @@ def _parse_overrides(raw: Any) -> dict[str, OverrideContract]:
     return overrides
 
 
-_FAMILIARITY_STRONG_KEYS = {
-    "min_blame_overlap_pct",
-    "alt_min_prior_prs",
-    "alt_min_files_prev_frac",
-    "alt_max_days_since_touch",
-}
+_FAMILIARITY_STRONG_KEYS = {"min_blame_overlap_pct"}
 _FAMILIARITY_MODERATE_KEYS = {"min_prior_prs", "max_days_since_touch"}
 
 
 def _require_percentage(value: Any, context: str) -> float:
     _require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{context}: must be a number")
     _require(0 <= value <= 100, f"{context}: must be between 0 and 100")
-    return float(value)
-
-
-def _require_fraction(value: Any, context: str) -> float:
-    _require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{context}: must be a number")
-    _require(0 <= value <= 1, f"{context}: must be between 0 and 1")
     return float(value)
 
 
@@ -376,15 +364,6 @@ def _parse_familiarity(raw: Any) -> FamiliarityPolicy:
     strong = FamiliarityStrong(
         min_blame_overlap_pct=_require_percentage(
             strong_raw["min_blame_overlap_pct"], "familiarity.strong.min_blame_overlap_pct"
-        ),
-        alt_min_prior_prs=_require_positive_int(
-            strong_raw["alt_min_prior_prs"], "familiarity.strong.alt_min_prior_prs"
-        ),
-        alt_min_files_prev_frac=_require_fraction(
-            strong_raw["alt_min_files_prev_frac"], "familiarity.strong.alt_min_files_prev_frac"
-        ),
-        alt_max_days_since_touch=_require_positive_int(
-            strong_raw["alt_max_days_since_touch"], "familiarity.strong.alt_max_days_since_touch"
         ),
     )
     moderate = FamiliarityModerate(

@@ -370,24 +370,14 @@ def _files_previously_modified(paths: list[str], author_prs: set[int], repo_root
 def _band(
     blame_overlap_pct: float,
     prior_prs_in_paths: int,
-    files_prev_frac: float,
     days_since_last_touch: int | None,
     thresholds: FamiliarityPolicy,
 ) -> str:
     """STRONG / MODERATE / NONE from the policy thresholds (numbers-only diff to tune)."""
-    strong = thresholds.strong
-    moderate = thresholds.moderate
-
-    strong_blame = blame_overlap_pct >= strong.min_blame_overlap_pct
-    strong_alt = (
-        prior_prs_in_paths >= strong.alt_min_prior_prs
-        and files_prev_frac >= strong.alt_min_files_prev_frac
-        and days_since_last_touch is not None
-        and days_since_last_touch <= strong.alt_max_days_since_touch
-    )
-    if strong_blame or strong_alt:
+    if blame_overlap_pct >= thresholds.strong.min_blame_overlap_pct:
         return "STRONG"
 
+    moderate = thresholds.moderate
     if (
         prior_prs_in_paths >= moderate.min_prior_prs
         and days_since_last_touch is not None
@@ -439,7 +429,7 @@ def compute_familiarity(
     files_prev_count, files_total = _files_previously_modified(considered_paths, author_prs, repo_root)
     files_prev_frac = (files_prev_count / files_total) if files_total else 0.0
 
-    band = _band(blame_overlap_pct, prior_prs, files_prev_frac, days_since, thresholds)
+    band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
 
     return AuthorFamiliarity(
         band=band,
