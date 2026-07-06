@@ -73,7 +73,7 @@ function SwitchShell({
     // Both only show when the switch manages an override (onReset provided).
     const overrideStatus = onReset ? (
         indeterminate ? (
-            <span className="text-xs italic text-secondary">No override set</span>
+            <span className="text-xs text-tertiary">No override set</span>
         ) : (
             <Link className="text-xs" onClick={onReset}>
                 Unset override
