@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ExplorerHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -185,8 +185,11 @@ function LiveActivityCard(): JSX.Element {
     )
 }
 
+// The AI digest is the product here: real intents are all worded differently, so
+// verbatim grouping can't answer "what are agents trying to do". The raw list is
+// strictly the degraded state for when generation is unavailable (no LLM key).
 function IntentsCard(): JSX.Element {
-    const { intentDigest, intentThemes } = useValues(mcpEarlyDataLogic)
+    const { intentDigest, intentDigestLoading, intentThemes } = useValues(mcpEarlyDataLogic)
 
     return (
         <Card title="What agents are trying to do">
@@ -196,6 +199,13 @@ function IntentsCard(): JSX.Element {
                     <span className="text-muted text-xs">
                         AI summary of the last {formatNumber(intentDigest.intentCount)} agent intents
                     </span>
+                </div>
+            ) : intentDigestLoading ? (
+                <div className="flex flex-col gap-2">
+                    <LemonSkeleton className="h-4 w-full" />
+                    <LemonSkeleton className="h-4 w-5/6" />
+                    <LemonSkeleton className="h-4 w-2/3" />
+                    <span className="text-muted text-xs">Summarizing recent agent intents…</span>
                 </div>
             ) : intentThemes.length === 0 ? (
                 <span className="text-muted text-sm">
@@ -212,7 +222,7 @@ function IntentsCard(): JSX.Element {
                         ))}
                     </ul>
                     <span className="text-muted text-xs">
-                        Recent agent intents, verbatim — the AI summary appears once it can be generated.
+                        AI summary unavailable — showing the most recent intents verbatim.
                     </span>
                 </div>
             )}
