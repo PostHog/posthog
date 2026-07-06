@@ -80,7 +80,7 @@ describe('createTrackAndGateStep', () => {
         }
     })
 
-    it('tags a new, unblocked session as new and rate-limits it', async () => {
+    it('charges a new, unblocked session a rate-limit token and tags it new/allowed', async () => {
         mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
 
         const results = await createStep()([element(1, 'a')])
@@ -89,7 +89,7 @@ describe('createTrackAndGateStep', () => {
         expect(flags(results[0])).toEqual({ isNewSession: true, status: 'allowed' })
     })
 
-    it('tags a seen session as existing and does not rate-limit it', async () => {
+    it('tags a seen session as existing and does not charge it a token', async () => {
         // Default hasSeen: already seen.
         const results = await createStep()([element(1, 'a')])
 
