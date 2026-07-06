@@ -21,6 +21,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
@@ -298,6 +299,49 @@ class TestPrepareAlert:
 
         assert result.action == PrepareAction.EVALUATE
         assert result.reason is None
+
+    @pytest.mark.parametrize(
+        "calculation_interval,required_feature",
+        [
+            pytest.param(
+                AlertCalculationInterval.REAL_TIME.value,
+                AvailableFeature.REAL_TIME_ALERTS,
+                id="real_time",
+            ),
+            pytest.param(
+                AlertCalculationInterval.EVERY_15_MINUTES.value,
+                AvailableFeature.HIGH_FREQUENCY_ALERTS,
+                id="every_15_minutes",
+            ),
+        ],
+    )
+    async def test_entitlement_gated_interval_auto_disabled_without_feature(
+        self, ateam, aorganization, calculation_interval: str, required_feature: AvailableFeature
+    ) -> None:
+        a = await _create_alert(ateam, calculation_interval=calculation_interval)
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.state == AlertState.ERRORED
+        assert check.error is not None
+
+        # With the feature restored, an identical alert evaluates normally.
+        @sync_to_async
+        def _grant_feature() -> None:
+            aorganization.available_product_features = [{"key": required_feature, "name": required_feature}]
+            aorganization.save()
+
+        await _grant_feature()
+        entitled = await _create_alert(ateam, calculation_interval=calculation_interval)
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
+        assert result.action == PrepareAction.EVALUATE
 
 
 @pytest.mark.asyncio
