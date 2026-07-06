@@ -291,6 +291,7 @@ the row lists both.
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
 | shortcut                | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartreach              | HTTP                        | requests                                                        | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
@@ -658,7 +659,6 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - smaily
 - smartengage
-- smartreach
 - smartwaiver
 - solarwinds_service_desk
 - sonar_cloud
