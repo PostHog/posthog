@@ -16,16 +16,17 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const TasksListSchema = TasksListQueryParams
 
-const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskList>> => ({
+const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>> => ({
     name: 'tasks-list',
     schema: TasksListSchema,
     handler: async (context: Context, params: z.infer<typeof TasksListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskList>({
+        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {
                 archived: params.archived,
+                channel: params.channel,
                 created_by: params.created_by,
                 internal: params.internal,
                 limit: params.limit,
@@ -69,12 +70,12 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
 
 const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true })
 
-const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.Task>> => ({
+const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
     name: 'tasks-retrieve',
     schema: TasksRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof TasksRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Task>({
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/`,
         })
@@ -89,12 +90,15 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
 
 const TasksRunsListSchema = TasksRunsListParams.omit({ project_id: true }).extend(TasksRunsListQueryParams.shape)
 
-const tasksRunsList = (): ToolBase<typeof TasksRunsListSchema, WithPostHogUrl<Schemas.PaginatedTaskRunDetailList>> => ({
+const tasksRunsList = (): ToolBase<
+    typeof TasksRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedTaskRunDetailDTOList>
+> => ({
     name: 'tasks-runs-list',
     schema: TasksRunsListSchema,
     handler: async (context: Context, params: z.infer<typeof TasksRunsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskRunDetailList>({
+        const result = await context.api.request<Schemas.PaginatedTaskRunDetailDTOList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/`,
             query: {
@@ -126,12 +130,12 @@ const tasksRunsList = (): ToolBase<typeof TasksRunsListSchema, WithPostHogUrl<Sc
 
 const TasksRunsRetrieveSchema = TasksRunsRetrieveParams.omit({ project_id: true })
 
-const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.TaskRunDetail> => ({
+const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.TaskRunDetailDTO> => ({
     name: 'tasks-runs-retrieve',
     schema: TasksRunsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof TasksRunsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TaskRunDetail>({
+        const result = await context.api.request<Schemas.TaskRunDetailDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/`,
         })

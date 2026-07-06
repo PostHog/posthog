@@ -15,7 +15,6 @@ import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -30,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
@@ -564,7 +564,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
         )
 
         return playlist
@@ -603,7 +603,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
 

@@ -5,11 +5,9 @@ import {
     KeyboardEvent,
     MutableRefObject,
     useCallback,
-    useEffect,
     useLayoutEffect,
     useMemo,
     useRef,
-    useState,
 } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -43,8 +41,7 @@ import { htmlElementToInlineNodes, inlineNodesToHtml, makeEmptyParagraph, parseM
 import { NotebookBlockNode, NotebookInlineNode, NotebookMode, NotebookTextBlockNode } from './types'
 import { getInlineText, normalizeInlineNodes } from './utils'
 
-const AI_THINKING_FRAMES = ['Thinking.', 'Thinking..', 'Thinking...'] as const
-const AI_THINKING_FRAME_MS = 450
+const AI_THINKING_LABEL = 'Thinking...'
 
 export function EditableTextBlock({
     node,
@@ -69,6 +66,7 @@ export function EditableTextBlock({
     isInsertMenuOpen,
     insertMenuMode,
     hasInvalidInsertMenuQuery,
+    isAIWriting,
     isAIWritingPlaceholder,
     submitInsertMenuSelection,
     handleSelectionChange,
@@ -98,6 +96,7 @@ export function EditableTextBlock({
     isInsertMenuOpen: boolean
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
+    isAIWriting: boolean
     isAIWritingPlaceholder: boolean
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
@@ -110,8 +109,7 @@ export function EditableTextBlock({
     const renderedHtml = useMemo(() => inlineNodesToHtml(node.children), [node.children])
     const text = getInlineText(node.children)
     const isEmpty = text.length === 0
-    const [aiThinkingFrameIndex, setAIThinkingFrameIndex] = useState(0)
-    const aiThinkingLabel = isAIWritingPlaceholder ? AI_THINKING_FRAMES[aiThinkingFrameIndex] : undefined
+    const aiThinkingLabel = isAIWritingPlaceholder ? AI_THINKING_LABEL : undefined
     const isToolInsertMenuOpen = isInsertMenuOpen && (!insertMenuMode || insertMenuMode === 'tools')
     const TextTag =
         node.type === 'heading' ? (`h${node.level ?? 1}` as const) : node.type === 'blockquote' ? 'blockquote' : 'p'
@@ -123,19 +121,6 @@ export function EditableTextBlock({
         },
         [setBlockRef]
     )
-
-    useEffect(() => {
-        if (!isAIWritingPlaceholder) {
-            return
-        }
-
-        setAIThinkingFrameIndex(0)
-        const interval = window.setInterval(() => {
-            setAIThinkingFrameIndex((currentFrame) => (currentFrame + 1) % AI_THINKING_FRAMES.length)
-        }, AI_THINKING_FRAME_MS)
-
-        return () => window.clearInterval(interval)
-    }, [isAIWritingPlaceholder])
 
     useLayoutEffect(() => {
         const element = elementRef.current
@@ -330,6 +315,11 @@ export function EditableTextBlock({
     }
 
     const handleInput = (event: FormEvent<HTMLElement>): void => {
+        if (isAIWriting) {
+            event.currentTarget.innerHTML = renderedHtml
+            return
+        }
+
         const element = event.currentTarget
         const elementChildren = htmlElementToInlineNodes(element)
         const elementText = getInlineText(elementChildren)
@@ -362,6 +352,11 @@ export function EditableTextBlock({
     }
 
     const handlePaste = (event: ReactClipboardEvent<HTMLElement>): void => {
+        if (isAIWriting) {
+            event.preventDefault()
+            return
+        }
+
         const plainText = event.clipboardData.getData('text/plain')
         const html = event.clipboardData.getData('text/html')
         const linkPasteResult = getInlineLinkPasteResult(event.currentTarget, node.id, node.children, plainText)
@@ -403,6 +398,19 @@ export function EditableTextBlock({
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+        if (isAIWriting) {
+            if (
+                event.key.length === 1 ||
+                event.key === 'Backspace' ||
+                event.key === 'Delete' ||
+                event.key === 'Enter'
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            return
+        }
+
         if (isToolInsertMenuOpen && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
             event.preventDefault()
             event.stopPropagation()
@@ -548,6 +556,13 @@ export function EditableTextBlock({
             }
 
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
+            if (isTitleBlock && event.key === 'Backspace' && selection?.start === 0 && selection.end === 0) {
+                event.preventDefault()
+                event.stopPropagation()
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                return
+            }
+
             if (isEmpty && !isTitleBlock && node.type === 'paragraph' && event.key === 'Backspace') {
                 event.preventDefault()
                 if (!deleteNodeAndFocusPrevious(node.id)) {
@@ -658,13 +673,15 @@ export function EditableTextBlock({
                     `MarkdownNotebook__text-block--${node.type}`,
                     isTitleBlock && 'MarkdownNotebook__text-block--title',
                     isToolInsertMenuOpen && 'MarkdownNotebook__text-block--insert-placeholder',
+                    isAIWriting && 'MarkdownNotebook__text-block--ai-writing',
                     isAIWritingPlaceholder && 'MarkdownNotebook__text-block--ai-thinking',
                     hasInvalidInsertMenuQuery && 'MarkdownNotebook__text-block--invalid-insert-filter'
                 )}
                 data-markdown-notebook-node-id={node.id}
                 data-ai-thinking-label={aiThinkingLabel}
-                contentEditable={mode === 'edit'}
+                contentEditable={mode === 'edit' && !isAIWriting}
                 suppressContentEditableWarning
+                aria-busy={isAIWriting || undefined}
                 data-placeholder={isEmpty ? placeholder : undefined}
                 onInput={handleInput}
                 onPaste={handlePaste}

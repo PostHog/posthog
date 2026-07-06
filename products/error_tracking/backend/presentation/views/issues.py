@@ -1,13 +1,10 @@
 from uuid import UUID
 
-from django.db import transaction
-from django.db.models.query import QuerySet
 from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
-from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -17,32 +14,26 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models.activity_logging.activity_log import load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.organization import OrganizationMembership
-from posthog.tasks.email import send_error_tracking_issue_assigned
 
-from products.cohorts.backend.models.cohort import Cohort
-from products.error_tracking.backend.facade import api as facade_api
-from products.error_tracking.backend.issue_serializers import ErrorTrackingIssueAssignmentSerializer
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingIssueCohort,
-    sync_issues_to_clickhouse,
+from products.error_tracking.backend.facade import (
+    api as facade_api,
+    issues as issues_facade,
 )
-from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceSerializer,
 )
 
 IssueNotFoundError = facade_api.IssueNotFoundError
 
-DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
-DEFAULT_EMBEDDING_VERSION = 1
-DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
-
 logger = structlog.get_logger(__name__)
+
+# Statuses a client may set. Deprecated archived/pending_release values are rejected
+# by being absent from the choices; reads of legacy rows still pass through.
+WRITABLE_ISSUE_STATUSES = ["active", "resolved", "suppressed"]
 
 
 class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
@@ -75,94 +66,9 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 
-DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
-SUPPORTED_WRITE_STATUSES = (
-    ErrorTrackingIssue.Status.ACTIVE,
-    ErrorTrackingIssue.Status.RESOLVED,
-    ErrorTrackingIssue.Status.SUPPRESSED,
-)
-
-
-class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
-    first_seen = serializers.DateTimeField()
-    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
-    cohort = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
-
-    def validate_status(self, value: str) -> str:
-        # Reads of legacy archived/pending_release rows still pass through; only block new writes.
-        if value in DEPRECATED_ISSUE_STATUSES:
-            raise serializers.ValidationError(f"Status '{value}' is no longer supported. Use 'resolved' instead.")
-        return value
-
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"},
-            },
-        }
-    )
-    def get_cohort(self, instance):
-        first_cohort = instance.cohorts.filter(cohort__deleted=False).first()
-        return {"id": first_cohort.cohort_id, "name": first_cohort.cohort.name} if first_cohort is not None else None
-
-    def update(self, instance, validated_data):
-        team = instance.team
-        status_after = validated_data.get("status")
-        status_before = instance.status
-        status_updated = "status" in validated_data and status_after != status_before
-
-        name_after = validated_data.get("name")
-        name_before = instance.name
-        name_updated = "name" in validated_data and name_after != name_before
-
-        updated_instance = super().update(instance, validated_data)
-
-        changes = []
-        if status_updated:
-            changes.append(
-                Change(
-                    type="ErrorTrackingIssue",
-                    field="status",
-                    before=status_before,
-                    after=status_after,
-                    action="changed",
-                )
-            )
-        if name_updated:
-            changes.append(
-                Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
-            )
-
-        if changes:
-            log_activity(
-                organization_id=team.organization.id,
-                team_id=team.id,
-                user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
-                item_id=str(updated_instance.id),
-                scope="ErrorTrackingIssue",
-                activity="updated",
-                detail=Detail(
-                    name=instance.name,
-                    changes=changes,
-                ),
-            )
-            sync_issues_to_clickhouse(issue_ids=[updated_instance.id], team_id=team.id)
-
-        return updated_instance
-
-
 class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=SUPPORTED_WRITE_STATUSES,
+        choices=WRITABLE_ISSUE_STATUSES,
         required=False,
         help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
     )
@@ -223,12 +129,11 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
     scope_object_read_actions = ["list", "retrieve", "values", "exists"]
     scope_object_write_actions = [
-        "create",
         "update",
         "partial_update",
         "patch",
@@ -239,41 +144,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "cohort",
         "bulk",
     ]
-    queryset = ErrorTrackingIssue.objects.with_first_seen().all()
-    serializer_class = ErrorTrackingIssueFullSerializer
+    serializer_class = ErrorTrackingIssueReadSerializer
 
-    def safely_get_queryset(self, queryset):
-        return (
-            queryset.select_related("assignment")
-            .prefetch_related("external_issues__integration")
-            .prefetch_related("cohorts__cohort")
-            .filter(team_id=self.team.id)
+    def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
         )
 
-    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
-    def update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        return self._update_issue(request)
-
-    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
-    def partial_update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        return self._update_issue(request)
-
-    def _update_issue(self, request: request.Request) -> Response:
-        issue = self.get_object()
-        request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
-        request_serializer.is_valid(raise_exception=True)
-
-        serializer = self.get_serializer(issue, data=request_serializer.validated_data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data)
-
-    @action(methods=["GET"], detail=False)
-    def exists(self, request, **kwargs):
-        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
-        return Response({"exists": has_issues})
-
-    def retrieve(self, request, *args, **kwargs):
+    def retrieve(self, request: request.Request, *args: object, **kwargs: object) -> Response | JsonResponse:
         issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
 
@@ -287,133 +167,130 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         except IssueNotFoundError:
             raise NotFound("Issue not found")
 
-        serializer = ErrorTrackingIssueReadSerializer(issue)
-        return Response(serializer.data)
+        return Response(ErrorTrackingIssueReadSerializer(issue).data)
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueReadSerializer})
+    def update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request, kwargs["pk"])
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueReadSerializer})
+    def partial_update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request, kwargs["pk"])
+
+    def _update_issue(self, request: request.Request, pk: object) -> Response:
+        request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        try:
+            issue = issues_facade.update_issue(
+                self.team.id,
+                UUID(str(pk)),
+                fields=dict(request_serializer.validated_data),
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+            )
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        return Response(ErrorTrackingIssueReadSerializer(issue).data)
+
+    @action(methods=["GET"], detail=False)
+    def exists(self, request: request.Request, **kwargs: object) -> Response:
+        return Response({"exists": facade_api.issue_exists(self.team.id)})
 
     @validated_request(
         request_serializer=ErrorTrackingIssueMergeRequestSerializer,
         responses={200: OpenApiResponse(response=ErrorTrackingIssueMergeResponseSerializer)},
     )
     @action(methods=["POST"], detail=True)
-    def merge(self, request: ValidatedRequest, **kwargs):
-        issue: ErrorTrackingIssue = self.get_object()
+    def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
-        # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
-        ids = [x for x in ids if x != str(issue.id)]
-        issue.merge(issue_ids=ids)
-        return Response({"success": True})
+        try:
+            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
+            raise NotFound("Issue not found")
+        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
+            raise ValidationError("Issue fingerprints changed before merge. Please retry.")
+        return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
 
     @validated_request(
         request_serializer=ErrorTrackingIssueSplitRequestSerializer,
         responses={200: OpenApiResponse(response=ErrorTrackingIssueSplitResponseSerializer)},
     )
     @action(methods=["POST"], detail=True)
-    def split(self, request: ValidatedRequest, **kwargs):
-        issue: ErrorTrackingIssue = self.get_object()
+    def split(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         fingerprints = request.validated_data["fingerprints"]
-        new_issues = issue.split(fingerprints=fingerprints)
-        return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
+        try:
+            new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
     @action(methods=["PATCH"], detail=True)
-    def assign(self, request, **kwargs):
+    def assign(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         assignee = request.data.get("assignee", None)
-        instance = self.get_object()
-
-        assign_issue(
-            instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
-        )
-        sync_issues_to_clickhouse(issue_ids=[instance.id], team_id=instance.team_id)
-
+        try:
+            issues_facade.assign_issue(
+                self.team.id,
+                UUID(str(pk)),
+                assignee,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+            )
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        except issues_facade.AssigneeValidationError as err:
+            raise ValidationError(str(err))
         return Response({"success": True})
 
     @action(methods=["PUT"], detail=True)
-    def cohort(self, request, **kwargs):
+    def cohort(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         cohort_id = request.data.get("cohortId", None)
         if cohort_id is None:
             raise ValidationError("Please provide a cohort id")
 
-        issue: ErrorTrackingIssue = self.get_object()
-        cohort = Cohort.objects.filter(team=self.team, id=cohort_id).first()
-        if cohort is None:
-            raise NotFound("Cohort not found")
-
         try:
-            ## Upsert cohort_id as a cohort might have been soft deleted
-            # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
-            _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
+            issues_facade.set_issue_cohort(self.team.id, UUID(str(pk)), cohort_id)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        except issues_facade.CohortNotFoundError:
+            raise NotFound("Cohort not found")
         except Exception as e:
             posthoganalytics.capture_exception(
-                e, distinct_id=self.request.user.pk, properties={"issue_id": issue.id, "cohort_id": cohort.id}
+                e, distinct_id=self.request.user.pk, properties={"issue_id": str(pk), "cohort_id": cohort_id}
             )
             raise ValidationError("An error occurred while assigning this cohort")
 
         return Response({"success": True})
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: request.Request, **kwargs):
-        queryset = self.get_queryset()
+    def values(self, request: request.Request, **kwargs: object) -> Response:
         value = request.GET.get("value", None)
         key = request.GET.get("key")
-
-        issue_values: QuerySet[ErrorTrackingIssue] = QuerySet()
-        if key and value:
-            if key == "name":
-                issue_values = queryset.filter(name__icontains=value).values_list("name", flat=True)
-            elif key == "issue_description":
-                issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
-
+        issue_values = facade_api.get_issue_values(self.team.id, key, value)
         return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
     @action(methods=["POST"], detail=False)
-    def bulk(self, request, **kwargs):
-        action = request.data.get("action")
-        status = request.data.get("status")
-        issues = self.get_queryset().filter(id__in=request.data.get("ids", []))
-
-        with transaction.atomic():
-            if action == "set_status":
-                new_status = get_status_from_string(status)
-                if new_status is None:
-                    raise ValidationError("Invalid status")
-                for issue in issues:
-                    _ = log_activity(
-                        organization_id=self.organization.id,
-                        team_id=self.team_id,
-                        user=request.user,
-                        was_impersonated=is_impersonated_session(request),
-                        item_id=issue.id,
-                        scope="ErrorTrackingIssue",
-                        activity="updated",
-                        detail=Detail(
-                            name=issue.name,
-                            changes=[
-                                Change(
-                                    type="ErrorTrackingIssue",
-                                    action="changed",
-                                    field="status",
-                                    before=issue.status,
-                                    after=new_status,
-                                )
-                            ],
-                        ),
-                    )
-
-                issues.update(status=new_status)
-            elif action == "assign":
-                assignee = request.data.get("assignee", None)
-
-                for issue in issues:
-                    assign_issue(
-                        issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
-                    )
-
-        sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
-
+    def bulk(self, request: request.Request, **kwargs: object) -> Response:
+        try:
+            issues_facade.bulk_update_issues(
+                self.team.id,
+                request.data.get("ids", []),
+                action=request.data.get("action"),
+                status=request.data.get("status"),
+                assignee=request.data.get("assignee", None),
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+            )
+        except issues_facade.InvalidIssueStatusError:
+            raise ValidationError("Invalid status")
+        except issues_facade.AssigneeValidationError as err:
+            raise ValidationError(str(err))
         return Response({"success": True})
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
-    def all_activity(self, request: request.Request, **kwargs):
+    def all_activity(self, request: request.Request, **kwargs: object) -> Response:
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
@@ -421,95 +298,18 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
-    def activity(self, request: request.Request, **kwargs):
+    def activity(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        item_id = kwargs["pk"]
-        if not ErrorTrackingIssue.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not facade_api.issue_exists_by_id(self.team_id, str(pk)):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="ErrorTrackingIssue",
             team_id=self.team_id,
-            item_ids=[str(item_id)],
+            item_ids=[str(pk)],
             limit=limit,
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
-
-
-def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
-    assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
-    serialized_assignment_before = (
-        ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
-    )
-
-    if assignee:
-        if assignee["type"] == "user":
-            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
-                raise ValidationError("Assignee user does not belong to this organization.")
-        elif assignee["type"] == "role":
-            from ee.models.rbac.role import Role
-
-            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
-                raise ValidationError("Assignee role does not belong to this organization.")
-
-        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
-        assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
-            issue_id=issue.id,
-            defaults={
-                "team_id": issue.team_id,
-                "user_id": None if assignee["type"] != "user" else assignee["id"],
-                "role_id": None if assignee["type"] != "role" else assignee["id"],
-            },
-        )
-
-        send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
-
-        dispatch_issue_assigned_realtime(
-            assignment=assignment_after,
-            assignee=assignee,
-            assigner=user,
-        )
-
-        serialized_assignment_after = (
-            ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
-        )
-    else:
-        if assignment_before:
-            assignment_before.delete()
-        serialized_assignment_after = None
-
-    log_activity(
-        organization_id=organization.id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=str(issue.id),
-        scope="ErrorTrackingIssue",
-        activity="assigned",
-        detail=Detail(
-            name=issue.name,
-            changes=[
-                Change(
-                    type="ErrorTrackingIssue",
-                    field="assignee",
-                    before=serialized_assignment_before,
-                    after=serialized_assignment_after,
-                    action="changed",
-                )
-            ],
-        ),
-    )
-
-
-def get_status_from_string(status: str) -> ErrorTrackingIssue.Status | None:
-    match status:
-        case "active":
-            return ErrorTrackingIssue.Status.ACTIVE
-        case "resolved":
-            return ErrorTrackingIssue.Status.RESOLVED
-        case "suppressed":
-            return ErrorTrackingIssue.Status.SUPPRESSED
-    return None

@@ -65,14 +65,16 @@ function DashboardWidgetOverviewTile({
                     moreButtonOverlay={mockMoreOverlay}
                 />
                 <WidgetCardBody error={demoState.cardError}>
-                    <WidgetComponent
-                        tileId={tileId}
-                        config={demoState.config}
-                        loading={demoState.loading}
-                        result={demoState.result}
-                        onUpdateConfig={() => undefined}
-                        onRefresh={() => undefined}
-                    />
+                    <React.Suspense fallback={null}>
+                        <WidgetComponent
+                            tileId={tileId}
+                            config={demoState.config}
+                            loading={demoState.loading}
+                            result={demoState.result}
+                            onUpdateConfig={() => undefined}
+                            onRefresh={() => undefined}
+                        />
+                    </React.Suspense>
                 </WidgetCardBody>
             </WidgetCard>
         </div>

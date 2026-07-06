@@ -163,6 +163,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckLakeCatalog",
         "DuckgresServer",
         "DuckgresServerTeam",
+        "DuckgresSinkSchemaState",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
@@ -323,6 +324,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingExternalReference",  # via SessionRecording
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
+        "SourceBatchDuckgresStatus",  # via SourceBatch
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
@@ -626,7 +628,7 @@ def main() -> int:
     code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
-    semgrep_path = REPO_ROOT / ".semgrep/rules/idor-team-scoped-models.yaml"
+    semgrep_path = REPO_ROOT / ".semgrep/rules/security/idor-team-scoped-models.yaml"
     semgrep_models = parse_semgrep_models(semgrep_path)
 
     # Compare and report
@@ -729,7 +731,7 @@ def main() -> int:
     if has_errors:
         print("\n❌ FAILED: Some models need attention.")
         print("\nTo fix IDOR semgrep gaps:")
-        print("  1. Add the missing models to .semgrep/rules/idor-team-scoped-models.yaml")
+        print("  1. Add the missing models to .semgrep/rules/security/idor-team-scoped-models.yaml")
         print("  2. Or add them to EXCLUDED_MODELS in this script if they don't need IDOR protection")
         print("  3. For unscoped models: add team_id, or add to LEGITIMATELY_UNSCOPED / NEEDS_TEAM_ID")
         print("To fix fail-closed manager gaps:")

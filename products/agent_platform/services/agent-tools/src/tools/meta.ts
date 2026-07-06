@@ -28,7 +28,7 @@ export const endTurnTool = defineNativeTool({
         'Finish the current turn. The user can still send follow-up messages — this is the default polite stop. Use this whenever you have nothing more to add for now, including when you need the user to answer a question (write the question as your reply, then end the turn). Use meta-end-session instead only when the agent task is truly complete.',
     args: Type.Object({}),
     returns: Type.Object({ ended_turn: Type.Literal(true) }),
-    requires: { integrations: [], scopes: [] },
+    requires: {},
     cost_hint: 'cheap',
     async run(_args, _ctx) {
         // Runner intercepts this — never actually called.
@@ -44,7 +44,7 @@ export const endSessionTool = defineNativeTool({
         summary: Type.Optional(Type.String()),
     }),
     returns: Type.Object({ ended: Type.Literal(true) }),
-    requires: { integrations: [], scopes: [] },
+    requires: {},
     cost_hint: 'cheap',
     async run(_args, _ctx) {
         return { ended: true as const }
@@ -60,7 +60,7 @@ export const emitEventTool = defineNativeTool({
         properties: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     }),
     returns: Type.Object({ emitted: Type.Literal(true) }),
-    requires: { integrations: [], scopes: ['events:write'] },
+    requires: {},
     cost_hint: 'cheap',
     async run(args, ctx) {
         ctx.log('info', 'meta.emit_event', { event: args.event, distinct_id: args.distinct_id })

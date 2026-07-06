@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+from copy import deepcopy
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -151,14 +152,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         allow_null=True,
         help_text=(
             "Experiment parameters JSON. Supported keys include "
-            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, "
-            "`custom_exposure_filter`, and `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded). "
-            "The running-time calculator keys (`minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
-            "are deprecated here — prefer `running_time_calculation`."
+            "`feature_flag_variants`, `rollout_percentage`, "
+            "`custom_exposure_filter`, and `variant_notes` "
+            "(free-text notes per variant, keyed by variant key). "
+            "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
@@ -167,8 +164,18 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
             "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
-            "which historically lived in `parameters`; values are kept in sync with `parameters` "
-            "during the deprecation window."
+            "which historically lived in `parameters`."
+        ),
+    )
+    excluded_variants = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variant keys to exclude from metric result calculations. Excluded variants are still "
+            "served to users but omitted from statistical analysis. The baseline variant and holdout "
+            "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
+            "`parameters.excluded_variants`."
         ),
     )
     conclusion = serializers.ChoiceField(
@@ -181,6 +188,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Comment about the experiment conclusion.",
     )
     archived = serializers.BooleanField(
@@ -226,6 +234,47 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         if annotated is not None:
             return annotated
         return experiment_has_legacy_metrics(obj)
+
+    def to_representation(self, instance: Experiment) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        self._project_feature_flag_config(data, instance.feature_flag)
+        return data
+
+    @staticmethod
+    def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
+        """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
+
+        The flag is the source of truth for variants/rollout/aggregation group type — `parameters`
+        is a deprecated compatibility surface (see the experiment model's `parameters` comment).
+        Reading these keys from the flag instead of the stored column lets us stop persisting the
+        `parameters` mirror without changing the API response. The linked flag is already serialized
+        into `data["feature_flag"]`, so this adds no queries.
+        """
+        if flag is None:
+            return
+        parameters = dict(data.get("parameters") or {})
+
+        variants = deepcopy(flag.variants)
+        for variant in variants:
+            # Mirror ExperimentParametersField.to_representation: the UI edits splits via split_percent.
+            if isinstance(variant, dict) and "rollout_percentage" in variant:
+                variant["split_percent"] = variant["rollout_percentage"]
+        parameters["feature_flag_variants"] = variants
+
+        filters = flag.get_filters()
+        aggregation_group_type_index = filters.get("aggregation_group_type_index")
+        if aggregation_group_type_index is not None:
+            parameters["aggregation_group_type_index"] = aggregation_group_type_index
+        else:
+            parameters.pop("aggregation_group_type_index", None)
+
+        groups = filters.get("groups") or []
+        if groups and groups[0].get("rollout_percentage") is not None:
+            parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
+        else:
+            parameters.pop("rollout_percentage", None)
+
+        data["parameters"] = parameters
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -314,6 +363,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -411,7 +461,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                        excluded_variants=instance.excluded_variants or [],
                     )
 
         return data
@@ -430,6 +480,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_running_time_calculation(self, value):
         ExperimentService.validate_running_time_calculation(value)
+        return value
+
+    def validate_excluded_variants(self, value):
+        ExperimentService.validate_excluded_variants(value)
         return value
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
@@ -464,6 +518,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
             running_time_calculation=self.validated_data.get("running_time_calculation"),
+            excluded_variants=self.validated_data.get("excluded_variants"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -502,6 +557,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "type",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",
@@ -581,6 +637,7 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "archived",
             "deleted",
             "created_by",
@@ -622,7 +679,18 @@ class EndExperimentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ArchiveExperimentSerializer(serializers.Serializer):
+    disable_feature_flag = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When the linked feature flag is still enabled, also disable and archive it along with "
+            "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
+        ),
     )
 
 

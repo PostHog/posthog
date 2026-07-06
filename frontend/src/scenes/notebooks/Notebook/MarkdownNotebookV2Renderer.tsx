@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGraph } from '@posthog/icons'
+import { IconFlask, IconGraph } from '@posthog/icons'
 
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type {
@@ -11,7 +11,9 @@ import type {
 } from 'lib/components/MarkdownNotebook'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
+    rebaseNotebookAIResponseRange,
     replaceNotebookAIResponseMarkdown,
+    streamNotebookAIResponseMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAI'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
@@ -20,6 +22,7 @@ import { uuid } from 'lib/utils/dom'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import {
@@ -65,6 +68,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)
+    const [aiCaretThinking, setAICaretThinking] = useState(false)
     const markdownEditorValueRef = useRef(markdownEditorValue)
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
     const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
@@ -114,6 +118,25 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [handleMarkdownEditorChange]
     )
 
+    const handleMarkdownNotebookChange = useCallback(
+        (markdown: string): void => {
+            const previousMarkdown = markdownEditorValueRef.current
+            for (const request of inlineAIRequests) {
+                const currentRange = rebaseNotebookAIResponseRange(
+                    previousMarkdown,
+                    markdown,
+                    getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                    inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
+                )
+                inlineAIResponseNodeIndicesRef.current[request.conversationId] = currentRange.responseNodeIndex
+                inlineAIResponseNodeCountsRef.current[request.conversationId] = currentRange.responseNodeCount
+            }
+            markdownEditorValueRef.current = markdown
+            handleMarkdownEditorChange(markdown)
+        },
+        [handleMarkdownEditorChange, inlineAIRequests]
+    )
+
     const clearAIPresenceDepartureTimeout = useCallback((): void => {
         if (aiPresenceDepartureTimeoutRef.current !== null) {
             window.clearTimeout(aiPresenceDepartureTimeoutRef.current)
@@ -146,6 +169,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
             setAICaretPosition(null)
             setAICaretFading(false)
+            setAICaretThinking(false)
             setMarkdownAIPresenceActive(false)
         },
         [setMarkdownAIPresenceActive]
@@ -182,6 +206,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             aiPresenceActivityVersionRef.current += 1
             clearAIPresenceTimeouts()
             setAICaretFading(false)
+            setAICaretThinking(true)
             setMarkdownAIPresenceActive(true)
         },
         [clearAIPresenceTimeouts, setMarkdownAIPresenceActive]
@@ -199,6 +224,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         aiPresenceRetainedByPromptRef.current = true
         clearAIPresenceTimeouts()
         setAICaretFading(false)
+        setAICaretThinking(false)
         setAICaretPosition(promptCaretPosition)
         setMarkdownAIPresenceActive(true)
     }, [clearAIPresenceTimeouts, setMarkdownAIPresenceActive])
@@ -206,6 +232,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const markAIPresenceInactive = useCallback(
         (conversationId: string): void => {
             activeInlineAIRequestIdsRef.current.delete(conversationId)
+            if (activeInlineAIRequestIdsRef.current.size === 0) {
+                setAICaretThinking(false)
+            }
             scheduleAIPresenceDeparture()
         },
         [scheduleAIPresenceDeparture]
@@ -230,6 +259,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             aiPresenceRetainedByPromptRef.current = true
             clearAIPresenceTimeouts()
             setAICaretFading(false)
+            setAICaretThinking(false)
             setAICaretPosition(promptCaretPosition)
             setMarkdownAIPresenceActive(true)
             return
@@ -253,11 +283,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                           color: NOTEBOOK_AI_PRESENCE_COLOR,
                           position: aiCaretPosition,
                           version: notebook?.version,
+                          isAI: true,
+                          isAIThinking: aiCaretThinking,
                           isFading: aiCaretFading,
                       },
                   ]
                 : [],
-        [aiCaretFading, aiCaretPosition, notebook?.version]
+        [aiCaretFading, aiCaretPosition, aiCaretThinking, notebook?.version]
     )
     const remoteCarets = useMemo<RemoteNotebookCaret[]>(
         () => [...markdownRemoteCarets, ...aiCarets],
@@ -363,11 +395,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     )
 
     const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
-    // Insert API + target node captured when "Saved insight" is picked, so the modal's async selection
-    // can insert into the right node once an insight is chosen.
+    const [experimentPickerTargetNodeId, setExperimentPickerTargetNodeId] = useState<string | null>(null)
+    // Insert API + target node captured when "Saved insight" / "Experiment" is picked, so the modal's
+    // async selection can insert into the right node once an entity is chosen.
     const savedInsightInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
+    const experimentInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
 
-    const buildSavedInsightInsertCommands = useCallback(
+    const buildExtraInsertCommands = useCallback(
         (api: MarkdownNotebookInsertMenuApi): InsertCommand[] => [
             {
                 key: 'query-saved-insight',
@@ -379,6 +413,16 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     setSavedInsightPickerTargetNodeId(targetNodeId)
                 },
             },
+            {
+                key: 'experiment',
+                label: 'Experiment',
+                category: 'Experiment',
+                icon: <IconFlask />,
+                run: (targetNodeId) => {
+                    experimentInsertRef.current = { api, targetNodeId }
+                    setExperimentPickerTargetNodeId(targetNodeId)
+                },
+            },
         ],
         []
     )
@@ -386,6 +430,11 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const closeSavedInsightPicker = useCallback((): void => {
         savedInsightInsertRef.current = null
         setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const closeExperimentPicker = useCallback((): void => {
+        experimentInsertRef.current = null
+        setExperimentPickerTargetNodeId(null)
     }, [])
 
     const handleSavedInsightPicked = useCallback((shortId: string, title: string): void => {
@@ -402,6 +451,15 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         }
         savedInsightInsertRef.current = null
         setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const handleExperimentPicked = useCallback((experimentId: number): void => {
+        const pending = experimentInsertRef.current
+        if (pending) {
+            pending.api.insertComponent(pending.targetNodeId, 'Experiment', { id: experimentId })
+        }
+        experimentInsertRef.current = null
+        setExperimentPickerTargetNodeId(null)
     }, [])
 
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
@@ -422,17 +480,17 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
             const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
             updateMarkdownEditorValue((currentMarkdown) => {
-                const result = replaceNotebookAIResponseMarkdown(
+                const result = streamNotebookAIResponseMarkdown(
                     currentMarkdown,
                     getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
                     message.content,
                     replacedNodeCount
                 )
                 inlineAIResponseNodeIndicesRef.current[request.conversationId] = result.responseNodeIndex
+                inlineAIResponseNodeCountsRef.current[request.conversationId] = result.responseNodeCount
                 setAICaretPosition(getNotebookAICaretPosition(result.markdown, result.responseNodeIndex))
                 return result.markdown
             })
-            inlineAIResponseNodeCountsRef.current[request.conversationId] = getMarkdownBlockCount(message.content)
         },
         [updateMarkdownEditorValue]
     )
@@ -503,6 +561,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [markAIPresenceInactive, updateMarkdownEditorValue]
     )
 
+    const aiWritingNodeIndexes = useMemo(
+        () =>
+            inlineAIRequests.map((request) =>
+                getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current)
+            ),
+        [inlineAIRequests, markdownEditorValue]
+    )
+
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
             <MarkdownNotebook
@@ -511,8 +577,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
-                onChange={isEditable ? handleMarkdownEditorChange : undefined}
+                extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
@@ -528,6 +594,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 debugOpen={isDebugOpen}
                 onDebugOpenChange={handleDebugOpenChange}
                 focusAIPromptRequest={focusAIPromptRequest}
+                aiWritingNodeIndexes={aiWritingNodeIndexes}
             />
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
@@ -543,6 +610,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     isOpen={savedInsightPickerTargetNodeId !== null}
                     onClose={closeSavedInsightPicker}
                     onSelect={handleSavedInsightPicked}
+                />
+            )}
+            {isEditable && (
+                <MarkdownNotebookExperimentPicker
+                    isOpen={experimentPickerTargetNodeId !== null}
+                    onClose={closeExperimentPicker}
+                    onSelect={handleExperimentPicked}
                 />
             )}
         </MarkdownNotebookRuntimeContext.Provider>

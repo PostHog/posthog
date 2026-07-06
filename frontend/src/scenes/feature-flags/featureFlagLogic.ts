@@ -84,7 +84,8 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -248,6 +249,7 @@ export const NEW_FLAG: FeatureFlagType = {
     },
     deleted: false,
     active: true,
+    archived: false,
     created_by: null,
     ensure_experience_continuity: false,
     experiment_set: null,
@@ -727,7 +729,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
-                    return { ...state, filters }
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        filters: {
+                            ...filters,
+                            // Preserve current payloads: this action only carries release-condition changes;
+                            // the child component's payloads snapshot is always stale.
+                            payloads: state.filters.payloads,
+                        },
+                    }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
                     if (!state) {
@@ -1288,13 +1301,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // Use cached value if already loaded; fetch directly if not yet available
+                        // to avoid a race where defaultReleaseConditionsLogic's async load hasn't
+                        // completed before loadFeatureFlag reads values.defaultReleaseConditions.
+                        const conditionsConfig = await resolveDefaultReleaseConditions(
+                            values.defaultReleaseConditions,
+                            values.currentTeam?.id
+                        )
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
+                                    aggregation_group_type_index: uniformAggregationGroupTypeIndex(
+                                        conditionsConfig.default_groups
+                                    ),
                                 },
                             }
                         }
@@ -1375,10 +1397,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ?.values.featureFlags.results.find((flag) => flag.id === props.id)
 
                         // If we've got a cached flag and the filters have changed, we've updated the release conditions
-                        if (
-                            cachedFlag &&
-                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
-                        ) {
+                        if (cachedFlag && !objectsEqual(cachedFlag?.filters, values.featureFlag.filters)) {
                             globalSetupLogic
                                 .findMounted()
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
@@ -1445,6 +1464,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         { active }
+                    )
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+                // Shares the featureFlagActiveUpdate loader key (and its loading/success state)
+                updateFeatureFlagArchived: async (archived: boolean) => {
+                    if (!values.featureFlag.id) {
+                        throw new Error('Cannot archive an unsaved flag')
+                    }
+                    // Archiving also disables the flag — the backend rejects archived+enabled flags
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        archived ? { archived: true, active: false } : { archived: false }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
@@ -1913,6 +1945,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
+        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
+            if (featureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
+                actions.setFeatureFlag(featureFlagActiveUpdate)
+                actions.updateFlag(featureFlagActiveUpdate)
+            }
+        },
+        updateFeatureFlagArchivedFailure: ({ errorObject }) => {
+            // Archiving an enabled flag also disables it, which can trip the approval gate (409).
+            // Surface the change-request flow instead of silently doing nothing.
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+            // For non-approval errors, let the global error handler show the toast to avoid duplicates
+        },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
             actions.updateFlag(featureFlag)
@@ -1982,14 +2029,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 maybeApplyUrlIntent(values, actions)
             }
         },
-        applyTemplate: ({ templateId }) => {
+        applyTemplate: async ({ templateId }) => {
             const template = values.templates.find((t) => t.id === templateId)
             if (!template || !values.featureFlag) {
                 return
             }
             const templateValues = template.getValues(values.featureFlag)
 
-            const defaultConfig = values.defaultReleaseConditions
+            const defaultConfig = await resolveDefaultReleaseConditions(
+                values.defaultReleaseConditions,
+                values.currentTeam?.id
+            )
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
@@ -2032,6 +2082,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
                 eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+
+                // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
+                // doesn't exist in the target, or scheduled changes that failed to copy).
+                const warnings = featureFlagCopy.success.flatMap((flag) => [
+                    ...(flag.flag_dependency_warnings ?? []),
+                    ...(flag.schedule_copy_warning ? [flag.schedule_copy_warning] : []),
+                ])
+                warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
                 const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
                 lemonToast.error(`Error while saving feature flag: ${errorMessage}`)
@@ -2717,9 +2775,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
 
-    // TODO(#58936): this block is missing the scene-tab-cache guard that
-    // `actionEditLogic.tsx` (L305-332) uses, so the prompt can fire twice on tab
-    // switches. Fix requires making this scene tab-aware (`/making-scenes-tab-aware`).
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
             if (!logic.values.isFormDirty) {

@@ -6,12 +6,16 @@ import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
 import { DATE_FORMAT_WITHOUT_YEAR, formatDate } from 'lib/utils/datetime'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import {
+    defaultAggregationAxisFormatForDisplay,
+    formatAggregationAxisValue,
+} from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { ChartParams, TrendResult } from '~/types'
+import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
 import {
@@ -36,6 +40,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
 export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
+    const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
     const theme = useChartTheme()
 
@@ -44,7 +49,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
 
     // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {
-        return <InsightEmptyState />
+        return <InsightEmptyState sampleDataVariant="number" />
     }
 
     const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
@@ -75,6 +80,13 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const labels =
         resultSeries.days?.map((day) => formatDate(dayjs(day), DATE_FORMAT_WITHOUT_YEAR)) ?? resultSeries.labels
 
+    // Dash the trailing in-progress period, matching the line chart. The offset is negative from the end.
+    const dashedFromIndex =
+        incompletenessOffsetFromEnd < 0 ? resultSeries.data.length + incompletenessOffsetFromEnd : undefined
+
+    const aggregationAxisFormat =
+        trendsFilter?.aggregationAxisFormat ?? defaultAggregationAxisFormatForDisplay(ChartDisplayType.Metric)
+
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
             <MetricCard
@@ -95,7 +107,10 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 theme={theme}
                 color={lineColor}
                 showChange={showChange}
-                formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
+                formatValue={(value) =>
+                    formatAggregationAxisValue({ ...trendsFilter, aggregationAxisFormat }, value, baseCurrency)
+                }
+                sparklineDashedFromIndex={dashedFromIndex}
                 sparklineHeight={120}
                 sparklineClassName="mt-4 -mx-2"
                 dataAttr="metric-value"

@@ -1,4 +1,4 @@
-import { scaleLinear, scalePoint } from 'd3-scale'
+import { type ScaleLinear, scaleLinear, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import {
@@ -8,7 +8,10 @@ import {
     drawArea,
     drawGrid,
     drawLine,
+    drawLineSeriesLayer,
     drawSelectionRect,
+    drawTickMarks,
+    resolveAxisLineColor,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
 
@@ -20,9 +23,14 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         stroke: jest.fn(),
         fill: jest.fn(),
         closePath: jest.fn(),
+        bezierCurveTo: jest.fn(),
         arc: jest.fn(),
         fillRect: jest.fn(),
         strokeRect: jest.fn(),
+        rect: jest.fn(),
+        save: jest.fn(),
+        clip: jest.fn(),
+        restore: jest.fn(),
         setLineDash: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
@@ -127,6 +135,68 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawLine — monotone smoothing and yFloor', () => {
+        it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30, 60] })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(3)
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+        })
+
+        it('keeps every bezier control point within the data extremes (no overshoot past a peak)', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 10] })
+            const drawCtx = { ...makeDrawContext(ctx, labels), smooth: true }
+            drawLine(drawCtx, series)
+            const pointYs = [10, 90, 10].map((v) => drawCtx.yScale(v))
+            const [minY, maxY] = [Math.min(...pointYs), Math.max(...pointYs)]
+            const cpYs = ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY])
+            expect(Math.min(...cpYs)).toBeGreaterThanOrEqual(minY)
+            expect(Math.max(...cpYs)).toBeLessThanOrEqual(maxY)
+        })
+
+        it('splits the smooth curve into separate subpaths at gaps', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's1', data: [10, 20, 50, 70, 90] })
+            drawLine({ ...makeDrawContextWithGaps(ctx, labels, new Set([50])), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(2)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([{ smooth: false }, { smooth: true }])(
+            'clamps drawn y coordinates to yFloor (smooth: $smooth)',
+            ({ smooth }) => {
+                const ctx = mockCanvasContext()
+                const labels = ['a', 'b', 'c']
+                const series = makeSeries({ key: 's1', data: [0, 80, 0] })
+                const drawCtx = makeDrawContext(ctx, labels)
+                const yFloor = drawCtx.yScale(0) - 1
+                drawLine({ ...drawCtx, smooth, yFloor }, series)
+                const drawnYs = [
+                    ...ctx.moveTo.mock.calls.map(([, y]) => y),
+                    ...ctx.lineTo.mock.calls.map(([, y]) => y),
+                    ...ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY]),
+                ]
+                expect(drawnYs.length).toBeGreaterThan(0)
+                expect(Math.max(...drawnYs)).toBeLessThanOrEqual(yFloor)
+            }
+        )
+
+        it('smooths both area edges with bezier segments so stacked bottoms match the curve below', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30], fill: { opacity: 0.5 } })
+            drawArea({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(4)
+            expect(ctx.fill).toHaveBeenCalled()
         })
     })
 
@@ -367,6 +437,21 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.beginPath).toHaveBeenCalledTimes(2)
             expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
         })
+
+        it.each([
+            { name: 'two points', data: [10, 90], labels: ['a', 'b'] },
+            { name: 'three points (leading segment stays curved)', data: [10, 40, 90], labels: ['a', 'b', 'c'] },
+        ])('$name, smooth → tail follows the curve as a bezier, never a straight chord', ({ data, labels }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, stroke: { partial: { fromFraction: 0.5 } } })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            // The straight-line branch would emit lineTo for the split bridge and the tail; the smooth
+            // split draws both the solid body and the dashed tail as bezier segments instead.
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+            expect(ctx.bezierCurveTo).toHaveBeenCalled()
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+            expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+        })
     })
 
     describe('drawArea — stacked bands', () => {
@@ -498,6 +583,62 @@ describe('hog-charts canvas-renderer', () => {
             drawArea(makeDrawContext(ctx, labels), series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
+
+        // The shaded (solid) area must end exactly where the trailing dashed/hatched area begins — same
+        // boundary the stroke uses — so the fill doesn't bleed a segment past where the line turns dashed.
+        it('solid fill meets the trailing hatch at one shared boundary, no overlap or gap', () => {
+            const fillRanges: { min: number; max: number }[] = []
+            let xs: number[] = []
+            const ctx = Object.assign(mockCanvasContext(), {
+                beginPath: jest.fn(() => {
+                    xs = []
+                }),
+                moveTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                lineTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                fill: jest.fn(() => {
+                    fillRanges.push({ min: Math.min(...xs), max: Math.max(...xs) })
+                }),
+            }) as unknown as jest.Mocked<CanvasRenderingContext2D>
+
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50], stroke: { partial: { fromIndex: 3 } } })
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            // Call order is solid then trailing hatch.
+            expect(fillRanges).toHaveLength(2)
+            const [solid, hatch] = fillRanges
+            expect(solid.max).toBe(hatch.min)
+        })
+
+        // A gradient fill must survive partial dashing — only the stroke dashes, so the fill stays a
+        // single gradient area rather than flipping to the solid + hatch treatment.
+        it('keeps a single gradient fill (no hatch) when the line is partially dashed', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            const series = makeSeries({
+                key: 's',
+                data: [10, 20, 30, 40, 50],
+                fill: { gradient: true },
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            drawArea(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            expect(recordedFillStyles).toEqual([gradient])
+        })
     })
 
     describe('drawArea — fill.lowerData edge cases', () => {
@@ -564,6 +705,107 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('resolveAxisLineColor — precedence', () => {
+        it.each([
+            {
+                name: 'returns axisLineColor when all three tiers are set',
+                theme: { axisLineColor: '#111111', axisColor: '#222222', gridColor: '#333333' },
+                expected: '#111111',
+            },
+            {
+                name: 'falls back to axisColor when axisLineColor is absent',
+                theme: { axisColor: '#222222', gridColor: '#333333' },
+                expected: '#222222',
+            },
+            {
+                name: 'falls back to gridColor when axisLineColor and axisColor are absent',
+                theme: { gridColor: '#333333' },
+                expected: '#333333',
+            },
+            {
+                name: 'returns undefined when no tier is set',
+                theme: {},
+                expected: undefined,
+            },
+        ])('$name', ({ theme, expected }) => {
+            expect(resolveAxisLineColor(theme as any)).toBe(expected)
+        })
+    })
+
+    describe('drawTickMarks', () => {
+        it('draws x ticks downward from the snapped baseline and y ticks outward from each side', () => {
+            const ctx = mockCanvasContext()
+            drawTickMarks(ctx, dimensions, {
+                xs: [100.4],
+                ys: [
+                    { y: 200.6, side: 'left', offset: 0 },
+                    { y: 120.2, side: 'right', offset: 10 },
+                ],
+            })
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(100.5, baselineY)
+            expect(ctx.lineTo).toHaveBeenCalledWith(100.5, baselineY + 4)
+            const leftEdge = Math.round(dimensions.plotLeft) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(leftEdge - 4, 201.5)
+            expect(ctx.lineTo).toHaveBeenCalledWith(leftEdge, 201.5)
+            const rightEdge = Math.round(dimensions.plotLeft + dimensions.plotWidth + 10) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(rightEdge, 120.5)
+            expect(ctx.lineTo).toHaveBeenCalledWith(rightEdge + 4, 120.5)
+        })
+    })
+
+    describe('drawGrid — frame gating', () => {
+        it('keeps the plot-edge frame strokes and the baseline gridline by default', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']))
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            // The 0-value tick maps to the plot bottom; framed grids must keep drawing it.
+            expect(ctx.moveTo.mock.calls.some(([, y]) => y === baselineY)).toBe(true)
+            // Left frame stroke present.
+            const leftX = Math.round(dimensions.plotLeft) + 0.5
+            expect(ctx.moveTo.mock.calls.some(([x]) => x === leftX)).toBe(true)
+        })
+
+        it.each([{ frame: true, expectBaselineTick: true }, { frame: false, expectBaselineTick: false }])(
+            'horizontal orientation: baseline-hugging value gridline drawn only when framed (frame: $frame)',
+            ({ frame, expectBaselineTick }) => {
+                const ctx = mockCanvasContext()
+                const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                // Horizontal mode maps values to x; range starts at the plot's left edge, so the
+                // 0 tick lands exactly on the value-axis baseline.
+                drawCtx.yScale = scaleLinear().domain([0, 100]).range([48, 784])
+                drawGrid(drawCtx, { orientation: 'horizontal', frame })
+                const baselineX = Math.round(48) + 0.5
+                const drewBaselineTick = ctx.moveTo.mock.calls.some(([x, y]) => x === baselineX && y === dimensions.plotTop)
+                expect(drewBaselineTick).toBe(expectBaselineTick)
+            }
+        )
+
+        it('skips the frame strokes and bottom-hugging gridline when frame is false', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { frame: false })
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            // No stroke may run along the bottom edge — the chart's own axis line owns it.
+            expect(ctx.moveTo.mock.calls.some(([, y]) => y === baselineY)).toBe(false)
+            // And no right-edge closing stroke.
+            const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) + 0.5
+            expect(ctx.moveTo.mock.calls.some(([x]) => x === closingX)).toBe(false)
+        })
+    })
+
+    describe('drawGrid — dash pattern', () => {
+        it.each(['vertical', 'horizontal'] as const)(
+            '%s orientation: dashes interior grid lines while the frame strokes stay solid',
+            (orientation) => {
+                const ctx = mockCanvasContext()
+                drawGrid(makeDrawContext(ctx, ['a', 'b']), { gridDash: [3, 3], orientation })
+                const patterns = dashCalls(ctx)
+                expect(patterns[0]).toEqual([3, 3])
+                expect(patterns[patterns.length - 1]).toEqual([])
+            }
+        )
+    })
+
     describe('drawGrid', () => {
         it('draws a horizontal line at the first y-tick (vertical orientation)', () => {
             const ctx = mockCanvasContext()
@@ -580,7 +822,7 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']))
             const leftX = dimensions.plotLeft + 0.5
-            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth + 0.5
             expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
             expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
             expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
@@ -607,7 +849,7 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
             const topY = dimensions.plotTop + 0.5
-            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight + 0.5
             expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
             expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
             expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])
@@ -675,6 +917,17 @@ describe('hog-charts canvas-renderer', () => {
             })
             composed(makeArgs(ctx, 1, 200))
             expect(drawHover).toHaveBeenCalledTimes(1)
+        })
+
+        it('dashes the crosshair with crosshairDash and resets to solid for subsequent hover drawing', () => {
+            const ctx = mockCanvasContext()
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                crosshairDash: [3, 3],
+                showCrosshair: true,
+            })
+            composed(makeArgs(ctx, 1, 200))
+            expect(dashCalls(ctx)).toEqual([[3, 3], []])
         })
 
         it('skips crosshair when showCrosshair is false', () => {
@@ -848,5 +1101,27 @@ describe('hog-charts canvas-renderer', () => {
             )
             expect(ctx.fillRect).not.toHaveBeenCalled()
         })
+    })
+
+    describe('drawLineSeriesLayer — clipLeftEdge', () => {
+        const labels = ['a', 'b', 'c']
+        const series = [makeSeries({ key: 's1', data: [10, 50, 90] })]
+        const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+        const yScale = scaleLinear().domain([0, 100]).range([368, 16])
+        const resolveYScale = (): ScaleLinear<number, number> => yScale
+
+        it.each([
+            { clipLeftEdge: true, expectedLeft: Math.round(dimensions.plotLeft), expectedWidth: dimensions.width - Math.round(dimensions.plotLeft) },
+            { clipLeftEdge: false, expectedLeft: 0, expectedWidth: dimensions.width },
+        ])(
+            'passes left=$expectedLeft width=$expectedWidth to ctx.rect when clipLeftEdge=$clipLeftEdge',
+            ({ clipLeftEdge, expectedLeft, expectedWidth }) => {
+                const ctx = mockCanvasContext()
+                drawLineSeriesLayer({ ctx, dimensions, labels, series, xScale, resolveYScale, clipLeftEdge })
+                const rectCall = ctx.rect.mock.calls[0]
+                expect(rectCall[0]).toBe(expectedLeft)
+                expect(rectCall[2]).toBe(expectedWidth)
+            }
+        )
     })
 })

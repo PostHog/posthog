@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/products-autoresearch",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "zod": "^4.0.0"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

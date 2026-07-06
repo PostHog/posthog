@@ -110,10 +110,6 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
 
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
 
-    // One channel per Teams group: don't offer groups that already have a configured channel.
-    const configuredTeamIds = new Set(teamsChannelPairs.map((p) => p.team_id))
-    const availableTeams = teamsTeams.filter((t: { id: string }) => !configuredTeamIds.has(t.id))
-
     // Install status is a single global value; only apply it to the row when it refers to the selected team.
     const statusForSelected =
         selectedTeamId && teamsInstallingForTeamId === selectedTeamId ? teamsInstallStatus : 'idle'
@@ -122,7 +118,10 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
     const installError = statusForSelected === 'error'
     const appInstalled = statusForSelected === 'installed'
 
-    const selectedTeamChannels = selectedTeamId ? teamsChannelsCache[selectedTeamId] || [] : []
+    // Exclude channels already configured (prevent duplicates in the picker).
+    const configuredChannelIds = new Set(teamsChannelPairs.map((p) => p.channel_id))
+    const allSelectedTeamChannels = selectedTeamId ? teamsChannelsCache[selectedTeamId] || [] : []
+    const selectedTeamChannels = allSelectedTeamChannels.filter((c: { id: string }) => !configuredChannelIds.has(c.id))
 
     const handleTeamSelect = (teamId: string | null): void => {
         setSelectedTeamId(teamId)
@@ -147,7 +146,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                         value={selectedTeamId}
                         options={[
                             { value: null, label: 'Select team group...' },
-                            ...availableTeams.map((t: { id: string; name: string }) => ({
+                            ...teamsTeams.map((t: { id: string; name: string }) => ({
                                 value: t.id,
                                 label: t.name,
                             })),
@@ -203,38 +202,46 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
             )}
 
             {selectedTeamId && appInstalled && (
-                <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                        <LemonSelect
-                            value={null}
-                            options={[
-                                { value: null, label: 'Select channel...' },
-                                ...selectedTeamChannels.map(
-                                    (c: { id: string; name: string; membership_type?: string | null }) => {
-                                        const isShared = isSharedMembershipType(c.membership_type)
-                                        return {
-                                            value: c.id,
-                                            label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
-                                        }
-                                    }
-                                ),
-                            ]}
-                            onChange={handleChannelSelect}
-                            loading={teamsChannelsLoading || !!teamsChannelPairLoading}
-                            placeholder="Select channel"
-                            fullWidth
-                            disabledReason={adminRestrictionReason || undefined}
-                        />
-                    </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
-                        disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
-                    >
-                        Refresh
-                    </LemonButton>
-                </div>
+                <>
+                    {selectedTeamChannels.length === 0 && !teamsChannelsLoading ? (
+                        <p className="text-xs text-muted-alt italic">
+                            All channels in this group are already configured.
+                        </p>
+                    ) : (
+                        <div className="flex gap-2 items-center">
+                            <div className="flex-1">
+                                <LemonSelect
+                                    value={null}
+                                    options={[
+                                        { value: null, label: 'Select channel...' },
+                                        ...selectedTeamChannels.map(
+                                            (c: { id: string; name: string; membership_type?: string | null }) => {
+                                                const isShared = isSharedMembershipType(c.membership_type)
+                                                return {
+                                                    value: c.id,
+                                                    label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
+                                                }
+                                            }
+                                        ),
+                                    ]}
+                                    onChange={handleChannelSelect}
+                                    loading={teamsChannelsLoading || !!teamsChannelPairLoading}
+                                    placeholder="Select channel"
+                                    fullWidth
+                                    disabledReason={adminRestrictionReason || undefined}
+                                />
+                            </div>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
+                                disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )
@@ -278,7 +285,7 @@ function TeamsChannelSection(): JSX.Element {
                             <label className="font-medium">Support channels</label>
                             <p className="text-xs text-muted-alt">
                                 Messages posted in these channels will automatically create support tickets. Thread
-                                replies become ticket messages. You can add one channel per Teams group.
+                                replies become ticket messages.
                             </p>
                         </div>
 

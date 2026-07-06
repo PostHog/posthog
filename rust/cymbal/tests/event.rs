@@ -211,7 +211,7 @@ impl TestHarness {
                 config.remote_resolution_enabled = true;
                 config.remote_resolution_host = "127.0.0.1".to_string();
                 config.remote_resolution_port = addr.port();
-                config.internal_api_secret = "test-secret".to_string();
+                config.resolver.internal_api_secret = "test-secret".to_string();
                 // Snapshot-required routing: give the pool a small retry
                 // budget with fast backoff so the first Subscribe tick can
                 // populate the load snapshot before we give up.

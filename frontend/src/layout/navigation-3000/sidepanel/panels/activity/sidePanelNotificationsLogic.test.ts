@@ -227,3 +227,36 @@ describe('sidePanelNotificationsLogic.mainListOffset', () => {
         expect(logic.values.mainListOffset).toBe(40)
     })
 })
+
+describe('sidePanelNotificationsLogic.manuallyToggledIds', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/projects/:tid/notifications/:id/mark_read/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/:id/mark_unread/': () => [200, { status: 'ok' }],
+                '/api/projects/:tid/notifications/mark_all_read/': () => [200, { updated: 0 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    // Guards bug fix: without this set, auto-mark-on-view would re-read a notification the user
+    // just manually toggled unread.
+    it('records ids the user manually toggles so auto-mark can skip them', () => {
+        logic.actions.toggleRead('a')
+        logic.actions.toggleRead('b')
+        expect(logic.values.manuallyToggledIds).toEqual(new Set(['a', 'b']))
+    })
+
+    it('clears the set when everything is marked read', () => {
+        logic.actions.toggleRead('a')
+        logic.actions.markAllAsRead()
+        expect(logic.values.manuallyToggledIds.size).toBe(0)
+    })
+})

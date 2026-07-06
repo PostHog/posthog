@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test'
 
-import { test } from '../utils/playwright-test-base'
+import { test } from '../utils/playwright-test-core'
 
 const PIPELINE_LIST_PATH = '/api/projects/@current/autoresearch/'
 

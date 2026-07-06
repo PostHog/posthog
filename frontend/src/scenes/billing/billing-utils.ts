@@ -696,8 +696,8 @@ export function buildUsageLimitApproachingMessage(
 
     const usageDetails = products.map((p) => {
         const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
-        const usageKey = p.usage_key?.toLowerCase() || 'usage'
-        return `${percentage}% of your ${usageKey} allocation`
+        const productName = p.name || p.usage_key?.toLowerCase() || 'usage'
+        return `${percentage}% of your ${productName} allocation`
     })
 
     const roleName = membershipLevelToName.get(minimumBillingAccessLevel)

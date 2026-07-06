@@ -18,16 +18,15 @@
  */
 
 import type { Request, Response } from 'express'
-import type { Pool } from 'pg'
 import type { z } from 'zod'
 
 import type {
+    ApprovalStore,
     AuthConfig,
     CredentialBroker,
     CredentialMap,
     HttpFetcher,
     IdentityStore,
-    IntegrationStore,
     SecretResolver,
     SessionEventBus,
     SessionPrincipal,
@@ -48,24 +47,23 @@ export interface TriggerDeps {
     signingSecretResolver: SecretResolver
     identities?: IdentityStore
     /**
+     * Approval store — the Slack interactivity handler drives `principal`-type
+     * tool-approval decisions through it (markApproving/markRejected + wake) via
+     * the shared `applyApprovalDecision` helper. Optional: triggers that never
+     * decide approvals ignore it.
+     */
+    approvals?: ApprovalStore
+    /**
      * Per-session credential broker. Chat trigger consumes it on /run + /send;
      * other triggers ignore it. Required — prod wires `PgCredentialBroker`,
      * tests wire the same against the test DB.
      */
     broker: CredentialBroker
     /**
-     * Read-only access to PostHog's integration table. Slack trigger uses it
-     * to fetch a workspace bot token for the Slack → PostHog user bridge.
-     * Optional — when absent, the bridge is skipped.
-     */
-    integrations?: IntegrationStore | null
-    /** Direct posthog DB pool for the Slack → PostHog user bridge's email lookup. */
-    posthogDb?: Pool | null
-    /**
-     * Outbound HTTP — currently only the slack trigger consumes it (for
-     * the identity bridge's Slack `users.info` call). Wired at the
-     * ingress entrypoint so the call dispatches through smokescreen in
-     * prod alongside every other fetch.
+     * Outbound HTTP — the slack trigger consumes it for its bot-token Slack
+     * calls (ack reaction, owner-only thread replies). Wired at the ingress
+     * entrypoint so the call dispatches through smokescreen in prod alongside
+     * every other fetch.
      */
     http?: HttpFetcher
     /** Routing mode + URL inputs the MCP connect-info endpoint advertises. */

@@ -18,6 +18,8 @@ export interface SparklineProps {
     fill?: boolean
     /** Peak opacity of the gradient fill under the line. Range 0–1. */
     fillOpacity?: number
+    /** Dash the line from this index onward (e.g. an in-progress trailing period). Omit for a fully solid line. */
+    dashedFromIndex?: number
     /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
     className?: string
@@ -51,6 +53,7 @@ function SparklineInner({
     height = 120,
     fill = false,
     fillOpacity = 0.35,
+    dashedFromIndex,
     onHoverIndexChange,
     className,
     dataAttr,
@@ -68,9 +71,10 @@ function SparklineInner({
                 data,
                 color: resolvedColor,
                 fill: { gradient: true, opacity: fillOpacity },
+                stroke: dashedFromIndex != null ? { partial: { fromIndex: dashedFromIndex } } : undefined,
             },
         ],
-        [data, resolvedColor, fillOpacity]
+        [data, resolvedColor, fillOpacity, dashedFromIndex]
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 

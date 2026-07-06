@@ -48,11 +48,11 @@ const TOOL_ROWS: ToolRow[] = [
 ]
 
 const HARNESS_ROWS: HarnessRow[] = [
-    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820, raw_clients: [] },
-    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410, raw_clients: [] },
-    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180, raw_clients: [] },
-    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240, raw_clients: [] },
-    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120, raw_clients: [] },
+    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
+    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
+    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
+    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
@@ -141,8 +141,10 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
+                usersLoading={false}
                 theme={buildTheme()}
             />
         </div>

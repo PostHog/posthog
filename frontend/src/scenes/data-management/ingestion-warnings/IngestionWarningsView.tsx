@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -34,6 +34,26 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
+    invalid_heatmap_data: 'Invalid heatmap data',
+}
+
+// Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
+// Don't derive this from the display label — labels and section headings drift apart
+// (e.g. set_on_exception's heading is "Invalid set operations on exception events"), which
+// would land the link at the top of the page instead of the relevant section. Types without
+// a documented section are omitted and fall back to the page root.
+export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
+    cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
+    cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
+    skipping_event_invalid_uuid: 'refused-to-process-event-with-invalid-uuid',
+    ignored_invalid_timestamp: 'ignored-an-invalid-timestamp-event-was-still-ingested',
+    event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
+    ingestion_capacity_overflow: 'event-ingestion-has-overflowed-capacity',
+    message_size_too_large: 'discarded-event-exceeding-1mb-limit',
+    replay_timestamp_invalid: 'replay-event-timestamp-is-invalid',
+    replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
+    set_on_exception: 'invalid-set-operations-on-exception-events',
+    invalid_heatmap_data: 'invalid-heatmap-data',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -310,7 +330,7 @@ export function IngestionWarningsView(): JSX.Element {
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     actionElementOverride={
                         <LemonButton
                             type="primary"
@@ -343,18 +363,13 @@ export function IngestionWarningsView(): JSX.Element {
                                         WARNING_TYPE_TO_DESCRIPTION[
                                             summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
                                         ] || summary.type
+                                    const docsAnchor = WARNING_TYPE_TO_DOCS_ANCHOR[summary.type]
+                                    const docsUrl = docsAnchor
+                                        ? `https://posthog.com/docs/data/ingestion-warnings#${docsAnchor}`
+                                        : 'https://posthog.com/docs/data/ingestion-warnings'
                                     return (
                                         <>
-                                            {type} (
-                                            <Link
-                                                to={`https://posthog.com/docs/data#${type
-                                                    .toLowerCase()
-                                                    .replace(',', '')
-                                                    .split(' ')
-                                                    .join('-')}`}
-                                            >
-                                                docs)
-                                            </Link>
+                                            {type} (<Link to={docsUrl}>docs)</Link>
                                         </>
                                     )
                                 },

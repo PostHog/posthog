@@ -37,9 +37,10 @@ import {
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
+    ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
@@ -262,7 +263,13 @@ const externalDataSchemasList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['table.columns', 'available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -653,7 +660,13 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['schemas.*.table.columns', 'schemas.*.available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -831,17 +844,19 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = z.object({})
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
+            query: {
+                source_type: params.source_type,
+            },
         })
         const filtered = pickResponseFields(result, [
             '*.name',

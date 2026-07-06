@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -13,8 +15,7 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.custom_prompt_internals import (
+from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
@@ -22,7 +23,11 @@ from products.tasks.backend.services.custom_prompt_internals import (
     create_task_and_trigger,
     poll_for_turn,
 )
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import (
+    _EMPTY_TURN_RETRY_NUDGE,
+    MultiTurnSession,
+)
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
@@ -58,7 +63,7 @@ class TestPollForTurnEmptyEndTurn:
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
+                "products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
         ):
@@ -98,7 +103,7 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
@@ -127,7 +132,7 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, total_lines, printed_lines = await poll_for_turn(
@@ -156,9 +161,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
@@ -186,8 +191,8 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
             # STALE_TURN_SALVAGE_SECONDS intentionally NOT patched — exercise the production floor.
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
@@ -217,9 +222,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
@@ -237,9 +242,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -254,8 +259,8 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 100),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 100),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="after 30s"):
@@ -277,9 +282,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -304,9 +309,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 50),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 50),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -331,9 +336,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -356,9 +361,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -389,9 +394,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -416,9 +421,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -451,9 +456,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -479,9 +484,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -512,9 +517,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 60),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 60),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -538,9 +543,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(ObjectStorageError):
@@ -563,9 +568,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -587,8 +592,8 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
             patch("products.tasks.backend.models.TaskRun.objects.get", side_effect=next_status),
         ):
             with pytest.raises(RuntimeError, match="terminal status"):
@@ -610,7 +615,7 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
@@ -634,9 +639,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -671,9 +676,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -694,9 +699,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -714,9 +719,9 @@ class TestPollForTurnStaleSalvage:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
@@ -751,7 +756,7 @@ class TestPollForTurnTerminalDrain:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             with pytest.raises(RuntimeError, match="terminal status"):
@@ -778,7 +783,7 @@ class TestPollForTurnTerminalDrain:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
@@ -800,7 +805,7 @@ class TestPollForTurnTerminalDrain:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=0)
@@ -886,10 +891,10 @@ class TestPollForTurnSurfacesAgentError:
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                "products.tasks.backend.logic.services.custom_prompt_internals._persist_task_run_error_message",
                 new=persist,
             ),
         ):
@@ -915,10 +920,10 @@ class TestPollForTurnSurfacesAgentError:
         with (
             patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                "products.tasks.backend.logic.services.custom_prompt_internals._persist_task_run_error_message",
                 new=persist,
             ),
         ):
@@ -941,10 +946,10 @@ class TestPollForTurnSurfacesAgentError:
         with (
             patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                "products.tasks.backend.logic.services.custom_prompt_internals._persist_task_run_error_message",
                 new=persist,
             ),
         ):
@@ -966,10 +971,10 @@ class TestPollForTurnSurfacesAgentError:
         with (
             patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                "products.tasks.backend.logic.services.custom_prompt_internals._persist_task_run_error_message",
                 new=persist,
             ),
         ):
@@ -993,10 +998,10 @@ class TestPollForTurnSurfacesAgentError:
         with (
             patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
             patch(
-                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                "products.tasks.backend.logic.services.custom_prompt_internals._persist_task_run_error_message",
                 new=persist,
             ),
         ):
@@ -1028,7 +1033,7 @@ class TestMultiTurnSessionRetry:
         agent_response = json.dumps({"value": "ok"})
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=AsyncMock(return_value=(agent_response, None, 10, 5)),
         ):
             result = await session.send_followup("hello", _Resp, label="unit")
@@ -1049,7 +1054,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             result = await session.send_followup("please prioritize", _Resp, label="priority")
@@ -1075,7 +1080,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             with pytest.raises(EmptyAgentTurnError, match="twice"):
@@ -1124,7 +1129,7 @@ class TestMultiTurnSessionRetry:
         with (
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
@@ -1156,7 +1161,7 @@ class TestMultiTurnSessionRetry:
             return (agent_response, None, 120, 60)
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=fake_poll,
         ):
             await session.send_followup("x", _Resp, label="priority")
@@ -1189,11 +1194,11 @@ class TestMultiTurnSessionStartBranch:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.async_connect",
                 new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
             ),
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
                 new=AsyncMock(return_value=(agent_response, None, 1, 1)),
             ),
         ):
@@ -1230,15 +1235,15 @@ class TestMultiTurnSessionStartCleanup:
 
         with (
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
                 new=AsyncMock(return_value=(fake_task, fake_run)),
             ),
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.async_connect",
                 new=AsyncMock(return_value=mock_client),
             ),
             patch(
-                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
                 new=AsyncMock(side_effect=RuntimeError("storage explode")),
             ),
             pytest.raises(RuntimeError, match="storage explode"),
@@ -1288,7 +1293,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         mock_task = MagicMock()
         mock_task.latest_run = MagicMock()
         with patch(
-            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
             await create_task_and_trigger("prompt", context)
@@ -1306,7 +1311,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         mock_task = MagicMock()
         mock_task.latest_run = MagicMock()
         with patch(
-            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
             await create_task_and_trigger("prompt", context, ai_stage=ai_stage)
@@ -1407,3 +1412,55 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+class TestPollForTurnConnectionDrop:
+    """poll_for_turn runs for many minutes while the activity's pooled DB connection sits idle;
+    pgbouncer can drop it underneath the in-loop `TaskRun.objects.get` refreshes. Those reads must
+    reconnect transparently instead of aborting the whole report run with an OperationalError."""
+
+    @pytest.mark.asyncio
+    async def test_in_loop_refresh_reconnects_after_dropped_connection(self):
+        # First poll has an agent_message but no end_turn -> falls through to the in-loop TaskRun
+        # refresh, whose first ORM read hits a dropped pooled connection. The retry must reconnect
+        # and observe the now-terminal status so the run drains cleanly instead of crashing.
+        log = "\n".join([_agent_message_line("connection-drop summary"), _usage_update_line()])
+        completed = FakeTaskRun(status=TaskRun.Status.COMPLETED)
+        get_mock = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), completed])
+
+        # settings.TEST gates the close_old_connections() call (it health-checks live
+        # connections, which trips the test DB-access guard), so flip it off to exercise
+        # the real reconnect path.
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.settings.TEST", False),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections") as close_conns,
+            patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
+        ):
+            last_message, _, _, _ = await poll_for_turn(FakeTaskRun(), skip_lines=0)
+
+        assert last_message == "connection-drop summary"
+        # Read was retried after the drop, and the staleness guard ran before each attempt.
+        assert get_mock.call_count == 2
+        assert close_conns.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_connection_failure_propagates(self):
+        # A genuinely dead pool (both attempts fail) must still surface — the guard retries once,
+        # it is not an infinite reconnect loop that masks a real outage.
+        log = "\n".join([_agent_message_line("partial"), _usage_update_line()])
+        get_mock = MagicMock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections"),
+            patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
+        ):
+            with pytest.raises(OperationalError):
+                await poll_for_turn(FakeTaskRun(), skip_lines=0)
+
+        assert get_mock.call_count == 2

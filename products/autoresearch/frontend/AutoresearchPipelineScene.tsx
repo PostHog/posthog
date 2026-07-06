@@ -19,7 +19,7 @@ import {
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
-import { humanizeBytes } from 'lib/utils'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,7 +43,7 @@ import {
     AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
     IterationTrailApi,
-    RoleEnumApi,
+    AutoresearchModelRoleEnumApi,
 } from './generated/api.schemas'
 
 export const scene: SceneExport = {
@@ -114,7 +114,7 @@ function OverviewTab(): JSX.Element {
     if (!pipeline) {
         return <LemonSkeleton className="h-40" />
     }
-    const champion = models.find((m) => m.role === RoleEnumApi.Champion)
+    const champion = models.find((m) => m.role === AutoresearchModelRoleEnumApi.Champion)
     return (
         <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -547,9 +547,9 @@ function ModelsTab(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonTag
                             type={
-                                model.role === RoleEnumApi.Champion
+                                model.role === AutoresearchModelRoleEnumApi.Champion
                                     ? 'success'
-                                    : model.role === RoleEnumApi.Challenger
+                                    : model.role === AutoresearchModelRoleEnumApi.Challenger
                                       ? 'highlight'
                                       : 'default'
                             }
@@ -1075,7 +1075,7 @@ function SettingsTab(): JSX.Element {
 function ScoreNowButton({ size = 'small' }: { size?: 'small' | 'medium' }): JSX.Element | null {
     const { pipeline, models, scoreResultLoading } = useValues(autoresearchPipelineLogic)
     const { scoreNow } = useActions(autoresearchPipelineLogic)
-    const hasChampion = models.some((m) => m.role === RoleEnumApi.Champion)
+    const hasChampion = models.some((m) => m.role === AutoresearchModelRoleEnumApi.Champion)
     if (!pipeline || pipeline.status === 'archived') {
         return null
     }

@@ -13,7 +13,6 @@
             "description": "Optional issue description."
         },
         "id": {
-            "description": "A UUID string identifying this error tracking issue.",
             "type": "string"
         },
         "name": {

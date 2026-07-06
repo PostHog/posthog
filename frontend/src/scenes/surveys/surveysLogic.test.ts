@@ -134,6 +134,74 @@ describe('surveysLogic', () => {
         })
     })
 
+    describe('url syncing', () => {
+        let logic: ReturnType<typeof surveysLogic.build>
+
+        beforeEach(async () => {
+            initKeaTests()
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                },
+            })
+
+            logic = surveysLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('writes the search term to the search query param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('checkout')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.search).toEqual('checkout')
+        })
+
+        it('removes the search query param when the term is cleared', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('checkout')
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('')
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.search).toBeUndefined()
+        })
+
+        it('reads the search term from the search query param on navigation', async () => {
+            router.actions.push('/surveys', { search: 'onboarding' })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: 'onboarding',
+            })
+        })
+
+        it('coerces a numeric search query param to a string without crashing searchedSurveys', async () => {
+            router.actions.push('/surveys', { search: 3 })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: '3',
+            })
+
+            expect(logic.values.searchedSurveys).toEqual([])
+        })
+
+        it('clears a stale search term when navigating to surveys without a search param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('onboarding')
+            }).toFinishAllListeners()
+
+            router.actions.push('/surveys')
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: '',
+            })
+        })
+    })
+
     describe('product intent tracking', () => {
         let logic: ReturnType<typeof surveysLogic.build>
         let capturedIntentRequests: any[]

@@ -6,17 +6,17 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
@@ -30,7 +30,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 

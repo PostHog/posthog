@@ -123,9 +123,7 @@ effect, so `useMountedLogic` is only needed when no values are pulled.
 
 ## `useAttachedLogic` — keep a logic mounted through the scene
 
-For scene-level child logics that must survive React unmounts during tab switching,
-use `useAttachedLogic`. See
-[making-scenes-tab-aware](../../making-scenes-tab-aware/SKILL.md).
+For scene-level child logics that must survive React unmounts, use `useAttachedLogic`.
 
 ## Anti-patterns
 

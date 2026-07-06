@@ -1,12 +1,19 @@
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     PrepareSandboxForRepositoryOutput,
+    _build_environment_variables,
     _build_sandbox_tags,
+    _to_modal_domain_allowlist,
 )
+
+_PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
 
 
 def _context(**overrides) -> TaskProcessingContext:
@@ -78,3 +85,58 @@ def test_build_sandbox_tags_drops_none_values():
 
     assert "origin_product" not in tags
     assert all(isinstance(value, str) for value in tags.values())
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.parametrize(
+    "allowed_domains, expected",
+    [
+        (
+            ["github.com", "api.github.com", "posthog.com", "us.posthog.com", "example.com"],
+            ["github.com", "api.github.com", "example.com", "*.posthog.com", "api.anthropic.com"],
+        ),
+        (
+            [],
+            ["*.posthog.com", "api.anthropic.com"],
+        ),
+        (
+            ["github.com", "localhost", "host.docker.internal", "registry.npmjs.org"],
+            ["github.com", "registry.npmjs.org", "*.posthog.com", "api.anthropic.com"],
+        ),
+        (
+            ["*.posthog.com", "*.us.posthog.com", "gateway.us.posthog.com", "github.com"],
+            ["*.posthog.com", "github.com", "api.anthropic.com"],
+        ),
+        (
+            ["github.com", "github.com", "api.anthropic.com"],
+            ["github.com", "api.anthropic.com", "*.posthog.com"],
+        ),
+    ],
+)
+def test_to_modal_domain_allowlist_resolves_exact_list(allowed_domains, expected):
+    assert _to_modal_domain_allowlist(allowed_domains) == expected
+
+
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@pytest.mark.parametrize(
+    "allowed_domains, telemetry_disabled",
+    [
+        (["github.com"], True),
+        ([], True),
+        (None, False),
+    ],
+)
+def test_build_environment_variables_disables_telemetry_when_restricted(
+    _api, _jwt, _git, allowed_domains, telemetry_disabled
+):
+    ctx = _context(allowed_domains=allowed_domains)
+
+    env = _build_environment_variables(ctx, MagicMock(), "", "access-token")
+
+    keys = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING"}
+    if telemetry_disabled:
+        assert all(env.get(k) == "1" for k in keys)
+    else:
+        assert not (keys & env.keys())

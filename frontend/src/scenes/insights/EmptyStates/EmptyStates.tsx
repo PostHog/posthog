@@ -5,11 +5,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
+import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
@@ -44,16 +44,38 @@ import {
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { SampleDataState, SampleDataVariant } from './SampleDataState'
+import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 export function InsightEmptyState({
-    heading = 'There are no matching events for this query',
-    detail = 'Try changing the date range, or pick another action, event or breakdown.',
+    heading,
+    detail,
     icon: iconProp,
+    sampleDataVariant,
 }: {
     heading?: string
     detail?: string | JSX.Element
     icon?: JSX.Element
+    /**
+     * Shape of the pre-ingestion sample-data placeholder. When omitted, a line chart is shown unless
+     * custom heading/detail copy was provided; pass a variant to opt in even with custom copy, or
+     * `null` to opt this call site out entirely.
+     */
+    sampleDataVariant?: SampleDataVariant | null
 }): JSX.Element {
+    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+
+    // Before a project has ingested any events, "no matching events" is misleading — every chart is
+    // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
+    // hover how to get real data. Call sites with purposeful custom copy keep their empty state
+    // unless they explicitly opted in with a variant.
+    const hasCustomCopy = heading !== undefined || detail !== undefined
+    if (shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)) {
+        return <SampleDataState variant={sampleDataVariant ?? 'line'} />
+    }
+
+    heading = heading ?? 'There are no matching events for this query'
+    detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
     const icon =
         iconProp ??
         (isChristmas() ? (
@@ -428,10 +450,12 @@ export function InsightLoadingState({
     queryId,
     insightProps,
     renderEmptyStateAsSkeleton = false,
+    suppressSlowQuerySuggestions = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
+    suppressSlowQuerySuggestions?: boolean
 }): JSX.Element {
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
@@ -446,7 +470,9 @@ export function InsightLoadingState({
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
-                personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                suppressSlowQuerySuggestions ? (
+                    <></>
+                ) : personsOnEventsMode === 'person_id_override_properties_joined' ? (
                     <div className="text-xs">
                         You can speed this query up by changing the{' '}
                         <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
@@ -796,7 +822,7 @@ export function SavedInsightsEmptyState({
             className="saved-insight-empty-state flex flex-col flex-1 items-center justify-center"
         >
             <div className="illustration-main w-40 m-auto">
-                <BuilderHog3 className="w-full h-full" />
+                <HedgehogConstruction2 className="w-full h-full" />
             </div>
             <h2>
                 {usingFilters

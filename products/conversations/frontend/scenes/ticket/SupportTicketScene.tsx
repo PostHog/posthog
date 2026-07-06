@@ -1,21 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconAI, IconChevronDown } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,12 +23,21 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
+import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -44,10 +50,19 @@ export const scene: SceneExport<{ ticketId: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
+// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
+function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
+    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
+        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
+    }
+    return undefined
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -67,7 +82,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftContent,
         draftIsPrivate,
         snoozedUntil,
-        suggesting,
+        knowledgeGaps,
+        knowledgeGapsLoading,
     } = useValues(logic)
     const {
         setStatus,
@@ -80,22 +96,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
-        suggestReply,
+        dismissKnowledgeGap,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
-    const aiSuggestionEnabled = useFeatureFlag('PRODUCT_SUPPORT_AI_SUGGESTION')
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { preflight } = useValues(preflightLogic)
-    const aiAvailable = preflight?.openai_available
-
-    const aiDisabledReason = !aiAvailable
-        ? 'AI features are not available on this instance'
-        : !dataProcessingAccepted
-          ? dataProcessingApprovalDisabledReason || 'AI data processing must be approved for your organization'
-          : suggesting
-            ? 'Generating suggestion...'
-            : null
+    const { currentTeam } = useValues(teamLogic)
+    const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -139,6 +145,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         <SceneContent>
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
+                nameSuffix={
+                    ticket && ticket.identity_verified !== true ? (
+                        <IdentityBadge verified={ticket.identity_verified} />
+                    ) : undefined
+                }
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
@@ -172,22 +183,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onPrivateChange={setDraftIsPrivate}
                         minHeight="min(400px, calc(100svh - 320px))"
                         maxHeight="min(600px, calc(100svh - 320px))"
-                        extraActions={
-                            aiSuggestionEnabled ? (
-                                <AIConsentPopoverWrapper>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconAI />}
-                                        onClick={suggestReply}
-                                        loading={suggesting}
-                                        disabledReason={aiDisabledReason}
-                                    >
-                                        Suggest reply
-                                    </LemonButton>
-                                </AIConsentPopoverWrapper>
-                            ) : undefined
-                        }
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -213,27 +208,30 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay
-                                    person={
-                                        ticket.person
-                                            ? {
-                                                  id: ticket.person.id,
-                                                  distinct_id: ticket.distinct_id,
-                                                  distinct_ids: ticket.person.distinct_ids,
-                                                  // Merge anonymous_traits as fallback for missing person properties
-                                                  properties: {
-                                                      ...ticket.anonymous_traits,
-                                                      ...ticket.person.properties,
-                                                  },
-                                              }
-                                            : {
-                                                  distinct_id: ticket.distinct_id,
-                                                  properties: ticket.anonymous_traits || {},
-                                              }
-                                    }
-                                    withIcon
-                                    withComposeTicketButton
-                                />
+                                <div className="flex items-center gap-2">
+                                    <PersonDisplay
+                                        person={
+                                            ticket.person
+                                                ? {
+                                                      id: ticket.person.id,
+                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_ids: ticket.person.distinct_ids,
+                                                      // Merge anonymous_traits as fallback for missing person properties
+                                                      properties: {
+                                                          ...ticket.anonymous_traits,
+                                                          ...ticket.person.properties,
+                                                      },
+                                                  }
+                                                : {
+                                                      distinct_id: ticket.distinct_id,
+                                                      properties: ticket.anonymous_traits || {},
+                                                  }
+                                        }
+                                        withIcon
+                                        withComposeTicketButton
+                                    />
+                                    <IdentityBadge verified={ticket.identity_verified} />
+                                </div>
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -261,24 +259,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                                        <ChannelsTag
+                                            channel={ticket.channel_source}
+                                            detail={ticket.channel_detail}
+                                            to={getChannelThreadUrl(ticket)}
+                                        />
                                     </span>
                                 </div>
                             )}
-                            {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_channel_id &&
-                                ticket?.slack_thread_ts && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-muted-alt">Slack thread</span>
-                                        <Link
-                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            <LemonTag type="highlight">Open in Slack</LemonTag>
-                                        </Link>
-                                    </div>
-                                )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Subject</span>
@@ -420,11 +408,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
+                    {/* Related Groups Panel */}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
+
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
-                    {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    {/* AI Triage Panel */}
+                    {aiSuggestionsEnabled && ticket && (
+                        <AIPanel
+                            aiTriage={ticket.ai_triage}
+                            knowledgeGaps={knowledgeGaps}
+                            knowledgeGapsLoading={knowledgeGapsLoading}
+                            onDismissGap={dismissKnowledgeGap}
+                        />
+                    )}
 
                     {ticket?.channel_source === 'widget' && (
                         <>
@@ -455,6 +455,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             />
                         </>
                     )}
+
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
                 </div>
             </div>
         </SceneContent>

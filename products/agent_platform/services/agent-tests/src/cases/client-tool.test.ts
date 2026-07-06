@@ -4,7 +4,7 @@
  * `client_tool_call` event on the bus and waits for a matching
  * `client_tool_result` event posted by the connecting client. This case
  * exercises both halves (happy path + timeout path) using the in-memory
- * bus directly — simulating the role the agent-chat package + ingress
+ * bus directly — simulating the role the chat client + ingress
  * `/client_tool_result` endpoint play in production.
  */
 
@@ -48,7 +48,9 @@ describe('client-fulfilled tool dispatch: real e2e', () => {
         // on the same bus (which is exactly what the ingress
         // /client_tool_result endpoint does in production).
         const seenCalls: Array<{ tool_id: string; call_id: string }> = []
-        const res = await request(c.ingress).post('/agents/concierge-like/run').send({ message: 'fetch context' })
+        const res = await request(c.ingress)
+            .post('/agents/concierge-like/run')
+            .send({ message: 'fetch context', supported_client_tools: ['get_context'] })
         const sessionId = res.body.session_id as string
         const unsub = c.bus.subscribe(sessionId, (e) => {
             if (e.kind !== 'client_tool_call') {
@@ -99,7 +101,9 @@ describe('client-fulfilled tool dispatch: real e2e', () => {
                 ],
             },
         })
-        const res = await request(c.ingress).post('/agents/no-client/run').send({ message: 'focus the file' })
+        const res = await request(c.ingress)
+            .post('/agents/no-client/run')
+            .send({ message: 'focus the file', supported_client_tools: ['focus'] })
         const sessionId = res.body.session_id as string
         await c.drain({ iterations: 100 })
 
@@ -133,7 +137,9 @@ describe('client-fulfilled tool dispatch: real e2e', () => {
                 ],
             },
         })
-        const res = await request(c.ingress).post('/agents/order/run').send({ message: 'go' })
+        const res = await request(c.ingress)
+            .post('/agents/order/run')
+            .send({ message: 'go', supported_client_tools: ['toast'] })
         const sessionId = res.body.session_id as string
         const unsub = c.bus.subscribe(sessionId, (e) => {
             if (e.kind === 'client_tool_call' || e.kind === 'client_tool_result') {

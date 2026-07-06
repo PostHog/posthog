@@ -47,6 +47,10 @@ class MaxChatViewSet(viewsets.ViewSet):
 
     CONVERSATION_TIMEOUT = 3600  # one hour
     MAX_BACKOFF = 40  # Maximum backoff in seconds to prevent gateway timeouts
+    # Cap how long any single Anthropic call may block a worker. The SDK defaults to 600s,
+    # which lets stalled requests pile up (each holding conversation history + a connection)
+    # and exhaust worker memory when Anthropic is slow or erroring.
+    ANTHROPIC_TIMEOUT_SECONDS = 30.0
     basename = "max"
 
     def _convert_headers(self, headers: MutableMapping[str, str]) -> dict[str, str]:
@@ -79,7 +83,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                 return self._handle_rate_limit(retry_after, limit_type)
 
             # Initialize Anthropic client (non-blocking)
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=self.ANTHROPIC_TIMEOUT_SECONDS)
 
             data = request.data
             if not data or "message" not in data:
@@ -351,6 +355,15 @@ class MaxChatViewSet(viewsets.ViewSet):
             except Exception as header_error:
                 django_logger.warning(f"✨🦔 Rate limit handling error: {str(header_error)}")
                 return self._handle_rate_limit(self.MAX_BACKOFF)  # Default to MAX_BACKOFF
+        except anthropic.APITimeoutError:
+            # Raised once a call exceeds ANTHROPIC_TIMEOUT_SECONDS. Surface a clean 504 rather than
+            # letting it fall through to the generic handler, which would leak the raw SDK error and
+            # mislabel an upstream timeout as a 500.
+            django_logger.warning(f"✨🦔 Anthropic API call timed out after {self.ANTHROPIC_TIMEOUT_SECONDS}s")
+            return Response(
+                {"error": "The AI service took too long to respond. Please try again."},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
         except Exception as e:
             django_logger.error(f"✨🦔 Request to Anthropic API failed: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

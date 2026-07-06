@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -100,7 +102,7 @@ export const notebooksModel = kea<notebooksModelType>([
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId']],
+        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
     })),
 
     reducers({
@@ -112,9 +114,10 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                    const useMarkdownNotebook = !!values.featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
                     const notebook = await api.notebooks.create({
                         title,
-                        content: defaultNotebookContent(title, content),
+                        content: defaultNotebookContent(title, content, { markdown: useMarkdownNotebook }),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
                     })
@@ -125,6 +128,7 @@ export const notebooksModel = kea<notebooksModelType>([
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,
+                        is_markdown: useMarkdownNotebook,
                     })
 
                     void addProductIntent({

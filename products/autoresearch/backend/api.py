@@ -75,7 +75,7 @@ from products.autoresearch.backend.templates import (
 )
 from products.autoresearch.backend.training import run_training
 from products.autoresearch.backend.validation import validate_pipeline_definition
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.facade.sandbox import get_sandbox_class
 
 logger = structlog.get_logger(__name__)
 
@@ -700,7 +700,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     def _write_feature_parquets(self, sandbox_id: str, data: Any) -> dict[str, str]:
         """Serialize train/holdout matrices to parquet and write them into the agent's sandbox."""
         try:
-            sandbox = Sandbox.get_by_id(sandbox_id)
+            sandbox = get_sandbox_class().get_by_id(sandbox_id)
         except Exception as exc:
             raise ValidationError(f"Could not connect to the run's sandbox: {exc}")
         # Paths are hardcoded by the framework — the agent supplies the query, never the destination.

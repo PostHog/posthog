@@ -1,0 +1,114 @@
+use std::sync::LazyLock;
+
+use regex::Regex;
+use serde_json::Value;
+use tracing::debug;
+use uuid::Uuid;
+
+use crate::core::error::EventError;
+
+pub fn recursively_sanitize_properties(
+    id: Uuid,
+    value: &mut Value,
+    depth: usize,
+) -> Result<(), EventError> {
+    if depth > 64 {
+        // We don't want to recurse too deeply, in case we have a circular reference or something.
+        return Err(EventError::InvalidProperties(
+            id,
+            "Recursion limit exceeded".to_string(),
+        ));
+    }
+    match value {
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::String(s) => {
+            if needs_sanitization(s) {
+                debug!("sanitizing null bytes from string in event {}", id);
+                *s = sanitize_string(s.clone());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+static WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s{50,}").unwrap());
+
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD. We also replace all 50-or-more whitespace sequences with "<ws trimmed>".
+pub fn sanitize_string(s: String) -> String {
+    let no_nulls = s.replace('\u{0000}', "\u{FFFD}");
+    WHITESPACE_REGEX
+        .replace_all(&no_nulls, "<ws trimmed>")
+        .to_string()
+}
+
+/// Sanitize a source code line: replace only null bytes, leave all whitespace intact.
+/// Source context lines have meaningful indentation that must be preserved.
+pub fn sanitize_source_line(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
+pub fn needs_sanitization(s: &str) -> bool {
+    s.contains('\u{0000}') || s.len() > 512
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_string_null_bytes() {
+        let input = "hello\u{0000}world".to_string();
+        let result = sanitize_string(input);
+        assert_eq!(result, "hello\u{FFFD}world");
+    }
+
+    #[test]
+    fn test_sanitize_string_long_whitespace() {
+        let mut input = "hello".to_string();
+        input.push_str(&"\n".repeat(60));
+        input.push_str("world");
+        let result = sanitize_string(input);
+        assert_eq!(result, "hello<ws trimmed>world");
+    }
+
+    #[test]
+    fn test_sanitize_string_short_whitespace() {
+        let input = "hello     world".to_string();
+        let result = sanitize_string(input);
+        assert_eq!(result, "hello     world");
+    }
+
+    #[test]
+    fn test_sanitize_source_line_preserves_indentation() {
+        // 65 leading spaces (e.g. Obj-C multi-line method call) must be preserved.
+        let input = format!("{:>65}reason:@\"value\"", "");
+        let result = sanitize_source_line(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_sanitize_source_line_strips_nulls() {
+        let input = "hello\u{0000}world".to_string();
+        let result = sanitize_source_line(input);
+        assert_eq!(result, "hello\u{FFFD}world");
+    }
+
+    #[test]
+    fn test_sanitize_string_both_issues() {
+        let mut input = "hello\u{0000}".to_string();
+        input.push_str(&"\n".repeat(60));
+        input.push_str("world");
+        let result = sanitize_string(input);
+        assert_eq!(result, "hello\u{FFFD}<ws trimmed>world");
+    }
+}

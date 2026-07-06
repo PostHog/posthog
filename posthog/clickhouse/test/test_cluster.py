@@ -138,6 +138,14 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
+    # Start from a clean table. This table is shared and ClickHouse writes are not
+    # rolled back per test, so sibling tests on the same shard leave rows behind.
+    # The mutation below updates every row (WHERE 1 = 1), so leftover rows would
+    # inflate the post-mutation count and break the exact-count assertion. Normally
+    # masked because these tests scatter across shards; file-level sharding runs the
+    # whole file together.
+    cluster.map_all_hosts(Query(f"TRUNCATE TABLE {table}")).result()
+
     # make sure there is some data to play with first
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
 

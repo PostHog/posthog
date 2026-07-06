@@ -34,9 +34,14 @@ tools:
             (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered
             newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result
             truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value
-            condition only; label_column labels rows in breach messages). Label values appear in delivered notifications
-            — avoid label columns containing PII. Anomaly detection (detector_config) is only supported for trends
-            insights.
+            condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode
+            (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label
+            columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null
+            for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and
+            check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps
+            funnels support only absolute_value conditions; historical-trend funnels also support
+            relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL
+            insights (not funnels).
 
             Note: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see
             the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
@@ -107,7 +112,7 @@ tools:
         description: >
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
             users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
-            detection (trends insights only), or set it to null to switch back to threshold mode (threshold mode
+            detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode
             requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the
             config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an
             alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to

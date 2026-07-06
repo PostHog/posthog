@@ -154,6 +154,30 @@ left alone), `tombstoned` (rows the team already soft-deleted — left alone, ne
 coordinator stops dispatching them). Same function the coordinator and runner call lazily —
 this command is just the impatient path.
 
+## Backfilling task_run artefacts
+
+One-off data migration: turn legacy `SignalReportTask` rows (those carrying the old `relationship`
+label) into `task_run` log artefacts so the research / implementation / repo-selection runs tied to
+a report show up in its artefact timeline. `SignalReportTask` lives on as the unlabelled
+task↔report association; rows without a legacy label are skipped — their `task_run` artefact is
+written at creation time.
+
+```bash
+# Preview, scoped to one team
+python manage.py backfill_task_run_artefacts --team-id 1 --dry-run
+
+# Backfill for real (all teams, or add --team-id N)
+python manage.py backfill_task_run_artefacts
+```
+
+Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it
+is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so
+`product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` /
+`repo_selection`). Backfilled artefacts are attributed to their task and backdated to their
+`SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created
+now, but the run happened earlier). Live creation paths append the same artefacts at run time going
+forward — custom agents instead use their own `identifier()` `(product, type)` pair.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

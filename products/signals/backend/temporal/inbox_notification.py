@@ -23,9 +23,10 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -44,23 +45,21 @@ class InboxNotificationState:
 
 
 def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNotificationState:
-    has_task = SignalReportTask.objects.filter(
-        team_id=team_id,
-        report_id=report_id,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-    ).exists()
-    if not has_task:
+    impl_task_ids = [
+        run.task_id
+        for run in SignalReport.associated_task_runs(
+            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    ]
+    if not impl_task_ids:
         return InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 
     pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
-    latest_run = (
-        TaskRun.objects.filter(
-            task__signal_report_tasks__team_id=team_id,
-            task__signal_report_tasks__report_id=report_id,
-            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-        )
-        .order_by("-created_at", "-id")
-        .first()
+    # Most recent run across the report's implementation task(s).
+    latest_run = max(
+        tasks_facade.get_latest_run_by_task(impl_task_ids).values(),
+        key=lambda run: (run.created_at, run.id),
+        default=None,
     )
     task_terminal = bool(latest_run and latest_run.is_terminal) and not pr_available
     return InboxNotificationState(has_implementation_task=True, pr_available=pr_available, task_terminal=task_terminal)

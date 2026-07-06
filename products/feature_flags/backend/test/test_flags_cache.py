@@ -20,7 +20,9 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.management.base import OutputWrapper
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -28,6 +30,7 @@ from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -542,6 +545,77 @@ class TestServiceFlagsCache(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
+class TestHasExperimentField(BaseTest):
+    """has_experiment reflects whether a flag has a non-deleted linked experiment."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def _make_flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("stopped_not_deleted_experiment", "stopped", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
+        flag = self._make_flag("exp-flag")
+        if experiment_state == "active":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        elif experiment_state == "stopped":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, end_date=datetime.now(UTC))
+        elif experiment_state == "deleted":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+
+        flags = _get_feature_flags_for_service(self.team)["flags"]
+        assert flags[0]["has_experiment"] is expected
+
+    def test_has_experiment_present_in_batch_output(self):
+        flag = self._make_flag("exp-flag")
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
+        assert flags[0]["has_experiment"] is True
+
+    def test_has_experiment_no_n_plus_one(self):
+        """has_experiment is computed via a bulk Exists subquery, so the number of queries
+        touching the experiment table stays constant as flags/experiments grow. Counting only
+        experiment-table queries isolates this from unrelated per-flag queries on other paths."""
+
+        def experiment_query_count(ctx: CaptureQueriesContext) -> int:
+            return sum(1 for q in ctx.captured_queries if "posthog_experiment" in q["sql"])
+
+        first = self._make_flag("flag-0")
+        Experiment.objects.create(team=self.team, name="exp-0", feature_flag=first)
+
+        with CaptureQueriesContext(connection) as baseline:
+            _get_feature_flags_for_service(self.team)
+
+        for i in range(1, 6):
+            extra = self._make_flag(f"flag-{i}")
+            Experiment.objects.create(team=self.team, name=f"exp-{i}", feature_flag=extra)
+
+        with CaptureQueriesContext(connection) as scaled:
+            _get_feature_flags_for_service(self.team)
+
+        assert experiment_query_count(scaled) == experiment_query_count(baseline), (
+            f"Experiment-table query count grew from {experiment_query_count(baseline)} to "
+            f"{experiment_query_count(scaled)} as flags/experiments were added — "
+            "indicates an N+1 in the has_experiment computation."
+        )
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsSignals(BaseTest):
     """Test Django signal handlers for automatic cache invalidation."""
 
@@ -602,6 +676,33 @@ class TestServiceFlagsSignals(BaseTest):
         flag.delete()
 
         # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @parameterized.expand(["create", "soft_delete", "delete"])
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        # Creating, soft-deleting, or hard-deleting an experiment invalidates the linked
+        # flag's team cache so has_experiment refreshes.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="exp-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if action == "create":
+            # Reset first so we assert on the experiment-create signal, not the flag-create one.
+            mock_task.reset_mock()
+            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+        else:
+            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            mock_task.reset_mock()
+            if action == "soft_delete":
+                experiment.deleted = True
+                experiment.save()
+            else:
+                experiment.delete()
+
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
@@ -1059,6 +1160,7 @@ class TestServiceFlagsDataFormat(BaseTest):
                 }
             },
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            last_backfill_events_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
         # 1) full-flag: exercises all optional nested structures.
@@ -3534,7 +3636,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 17 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: these 18 fields must always be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3553,6 +3655,7 @@ class TestSerializeCohort(BaseTest):
             "created_by_id",
             "cohort_type",
             "last_backfill_person_properties_at",
+            "last_backfill_events_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id

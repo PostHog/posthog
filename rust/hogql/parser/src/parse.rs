@@ -975,6 +975,117 @@ pub(crate) fn identifier_text(src: &str, kind: TokenKind) -> String {
     }
 }
 
+/// Lenient cpp `parse_string_literal_text` twin (`string.cpp`), exposed via PyO3 for cpp-wheel API parity.
+/// Accepts doubled + backslash-escaped quotes (4 quote types, incl. `{...}`) unlike the strict [`decode_quoted_body`].
+pub(crate) fn parse_string_literal_text(text: &str) -> Result<String, ParseError> {
+    if text.is_empty() {
+        return Err(ParseError::parsing(
+            "Encountered an unexpected empty string input",
+            0,
+            0,
+        ));
+    }
+    let bytes = text.as_bytes();
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    // Quote bytes are ASCII, so the byte 1/len-1 slice is char-boundary-safe; the `_` arm never slices.
+    let stripped = match (first, last) {
+        (b'\'', b'\'') => inner_between_quotes(text)
+            .replace("''", "'")
+            .replace("\\'", "'"),
+        (b'"', b'"') => inner_between_quotes(text)
+            .replace("\"\"", "\"")
+            .replace("\\\"", "\""),
+        (b'`', b'`') => inner_between_quotes(text)
+            .replace("``", "`")
+            .replace("\\`", "`"),
+        (b'{', b'}') => inner_between_quotes(text)
+            .replace("{{", "{")
+            .replace("\\{", "{"),
+        _ => {
+            return Err(ParseError::syntax(
+                format!(
+                    "Invalid string literal, must start and end with the same quote type: {text}"
+                ),
+                0,
+                0,
+            ));
+        }
+    };
+    Ok(replace_common_escape_characters(&stripped))
+}
+
+/// Drop the surrounding quote bytes, cpp `substr(1, size-2)`-style: a length-1 input yields `""`, not a panic.
+fn inner_between_quotes(text: &str) -> &str {
+    if text.len() < 2 {
+        ""
+    } else {
+        &text[1..text.len() - 1]
+    }
+}
+
+/// Twin of cpp's `replace_common_escape_characters`: single pass, `\0` dropped, unknown `\X` keeps the backslash.
+fn replace_common_escape_characters(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                match next {
+                    'b' => {
+                        out.push('\u{08}');
+                        chars.next();
+                        continue;
+                    }
+                    'f' => {
+                        out.push('\u{0C}');
+                        chars.next();
+                        continue;
+                    }
+                    'r' => {
+                        out.push('\r');
+                        chars.next();
+                        continue;
+                    }
+                    'n' => {
+                        out.push('\n');
+                        chars.next();
+                        continue;
+                    }
+                    't' => {
+                        out.push('\t');
+                        chars.next();
+                        continue;
+                    }
+                    // cpp drops the NUL: `\0` consumes both and emits nothing.
+                    '0' => {
+                        chars.next();
+                        continue;
+                    }
+                    'a' => {
+                        out.push('\u{07}');
+                        chars.next();
+                        continue;
+                    }
+                    'v' => {
+                        out.push('\u{0B}');
+                        chars.next();
+                        continue;
+                    }
+                    '\\' => {
+                        out.push('\\');
+                        chars.next();
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Keywords accepted as the type-cast target on the `::` postfix. Maps to
 /// the grammar's `columnTypeCastIdentifier` rule: IDENTIFIER /
 /// QUOTED_IDENTIFIER / interval-units / `DATE` / `TIME` / `TIMESTAMP` /
@@ -1288,15 +1399,18 @@ pub(crate) fn interval_call_name(unit: &str) -> Option<&'static str> {
 /// (`INTERVAL 5 SECOND`) uses the case-insensitive helper because
 /// keywords come from the lexer (which is case-insensitive).
 pub(crate) fn interval_call_name_case_sensitive(unit: &str) -> Option<&'static str> {
-    match unit.trim_end_matches('s') {
-        "second" => Some("toIntervalSecond"),
-        "minute" => Some("toIntervalMinute"),
-        "hour" => Some("toIntervalHour"),
-        "day" => Some("toIntervalDay"),
-        "week" => Some("toIntervalWeek"),
-        "month" => Some("toIntervalMonth"),
-        "quarter" => Some("toIntervalQuarter"),
-        "year" => Some("toIntervalYear"),
+    // cpp matches each unit against exactly its singular OR single-`s` plural.
+    // `trim_end_matches('s')` would strip *every* trailing `s`, over-accepting
+    // doubled plurals (`dayss`, `secondss`) that cpp rejects.
+    match unit {
+        "second" | "seconds" => Some("toIntervalSecond"),
+        "minute" | "minutes" => Some("toIntervalMinute"),
+        "hour" | "hours" => Some("toIntervalHour"),
+        "day" | "days" => Some("toIntervalDay"),
+        "week" | "weeks" => Some("toIntervalWeek"),
+        "month" | "months" => Some("toIntervalMonth"),
+        "quarter" | "quarters" => Some("toIntervalQuarter"),
+        "year" | "years" => Some("toIntervalYear"),
         _ => None,
     }
 }
@@ -1349,6 +1463,81 @@ fn build_char_offsets(src: &str) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorKind;
+
+    /// Parity cases mirroring the DB-bound `_test_parse_string.py` factory, pinned DB-free here.
+    #[test]
+    fn parse_string_literal_text_matches_cpp() {
+        let f = |s: &str| parse_string_literal_text(s).expect("should decode");
+
+        // Quote types.
+        assert_eq!(f("`asd`"), "asd");
+        assert_eq!(f("'asd'"), "asd");
+        assert_eq!(f("\"asd\""), "asd");
+        assert_eq!(f("{asd}"), "asd");
+
+        // Doubled-quote escapes.
+        assert_eq!(f("`a``sd`"), "a`sd");
+        assert_eq!(f("'a''sd'"), "a'sd");
+        assert_eq!(f("\"a\"\"sd\""), "a\"sd");
+        assert_eq!(f("{a{{sd}"), "a{sd");
+        assert_eq!(f("{a}sd}"), "a}sd");
+
+        // Odd / long quote runs — pins str::replace against cpp's sequential replace_all.
+        assert_eq!(f("''''''"), "''");
+        assert_eq!(f("'a'''b'"), "a''b");
+        assert_eq!(f("`a```b`"), "a``b");
+
+        // Backslash-escaped quotes (the lenient form the strict in-parser decoder rejects).
+        assert_eq!(f("`a\\`sd`"), "a`sd");
+        assert_eq!(f("'a\\'sd'"), "a'sd");
+        assert_eq!(f("\"a\\\"sd\""), "a\"sd");
+        assert_eq!(f("{a\\{sd}"), "a{sd");
+
+        // Common escapes; `\0` is dropped.
+        assert_eq!(f("`a\nsd`"), "a\nsd");
+        assert_eq!(f("`a\\bsd`"), "a\u{08}sd");
+        assert_eq!(f("`a\\fsd`"), "a\u{0C}sd");
+        assert_eq!(f("`a\\rsd`"), "a\rsd");
+        assert_eq!(f("`a\\nsd`"), "a\nsd");
+        assert_eq!(f("`a\\tsd`"), "a\tsd");
+        assert_eq!(f("`a\\asd`"), "a\u{07}sd");
+        assert_eq!(f("`a\\vsd`"), "a\u{0B}sd");
+        assert_eq!(f("`a\\\\sd`"), "a\\sd");
+        assert_eq!(f("`a\\0sd`"), "asd");
+
+        // Unknown escapes keep the backslash.
+        assert_eq!(f("`a\\xsd`"), "a\\xsd");
+        assert_eq!(f("`a\\ysd`"), "a\\ysd");
+        assert_eq!(f("`a\\osd`"), "a\\osd");
+
+        // Backslash sequencing.
+        assert_eq!(f("`a\\\\nsd`"), "a\\nsd");
+        assert_eq!(f("`a\\\\n\\sd`"), "a\\n\\sd");
+        assert_eq!(f("`a\\\\n\\\\tsd`"), "a\\n\\tsd");
+
+        // Multibyte content survives the byte-level quote strip.
+        assert_eq!(f("`café`"), "café");
+        assert_eq!(f("{ünïcödé}"), "ünïcödé");
+    }
+
+    /// Mismatched quotes raise `SyntaxError`; empty input raises `ParsingError` (cpp's declared class).
+    #[test]
+    fn parse_string_literal_text_error_paths() {
+        let mismatched = parse_string_literal_text("`asd'").expect_err("mismatched quotes");
+        assert!(matches!(mismatched.kind, ErrorKind::Syntax));
+        assert_eq!(
+            mismatched.message,
+            "Invalid string literal, must start and end with the same quote type: `asd'"
+        );
+
+        let empty = parse_string_literal_text("").expect_err("empty input");
+        assert!(matches!(empty.kind, ErrorKind::Parsing));
+        assert_eq!(
+            empty.message,
+            "Encountered an unexpected empty string input"
+        );
+    }
 
     /// `checkpoint` + `restore` on a freshly-constructed parser must
     /// leave it indistinguishable from one constructed at the same

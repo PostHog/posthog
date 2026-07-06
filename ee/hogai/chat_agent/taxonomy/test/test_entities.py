@@ -2,7 +2,7 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
 from posthog.models.group_type_mapping import invalidate_group_types_cache
-from posthog.models.person import Person
+from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -49,7 +49,7 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
             type=PropertyDefinition.Type.PERSON,
         )
 
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["test-user"],
             properties={"name": "Test User"},

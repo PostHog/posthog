@@ -54,7 +54,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 15
         defaults:
             run:
                 working-directory: services/llm-gateway
@@ -83,6 +83,8 @@ jobs:
                   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
                   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
                   AWS_DEFAULT_REGION: us-east-1
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_LLM_GATEWAY_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results
@@ -99,17 +101,21 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
-                    echo "LLM Gateway tests failed."
+                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                    echo "LLM Gateway tests did not succeed (result: ${{ needs.llm-gateway.result }})."
                     exit 1
                   fi
 

@@ -449,7 +449,7 @@ export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
         best_iteration_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 'Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.'
@@ -531,7 +531,7 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
         parent_suggestion: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'."

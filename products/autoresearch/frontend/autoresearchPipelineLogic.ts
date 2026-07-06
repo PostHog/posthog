@@ -395,23 +395,37 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             actions.loadPipeline()
             lemonToast.success('Training run started')
         },
-        startTrainingFailure: () => lemonToast.error('Could not start training run'),
-        pausePipelineSuccess: () => lemonToast.success('Pipeline paused — daily scoring is on hold'),
-        pausePipelineFailure: () => lemonToast.error('Could not pause the pipeline'),
-        resumePipelineSuccess: () => lemonToast.success('Pipeline resumed'),
-        resumePipelineFailure: () => lemonToast.error('Could not resume the pipeline'),
+        startTrainingFailure: () => {
+            lemonToast.error('Could not start training run')
+        },
+        pausePipelineSuccess: () => {
+            lemonToast.success('Pipeline paused — daily scoring is on hold')
+        },
+        pausePipelineFailure: () => {
+            lemonToast.error('Could not pause the pipeline')
+        },
+        resumePipelineSuccess: () => {
+            lemonToast.success('Pipeline resumed')
+        },
+        resumePipelineFailure: () => {
+            lemonToast.error('Could not resume the pipeline')
+        },
         scoreNowSuccess: ({ scoreResult }) => {
             actions.loadRuns()
             actions.loadPipeline()
             const scored = scoreResult?.rows_scored
             lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
         },
-        scoreNowFailure: () => lemonToast.error('Could not score users — train a champion model first'),
+        scoreNowFailure: () => {
+            lemonToast.error('Could not score users — train a champion model first')
+        },
         submitSuggestionSuccess: () => {
             actions.loadSuggestions()
             lemonToast.success('Suggestion sent — the agent will pick it up on its next run')
         },
-        submitSuggestionFailure: () => lemonToast.error('Could not submit the suggestion'),
+        submitSuggestionFailure: () => {
+            lemonToast.error('Could not submit the suggestion')
+        },
         toggleRunArtifacts: ({ runId }) => {
             // Lazy-load a run's bundle and report the first time it's expanded.
             if (values.expandedRunId === runId) {

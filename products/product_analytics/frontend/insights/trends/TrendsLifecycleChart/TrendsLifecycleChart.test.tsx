@@ -140,8 +140,8 @@ describe('TrendsLifecycleChart', () => {
         })
 
         await screen.findByTestId('trend-lifecycle-graph')
-        const legend = await screen.findByTestId('trend-lifecycle-legend')
         // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
+        const legend = await screen.findByTestId('hog-chart-timeseries-bar-legend')
         const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
         expect(labels).toEqual(['Dormant', 'Returning', 'Resurrecting', 'New'])
     })
@@ -153,6 +153,6 @@ describe('TrendsLifecycleChart', () => {
         })
 
         await screen.findByTestId('trend-lifecycle-graph')
-        expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
     })
 })

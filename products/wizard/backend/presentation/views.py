@@ -96,7 +96,10 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
-SSE_MAX_DURATION_SECONDS = 30 * 60
+# Long-lived connections pin NGINX Unit processes during recycle-drain; the
+# `event: end` close makes EventSource reconnect, so the cap is near-invisible to
+# users (the progress tracker may show a brief "reconnecting" blip per rotation).
+SSE_MAX_DURATION_SECONDS = 15 * 60
 
 WIZARD_SYNC_KILLSWITCH_FLAG = "onboarding-wizard-sync-killswitch"
 
@@ -335,7 +338,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
-        return sse_streaming_response(generator)
+        return sse_streaming_response(generator, endpoint="wizard_session")
 
 
 async def _wizard_session_event_stream(

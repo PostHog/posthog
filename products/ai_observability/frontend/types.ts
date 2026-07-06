@@ -262,6 +262,11 @@ export interface TextContentItem {
     text: string
 }
 
+export interface OutputTextContentItem {
+    type: 'output_text'
+    text: string
+}
+
 export interface ImageContentItem {
     type: 'image'
     image: string
@@ -279,8 +284,11 @@ export interface FunctionContentItem {
 export type MultiModalContentItem =
     | string
     | TextContentItem
+    | OutputTextContentItem
     | ImageContentItem
     | FunctionContentItem
+    | VercelSDKInputTextMessage
+    | VercelSDKInputImageMessage
     | OpenAIImageURLMessage
     | OpenAIFileMessage
     | OpenAIAudioMessage

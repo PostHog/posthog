@@ -963,7 +963,7 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int()
+const positive_integer = z.coerce.number().int().min(1)
 
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
@@ -1203,6 +1203,220 @@ const AssistantLifecycleQuery = z.object({
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
+const ActionConversionGoal = z.object({
+    actionId: integer,
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const PropertyOperator = z.enum([
+    'exact',
+    'is_not',
+    'icontains',
+    'not_icontains',
+    'regex',
+    'not_regex',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'is_set',
+    'is_not_set',
+    'is_date_exact',
+    'is_date_before',
+    'is_date_after',
+    'between',
+    'not_between',
+    'min',
+    'max',
+    'in',
+    'not_in',
+    'is_cleaned_path_exact',
+    'flag_evaluates_to',
+    'semver_eq',
+    'semver_neq',
+    'semver_gt',
+    'semver_gte',
+    'semver_lt',
+    'semver_lte',
+    'semver_tilde',
+    'semver_caret',
+    'semver_wildcard',
+    'icontains_multi',
+    'not_icontains_multi',
+])
+
+const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+
+const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+
+const EventPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('exact'),
+    type: z.literal('event').describe('Event properties').default('event'),
+    value: PropertyFilterValue.optional(),
+})
+
+const PersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('person').describe('Person properties').default('person'),
+    value: PropertyFilterValue.optional(),
+})
+
+const SessionPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('session').default('session'),
+    value: PropertyFilterValue.optional(),
+})
+
+const CohortPropertyFilter = z.object({
+    cohort_name: z.string().optional(),
+    key: z.literal('id').default('id'),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('in'),
+    type: z.literal('cohort').default('cohort'),
+    value: z.coerce.number().int(),
+})
+
+const WebAnalyticsPropertyFilter = z.union([
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+])
+
+const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
+
+const AssistantWebOverviewQuery = z.object({
+    compareFilter: CompareFilter.describe(
+        'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
+    ).optional(),
+    conversionGoal: z
+        .union([WebAnalyticsConversionGoal, z.null()])
+        .describe(
+            'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
+        )
+        .optional(),
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to URL-style breakdowns.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    kind: z.literal('WebOverviewQuery').default('WebOverviewQuery'),
+    properties: WebAnalyticsPropertyFilters.describe(
+        'Property filters applied to the query. Accepts event, person, session, or cohort filters.'
+    )
+        .default([])
+        .optional(),
+})
+
+const WebStatsBreakdown = z.enum([
+    'Page',
+    'InitialPage',
+    'ExitPage',
+    'ExitClick',
+    'PreviousPage',
+    'ScreenName',
+    'InitialChannelType',
+    'InitialReferringDomain',
+    'InitialReferringURL',
+    'InitialUTMSource',
+    'InitialUTMCampaign',
+    'InitialUTMMedium',
+    'InitialUTMTerm',
+    'InitialUTMContent',
+    'InitialUTMSourceMediumCampaign',
+    'Browser',
+    'OS',
+    'Viewport',
+    'DeviceType',
+    'Country',
+    'Region',
+    'City',
+    'Timezone',
+    'Language',
+    'FrustrationMetrics',
+])
+
+const non_negative_integer = z.coerce.number().int().min(0)
+
+const AssistantWebStatsTableQuery = z.object({
+    breakdownBy: WebStatsBreakdown.describe(
+        'Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.'
+    ),
+    compareFilter: CompareFilter.describe(
+        'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
+    ).optional(),
+    conversionGoal: z
+        .union([WebAnalyticsConversionGoal, z.null()])
+        .describe(
+            'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
+        )
+        .optional(),
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to URL-style breakdowns.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    includeAvgTimeOnPage: z.coerce
+        .boolean()
+        .describe(
+            'Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.'
+        )
+        .default(false)
+        .optional(),
+    includeBounceRate: z.coerce
+        .boolean()
+        .describe('Add a bounce-rate column. Most useful with a path-style breakdown.')
+        .default(false)
+        .optional(),
+    includeHost: z.coerce
+        .boolean()
+        .describe(
+            'When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.'
+        )
+        .default(false)
+        .optional(),
+    kind: z.literal('WebStatsTableQuery').default('WebStatsTableQuery'),
+    limit: positive_integer
+        .max(200)
+        .describe(
+            'Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.'
+        )
+        .optional(),
+    offset: non_negative_integer.describe('Pagination offset.').optional(),
+    properties: WebAnalyticsPropertyFilters.describe(
+        'Property filters applied to the query. Accepts event, person, session, or cohort filters.'
+    )
+        .default([])
+        .optional(),
+})
+
 const AssistantTracesQuery = z.object({
     dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
     filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
@@ -1301,6 +1515,56 @@ const AssistantRetentionActorsQuery = z.object({
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
     source: AssistantRetentionQuery.describe('The source retention insight query whose cohort we are drilling into.'),
+})
+
+const AssistantStickinessActorsQuery = z.object({
+    compare: z
+        .enum(['current', 'previous'])
+        .describe('Whether to pull from the previous period when `compareFilter` is enabled in the source.')
+        .optional(),
+    day: integer.describe(
+        "The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range."
+    ),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    series: integer
+        .describe('0-based index of the series to drill into when the source has multiple series. Defaults to 0.')
+        .optional(),
+    source: AssistantStickinessQuery.describe('The source stickiness insight query whose bar we are drilling into.'),
+})
+
+const AssistantFunnelsActorsQuery = z.object({
+    funnelStep: integer
+        .describe(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).'
+        )
+        .optional(),
+    funnelStepBreakdown: z
+        .array(z.string())
+        .describe(
+            'Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown) series.'
+        )
+        .optional(),
+    funnelTrendsDropOff: z.coerce
+        .boolean()
+        .describe(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.'
+        )
+        .optional(),
+    funnelTrendsEntrancePeriodStart: z
+        .string()
+        .describe(
+            "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`."
+        )
+        .optional(),
+    includeRecordings: z.coerce
+        .boolean()
+        .describe('Whether to include matched session recordings for each actor.')
+        .default(true)
+        .optional(),
+    kind: z.literal('FunnelsActorsQuery').default('FunnelsActorsQuery'),
+    source: AssistantFunnelsQuery.describe(
+        'The source funnel insight query whose step (or trends point) we are drilling into.'
+    ),
 })
 
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
@@ -1403,6 +1667,26 @@ const QueryRetentionActorsSchema = AssistantRetentionActorsQuery.extend({
         ),
 })
 
+const QueryStickinessActorsSchema = AssistantStickinessActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryFunnelActorsSchema = AssistantFunnelsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1448,6 +1732,20 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
     }),
+    'query-web-overview': createQueryWrapper({
+        name: 'query-web-overview',
+        schema: AssistantWebOverviewQuery,
+        kind: 'WebOverviewQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
+    }),
+    'query-web-stats': createQueryWrapper({
+        name: 'query-web-stats',
+        schema: AssistantWebStatsTableQuery,
+        kind: 'WebStatsTableQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
+    }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
@@ -1485,6 +1783,20 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-retention-actors',
         schema: QueryRetentionActorsSchema,
         kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-stickiness-actors': createQueryWrapper({
+        name: 'query-stickiness-actors',
+        schema: QueryStickinessActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-funnel-actors': createQueryWrapper({
+        name: 'query-funnel-actors',
+        schema: QueryFunnelActorsSchema,
+        kind: 'FunnelsActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
     }),

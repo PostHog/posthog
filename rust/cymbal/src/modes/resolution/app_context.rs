@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
-use crate::app_context::build_symbol_resolver;
-use crate::config::Config as CymbalConfig;
+use crate::core::config::ResolverConfig;
+use crate::core::resolver::build_symbol_resolver;
 use crate::error::UnhandledError;
 use crate::symbolication::symbol::SymbolResolver;
 
 use super::load_monitor::LoadMonitor;
+use super::Config as ServiceConfig;
 
 /// Process-wide handles required to serve `cymbal.resolution.v1`.
 ///
@@ -24,14 +25,17 @@ pub struct ResolutionAppContext {
 }
 
 impl ResolutionAppContext {
-    pub async fn from_config(config: &CymbalConfig) -> Result<Self, UnhandledError> {
-        let symbol_resolver = build_symbol_resolver(config).await?;
-        // Symbol-resolution concurrency is the shared knob on the parent config.
-        let symbol_resolution_limiter =
-            Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
-        let load_monitor = LoadMonitor::new(config.resolution.max_item_concurrency.max(1) as u32);
-        let service_instance_id = config
-            .resolution
+    pub async fn from_config(
+        resolver: &ResolverConfig,
+        service: &ServiceConfig,
+    ) -> Result<Self, UnhandledError> {
+        let symbol_resolver = build_symbol_resolver(resolver).await?;
+        // Symbol-resolution concurrency is the shared knob on the resolver config.
+        let symbol_resolution_limiter = Arc::new(Semaphore::new(
+            resolver.symbol_resolution_concurrency.max(1),
+        ));
+        let load_monitor = LoadMonitor::new(service.max_item_concurrency.max(1) as u32);
+        let service_instance_id = service
             .service_instance_id
             .clone()
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());

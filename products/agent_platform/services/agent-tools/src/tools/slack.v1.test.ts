@@ -132,8 +132,8 @@ describe('slack.* tools', () => {
         expect(out.has_more).toBe(true)
         expect(out.next_cursor).toBe('cur-abc')
         const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
-        const body = JSON.parse(calls[0][1].body as string)
-        expect(body).toMatchObject({ channel: 'C01', limit: 50, oldest: '100.0' })
+        const body = Object.fromEntries(new URLSearchParams(calls[0][1].body as string))
+        expect(body).toMatchObject({ channel: 'C01', limit: '50', oldest: '100.0' })
         expect(body).not.toHaveProperty('latest')
         expect(body).not.toHaveProperty('cursor')
     })
@@ -150,12 +150,12 @@ describe('slack.* tools', () => {
         const http: HttpFetcher = { fetch: fetchSpy }
         await slackReadChannelV1.run({ channel: 'C01', limit: 9999 }, ctxWithSlack(http))
         const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
-        const bodyHigh = JSON.parse(calls[0][1].body as string)
-        expect(bodyHigh.limit).toBe(200)
+        const bodyHigh = Object.fromEntries(new URLSearchParams(calls[0][1].body as string))
+        expect(bodyHigh.limit).toBe('200')
 
         await slackReadChannelV1.run({ channel: 'C01', limit: 0 }, ctxWithSlack(http))
-        const bodyLow = JSON.parse(calls[1][1].body as string)
-        expect(bodyLow.limit).toBe(1)
+        const bodyLow = Object.fromEntries(new URLSearchParams(calls[1][1].body as string))
+        expect(bodyLow.limit).toBe('1')
     })
 
     it('read_channel omits next_cursor when slack returns empty string', async () => {
@@ -186,8 +186,26 @@ describe('slack.* tools', () => {
         expect(out.messages.map((m) => m.text)).toEqual(['parent', 'reply'])
         expect(out.has_more).toBe(false)
         const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
-        const body = JSON.parse(calls[0][1].body as string)
-        expect(body).toMatchObject({ channel: 'C01', ts: '111.222', limit: 50 })
+        const body = Object.fromEntries(new URLSearchParams(calls[0][1].body as string))
+        expect(body).toMatchObject({ channel: 'C01', ts: '111.222', limit: '50' })
+    })
+
+    it('sends form-encoded params — Slack read methods reject JSON', async () => {
+        const fetchSpy = vi.fn(
+            async () =>
+                ({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ok: true, messages: [], has_more: false }),
+                }) as unknown as Response
+        )
+        const http: HttpFetcher = { fetch: fetchSpy }
+        await slackReadThreadV1.run({ channel: 'C01', thread_ts: '9.9' }, ctxWithSlack(http))
+        const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
+        expect((calls[0][1].headers as Record<string, string>)['Content-Type']).toBe(
+            'application/x-www-form-urlencoded'
+        )
+        expect(calls[0][1].body).toBe('channel=C01&ts=9.9&limit=50')
     })
 
     it('propagates slack api errors', async () => {
@@ -203,6 +221,27 @@ describe('slack.* tools', () => {
         }
         await expect(slackPostMessageV1.run({ channel: 'C99', text: 'hi' }, ctxWithSlack(http))).rejects.toThrow(
             /channel_not_found/
+        )
+    })
+
+    it('surfaces slack warning + field detail so the agent can self-correct', async () => {
+        const http: HttpFetcher = {
+            fetch: vi.fn(
+                async () =>
+                    ({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            ok: false,
+                            error: 'invalid_arguments',
+                            warning: 'missing_charset',
+                            response_metadata: { messages: ['[ERROR] missing required field: ts'] },
+                        }),
+                    }) as unknown as Response
+            ),
+        }
+        await expect(slackPostMessageV1.run({ channel: 'C01', text: 'hi' }, ctxWithSlack(http))).rejects.toThrow(
+            /missing_charset.*missing required field: ts/
         )
     })
 })

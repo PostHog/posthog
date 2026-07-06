@@ -54,7 +54,9 @@ from posthog.models.team.team import Team
 from products.autoresearch.backend.artifacts import ArtifactBundle, read_bundle, read_model, write_model
 from products.autoresearch.backend.labeling import build_inference_features_sql, build_training_features_sql
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.facade.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
+
+Sandbox = get_sandbox_class()
 
 logger = structlog.get_logger(__name__)
 

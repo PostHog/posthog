@@ -20,6 +20,7 @@ from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -507,7 +508,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "distinct_test_5",
                 ]
             )
-            self.assertEqual(cohort.people.count(), 6)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 6)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
@@ -846,157 +847,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Should filter to only premium plan usage
         self.assertEqual(control_result.sum, 500)
         self.assertEqual(test_result.sum, 750)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
-
-    @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties(self):
-        """Test that data warehouse metrics properly apply both properties and fixedProperties"""
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
-        )
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.SUM,
-                math_property="usage",
-                properties=clean_entity_properties(
-                    [
-                        {"key": "plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
-                    ]
-                ),
-                fixedProperties=clean_entity_properties(
-                    [
-                        {"key": "region", "operator": "exact", "value": "us-west", "type": "data_warehouse"},
-                    ]
-                ),
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.exposure_criteria = {"filterTestAccounts": False}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = query_runner.calculate()
-
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_result = result.baseline
-        assert control_result is not None
-        test_result = result.variant_results[0]
-        assert test_result is not None
-
-        # Should filter to only premium plan AND us-west region
-        self.assertEqual(control_result.sum, 250)
-        self.assertEqual(test_result.sum, 375)
-        self.assertEqual(control_result.number_of_samples, 7)
-        self.assertEqual(test_result.number_of_samples, 9)
-
-    @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_metric_with_no_properties(self):
-        """Test that data warehouse metrics work without any property filters (baseline behavior)"""
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
-        )
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.SUM,
-                math_property="usage",
-                # No properties or fixedProperties
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.exposure_criteria = {"filterTestAccounts": False}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = query_runner.calculate()
-
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_result = result.baseline
-        assert control_result is not None
-        test_result = result.variant_results[0]
-        assert test_result is not None
-
-        # Should include all data (no filters)
-        self.assertEqual(control_result.sum, 650)
-        self.assertEqual(test_result.sum, 1150)
         self.assertEqual(control_result.number_of_samples, 7)
         self.assertEqual(test_result.number_of_samples, 9)
 

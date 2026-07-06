@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.http import HttpResponse
 from django.test import (
     Client as DjangoTestClient,
+    SimpleTestCase,
     override_settings,
 )
 from django.urls import get_resolver
@@ -103,6 +104,32 @@ class TestEveryEnvironmentsRouteHasAProjectsCounterpart(APIBaseTest):
             "new /api/environments routes without a /api/projects counterpart — register them "
             f"under /api/projects (see posthog/api/rest_router.py) instead of env-only: {sorted(unknown)}",
         )
+
+
+class TestFlagDistinctId(SimpleTestCase):
+    # The distinct id fed to the flag is what makes the rollout incremental: a per-team id
+    # buckets by team, the constant id rides the global switch. If id extraction regresses,
+    # numeric-team paths silently fall back to the constant and the flag becomes a kill
+    # switch again — these cases catch that (and the reverse: @current must NOT get a team id).
+    @parameterized.expand(
+        [
+            (
+                "numeric id buckets per team",
+                "/api/environments/123/feature_flags/",
+                "environments_api_redirect:team:123",
+            ),
+            ("numeric id no trailing slash", "/api/environments/42", "environments_api_redirect:team:42"),
+            (
+                "current alias falls back to constant",
+                "/api/environments/@current/insights/",
+                "environments_api_redirect",
+            ),
+            ("non-numeric id falls back to constant", "/api/environments/abc/foo/", "environments_api_redirect"),
+            ("keyless path falls back to constant", "/api/environments", "environments_api_redirect"),
+        ]
+    )
+    def test_flag_distinct_id(self, _name: str, path: str, expected: str) -> None:
+        self.assertEqual(EnvironmentsRedirectMiddleware._flag_distinct_id(path), expected)
 
 
 class TestEnvironmentsRedirect(APIBaseTest):

@@ -48,18 +48,17 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.signals.backend.billing import get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
     get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -134,6 +133,9 @@ class UsageReportCounters:
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
+
+    # Replay Vision
+    recording_observations_count_in_period: int
 
     # Persons and Groups
     group_types_total: int
@@ -213,8 +215,11 @@ class UsageReportCounters:
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
-    # Signals Billing Credits (Signals product usage — same cost math as ai_credits, scoped to ai_product='signals')
+    # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+
+    # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    posthog_code_credits_used_in_period: int
 
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -227,6 +232,7 @@ class UsageReportCounters:
     node_events_count_in_period: int
     openclaw_events_count_in_period: int
     posthog_pi_events_count_in_period: int
+    posthog_ai_events_count_in_period: int
     edge_events_count_in_period: int
     convex_events_count_in_period: int
     android_events_count_in_period: int
@@ -264,11 +270,12 @@ class UsageReportCounters:
     logs_retention_90d_mb_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
-    # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
+    web_logs_records_in_period: int
     ios_logs_records_in_period: int
     react_native_logs_records_in_period: int
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
+    ruby_logs_records_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -552,6 +559,10 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     return list(team_counts.items())
 
 
+def _flatten_split_query_results(results_list: list[list[Any]]) -> list[Any]:
+    return [row for rows in results_list for row in rows]
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
@@ -653,49 +664,129 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         )
 
 
+def _get_ai_sub_sdk_event_metric_counts(
+    begin: datetime,
+    end: datetime,
+    sdk_metrics: Sequence[tuple[str, str | None, str]],
+    lib_expression: str,
+    ai_lib_expression: str,
+) -> tuple[dict[str, list[tuple[int, int]]], dict[int, int]]:
+    ai_lib_to_metric: dict[str, str] = {}
+    ai_parent_libs: list[str] = []
+    for lib, ai_lib, sdk_metric in sdk_metrics:
+        if ai_lib is None:
+            continue
+        ai_lib_to_metric[ai_lib] = sdk_metric
+        if lib not in ai_parent_libs:
+            ai_parent_libs.append(lib)
+
+    if not ai_lib_to_metric:
+        return {}, {}
+
+    quoted_ai_parent_libs = ", ".join(f"'{lib}'" for lib in ai_parent_libs)
+    quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_lib_to_metric)
+    query_template = f"""
+        SELECT
+            team_id,
+            {ai_lib_expression} AS ai_lib,
+            count(1) as count
+        FROM events
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND {lib_expression} IN ({quoted_ai_parent_libs})
+            AND startsWith(event, '$ai_')
+        WHERE {ai_lib_expression} IN ({quoted_ai_libs})
+        GROUP BY team_id, ai_lib
+    """
+
+    ai_rows = _execute_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=12,
+        combine_results_func=_flatten_split_query_results,
+    )
+
+    ai_counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in ai_lib_to_metric.values()}
+    node_subtractions: dict[int, int] = {}
+    for team_id, ai_lib, count in ai_rows:
+        metric_name = ai_lib_to_metric.get(ai_lib)
+        if metric_name is None:
+            continue
+        team_counts = ai_counts_by_metric[metric_name]
+        team_counts[team_id] = team_counts.get(team_id, 0) + count
+        node_subtractions[team_id] = node_subtractions.get(team_id, 0) + count
+
+    return {
+        metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
+    }, node_subtractions
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     # Check if $lib and $ai_lib are materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
     ai_lib_expression, _ = get_property_string_expr("events", "$ai_lib", "'$ai_lib'", "properties")
+    event_prefix_metrics = (
+        ("helicone%%", "helicone_events"),
+        ("langfuse%%", "langfuse_events"),
+        ("keywords_ai%%", "keywords_ai_events"),
+        ("traceloop%%", "traceloop_events"),
+    )
+    sdk_metrics = (
+        ("web", None, "web_events"),
+        ("js", None, "web_lite_events"),
+        ("posthog-node", "posthog-openclaw", "openclaw_events"),
+        ("posthog-node", "@posthog/pi", "posthog_pi_events"),
+        ("posthog-node", "posthog-ai", "posthog_ai_events"),
+        ("posthog-node", None, "node_events"),
+        ("posthog-edge", None, "edge_events"),
+        ("posthog-convex", None, "convex_events"),
+        ("posthog-android", None, "android_events"),
+        ("posthog-flutter", None, "flutter_events"),
+        ("posthog-ios", None, "ios_events"),
+        ("posthog-go", None, "go_events"),
+        ("posthog-java", None, "java_events"),
+        ("posthog-server", None, "java_events"),
+        ("posthog-react-native", None, "react_native_events"),
+        ("posthog-ruby", None, "ruby_events"),
+        ("posthog-python", None, "python_events"),
+        ("posthog-php", None, "php_events"),
+        ("posthog-dotnet", None, "dotnet_events"),
+        ("posthog-elixir", None, "elixir_events"),
+        ("posthog-unity", None, "unity_events"),
+        ("posthog-rs", None, "rust_events"),
+    )
+    tracked_libs = tuple(dict.fromkeys(lib for lib, _ai_lib, _metric in sdk_metrics))
+    quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
+    metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
+    metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
+    metric_filter = "\n            OR ".join(metric_filter_conditions)
+    # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
+    # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
+    # below over only the $ai_* events, where $ai_lib actually lives, and folded back in instead
+    # of reading `properties` for every posthog-node event just to check $ai_lib.
+    metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
+    for lib, ai_lib, metric in sdk_metrics:
+        if ai_lib is None:
+            metric_conditions.append(f"{lib_expression} = '{lib}', '{metric}'")
+    metric_conditions.append("'other'")
+    metric_expression = ",\n                ".join(metric_conditions)
 
     query_template = f"""
         SELECT
             team_id,
             multiIf(
-                event LIKE 'helicone%%', 'helicone_events',
-                event LIKE 'langfuse%%', 'langfuse_events',
-                event LIKE 'keywords_ai%%', 'keywords_ai_events',
-                event LIKE 'traceloop%%', 'traceloop_events',
-                {lib_expression} = 'web', 'web_events',
-                {lib_expression} = 'js', 'web_lite_events',
-                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = 'posthog-openclaw', 'openclaw_events',
-                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = '@posthog/pi', 'posthog_pi_events',
-                {lib_expression} = 'posthog-node', 'node_events',
-                {lib_expression} = 'posthog-edge', 'edge_events',
-                {lib_expression} = 'posthog-convex', 'convex_events',
-                {lib_expression} = 'posthog-android', 'android_events',
-                {lib_expression} = 'posthog-flutter', 'flutter_events',
-                {lib_expression} = 'posthog-ios', 'ios_events',
-                {lib_expression} = 'posthog-go', 'go_events',
-                {lib_expression} = 'posthog-java', 'java_events',
-                {lib_expression} = 'posthog-server', 'java_events',
-                {lib_expression} = 'posthog-react-native', 'react_native_events',
-                {lib_expression} = 'posthog-ruby', 'ruby_events',
-                {lib_expression} = 'posthog-python', 'python_events',
-                {lib_expression} = 'posthog-php', 'php_events',
-                {lib_expression} = 'posthog-dotnet', 'dotnet_events',
-                {lib_expression} = 'posthog-elixir', 'elixir_events',
-                {lib_expression} = 'posthog-unity', 'unity_events',
-                {lib_expression} = 'posthog-rs', 'rust_events',
-                'other'
+                {metric_expression}
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE (
+            {metric_filter}
+        )
         GROUP BY team_id, metric
-        HAVING metric != 'other'
     """
 
     # Define a custom function to combine results from multiple queries
@@ -712,6 +803,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "openclaw_events": {},
             "posthog_pi_events": {},
+            "posthog_ai_events": {},
             "edge_events": {},
             "convex_events": {},
             "android_events": {},
@@ -745,9 +837,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 12 splits
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(
+        metrics = _execute_split_query(
             begin=begin,
             end=end,
             query_template=query_template,
@@ -755,6 +846,22 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
         )
+        ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
+            begin=begin,
+            end=end,
+            sdk_metrics=sdk_metrics,
+            lib_expression=lib_expression,
+            ai_lib_expression=ai_lib_expression,
+        )
+
+    # Fold the AI sub-counts in and remove them from node_events (the main scan counts every
+    # posthog-node event as node_events). max(0, count) guards against tiny cross-query ingestion jitter.
+    metrics["node_events"] = [
+        (team_id, max(0, count - node_subtractions.get(team_id, 0))) for team_id, count in metrics["node_events"]
+    ]
+    metrics.update(ai_counts_by_metric)
+
+    return metrics
 
 
 @timed_log()
@@ -798,6 +905,27 @@ def get_teams_with_recording_count_in_period(
                 "end": end,
                 "snapshot_source": snapshot_source,
             },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_recording_observations_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Replay Vision emits one `$recording_observed` event per observation into the team's events table,
+    # with `event_uuid` set to the observation id. Count distinct uuids so at-least-once ingestion
+    # duplicates (same observation, same uuid) aren't over-counted — this is a billing input.
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, count(distinct uuid) as count
+            FROM events
+            WHERE event = '$recording_observed' AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
@@ -1107,9 +1235,25 @@ def get_teams_with_ai_event_count_in_period(
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            SELECT team_id, COUNT() as count
-            FROM events
-            WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            -- Gateway events are wallet-billed, so exempt them: subtract one per distinct
+            -- verified $ai_gateway_request_id (a replayed signature reuses one id, so it's
+            -- worth one exemption and the copies stay billable). Both markers are
+            -- capture-stamped (#64806), not client-settable; a non-empty request_id is
+            -- required so one without it stays billable.
+            -- Perf: extract request_id only for verified rows (normally ≈0), so
+            -- non-gateway rows pay just the verified-bool extraction, not a string
+            -- extraction each, across the full AI event volume.
+            SELECT
+                team_id,
+                COUNT() - uniqExactIf(request_id, verified AND request_id != '') as count
+            FROM (
+                SELECT
+                    team_id,
+                    JSONExtractBool(properties, '$ai_gateway_verified') as verified,
+                    if(verified, JSONExtractString(properties, '$ai_gateway_request_id'), '') as request_id
+                FROM events
+                WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            )
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
@@ -1145,8 +1289,8 @@ POSTHOG_AI_PRODUCTS = [
     "surveys",
 ]
 
-# ai_product values billed as signals credits.
-SIGNALS_AI_PRODUCTS = ["signals"]
+# ai_product values billed as PostHog Code credits.
+POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -1361,18 +1505,30 @@ def get_teams_with_ai_credits_used_in_period(
 
 
 @timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_signals_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Signals billing credits — only events tagged with ai_product='signals'."""
+    """Signals billing — a flat credit charge per report whose implementation shipped a PR.
+
+    Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
+    """
+    return get_signals_billing_credits_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_posthog_code_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'."""
     return _get_teams_with_ai_credits_for_products(
         begin,
         end,
-        ai_products=SIGNALS_AI_PRODUCTS,
-        usage_report_tag="signals_credits",
-        product_tag=Product.SIGNALS,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="posthog_code_credits",
+        product_tag=Product.POSTHOG_CODE,
     )
 
 
@@ -1903,15 +2059,16 @@ def get_teams_with_logs_records_in_period(
         )
 
 
-# Maps the `telemetry.sdk.name` resource attribute (the mobile SDK package name, set on every log
-# record) to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys.
-# The browser SDK (posthog-js) is omitted: it doesn't set telemetry.sdk.name on logs (it only sets
-# the OTLP scope name), so a "web" entry here would never match. Add it once posthog-js is fixed.
+# Maps the `telemetry.sdk.name` resource attribute (the SDK identifier, set on every log record) to
+# the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys. posthog-js sets
+# `web`; posthog-rails sets `posthog-ruby`; the mobile SDKs set their package name.
 SDK_TELEMETRY_NAMES: dict[str, str] = {
+    "web": "web",
     "posthog-ios": "ios",
     "posthog-react-native": "react_native",
     "posthog-android": "android",
     "posthog-flutter": "flutter",
+    "posthog-ruby": "ruby",
 }
 
 
@@ -1926,8 +2083,9 @@ def get_teams_with_sdk_logs_records_in_period(
     Returns log record counts grouped by team and PostHog SDK, for the given period.
 
     The result is keyed by the short SDK suffix used on `UsageReportCounters`
-    (`ios`, `react_native`, `android`, `flutter`); each value is a list of
-    `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
+    (the values of `SDK_TELEMETRY_NAMES` — `web`, `ios`, `react_native`,
+    `android`, `flutter`, `ruby`); each value is a list of `(team_id, count)`
+    tuples ready for `convert_team_usage_rows_to_dict`.
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
     (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
@@ -2088,11 +2246,13 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.posthog_code_credits_used_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
+        or report.recording_observations_count_in_period > 0
     )
 
 
@@ -2147,6 +2307,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
+        "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
         "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
@@ -2178,6 +2339,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, snapshot_source="mobile"
         ),
         "teams_with_mobile_billable_recording_count_in_period": get_teams_with_mobile_billable_recording_count_in_period(
+            period_start, period_end
+        ),
+        "teams_with_recording_observations_count_in_period": get_teams_with_recording_observations_count_in_period(
             period_start, period_end
         ),
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
@@ -2348,6 +2512,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2365,10 +2532,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
         "teams_with_logs_retention_90d_bytes_in_period": logs_retention_by_tier["90d"],
         "teams_with_logs_records_in_period": logs_records_rows,
+        "teams_with_web_logs_records_in_period": sdk_logs_by_suffix["web"],
         "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
         "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
+        "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
     }
 
 
@@ -2425,6 +2594,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
+            team.id, 0
+        ),
+        recording_observations_count_in_period=all_data["teams_with_recording_observations_count_in_period"].get(
             team.id, 0
         ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
@@ -2502,6 +2674,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
+        posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
         convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),
@@ -2520,6 +2693,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
@@ -2542,10 +2716,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_retention_90d_mb_in_period=int(
             all_data["teams_with_logs_retention_90d_bytes_in_period"].get(team.id, 0) // 1_000_000
         ),
+        web_logs_records_in_period=all_data["teams_with_web_logs_records_in_period"].get(team.id, 0),
         ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
         react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
+        ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
     )
 
 

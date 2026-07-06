@@ -276,7 +276,7 @@ async fn transport_retries_on_worker_busy() {
     let elapsed = start.elapsed();
 
     assert!(
-        matches!(err, TransportError::WorkerBusy(_)),
+        matches!(err.error, TransportError::WorkerBusy(_)),
         "expected WorkerBusy, got {err:?}"
     );
     // One retry means one busy backoff (base 250ms + jitter), so the call must
@@ -316,23 +316,22 @@ async fn transport_fails_on_unreachable_worker() {
 }
 
 #[tokio::test]
-async fn transport_rejects_send_to_unknown_worker() {
-    // Caller bug: send_batch invoked with a URL that wasn't registered at
-    // construction. We bail with UnknownWorker rather than silently bypassing
-    // the semaphore.
-    let urls = vec!["http://known-worker:9001".to_string()];
-    let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
+async fn transport_lazily_creates_semaphore_for_unseeded_worker() {
+    // Dynamic membership: a worker not seeded at construction (discovered at
+    // runtime) gets a semaphore created on first send and is served normally.
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_mock_worker(received.clone()).await;
+
+    // Construct with an empty worker set — the target is "unknown" at build time.
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &[], 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
-    let err = transport
-        .send_batch("http://unknown-worker:9999", "batch-x", messages)
+    let accepted = transport
+        .send_batch(&url, "batch-lazy", messages)
         .await
-        .unwrap_err();
+        .expect("send to an unseeded worker should succeed via lazy semaphore creation");
 
-    assert!(
-        matches!(err, TransportError::UnknownWorker(_)),
-        "expected UnknownWorker, got {err:?}"
-    );
+    assert_eq!(accepted, 1);
 }
 
 #[tokio::test]
@@ -450,6 +449,7 @@ async fn dispatcher_and_transport_end_to_end() {
             degraded_hold: Duration::from_secs(10),
             min_state_duration: Duration::ZERO,
             probe_failure_threshold: 2,
+            drain_timeout: Duration::from_secs(5),
         },
     ));
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
@@ -469,23 +469,22 @@ async fn dispatcher_and_transport_end_to_end() {
         make_message("tok", "user-3", 3, r#"{"event":"d"}"#),
     ];
 
-    let sub_batches = dispatcher.assign(messages);
+    let sub_batches = dispatcher.assign("b", messages);
 
     // Scatter to workers
     let mut handles = Vec::new();
     for sub_batch in sub_batches {
         let t = transport.clone();
-        let url = worker_urls[sub_batch.worker_idx].clone();
+        let worker = sub_batch.worker.clone();
         let routing_keys = sub_batch.routing_keys.clone();
-        let worker_idx = sub_batch.worker_idx;
         let message_count = sub_batch.messages.len();
         let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
             let result = t
-                .send_batch(&url, "batch-e2e", sub_batch.messages)
+                .send_batch(&worker, "batch-e2e", sub_batch.messages)
                 .await
                 .unwrap();
-            d.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
+            d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false);
             result
         }));
     }

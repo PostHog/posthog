@@ -1,0 +1,750 @@
+"""
+Postgres-based job queue for warehouse source batch processing.
+
+Replaces the Kafka topic `warehouse_sources_jobs` with direct Postgres inserts
+and lease-based coordination. All SQL is isolated here so that the producer
+(Temporal activity) and consumer share a single interface to the queue.
+
+Group ownership uses a row-based lease (`sourcegrouplease`) keyed by
+(team_id, schema_id): claimed via a conditional upsert, renewed by the
+consumer heartbeat, and reclaimable by any pod once it expires. This replaces
+the old session-scoped Postgres advisory lock, whose ownership was tied to a
+live server session and so could be orphaned indefinitely on SIGKILL, pgbouncer
+session lingering, or node loss — wedging the whole loader fleet.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+import psycopg
+from psycopg.rows import dict_row
+
+BATCH_TABLE = "sourcebatch"
+STATUS_TABLE = "sourcebatchstatus"
+STATUS_VIEW = "v_latest_source_batch_status"
+LEASE_TABLE = "sourcegrouplease"
+
+# Default group-lease validity window, in seconds. The consumer renews the
+# lease on its heartbeat (~every grace/3); a group whose owner stops renewing
+# becomes reclaimable once this window elapses. Coordinated with the consumer's
+# recovery_grace_seconds so lease reclamation and the executing-status recovery
+# sweep fire together.
+LEASE_TTL_SECONDS = 300
+
+# Partition pruning hint: only scan partitions within this window.
+# Set to 2x the retention period so the planner can skip dropped
+# partitions. Not a correctness filter — older partitions are already
+# gone by the time this matters.
+PARTITION_PRUNING_INTERVAL = "14 days"
+
+# Quiet time (no batch inserts or status writes) before lock takeover treats a run as
+# abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
+TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
+
+
+def pending_batch_select_columns(status_alias: str) -> str:
+    return f"""
+        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+        b.cumulative_row_count, b.resource_name, b.is_resume,
+        b.is_first_ever_sync, b.metadata,
+        COALESCE({status_alias}.attempt, 0) AS latest_attempt,
+        b.created_at
+    """
+
+
+def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "LEFT") -> str:
+    """Per-batch latest-status lookup, driven by the (batch_id, created_at DESC, id DESC) index.
+
+    Replaces joins against the ``DISTINCT ON`` latest-status view: the view has
+    to reduce the *entire* status table before the planner can join it, so its
+    cost grows with total queue history no matter how few batches the outer
+    query touches — under backlog that made every poll and sweep degrade
+    together. A lateral LIMIT 1 probe costs one index descent per outer batch
+    instead.
+
+    ``join="LEFT"`` keeps outer batches with no status row (``status_alias``
+    columns come back NULL); ``join="INNER"`` drops them.
+    """
+    join_kw = "LEFT JOIN" if join == "LEFT" else "JOIN"
+    return f"""
+        {join_kw} LATERAL (
+            SELECT id, batch_id, job_state, attempt, exec_time, error_response, created_at
+            FROM {STATUS_TABLE}
+            WHERE batch_id = {batch_alias}.id
+              AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ) {status_alias} ON true
+    """
+
+
+# Retained for the duckgres sink, which still coordinates via session advisory
+# locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
+async def unlock_advisory_locks(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batches: list[PendingBatch],
+    namespace: int,
+) -> None:
+    for batch in batches:
+        await conn.execute(
+            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
+            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingBatch:
+    """A batch row fetched from the queue, ready to be processed by the consumer."""
+
+    id: str
+    team_id: int
+    schema_id: str
+    source_id: str
+    job_id: str
+    run_uuid: str
+    batch_index: int
+    s3_path: str
+    row_count: int
+    byte_size: int
+    is_final_batch: bool
+    total_batches: int | None
+    total_rows: int | None
+    sync_type: str
+    cumulative_row_count: int
+    resource_name: str
+    is_resume: bool
+    is_first_ever_sync: bool
+    metadata: dict[str, Any]
+    latest_attempt: int
+    created_at: datetime | None = None
+
+    def to_export_signal(self) -> dict[str, Any]:
+        """Temporary bridge: convert a PendingBatch into an ExportSignalMessage dict
+        so we can reuse the existing process_message() for local testing. The final
+        solution will operate on PendingBatch directly without this conversion."""
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "resource_name": self.resource_name,
+            "run_uuid": self.run_uuid,
+            "batch_index": self.batch_index,
+            "s3_path": self.s3_path,
+            "row_count": self.row_count,
+            "byte_size": self.byte_size,
+            "is_final_batch": self.is_final_batch,
+            "total_batches": self.total_batches,
+            "total_rows": self.total_rows,
+            "sync_type": self.sync_type,
+            "cumulative_row_count": self.cumulative_row_count,
+            "is_resume": self.is_resume,
+            "is_first_ever_sync": self.is_first_ever_sync,
+            "timestamp_ns": self.metadata.get("timestamp_ns", time.time_ns()),
+            "data_folder": self.metadata.get("data_folder"),
+            "schema_path": self.metadata.get("schema_path"),
+            "primary_keys": self.metadata.get("primary_keys"),
+            "partition_count": self.metadata.get("partition_count"),
+            "partition_size": self.metadata.get("partition_size"),
+            "partition_keys": self.metadata.get("partition_keys"),
+            "partition_format": self.metadata.get("partition_format"),
+            "partition_mode": self.metadata.get("partition_mode"),
+            "cdc_write_mode": self.metadata.get("cdc_write_mode"),
+            "cdc_table_mode": self.metadata.get("cdc_table_mode"),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class FailedRunRef:
+    """Identity of a run with a ``failed`` queue batch, used by the reconcile sweep to fail its ExternalDataJob."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunActivitySummary:
+    """Queue DB activity for a holder's run, used by the lock takeover decision matrix."""
+
+    has_batches: bool
+    has_non_terminal: bool
+    is_stale: bool
+
+
+class BatchQueue:
+    """
+    Async interface to the Postgres batch queue tables. Each method runs
+    its own query against the provided connection — callers manage connections
+    and transactions.
+    """
+
+    # -- writes (producer side) ------------------------------------------------
+
+    @staticmethod
+    async def insert(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        source_id: str,
+        job_id: str,
+        run_uuid: str,
+        batch_index: int,
+        s3_path: str,
+        row_count: int,
+        byte_size: int,
+        is_final_batch: bool,
+        total_batches: int | None,
+        total_rows: int | None,
+        sync_type: str,
+        cumulative_row_count: int,
+        resource_name: str,
+        is_resume: bool,
+        is_first_ever_sync: bool,
+        metadata: dict[str, Any],
+    ) -> str:
+        """Insert a batch row into the queue. Returns the new batch id."""
+        row = await conn.execute(
+            f"""
+            INSERT INTO {BATCH_TABLE} (
+                id, team_id, schema_id, source_id, job_id, run_uuid,
+                batch_index, s3_path, row_count, byte_size, is_final_batch,
+                total_batches, total_rows, sync_type, cumulative_row_count,
+                resource_name, is_resume, is_first_ever_sync, metadata, created_at
+            ) VALUES (
+                gen_random_uuid(),
+                %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
+                %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
+                %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
+                %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, now()
+            )
+            RETURNING id
+            """,
+            {
+                "team_id": team_id,
+                "schema_id": schema_id,
+                "source_id": source_id,
+                "job_id": job_id,
+                "run_uuid": run_uuid,
+                "batch_index": batch_index,
+                "s3_path": s3_path,
+                "row_count": row_count,
+                "byte_size": byte_size,
+                "is_final_batch": is_final_batch,
+                "total_batches": total_batches,
+                "total_rows": total_rows,
+                "sync_type": sync_type,
+                "cumulative_row_count": cumulative_row_count,
+                "resource_name": resource_name,
+                "is_resume": is_resume,
+                "is_first_ever_sync": is_first_ever_sync,
+                "metadata": json.dumps(metadata),
+            },
+        )
+        batch_id: str = str((await row.fetchone())[0])  # type: ignore[index]
+        return batch_id
+
+    # -- reads (consumer side) -------------------------------------------------
+
+    @staticmethod
+    async def get_unprocessed_and_lock(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+    ) -> list[PendingBatch]:
+        """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
+
+        Group ownership is a row in ``sourcegrouplease`` keyed by
+        (team_id, schema_id). The outer query claims-or-renews the lease for
+        each candidate group in a single writable CTE: a group is returned only
+        when the lease is free (no row), already owned by ``owner_token``, or
+        expired (a previous owner abandoned it). A live lease held by another
+        pod fails the conditional ``DO UPDATE`` and that group's rows are
+        dropped by the ``JOIN claimed``. This replaces the old session advisory
+        lock so an abandoned group simply expires rather than wedging the fleet.
+
+        Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
+        fully resolved before the lease claim runs. ``candidate_groups`` is
+        ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
+        affect the same (team_id, schema_id) row twice in one statement.
+
+        ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
+        the age of the latest status row: a batch is only eligible when
+        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        (attempt is floored at 1 so that a zero-attempt row still waits at least one
+        base period).
+
+        Head-of-line gating per run: a batch is excluded if any earlier
+        ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
+        in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
+        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        backoff met are treated as siblings that will be returned alongside
+        in the same poll and processed sequentially by the consumer.
+
+        In-flight schema gating: a batch is also excluded if its
+        ``(team_id, schema_id)`` already has an ``executing`` batch (i.e. the
+        group is being processed by its lease holder). This keeps a schema's
+        other queued runs from consuming the ``LIMIT`` window ahead of the lease
+        claim and starving other schemas' claimable work.
+
+        Per-team fairness: candidates are interleaved round-robin across teams so one
+        team's deep backlog cannot monopolize the ``LIMIT`` window; within a team,
+        oldest-first order (and so per-run ``batch_index`` ordering) is preserved.
+
+        Disjoint windows across pods: groups live-leased by *another* owner are
+        excluded from candidates entirely, not merely dropped at the claim step.
+        Otherwise every pod computes the same top-``LIMIT`` window and groups
+        already owned elsewhere occupy window slots that losing pods can never
+        claim — with enough of them at the head of the queue the whole window is
+        dead weight and fleet concurrency collapses to roughly one window's worth.
+        Own-leased groups stay in the window so a pod can keep draining a group it
+        already holds.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                WITH candidates AS MATERIALIZED (
+                    SELECT
+                        {pending_batch_select_columns("s")}
+                    FROM {BATCH_TABLE} b
+                    {latest_status_lateral("b", "s")}
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (
+                            s.batch_id IS NULL
+                            OR (
+                                s.job_state = 'waiting_retry'
+                                AND s.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
+                                )
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_prev
+                            {latest_status_lateral("b_prev", "s_prev")}
+                            WHERE b_prev.run_uuid = b.run_uuid
+                                AND b_prev.batch_index < b.batch_index
+                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND (
+                                    s_prev.job_state = 'executing'
+                                    OR (
+                                        s_prev.job_state = 'waiting_retry'
+                                        AND s_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b2
+                            {latest_status_lateral("b2", "s2", join="INNER")}
+                            WHERE b2.run_uuid = b.run_uuid
+                                AND b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s2.job_state = 'failed'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_busy
+                            {latest_status_lateral("b_busy", "s_busy", join="INNER")}
+                            WHERE b_busy.team_id = b.team_id
+                                AND b_busy.schema_id = b.schema_id
+                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s_busy.job_state = 'executing'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {LEASE_TABLE} l_live
+                            WHERE l_live.team_id = b.team_id
+                                AND l_live.schema_id = b.schema_id
+                                AND l_live.expires_at > now()
+                                AND l_live.owner_token != %(owner)s
+                        )
+                    ORDER BY
+                        row_number() OVER (
+                            PARTITION BY b.team_id ORDER BY b.created_at ASC, b.batch_index ASC
+                        ) ASC,
+                        b.created_at ASC,
+                        b.batch_index ASC
+                    LIMIT %(limit)s
+                ),
+                candidate_groups AS (
+                    SELECT DISTINCT team_id, schema_id FROM candidates
+                ),
+                claimed AS (
+                    INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                    SELECT team_id, schema_id, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now()
+                    FROM candidate_groups
+                    ON CONFLICT (team_id, schema_id) DO UPDATE
+                        SET owner_token = excluded.owner_token,
+                            expires_at = excluded.expires_at,
+                            acquired_at = CASE
+                                WHEN {LEASE_TABLE}.owner_token = excluded.owner_token THEN {LEASE_TABLE}.acquired_at
+                                ELSE now()
+                            END,
+                            updated_at = now()
+                        WHERE {LEASE_TABLE}.expires_at < now()
+                           OR {LEASE_TABLE}.owner_token = excluded.owner_token
+                    RETURNING team_id, schema_id
+                )
+                SELECT c.*
+                FROM candidates c
+                JOIN claimed USING (team_id, schema_id)
+                ORDER BY c.created_at ASC, c.batch_index ASC
+                """,
+                {"limit": limit, "backoff": retry_backoff_base_seconds, "owner": owner_token, "ttl": lease_ttl_seconds},
+            )
+            rows = await cur.fetchall()
+        return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def update_status(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        job_state: str,
+        attempt: int = 0,
+        error_response: dict[str, Any] | None = None,
+    ) -> None:
+        """Append a status row for a batch (executing, succeeded, waiting_retry, failed)."""
+        await conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
+            """,
+            {
+                "batch_id": batch_id,
+                "job_state": job_state,
+                "attempt": attempt,
+                "error_response": json.dumps(error_response) if error_response else None,
+            },
+        )
+
+    @staticmethod
+    async def renew_lease(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+    ) -> bool:
+        """Extend this owner's group lease. Returns False if the lease was lost (row gone or reclaimed)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                UPDATE {LEASE_TABLE}
+                SET expires_at = now() + make_interval(secs => %(ttl)s), updated_at = now()
+                WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                RETURNING 1
+                """,
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token, "ttl": lease_ttl_seconds},
+            )
+            return (await cur.fetchone()) is not None
+
+    @staticmethod
+    async def verify_advisory_lock(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+    ) -> bool:
+        """Check whether ``owner_token`` still holds a live group lease for (team_id, schema_id).
+
+        Named ``verify_advisory_lock`` for interface continuity with the
+        consumer engine and the duckgres sink; ownership is now a lease row, not
+        a session advisory lock.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM {LEASE_TABLE}
+                    WHERE team_id = %(team_id)s
+                      AND schema_id = %(schema_id)s
+                      AND owner_token = %(owner)s
+                      AND expires_at > now()
+                )
+                """,
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
+    async def get_stale_executing(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int = 0,
+    ) -> list[PendingBatch]:
+        """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
+
+        A batch is orphaned when its latest status is 'executing', that status
+        row is older than ``grace_seconds`` (the heartbeat stopped refreshing
+        it), and no live lease covers its (team_id, schema_id) group. Unlike the
+        old advisory-lock probe — which a lingering pgbouncer session could hold
+        indefinitely and block recovery — an abandoned lease simply expires, so
+        this sweep can always reclaim a genuinely orphaned group.
+
+        ``grace_seconds`` requires the 'executing' status row to be older than
+        this threshold before the batch is considered orphaned.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT
+                    {pending_batch_select_columns("s")}
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s", join="INNER")}
+                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+                WHERE
+                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND s.job_state = 'executing'
+                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                    AND (l.team_id IS NULL OR l.expires_at <= now())
+                ORDER BY b.created_at ASC, b.batch_index ASC
+                """,
+                {"grace": grace_seconds},
+            )
+            rows = await cur.fetchall()
+
+        return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def fail_run(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        run_uuid: str,
+        reason: str,
+    ) -> int:
+        """Mark every pending batch in a run as failed. Returns the count of batches failed."""
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.run_uuid = %(run_uuid)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "run_uuid": run_uuid,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def supersede_other_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> int:
+        """Mark non-terminal batches from older runs of the same job as superseded."""
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "job_id": job_id,
+                "current_run_uuid": current_run_uuid,
+                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    async def get_failed_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> list[FailedRunRef]:
+        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
+
+        Ordered by latest failure first so fresh failures still land in the window when
+        already-reconciled runs outnumber ``limit`` within the lookback.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
+                FROM (
+                    SELECT DISTINCT ON (b.run_uuid)
+                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
+                        s.created_at AS failed_at
+                    FROM {BATCH_TABLE} b
+                    {latest_status_lateral("b", "s", join="INNER")}
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'failed'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
+                    ORDER BY b.run_uuid, s.created_at DESC
+                ) failed_runs
+                ORDER BY failed_at DESC
+                LIMIT %(limit)s
+                """,
+                {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            FailedRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
+                reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def unlock_for_batches(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batches: list[PendingBatch],
+        owner_token: str,
+    ) -> None:
+        """Release the group leases for ``batches``' (team_id, schema_id) groups held by ``owner_token``.
+
+        The ``owner_token`` predicate is load-bearing: if this owner's lease
+        already expired and another pod reclaimed the group, the delete must be
+        a no-op rather than removing the new owner's lease.
+        """
+        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        if not pairs:
+            return
+        team_ids = [team_id for team_id, _ in pairs]
+        schema_ids = [schema_id for _, schema_id in pairs]
+        await conn.execute(
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE owner_token = %(owner)s
+              AND (team_id, schema_id) IN (
+                  SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+              )
+            """,
+            {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
+        )
+
+    @staticmethod
+    async def release_all_owned_leases(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        """Delete every group lease held by ``owner_token``. Used for best-effort cleanup on shutdown."""
+        await conn.execute(
+            f"DELETE FROM {LEASE_TABLE} WHERE owner_token = %(owner)s",
+            {"owner": owner_token},
+        )
+
+    @staticmethod
+    def get_run_activity_summary(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        workflow_run_id: str,
+    ) -> RunActivitySummary:
+        """Check the queue DB for batch activity belonging to a holder's run.
+
+        Used by the lock takeover decision matrix to distinguish genuinely stale
+        RUNNING jobs from ones the loader still has work for. Unclaimed batches
+        (no status row yet — hence the LEFT JOIN) count as non-terminal, and both
+        batch inserts and status writes count as activity.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS batch_count,
+                    COUNT(*) FILTER (
+                        WHERE s.batch_id IS NULL
+                            OR s.job_state NOT IN ('succeeded', 'failed')
+                    ) AS non_terminal_count,
+                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s")}
+                WHERE
+                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                    AND b.metadata->>'workflow_run_id' = %(workflow_run_id)s
+                """,
+                {"job_id": job_id, "workflow_run_id": workflow_run_id},
+            )
+            row = cur.fetchone()
+
+        if row is None or row["batch_count"] == 0 or row["latest_activity_at"] is None:
+            return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
+
+        non_terminal_count: int = row["non_terminal_count"]
+        latest_activity_at: datetime = row["latest_activity_at"]
+        age_seconds = (datetime.now(latest_activity_at.tzinfo) - latest_activity_at).total_seconds()
+
+        return RunActivitySummary(
+            has_batches=True,
+            has_non_terminal=non_terminal_count > 0,
+            is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
+        )
+
+    @staticmethod
+    def count_batches_for_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+    ) -> int:
+        """Count queue batches enqueued for a job, regardless of status.
+
+        Unlike ``get_run_activity_summary`` (which inner-joins the status view and so
+        reports ``has_batches=False`` for batches the loader hasn't claimed yet), this
+        counts raw batch rows. It lets a caller tell a run that enqueued *nothing* (safe
+        to finalize) apart from one whose batches are merely unclaimed — where the loader
+        still owns completion and failing the job would strand a late load. The pruning
+        window bounds the scan to batches the queue still retains, so a ``0`` here is only
+        trustworthy for jobs newer than ``PARTITION_PRUNING_INTERVAL``.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS batch_count
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return int(row["batch_count"]) if row else 0

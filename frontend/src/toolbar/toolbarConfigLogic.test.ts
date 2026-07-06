@@ -1,13 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per

@@ -1,1 +1,1 @@
-0007_slackuserprofilecache_is_bot
+0010_slacksettings_default_integration_nullable

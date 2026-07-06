@@ -85,6 +85,12 @@ type TableProps = React.ComponentProps<'table'> & {
      * one soaks up the slack; otherwise the extra width spreads across columns.
      */
     fullWidth?: boolean
+    /**
+     * Cell density. `'sm'` tightens the head/cell inline padding to `0.75rem`
+     * (from `1rem`) so the table's edge columns line up with a `Card size="sm"`'s
+     * `0.75rem` inline padding. Pair with `Card size="sm" flush`.
+     */
+    size?: 'default' | 'sm'
     /** Classes for the inner `<table>`. Size/scroll go on the container via `className`. */
     tableClassName?: string
     /** Ref to the scrolling viewport — for scroll-to-row, virtualization, IntersectionObservers, etc. */
@@ -94,7 +100,7 @@ type TableProps = React.ComponentProps<'table'> & {
 // The forwarded ref points at the `<table>` element (consistent with `...props`,
 // which also land there). The scroll container is reached via `viewportRef`.
 const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
-    { className, tableClassName, stickyHeader = false, fullWidth = false, viewportRef, ...props },
+    { className, tableClassName, stickyHeader = false, fullWidth = false, size = 'default', viewportRef, ...props },
     ref
 ) {
     const rootRef = React.useRef<HTMLDivElement | null>(null)
@@ -121,6 +127,7 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
                     data-slot="table"
                     data-sticky-header={stickyHeader ? '' : undefined}
                     data-full-width={fullWidth ? '' : undefined}
+                    data-size={size}
                     className={cn('quill-table', tableClassName)}
                     {...props}
                 />
@@ -198,19 +205,20 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'t
 // browsers clamp it to the real column count, so callers rarely set it. The cell
 // stretches to the table's body height (give the Table a height to fill it) and
 // centers its content — drop in `<Empty>` or plain text, no `h-full` needed.
-const TableEmpty = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'td'>>(
-    function TableEmpty({ className, colSpan = 1000, children, ...props }, ref) {
-        return (
-            <tbody data-slot="table-empty">
-                <tr>
-                    <td ref={ref} colSpan={colSpan} className={cn('quill-table__empty', className)} {...props}>
-                        <div className="quill-table__empty-inner">{children}</div>
-                    </td>
-                </tr>
-            </tbody>
-        )
-    }
-)
+const TableEmpty = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'td'>>(function TableEmpty(
+    { className, colSpan = 1000, children, ...props },
+    ref
+) {
+    return (
+        <tbody data-slot="table-empty">
+            <tr>
+                <td ref={ref} colSpan={colSpan} className={cn('quill-table__empty', className)} {...props}>
+                    <div className="quill-table__empty-inner">{children}</div>
+                </td>
+            </tr>
+        </tbody>
+    )
+})
 
 const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.ComponentProps<'caption'>>(function TableCaption(
     { className, ...props },

@@ -9,7 +9,7 @@ from posthog.models import Organization, Team
 
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.sandbox_inference import MaterializedData
-from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.facade.sandbox import ExecutionResult
 
 VALID_FEATURE_SQL = "SELECT person_id AS distinct_id, countIf(event = '$pageview') AS pv FROM events GROUP BY person_id"
 

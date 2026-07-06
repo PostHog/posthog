@@ -10,7 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.permissions import IsStaffUserOrImpersonating, PostHogFeatureFlagPermission
 
-from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import AccountOrganizationMemberSerializer
 
 

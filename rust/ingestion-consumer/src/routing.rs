@@ -7,18 +7,21 @@
 //! routing policy evolve (P2C cost functions, subsetting) without touching the
 //! dispatcher's bookkeeping.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::worker_registry::WorkerId;
+
 /// How unpinned routing keys are assigned to workers. Pinned keys always go to
 /// their existing worker regardless of strategy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RoutingStrategy {
-    /// Largest-first bin-packing onto the globally least-loaded worker. Accurate
-    /// when one consumer exclusively owns its workers (the co-located sidecar),
-    /// because then this consumer's in-flight counts are the ground truth.
+    /// Largest-first bin-packing onto the least-loaded worker. Accurate when one
+    /// consumer exclusively owns its workers (the co-located sidecar), because
+    /// then this consumer's in-flight counts are the ground truth.
     #[default]
     BinPack,
     /// Power-of-two-choices: sample two random workers, pick the lighter. Herd
@@ -39,6 +42,14 @@ impl FromStr for RoutingStrategy {
             )),
         }
     }
+}
+
+/// Per-worker load for a single routing decision, keyed by worker id. A missing
+/// entry counts as zero load.
+pub type WorkerLoad = HashMap<WorkerId, usize>;
+
+fn load_of(load: &WorkerLoad, worker: &WorkerId) -> usize {
+    load.get(worker).copied().unwrap_or(0)
 }
 
 /// Stateful worker selector. Holds the routing strategy and, for P2C, the RNG
@@ -78,58 +89,43 @@ impl Router {
         matches!(self.strategy, RoutingStrategy::BinPack)
     }
 
-    /// Select a worker for one group. `healthy` lists candidate worker indices;
-    /// `in_flight` and `provisional` are indexed by worker index, and a worker's
-    /// load is their sum (outstanding messages plus what has been provisionally
-    /// assigned earlier in this round). Returns `None` when no workers are
-    /// healthy.
-    pub fn select(
-        &mut self,
-        healthy: &[usize],
-        in_flight: &[usize],
-        provisional: &[usize],
-    ) -> Option<usize> {
+    /// Select a worker for one group. `healthy` lists candidate worker ids;
+    /// `load` is the current per-worker load (outstanding messages plus what has
+    /// been provisionally assigned earlier in this round). Returns `None` when
+    /// no workers are healthy.
+    pub fn select(&mut self, healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
         match self.strategy {
-            RoutingStrategy::BinPack => select_least_loaded(healthy, in_flight, provisional),
-            RoutingStrategy::P2c => select_p2c(healthy, in_flight, provisional, &mut self.rng),
+            RoutingStrategy::BinPack => select_least_loaded(healthy, load),
+            RoutingStrategy::P2c => select_p2c(healthy, load, &mut self.rng),
         }
     }
 }
 
-/// Pick the globally least-loaded healthy worker. Ties resolve to the lowest
-/// worker index (matching the prior `min_by_key` behavior).
-fn select_least_loaded(
-    healthy: &[usize],
-    in_flight: &[usize],
-    provisional: &[usize],
-) -> Option<usize> {
-    healthy
-        .iter()
-        .copied()
-        .min_by_key(|&idx| in_flight[idx] + provisional[idx])
+/// Pick the least-loaded healthy worker. Ties resolve to the first such worker
+/// in `healthy`.
+fn select_least_loaded(healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
+    healthy.iter().min_by_key(|w| load_of(load, w)).cloned()
 }
 
 /// Pick the lighter of two distinct random healthy workers. Degenerates to the
 /// single worker when the pool has one, and to `None` when it is empty.
-fn select_p2c(
-    healthy: &[usize],
-    in_flight: &[usize],
-    provisional: &[usize],
-    rng: &mut impl Rng,
-) -> Option<usize> {
-    let load = |idx: usize| in_flight[idx] + provisional[idx];
+fn select_p2c(healthy: &[WorkerId], load: &WorkerLoad, rng: &mut impl Rng) -> Option<WorkerId> {
     match healthy.len() {
         0 => None,
-        1 => Some(healthy[0]),
+        1 => Some(healthy[0].clone()),
         len => {
             // Sample two distinct *positions* in one step (no redraw loop): pick
             // the first, then offset by 1..len to land on a different position.
             // This terminates regardless of the slice's contents, so it stays
-            // correct even if a caller ever passes duplicate worker indices.
+            // correct even if a caller ever passes duplicate worker ids.
             let i = rng.gen_range(0..len);
             let j = (i + 1 + rng.gen_range(0..len - 1)) % len;
-            let (a, b) = (healthy[i], healthy[j]);
-            Some(if load(a) <= load(b) { a } else { b })
+            let (a, b) = (&healthy[i], &healthy[j]);
+            Some(if load_of(load, a) <= load_of(load, b) {
+                a.clone()
+            } else {
+                b.clone()
+            })
         }
     }
 }
@@ -137,6 +133,18 @@ fn select_p2c(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wid(s: &str) -> WorkerId {
+        WorkerId::from(s)
+    }
+
+    fn load(pairs: &[(&str, usize)]) -> WorkerLoad {
+        pairs.iter().map(|(w, n)| (wid(w), *n)).collect()
+    }
+
+    const A: &str = "http://w:1";
+    const B: &str = "http://w:2";
+    const C: &str = "http://w:3";
 
     // ---- strategy parsing ----
 
@@ -168,41 +176,29 @@ mod tests {
 
     #[test]
     fn test_least_loaded_picks_minimum_load() {
-        let healthy = [0, 1, 2];
-        let in_flight = [5, 1, 3];
-        let provisional = [0, 0, 0];
-        assert_eq!(
-            select_least_loaded(&healthy, &in_flight, &provisional),
-            Some(1)
-        );
+        let healthy = [wid(A), wid(B), wid(C)];
+        let l = load(&[(A, 5), (B, 1), (C, 3)]);
+        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(B)));
     }
 
     #[test]
-    fn test_least_loaded_sums_in_flight_and_provisional() {
-        let healthy = [0, 1];
-        let in_flight = [0, 1];
-        // Provisional flips which worker is lighter.
-        let provisional = [3, 0];
-        assert_eq!(
-            select_least_loaded(&healthy, &in_flight, &provisional),
-            Some(1)
-        );
+    fn test_least_loaded_treats_missing_as_zero() {
+        let healthy = [wid(A), wid(B)];
+        // B has no entry → load 0 → lighter than A.
+        let l = load(&[(A, 2)]);
+        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(B)));
     }
 
     #[test]
-    fn test_least_loaded_breaks_ties_to_lowest_index() {
-        let healthy = [0, 1, 2];
-        let in_flight = [2, 2, 2];
-        let provisional = [0, 0, 0];
-        assert_eq!(
-            select_least_loaded(&healthy, &in_flight, &provisional),
-            Some(0)
-        );
+    fn test_least_loaded_breaks_ties_to_first_in_slice() {
+        let healthy = [wid(A), wid(B), wid(C)];
+        let l = load(&[(A, 2), (B, 2), (C, 2)]);
+        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(A)));
     }
 
     #[test]
     fn test_least_loaded_empty_pool_returns_none() {
-        assert_eq!(select_least_loaded(&[], &[], &[]), None);
+        assert_eq!(select_least_loaded(&[], &WorkerLoad::new()), None);
     }
 
     // ---- p2c ----
@@ -210,68 +206,68 @@ mod tests {
     #[test]
     fn test_p2c_empty_pool_returns_none() {
         let mut rng = StdRng::seed_from_u64(1);
-        assert_eq!(select_p2c(&[], &[], &[], &mut rng), None);
+        assert_eq!(select_p2c(&[], &WorkerLoad::new(), &mut rng), None);
     }
 
     #[test]
     fn test_p2c_single_worker_returns_it() {
         let mut rng = StdRng::seed_from_u64(1);
-        assert_eq!(select_p2c(&[2], &[0, 0, 9], &[0, 0, 0], &mut rng), Some(2));
+        assert_eq!(
+            select_p2c(&[wid(C)], &load(&[(C, 9)]), &mut rng),
+            Some(wid(C))
+        );
     }
 
     #[test]
     fn test_p2c_two_workers_always_picks_lighter() {
         // With exactly two candidates, sampling-without-replacement always draws
         // both, so the lighter one is chosen deterministically regardless of seed.
+        let healthy = [wid(A), wid(B)];
+        let l = load(&[(A, 3), (B, 0)]);
         for seed in 0..16 {
             let mut rng = StdRng::seed_from_u64(seed);
             assert_eq!(
-                select_p2c(&[0, 1], &[3, 0], &[0, 0], &mut rng),
-                Some(1),
+                select_p2c(&healthy, &l, &mut rng),
+                Some(wid(B)),
                 "seed {seed}"
             );
         }
     }
 
     #[test]
-    fn test_p2c_terminates_with_duplicate_indices() {
+    fn test_p2c_terminates_with_duplicate_ids() {
         // Regression: selection must not loop even if the candidate slice
-        // contains duplicate worker indices.
+        // contains duplicate worker ids.
+        let healthy = [wid(C), wid(C)];
         let mut rng = StdRng::seed_from_u64(1);
         for _ in 0..50 {
             assert_eq!(
-                select_p2c(&[2, 2], &[0, 0, 0], &[0, 0, 0], &mut rng),
-                Some(2)
+                select_p2c(&healthy, &WorkerLoad::new(), &mut rng),
+                Some(wid(C))
             );
         }
     }
 
     #[test]
     fn test_p2c_only_ever_returns_a_healthy_worker() {
-        let healthy = [1, 3, 4];
-        let in_flight = [0, 2, 0, 5, 1];
-        let provisional = [0; 5];
+        let healthy = [wid(A), wid(B), wid(C)];
+        let l = load(&[(A, 2), (C, 5)]);
         let mut rng = StdRng::seed_from_u64(7);
         for _ in 0..200 {
-            let pick = select_p2c(&healthy, &in_flight, &provisional, &mut rng).unwrap();
+            let pick = select_p2c(&healthy, &l, &mut rng).unwrap();
             assert!(healthy.contains(&pick));
         }
     }
 
     #[test]
-    fn test_p2c_spreads_load_across_pool() {
-        // A heavily skewed start should let P2C drain onto every worker over many
-        // rounds (it never gets stuck on one). Assert all workers get picked.
-        let healthy = [0, 1, 2, 3];
-        let in_flight = [0, 0, 0, 0];
-        let provisional = [0; 4];
+    fn test_p2c_spreads_across_pool() {
+        let healthy = [wid(A), wid(B), wid(C)];
         let mut rng = StdRng::seed_from_u64(42);
-        let mut seen = [false; 4];
+        let mut seen = std::collections::HashSet::new();
         for _ in 0..200 {
-            let pick = select_p2c(&healthy, &in_flight, &provisional, &mut rng).unwrap();
-            seen[pick] = true;
+            seen.insert(select_p2c(&healthy, &WorkerLoad::new(), &mut rng).unwrap());
         }
-        assert!(seen.iter().all(|&s| s), "every worker should be reachable");
+        assert_eq!(seen.len(), 3, "every worker should be reachable");
     }
 
     // ---- router dispatch ----
@@ -280,7 +276,9 @@ mod tests {
     fn test_router_binpack_selects_least_loaded() {
         let mut router = Router::new(RoutingStrategy::BinPack);
         assert!(router.prefers_largest_first());
-        assert_eq!(router.select(&[0, 1, 2], &[4, 1, 2], &[0, 0, 0]), Some(1));
+        let healthy = [wid(A), wid(B), wid(C)];
+        let l = load(&[(A, 4), (B, 1), (C, 2)]);
+        assert_eq!(router.select(&healthy, &l), Some(wid(B)));
     }
 
     #[test]

@@ -15,14 +15,19 @@
 import {
     createAgentPool,
     createLogger,
+    createMetricsServer,
     DirectHttpClient,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
+    initMetrics,
     installProcessHandlers,
+    isDev,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
-    PgIntegrationStore,
+    PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
@@ -38,11 +43,21 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentIngressConfig()
 
+    // Prometheus: Node process defaults. Prod runs a dedicated scrape server on
+    // a separate port so /metrics is never exposed on the internet-facing
+    // ingress listener. Dev mounts /metrics inside buildApp (no dedicated port —
+    // three services on one host would collide); the dev request port isn't
+    // public, so that's safe locally only.
+    initMetrics({ service: 'agent-ingress' })
+    if (!isDev()) {
+        createMetricsServer({ port: config.metricsPort, log })
+    }
+
     const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)
 
-    // REDIS_URL (cross-host /listen bus), HTTPS_PROXY (smokescreen — Slack bridge
-    // + PostHog introspect), and AGENT_INTERNAL_SIGNING_KEY (preview-token gate +
+    // REDIS_URL (cross-host /listen bus), HTTPS_PROXY (smokescreen — Slack
+    // bot-token calls), and AGENT_INTERNAL_SIGNING_KEY (preview-token gate +
     // posthog_internal mode) are all required in prod and enforced at config-load
     // (config.ts: dev defaults, fail closed in prod) — no boot guards needed here.
     const bus = new RedisSessionEventBus({ url: config.redisUrl })
@@ -50,12 +65,10 @@ async function main(): Promise<void> {
 
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
 
-    // Slack → PostHog user bridge needs the integration store to fetch the
-    // workspace bot token for `users.info`. Construction throws if
-    // encryption isn't configured — fail-fast at boot rather than first
-    // tool call.
+    // Backs the per-agent secret resolver below (Slack signing secret + bot
+    // token from `encrypted_env`). Construction throws if encryption isn't
+    // configured — fail-fast at boot rather than first request.
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
-    const integrations = new PgIntegrationStore(posthogDb, encryption)
 
     // Per-mode auth verifiers. The introspector validates OAuth + PAT
     // bearers against PostHog's `/api/users/@me/` (covers both token
@@ -116,6 +129,8 @@ async function main(): Promise<void> {
         revisions: new PgRevisionStore(agentDb),
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
+        // Backs the Slack principal-decision handler (decide + wake).
+        approvals: new PgApprovalStore(agentDb),
         bus,
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
@@ -123,10 +138,14 @@ async function main(): Promise<void> {
         publicBaseUrl: config.publicUrl,
         slackSigningSecretResolver: secretResolver,
         internalSigningKey: config.internalSigningKey,
-        integrations,
-        posthogDb,
         authProvider,
         credentialBroker,
+        // Identity linking: the OAuth callback route consumes a link-state row,
+        // rebuilds the provider from the app's spec + decrypted env, and persists.
+        identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        envEncryption: encryption,
+        posthogApiBaseUrl: config.posthogApiBaseUrl,
         http,
     })
     app.listen(config.port, () => {

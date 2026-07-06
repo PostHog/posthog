@@ -141,8 +141,9 @@ class TestCreateExperimentTool(APIBaseTest):
         experiment = await Experiment.objects.select_related("feature_flag").aget(name="New Experiment", team=self.team)
         assert experiment.feature_flag.key == "existing-flag"
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    async def test_create_experiment_reports_posthog_ai_source(self, mock_report_user_action):
+    async def test_create_experiment_reports_posthog_ai_source(self, mock_report_user_action, _mock_on_commit):
         await self._create_multivariate_flag(key="tracked-experiment-flag")
         tool = self._create_tool()
 
@@ -164,6 +165,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "status": "draft",
             "metrics_count": 0,
             "secondary_metrics_count": 0,
+            "saved_metrics_count": 0,
             "has_description": False,
             "has_conclusion_comment": False,
             "variant_count": 2,
@@ -207,12 +209,14 @@ class TestCreateExperimentTool(APIBaseTest):
         assert "Successfully created" in result
 
         experiment = await Experiment.objects.aget(name="Parameter Test", team=self.team)
-        assert experiment.parameters is not None
-        assert experiment.parameters["feature_flag_variants"] == [
+        # Variants live on the flag (the source of truth), not mirrored into `parameters`.
+        flag = await FeatureFlag.objects.aget(key="param-test", team=self.team)
+        assert flag.variants == [
             {"key": "control", "name": "Control", "rollout_percentage": 50},
             {"key": "test", "name": "Test", "rollout_percentage": 50},
         ]
-        assert experiment.parameters["minimum_detectable_effect"] == 30
+        assert "minimum_detectable_effect" not in (experiment.parameters or {})
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 30}
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []
 
@@ -290,13 +294,16 @@ class TestCreateExperimentTool(APIBaseTest):
         assert "Successfully created" in result
 
         experiment = await Experiment.objects.aget(name="Custom Variants Test", team=self.team)
-        assert experiment.parameters is not None
-        assert len(experiment.parameters["feature_flag_variants"]) == 3
-        assert experiment.parameters["feature_flag_variants"][0]["key"] == "control"
-        assert experiment.parameters["feature_flag_variants"][0]["name"] == "Control"
-        assert experiment.parameters["feature_flag_variants"][0]["rollout_percentage"] == 33
-        assert experiment.parameters["feature_flag_variants"][1]["key"] == "variant_b"
-        assert experiment.parameters["feature_flag_variants"][2]["key"] == "variant_c"
+        # Variants live on the flag (the source of truth), not mirrored into `parameters`.
+        flag = await FeatureFlag.objects.aget(key="custom-variants-flag", team=self.team)
+        assert experiment.feature_flag_id == flag.id
+        variants = flag.variants
+        assert len(variants) == 3
+        assert variants[0]["key"] == "control"
+        assert variants[0]["name"] == "Control"
+        assert variants[0]["rollout_percentage"] == 33
+        assert variants[1]["key"] == "variant_b"
+        assert variants[2]["key"] == "variant_c"
 
     async def test_create_experiment_flag_without_control_variant(self):
         await self._create_multivariate_flag(

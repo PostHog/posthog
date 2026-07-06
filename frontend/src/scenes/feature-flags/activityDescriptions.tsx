@@ -266,6 +266,13 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
+    archived: function onArchived(change, logItem) {
+        const isArchived = detectBoolean(change?.after)
+        return {
+            description: [<>{isArchived ? 'archived' : 'unarchived'}</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
+    },
     key: function onKey(change, logItem) {
         const changeBefore = change?.before as string
         const changeAfter = change?.after as string

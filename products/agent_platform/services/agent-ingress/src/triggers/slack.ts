@@ -16,9 +16,17 @@ import { createLogger } from '@posthog/agent-shared'
 
 const log = createLogger('slack-trigger')
 
-import { AgentApplication, AgentRevision, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@posthog/agent-shared'
+import {
+    AgentApplication,
+    AgentRevision,
+    applyApprovalDecision,
+    decodeApprovalActionValue,
+    effectiveApprovalType,
+    principalsMatch,
+    SessionPrincipal,
+    SLACK_BOT_TOKEN_KEY,
+} from '@posthog/agent-shared'
 
-import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { getOwnedSession } from './session-access'
@@ -39,6 +47,8 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         challenge?: string
         event?: SlackEvent
         event_id?: string
+        // `message` events carry the workspace here, not on `event.team`.
+        team_id?: string
     }
     if (body.type === 'url_verification') {
         res.json({ challenge: body.challenge })
@@ -76,7 +86,8 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   ack_reaction?: string
               })
     const trusted = slackConfig.trusted_workspaces
-    const workspaceId = event.team ?? 'unknown'
+    // message events lack event.team; fall back to the envelope team_id.
+    const workspaceId = event.team ?? body.team_id ?? 'unknown'
     if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
         // The rejected workspace id is otherwise only in the 403 body — surface
         // it (plus the configured allowlist) so "why is Slack getting a 403?"
@@ -153,7 +164,10 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             res.json({ ok: true, dropped: 'mention_only' })
             return
         }
-        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey)
+        // Mention-only continuity is revision-scoped: a mention into a thread
+        // whose only owned session is on another revision must not
+        // short-circuit. Same scope as `enqueueOrResume`.
+        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey, resolved.revision.id)
         if (!existing) {
             log.info(
                 { slug: resolved.application.slug, channel: event.channel, thread_ts: event.thread_ts },
@@ -203,17 +217,6 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             metadata: { workspace: workspaceId, slack_user: event.user },
         })
         agentUserId = agentUser.id
-        // Slack → PostHog user bridge. Runs the first time we see this
-        // AgentUser; cached on the row afterwards. Sync but tight-budgeted so
-        // a Slack hiccup can't blow past Slack's 3s event ack window.
-        if (deps.integrations && deps.posthogDb) {
-            await bridgeSlackToPosthogUser(agentUser, workspaceId, event.user, {
-                integrations: deps.integrations,
-                identities: deps.identities,
-                posthogDb: deps.posthogDb,
-                http: deps.http,
-            })
-        }
     }
 
     const slackPrincipal: SessionPrincipal = {
@@ -243,12 +246,9 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             application: resolved.application,
             revision: resolved.revision,
             externalKey,
-            // Slack retries the events callback up to 3 times if it doesn't see
-            // a 200 within 3s. `event_id` is Slack's per-event uuid — identical
-            // across retries, unique per real event — so it's the right
-            // idempotency key. Falls back to ts when an older payload shape
-            // doesn't carry event_id.
-            idempotencyKey: body.event_id ? `slack:event:${body.event_id}` : `slack:ts:${event.ts}`,
+            // (channel, ts) = one message: collapses app_mention + message.* and
+            // Slack retries (same ts, distinct event_ids) into a single turn.
+            idempotencyKey: `slack:msg:${event.channel}:${event.ts}`,
             seed: { role: 'user', content: slackContext, timestamp: Date.now(), sender: slackPrincipal },
             principal: slackPrincipal,
             trigger: 'slack',
@@ -260,7 +260,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             // Stash the originating thread coordinates so the runner can post a
             // sanitized failure reply if the session dies before answering.
             triggerMetadata: {
-                type: 'slack',
+                kind: 'slack',
                 workspace_id: workspaceId,
                 channel: event.channel,
                 ts: event.ts,
@@ -309,8 +309,19 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         return
     }
     const action = payload.actions?.[0]
-    const decoded = action ? decodeElevationActionValue(action.value) : null
-    if (!action || !decoded) {
+    if (!action) {
+        res.status(400).json({ error: 'no_action' })
+        return
+    }
+    // Tool-approval buttons (`principal`-type approvals) and elevation-grant
+    // buttons share this one interactivity endpoint; dispatch on the value tag.
+    const approvalAction = decodeApprovalActionValue(action.value)
+    if (approvalAction) {
+        await handleApprovalDecisionAction(ctx, payload, approvalAction)
+        return
+    }
+    const decoded = decodeElevationActionValue(action.value)
+    if (!decoded) {
         res.status(400).json({ error: 'no_elevation_action' })
         return
     }
@@ -331,6 +342,13 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         slack_user_id: clickerId,
         agent_user_id: await resolveSlackUserId(deps, session.team_id, session.application_id, workspaceId, clickerId),
     }
+    // TODO(slack-elevation): the Grant/Decline + error replies below send their
+    // feedback in the synchronous res.json body, which Slack IGNORES for Block
+    // Kit `block_actions` — so the message never updates and the "owner only" /
+    // "already decided" ephemerals never render. Same bug already fixed for the
+    // approval buttons: ack with a bare 200, then POST feedback to
+    // `payload.response_url` via `respondViaResponseUrl` (see
+    // handleApprovalDecisionAction). Left as a follow-up — separate feature.
     const authz = authorizeGrant(session, requestId, clickerPrincipal)
     if (!authz.ok) {
         if (authz.reason === 'not_session_owner') {
@@ -376,6 +394,133 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
 }
 
 /**
+ * Update the source message of a Slack interaction. For Block Kit
+ * `block_actions`, Slack ignores the synchronous HTTP body and uses an empty
+ * 200 purely as an ack — message replacement / ephemerals MUST be POSTed to the
+ * per-interaction `response_url`. Best-effort: the decision already committed
+ * server-side, so a Slack hiccup here must never surface as a failure.
+ */
+async function respondViaResponseUrl(
+    deps: TriggerDeps,
+    responseUrl: string | undefined,
+    message: { response_type?: 'ephemeral' | 'in_channel'; replace_original?: boolean; text: string }
+): Promise<void> {
+    if (!responseUrl || !deps.http) {
+        return
+    }
+    try {
+        await deps.http.fetch(responseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify(message),
+        })
+    } catch (err) {
+        log.warn({ err: err instanceof Error ? err.message : String(err) }, 'slack_approval_response_url_failed')
+    }
+}
+
+/**
+ * Decide a `principal`-type tool approval from a Slack button click. The
+ * authority is a generic identity match — only the session's own principal may
+ * decide (the clicking Slack user must be the session owner), which is NOT a
+ * PostHog-authority check.
+ *
+ * The approval row is fetched scoped to the RESOLVED agent and the session is
+ * derived FROM the row (`row.session_id`), never from the attacker-influenceable
+ * action-value `sessionId` — so the principal-match is always against the
+ * approval's own session, mirroring the ingress HTTP decide route. `agent`-type
+ * rows are owner-decided in the console and refused here.
+ *
+ * Block Kit interactions can't be answered in the synchronous body, so we ack
+ * with a bare 200 and post all user feedback (the decided-state replacement, or
+ * the not-yours / already-decided ephemeral) to the interaction's `response_url`.
+ * Exported for unit testing.
+ */
+export async function handleApprovalDecisionAction(
+    ctx: RouteCtx,
+    payload: SlackInteractivityPayload,
+    decoded: { sessionId: string; requestId: string; decision: 'approve' | 'reject' }
+): Promise<void> {
+    const { res, deps } = ctx
+    if (!deps.approvals) {
+        res.status(500).json({ error: 'approvals_not_wired' })
+        return
+    }
+    const { requestId, decision } = decoded
+    const notFound = (): Promise<void> =>
+        respondViaResponseUrl(deps, payload.response_url, {
+            response_type: 'ephemeral',
+            replace_original: false,
+            text: 'This approval request could not be found.',
+        })
+
+    // Fetch the row scoped to the resolved agent, then derive the session from
+    // the row — the action-value `sessionId` is attacker-influenceable, so it's
+    // never trusted to choose whose principal must match. `agent`-type rows are
+    // console-only; collapse them (and a missing row) to a not-found ephemeral.
+    const row = await deps.approvals.getForApplication(requestId, ctx.resolved.application.id)
+    if (!row || effectiveApprovalType(row.approver_scope) === 'agent') {
+        res.json({ ok: true })
+        await notFound()
+        return
+    }
+    const session = await getOwnedSession(ctx, row.session_id)
+    if (!session) {
+        res.json({ ok: true })
+        await notFound()
+        return
+    }
+    const workspaceId = payload.team?.id ?? payload.user?.team_id ?? 'unknown'
+    const clickerId = payload.user?.id ?? ''
+    const clicker: SessionPrincipal = {
+        kind: 'slack',
+        workspace_id: workspaceId,
+        slack_user_id: clickerId,
+        agent_user_id: await resolveSlackUserId(deps, session.team_id, session.application_id, workspaceId, clickerId),
+    }
+    // Principal-match: only the person who drove this session may decide their
+    // own gated call. Anyone else (even another workspace participant) is refused
+    // with an ephemeral note that doesn't pollute the thread or touch the buttons.
+    if (!principalsMatch(session.principal, clicker)) {
+        res.json({ ok: true })
+        await respondViaResponseUrl(deps, payload.response_url, {
+            response_type: 'ephemeral',
+            replace_original: false,
+            text: 'Only the person who started this session can decide this approval.',
+        })
+        return
+    }
+    const result = await applyApprovalDecision(
+        { approvals: deps.approvals, queue: deps.queue },
+        {
+            requestId,
+            applicationId: row.application_id,
+            decision,
+            decidedBy: clicker.agent_user_id ?? clicker.slack_user_id,
+        }
+    )
+    res.json({ ok: true })
+    if (!result.ok) {
+        await respondViaResponseUrl(deps, payload.response_url, {
+            response_type: 'ephemeral',
+            replace_original: false,
+            text:
+                result.error === 'not_queued'
+                    ? 'This request has already been decided.'
+                    : 'This approval request could not be found.',
+        })
+        return
+    }
+    // Replace the buttons with the decided state so they can't be re-clicked and
+    // the thread shows the outcome.
+    await respondViaResponseUrl(deps, payload.response_url, {
+        response_type: 'in_channel',
+        replace_original: true,
+        text: decision === 'approve' ? '✓ Approved.' : '✗ Rejected.',
+    })
+}
+
+/**
  * Parse the opaque `value` Slack carries from the elevation message back to
  * the interactivity payload. We pack `(sessionId, requestId, decision)` into
  * one string so the button definition stays self-contained.
@@ -410,6 +555,10 @@ interface SlackInteractivityPayload {
     team?: { id?: string }
     user?: { id?: string; team_id?: string }
     actions?: Array<{ action_id?: string; value?: string }>
+    // Per-interaction webhook for updating the source message. For Block Kit
+    // `block_actions`, Slack IGNORES the synchronous HTTP body — message
+    // replacement / ephemerals must be POSTed here (or via chat.update).
+    response_url?: string
 }
 
 /**

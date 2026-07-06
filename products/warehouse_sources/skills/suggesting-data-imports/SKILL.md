@@ -1,6 +1,6 @@
 ---
 name: suggesting-data-imports
-description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, production database tables, or other data that PostHog does not collect natively. Also use when a query fails because a table does not exist or returns no results for expected external data. The data warehouse can import from SaaS tools (Stripe, Hubspot, etc.), production databases (Postgres, MySQL, BigQuery, Snowflake), and other arbitrary data sources. Covers checking existing sources, identifying the right source type, and guiding the setup.'
+description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, ad spend, production database tables, or other data PostHog does not collect natively — or wants to join or correlate PostHog product events with that external business data. Also use when a query fails because a table does not exist or returns no results for expected external data. The data warehouse can import from SaaS tools (Stripe, Hubspot, Zendesk, etc.), ad platforms, production databases (Postgres, MySQL, BigQuery, Snowflake), and other arbitrary data sources. Covers checking existing sources, identifying the right source type, and guiding the setup.'
 ---
 
 # Suggesting data imports
@@ -91,6 +91,7 @@ Common join patterns:
 - **Check prefixes.** Imported tables are often prefixed (e.g. `stripe_charges` not `charges`). The user might not know the prefix.
 - **Collect credentials securely.** Use `data-warehouse-source-connect-link` to hand the user a browser link — it opens a minimal connect page rendering the source's full connection form (OAuth or credentials, whichever the source offers) that stashes the details temporarily without creating the source. Afterwards pass `{"credential_id": <id>}` (discovered via `data-warehouse-stored-credentials-list`) to `data-warehouse-source-setup` — stored credentials are single-use and expire after 24 hours. Don't collect passwords or OAuth tokens in chat.
 - **Not all systems are supported.** If the user's system isn't in the wizard list, suggest using Postgres/MySQL as a bridge if they can export to a database, or mention that custom sources can be requested.
+- **Connecting a source also documents it.** After the first sync, PostHog automatically generates semantic descriptions for the imported tables and columns (from the source database's own column comments where present, plus an LLM pass using the table relationships and the team's business context). Those descriptions surface in `posthog:read-data-warehouse-schema`, so once a source is connected the agent can reason about what each column means and how tables join — not just their names and types. Mention this when recommending an import: connecting the source is what makes the data answerable.
 
 ## Related tools
 

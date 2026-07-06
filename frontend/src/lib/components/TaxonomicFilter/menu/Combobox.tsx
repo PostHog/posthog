@@ -367,7 +367,10 @@ export function MenuFilterCombobox({
                         // branch). The legacy list reaches the same filter via the QuickFilterItem
                         // `eventName` path instead — see `buildUrlContainsShortcut`.
                         // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
-                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
+                        item: {
+                            name: trimmedQuery,
+                            isContainsShortcut: true,
+                        } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
                         friendlyLabel: label,
@@ -1145,7 +1148,9 @@ function AutocompleteLemonInput({
                     className: _baseClassName,
                     onKeyDown: baseOnKeyDown,
                     ...baseInputAttrs
-                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & {
+                    ref?: React.Ref<HTMLInputElement>
+                }
                 const setRef = (el: HTMLInputElement | null): void => {
                     if (typeof ref === 'function') {
                         ref(el)
@@ -1213,17 +1218,29 @@ interface RowProps {
  * the friendly label; everything else uses the entry name and has no
  * distinct raw value to show.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): {
+    name: string
+    value?: string
+    category: string
+} {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
     const pathTail = parseUrlPathTail(entry.name)
     if (pathTail !== null) {
-        return { name: pathTail, value: entry.name, category: entry.group.name }
+        return {
+            name: pathTail,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, value: entry.name, category: entry.group.name }
+        return {
+            name: friendly,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     return { name: entry.name, category: entry.group.name }
 }

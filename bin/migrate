@@ -166,10 +166,9 @@ if run_scope "postgres"; then
     fi
 fi
 
-# Persons migrations via Django management command.
-# Hobby: runs against default DB, skipping partitioning migrations.
-# Local dev (DEBUG=1): runs against persons_db_writer, creating the database
-# if needed and applying all migrations including partitioning.
+# Persons migrations via Django management command (connects to PERSONS_DB_WRITER_URL).
+# Hobby: skips partitioning migrations (persons live in the main DB).
+# Local dev (DEBUG=1): creates the persons database if needed and applies all migrations.
 # Production: skipped — persons migrations are handled by the sqlx-migrate K8s job.
 if run_scope "persons"; then
     if [ "${DEPLOYMENT:-}" = "hobby" ]; then
@@ -181,7 +180,7 @@ if run_scope "persons"; then
         fi
     elif [ "${DEBUG:-0}" = "1" ]; then
         echo "Running persons migrations via Django management command..."
-        python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database
+        python manage.py apply_persons_migrations --ensure-database
         if [ $? -ne 0 ]; then
             echo "Error in apply_persons_migrations, exiting."
             exit 1
@@ -217,13 +216,30 @@ fi
 if [ -n "$CLICKHOUSE_PID" ]; then
     wait $CLICKHOUSE_PID
     CLICKHOUSE_WAIT_STATUS=$?
-    
+
     CH_STATUS=$(cat $CLICKHOUSE_STATUS)
     rm -f $CLICKHOUSE_STATUS
-    
+
     if [ "$CH_STATUS" != "0" ] || [ $CLICKHOUSE_WAIT_STATUS -ne 0 ]; then
         echo "Error in ClickHouse migrations, exiting."
         exit 1
+    fi
+fi
+
+# Temporal worker schedules. Skipped on hobby deploys (no Temporal cluster) and
+# on local dev (DEBUG=1, matching the persons-migration gate above).
+# Non-fatal: scheduling is reconciled idempotently on every deploy, so a
+# transient Temporal outage should not block the migrate job.
+if run_scope "temporal-schedules"; then
+    if [ "${DEPLOYMENT:-}" != "hobby" ] && [ "${DEBUG:-0}" != "1" ]; then
+        echo "Scheduling Temporal worker workflows..."
+        # timeout guards against an unreachable Temporal frontend: the client has
+        # no connect/RPC deadline of its own, so a network black-hole would hang
+        # the whole migrate job otherwise. 90s leaves room for Django startup on a
+        # cold container; reconciliation is idempotent so a killed run resumes next deploy.
+        if ! timeout 90 python manage.py schedule_temporal_workflows; then
+            echo "Warning: schedule_temporal_workflows failed, continuing."
+        fi
     fi
 fi
 

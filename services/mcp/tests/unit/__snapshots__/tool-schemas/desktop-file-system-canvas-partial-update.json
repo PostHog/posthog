@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "code": {
+            "description": "The complete single-file React source for the canvas. Replaces the current code wholesale.",
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas (desktop \"dashboard\" item) whose code to publish.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.",
+            "type": "string"
+        },
+        "prompt": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "code"],
+    "type": "object"
+}

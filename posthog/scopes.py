@@ -39,7 +39,6 @@ APIScopeObject = Literal[
     "event_filter",
     "dashboard_template",
     "dataset",
-    "desktop_recording",
     "early_access_feature",
     "endpoint",
     "engineering_analytics",
@@ -48,6 +47,7 @@ APIScopeObject = Literal[
     "element",
     "event_definition",
     "experiment",
+    "experiment_holdout",
     "experiment_saved_metric",
     "export",
     "external_data_schema",
@@ -80,8 +80,8 @@ APIScopeObject = Literal[
     "organization_integration",
     "organization_member",
     "person",
-    "persisted_folder",
     "plugin",
+    "product_enablement",
     "product_tour",
     "project",
     "property_definition",
@@ -94,6 +94,7 @@ APIScopeObject = Literal[
     "sharing_configuration",
     "signal_scout",
     "signal_scout_internal",
+    "signal_scout_report",
     "streamlit_app",
     "subscription",
     "survey",
@@ -106,6 +107,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "vision_action",
     "visual_review",
     "warehouse_objects",
     "warehouse_table",
@@ -134,24 +136,32 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
-        "query_performance",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
         "signal_scout_internal",
+        # Sandbox-only write for the scout report channel (emit_report / edit_report).
+        # Split out from `signal_scout_internal` so it can be granted ONLY to scouts that
+        # opted into the report tools (via the `signals_scout_reports` posture) — every
+        # other scout's token lacks it, so the MCP server strips those tools entirely.
+        "signal_scout_report",
     }
 )
 
 # Scope objects available via personal API keys but never advertised through
-# OAuth metadata. Used for alpha / not-yet-public products where a user can
-# manually paste the scope into a PAT but where we don't want OAuth-based
-# clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session"})
+# OAuth metadata. Used where a user can manually paste the scope into a PAT but
+# we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
+# to discover it — alpha / not-yet-public products, or staff-only debug endpoints
+# automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session", "query_performance"})
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
+    # SDK local evaluation and remote config. The Rust feature-flags service already
+    # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
+    ("feature_flag", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

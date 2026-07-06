@@ -5,9 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -83,6 +81,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
             />
         )
     }
@@ -135,13 +134,13 @@ export function InsightVizDisplay({
         useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        usesInChartLegend,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -175,6 +174,7 @@ export function InsightVizDisplay({
                     key={queryId}
                     insightProps={insightProps}
                     renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
                 />
             )
         }
@@ -277,7 +277,13 @@ export function InsightVizDisplay({
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                return (
+                    <InsightEmptyState
+                        heading={context?.emptyStateHeading}
+                        detail={context?.emptyStateDetail}
+                        sampleDataVariant="funnel"
+                    />
+                )
             }
         }
 
@@ -285,16 +291,9 @@ export function InsightVizDisplay({
     })()
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
-    // don't render two legends. The slope graph always does; trends line/area/cumulative do when the
-    // quill in-chart legend is on (an unset display is the line chart, matching Trends.tsx's renderer).
-    const isQuillLegendTrendsChart =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
-        activeView === InsightType.TRENDS &&
-        (!display ||
-            display === ChartDisplayType.ActionsLineGraph ||
-            display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph)
-    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || isQuillLegendTrendsChart
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
+    // when the quill in-chart legend is on (`usesInChartLegend`).
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {

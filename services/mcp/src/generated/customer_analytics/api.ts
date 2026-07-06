@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -103,6 +103,33 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+    definition: zod.string().describe('UUID of the custom property definition whose value to set for this account.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean()])
+        .describe(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        ),
+})
+
 export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
@@ -115,6 +142,8 @@ export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
 export const AccountsNotebooksListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
+    search: zod.string().optional().describe('Full-text search across notebook title and content.'),
 })
 
 export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
@@ -235,6 +264,110 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+
+export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
+
+export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean'
+            )
+            .optional()
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .optional()
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

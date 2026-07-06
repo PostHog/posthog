@@ -192,7 +192,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 trainingChanged ||
                 inferenceChanged
             ) {
-                actions.runValidate()
+                actions.runValidate(null)
             }
         },
     })),

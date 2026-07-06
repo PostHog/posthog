@@ -720,7 +720,11 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  *
  * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
  */
-export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
+    if (!experiment) {
+        return false
+    }
+    const { metrics, metrics_secondary, saved_metrics } = experiment
     // saved_metrics has a different structure and so we need to check for it separately
     if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true

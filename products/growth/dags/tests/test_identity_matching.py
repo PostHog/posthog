@@ -11,6 +11,7 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 
+from products.growth.backend.constants import identity_matching_dataset_read_args
 from products.growth.dags import identity_matching
 from products.growth.dags.identity_matching import (
     CANDIDATE_PAIRS,
@@ -20,12 +21,24 @@ from products.growth.dags.identity_matching import (
     PERSON_TIMELINE,
     RULES_MODEL_VERSION,
     IdentityMatchingConfig,
+    MatchingDataset,
     identity_matching_job,
     is_identity_matching_registered,
     validate_team_allowed,
 )
 
 TEAM_ID = 99
+
+# Each stage writes Parquet to a per-run S3 prefix; reads glob it back via `s3(...)`.
+_S3_READ_SETTINGS = {"s3_throw_on_zero_files_match": "0"}
+
+
+def _read_dataset(
+    client: Client, dataset: MatchingDataset, job_id: UUID, columns: str, suffix: str = ""
+) -> list[tuple[Any, ...]]:
+    args = identity_matching_dataset_read_args(TEAM_ID, str(job_id), dataset.folder, dataset.structure)
+    return client.execute(f"SELECT {columns} FROM s3({args}) {suffix}", settings=_S3_READ_SETTINGS)
+
 
 HOUSEHOLD_IP = "10.0.0.1"
 BOB_IP = "10.0.0.2"
@@ -168,14 +181,18 @@ def _run_job(cluster: ClickhouseCluster, **config_overrides: Any) -> tuple[dagst
         "ip_window_device_cap": 20,
         "rule_min_score": 1.0,
         "rule_min_margin": 0.0,
+        # Keep every best-per-orphan logreg link on the tiny fixture; the prod default (0.5) would
+        # filter on the model's unstable probabilities and make link assertions flaky.
+        "logreg_min_prob": 0.0,
         "min_training_positives": 2,
         "min_training_negatives": 1,
         **config_overrides,
     }
     config = IdentityMatchingConfig(**config_kwargs)
     result = identity_matching_job.execute_in_process(
-        run_config=dagster.RunConfig({"setup_tables": config}),
-        resources={"cluster": cluster},
+        run_config=dagster.RunConfig({"prepare_run": config}),
+        # Slack posting is skipped off-Cloud, so a no-op resource satisfies the op requirement.
+        resources={"cluster": cluster, "slack": dagster.ResourceDefinition.none_resource()},
     )
     return result, UUID(result.dagster_run.run_id)
 
@@ -187,22 +204,14 @@ def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     assert result.success
 
     def get_phone_anna_device_days(client: Client) -> list[tuple[Any, ...]]:
-        return client.execute(
-            f"SELECT day, ips FROM {DEVICE_DAYS.qualified_name} "
-            "WHERE job_id = %(job_id)s AND distinct_id = 'phone-anna' ORDER BY day",
-            {"job_id": job_id},
-        )
+        return _read_dataset(client, DEVICE_DAYS, job_id, "day, ips", "WHERE distinct_id = 'phone-anna' ORDER BY day")
 
     phone_anna_days = cluster.any_host(get_phone_anna_device_days).result()
     assert len(phone_anna_days) == 3
     assert all(ips == [HOUSEHOLD_IP] for _, ips in phone_anna_days)
 
     def get_timeline(client: Client) -> dict[str, tuple[int, str, str]]:
-        rows = client.execute(
-            f"SELECT distinct_id, is_anchor, person_key, label_person_key FROM {PERSON_TIMELINE.qualified_name} "
-            "WHERE job_id = %(job_id)s",
-            {"job_id": job_id},
-        )
+        rows = _read_dataset(client, PERSON_TIMELINE, job_id, "distinct_id, is_anchor, person_key, label_person_key")
         return {distinct_id: (is_anchor, person_key, label) for distinct_id, is_anchor, person_key, label in rows}
 
     timeline = cluster.any_host(get_timeline).result()
@@ -219,10 +228,11 @@ def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     assert "corp-0" not in timeline
 
     def get_pairs(client: Client) -> dict[tuple[str, str], tuple[int, int, int, int]]:
-        rows = client.execute(
-            f"SELECT orphan_distinct_id, anchor_person_key, shared_ip_days, label, ua_exact_match, orphan_is_webview "
-            f"FROM {CANDIDATE_PAIRS.qualified_name} WHERE job_id = %(job_id)s",
-            {"job_id": job_id},
+        rows = _read_dataset(
+            client,
+            CANDIDATE_PAIRS,
+            job_id,
+            "orphan_distinct_id, anchor_person_key, shared_ip_days, label, ua_exact_match, orphan_is_webview",
         )
         return {(orphan, anchor): tuple(rest) for orphan, anchor, *rest in rows}
 
@@ -237,11 +247,7 @@ def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     assert not any(orphan.startswith("corp-") or anchor.startswith("corp-") for orphan, anchor in pairs)
 
     def get_links(client: Client) -> dict[tuple[str, str], str]:
-        rows = client.execute(
-            f"SELECT model_version, orphan_distinct_id, anchor_person_key FROM {LINKS.qualified_name} "
-            "WHERE job_id = %(job_id)s",
-            {"job_id": job_id},
-        )
+        rows = _read_dataset(client, LINKS, job_id, "model_version, orphan_distinct_id, anchor_person_key")
         return {(model_version, orphan): anchor for model_version, orphan, anchor in rows}
 
     links = cluster.any_host(get_links).result()
@@ -260,14 +266,28 @@ def test_logreg_skips_without_labels(cluster: ClickhouseCluster) -> None:
     assert result.success
 
     def get_logreg_link_count(client: Client) -> int:
-        [[count]] = client.execute(
-            f"SELECT count() FROM {LINKS.qualified_name} "
-            "WHERE job_id = %(job_id)s AND model_version = %(model_version)s",
-            {"job_id": job_id, "model_version": LOGREG_MODEL_VERSION},
-        )
+        [[count]] = _read_dataset(client, LINKS, job_id, "count()", f"WHERE model_version = '{LOGREG_MODEL_VERSION}'")
         return count
 
     assert cluster.any_host(get_logreg_link_count).result() == 0
+
+
+def test_eval_labels_survive_edge_truncation(cluster: ClickhouseCluster) -> None:
+    cluster.any_host(_insert_fixture_events).result()
+
+    # Exactly 4 identity edges precede window end and 2 post-window merges follow. Capping at 4
+    # fills the anchor-edge budget entirely, so the single oldest-first query the job used to run
+    # would drop both post-window merges and yield zero labels; the split fetch keeps them.
+    result, job_id = _run_job(cluster, max_identity_edges=4)
+    assert result.success
+
+    def get_labels(client: Client) -> dict[str, str]:
+        rows = _read_dataset(
+            client, PERSON_TIMELINE, job_id, "distinct_id, label_person_key", "WHERE label_person_key != ''"
+        )
+        return dict(rows)
+
+    assert cluster.any_host(get_labels).result() == {"phone-anna": "anna@x.com", "phone-bob": "bob@x.com"}
 
 
 @pytest.mark.parametrize(

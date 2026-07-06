@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '../../../../schema/hogflow'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -50,6 +51,7 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
+        result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -58,6 +60,20 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queueParameters = functionResult.invocation.queueParameters
             result.invocation.queueMetadata = functionResult.invocation.queueMetadata
+            // Routing-only reschedule signature: the queue changed AND no explicit
+            // `queueScheduledAt` was set. That's the shape produced by `routeEmailToQueue`
+            // and `routeToQueue` in hog-executor.service.ts when moving a job between the
+            // hogflow and email queues — the next dequeue continues the same action on the
+            // new queue. Tag the action state so the executor can suppress the redundant
+            // "Resuming..." / "Workflow will pause until..." pair on the next dequeue.
+            //
+            // The queue-changed check is what keeps async pauses (fetches, SES throttle
+            // retries) out of this branch: both keep `queueScheduledAt` set OR leave the
+            // queue unchanged, so they don't satisfy both halves of the condition.
+            const queueChanged = functionResult.invocation.queue !== invocation.queue
+            if (queueChanged && !functionResult.invocation.queueScheduledAt) {
+                result.invocation.state.currentAction!.routingOnlyReschedule = true
+            }
             return {
                 scheduledAt: functionResult.invocation.queueScheduledAt ?? DateTime.now(),
             }
@@ -110,6 +126,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
             }
         }
 

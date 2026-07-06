@@ -19,6 +19,14 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# At-rest (compressed) byte budget per Delta partition. The auto-repartition controller rewrites a
+# table into a finer scheme once its largest partition exceeds this. delta-rs merges need ~20x the
+# partition's at-rest size in memory, so ~1 GB keeps worst-case merge memory (~20 GB) under the
+# 29 GB worker limit with headroom.
+DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
+    "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 1_000_000_000, type_cast=int
+)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

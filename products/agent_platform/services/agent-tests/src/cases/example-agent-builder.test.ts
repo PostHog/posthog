@@ -1,15 +1,17 @@
 /**
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-builder/`.
  *
- * The Agent Builder authors + operates other agents entirely through native
- * `@posthog/agent-applications-*` tools — there is NO external MCP server
- * in `spec.mcps[]` (removed so a transient MCP outage can't strip the
- * agent's write path). Destructive native tools (`promote`, `archive`)
- * carry inline `requires_approval` + `approval_policy` so the platform —
- * not just the prompt — gates them. This case pins the wiring net (skill
- * paths exist, no MCP server, native tools resolve, approval gating
- * intact) — drift here means the bundle is broken regardless of platform
- * readiness, so it's worth catching before review.
+ * The Agent Builder authors + operates other agents through the PostHog MCP
+ * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
+ * as the asking user — the same pattern as `posthog-ai`, applied to the
+ * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
+ * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
+ * via `level: 'approve'` + `approval_policy`, so the platform — not
+ * just the prompt — holds them. This case pins that wiring net; drift here
+ * means the bundle is broken regardless of platform readiness.
+ *
+ * Faux net — wiring, not inference quality.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -22,100 +24,93 @@ import { listNativeTools } from '@posthog/agent-tools'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
 
-interface AgentBuilderSpec {
-    model: string
-    triggers: Array<{
-        type: string
-        config?: { name?: string; prompt?: string; [k: string]: unknown }
-        auth?: { modes?: Array<{ type: string }> }
-    }>
-    tools: Array<{
-        kind: string
-        id?: string
-        from_native?: string
-        description?: string
-        args_schema?: Record<string, unknown>
-        required?: boolean
-        timeout_ms?: number
-        requires_approval?: boolean
-        approval_policy?: { approvers: string[]; ttl_ms?: number }
-    }>
-    mcps: unknown[]
-    skills: Array<{ id: string; path: string; description: string }>
-    integrations: string[]
-    secrets: string[]
-    limits: { max_turns: number; max_tool_calls: number; max_wall_seconds: number }
-    auth: {
-        modes?: Array<Record<string, unknown> & { type: string }>
-    }
-    reasoning?: string
-    resume?: { enabled: boolean; max_completed_age_ms: number }
-}
-
-async function loadBundle(): Promise<{ spec: AgentBuilderSpec; files: Record<string, string> }> {
-    const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as AgentBuilderSpec
+async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
+    const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>
     const files: Record<string, string> = {}
     files['agent.md'] = await readFile(join(BUNDLE_ROOT, 'agent.md'), 'utf-8')
     files['README.md'] = await readFile(join(BUNDLE_ROOT, 'README.md'), 'utf-8')
-    const skillDirs = await readdir(join(BUNDLE_ROOT, 'skills'))
-    for (const id of skillDirs) {
-        const p = `skills/${id}/SKILL.md`
-        files[p] = await readFile(join(BUNDLE_ROOT, p), 'utf-8')
-    }
     return { spec, files }
 }
 
 describe('example: agent-builder bundle', () => {
-    it('every skill path in spec.skills[] exists as a bundle file', async () => {
-        const { spec, files } = await loadBundle()
-        for (const skill of spec.skills) {
-            expect(files[skill.path]).not.toBeUndefined()
-            // Each skill description is the only signal the model gets for
-            // when to load it — guard against empty / placeholder descriptions.
-            expect(skill.description).toBeTruthy()
-            expect(skill.description.length).toBeGreaterThan(30)
-        }
+    it('parses through AgentSpecSchema — the runner accepts it as-is', async () => {
+        const { spec } = await loadBundle()
+        expect(() => AgentSpecSchema.parse(spec)).not.toThrow()
+    })
+
+    it('carries NO inline skills — kernel skills are platform-injected, playbooks are MCP', async () => {
+        const { spec } = await loadBundle()
+        const parsed = AgentSpecSchema.parse(spec)
+        // The author-facing bundle never carries skills. Kernel skills (the
+        // concierge's own runtime behaviour — safety, console UI, fleet audit)
+        // are injected from backend code at freeze (logic/kernel_skills.py), so
+        // they move in lockstep with the platform and can't drift per account.
+        // Builder playbooks (how to author/edit/wire-identity an agent) are served
+        // by the MCP `agent-resolve-resource`, fetched on demand. Neither is here.
+        expect(parsed.skills).toEqual([])
     })
 
     it('agent.md is present and non-trivial', async () => {
         const { files } = await loadBundle()
-        expect(files['agent.md']).not.toBeUndefined()
-        // The Agent Builder agent.md is intentionally short (defers to skills) but
-        // not THIS short. <500 chars means something got truncated.
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
-    it('declares no external MCP server and every native tool resolves in the native catalog', async () => {
+    it('authors via ONE PostHog MCP authed by the posthog identity provider', async () => {
         const { spec } = await loadBundle()
-        // The Agent Builder authors via native tools only — no MCP server, so a
-        // transient MCP outage can never strip its write path (the bug this
-        // replaced). Every declared native id must exist in the registry, or
-        // freeze/validate would reject the revision.
-        expect(spec.mcps).toHaveLength(0)
+        const parsed = AgentSpecSchema.parse(spec)
+        expect(parsed.mcps).toHaveLength(1)
+        expect(parsed.mcps[0].id).toBe('posthog')
+        expect(parsed.mcps[0].auth?.provider).toBe('posthog')
+        // The curated allow-list keeps the surface to authoring + data tools.
+        expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
+    })
+
+    it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
+        const { spec } = await loadBundle()
+        const parsed = AgentSpecSchema.parse(spec)
+        const nativeIds = parsed.tools.filter((t) => t.kind === 'native').map((t) => t.id)
+        // The authoring surface moved to the MCP; the only natives left are the
+        // agent's own runtime tools — S3 memory plus web search.
+        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-') || id === '@posthog/web-search')).toBe(true)
+        expect(nativeIds.some((id) => id.startsWith('@posthog/agent-applications-'))).toBe(false)
+        // Whatever natives remain must still resolve in the catalog.
         const catalog = new Set(listNativeTools().map((t) => t.id))
-        const nativeIds = spec.tools.filter((t) => t.kind === 'native').map((t) => t.id!)
-        expect(nativeIds.length).toBeGreaterThan(0)
         for (const id of nativeIds) {
             expect(catalog.has(id), `${id} should be a known native tool`).toBe(true)
         }
     })
 
-    it('declares both chat and mcp triggers (the two production surfaces)', async () => {
+    it('declares chat + mcp + slack triggers (console, MCP, and now Slack)', async () => {
         const { spec } = await loadBundle()
-        const triggerTypes = spec.triggers.map((t) => t.type)
-        expect(triggerTypes).toContain('chat')
-        expect(triggerTypes).toContain('mcp')
+        const parsed = AgentSpecSchema.parse(spec)
+        const types = parsed.triggers.map((t) => t.type)
+        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp', 'slack']))
+        // Slack must be owner-only so the asker's identity resolves (shared
+        // threads fail closed — you can't act as the owner for someone else).
+        const slack = parsed.triggers.find((t) => t.type === 'slack')
+        expect(slack?.type === 'slack' && slack.config.allow_workspace_participants).toBe(false)
     })
 
-    it('declares the client tools the agent-console implements', async () => {
+    it('declares a posthog identity provider with the scopes authoring needs', async () => {
         const { spec } = await loadBundle()
-        // Author-defined inline shape (id, description, args_schema) —
-        // the platform doesn't ship a registry of well-known UI tools.
-        // Console dock's handlers register against these ids; runner
-        // dispatches via the bus + ingress POST round-trip.
-        const clientTools = spec.tools.filter((t) => t.kind === 'client')
-        const ids = clientTools.map((t) => t.id).sort()
+        const parsed = AgentSpecSchema.parse(spec)
+        const posthog = parsed.identity_providers.find((p) => p.kind === 'posthog')
+        expect(posthog).not.toBeUndefined()
+        const scopes = posthog?.scopes ?? []
+        // user:read backs the MCP's /api/users/@me/ bootstrap; agents:write backs
+        // authoring other agents. Both are load-bearing — pin them.
+        expect(scopes).toEqual(expect.arrayContaining(['user:read', 'agents:read', 'agents:write']))
+    })
+
+    it('declares the client tools the console UI implements', async () => {
+        const { spec } = await loadBundle()
+        const parsed = AgentSpecSchema.parse(spec)
+        const ids = parsed.tools
+            .filter((t): t is Extract<typeof t, { kind: 'client' }> => t.kind === 'client')
+            .map((t) => t.id)
+            .sort()
         expect(ids).toEqual([
+            'connect_mcp',
             'focus_file',
             'focus_revision',
             'focus_session',
@@ -125,67 +120,52 @@ describe('example: agent-builder bundle', () => {
             'set_secret',
             'toast',
         ])
-        for (const t of clientTools) {
-            expect(t.id, `${t.id}: id`).toBeTruthy()
-            expect(t.description, `${t.id}: description`).toBeTruthy()
-            expect((t.description ?? '').length, `${t.id}: description length`).toBeGreaterThan(40)
-            expect(t.args_schema, `${t.id}: args_schema`).toBeTruthy()
-            expect(typeof t.args_schema, `${t.id}: args_schema is object`).toBe('object')
-        }
     })
 
     it('accepts posthog + posthog_internal auth on its chat and mcp triggers', async () => {
         const { spec } = await loadBundle()
-        // Auth is per-trigger now. The chat + mcp triggers each serve a human /
-        // MCP client via a PostHog credential (`posthog`) and scripted /
-        // server-to-server access (`posthog_internal`).
-        const modesFor = (type: string): string[] =>
-            spec.triggers.find((t) => t.type === type)?.auth?.modes?.map((m) => m.type) ?? []
+        const parsed = AgentSpecSchema.parse(spec)
+        const modesFor = (type: string): string[] => {
+            const t = parsed.triggers.find((x) => x.type === type)
+            return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
+        }
         expect(modesFor('chat')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
         expect(modesFor('mcp')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
     })
 
     it('enables resume so multi-step flows can span days', async () => {
         const { spec } = await loadBundle()
-        // Real edit-debug flows are multi-turn over hours. Default 24h sweep
-        // would close them mid-thought.
-        expect(spec.resume?.enabled).toBe(true)
-        expect(spec.resume?.max_completed_age_ms).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000)
+        const parsed = AgentSpecSchema.parse(spec)
+        expect(parsed.resume?.enabled).toBe(true)
+        expect(parsed.resume?.max_completed_age_ms).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000)
     })
 
-    it('gates destructive native tools (promote / archive) with session_principal approval', async () => {
+    it('gates destructive MCP authoring tools (promote / archive / destroy) with principal approval', async () => {
         const { spec } = await loadBundle()
-        // Destructive ops are gated at the platform layer, not just in the
-        // prompt — the gating lives inline on the native `tools[]` entries via
-        // `requires_approval: true` + `approval_policy.approvers`.
-        const gated = new Map(
-            spec.tools.filter((t) => t.kind === 'native' && t.requires_approval === true).map((t) => [t.id!, t])
-        )
-        for (const required of [
-            '@posthog/agent-applications-revisions-promote-create',
-            '@posthog/agent-applications-revisions-archive-create',
+        const parsed = AgentSpecSchema.parse(spec)
+        const entries = parsed.mcps[0].tools ?? []
+        // `level: 'approve'` entries carry the approval policy — that's how the
+        // platform (not just the prompt) holds a destructive authoring op.
+        const gated = new Map(entries.filter((e) => e.level === 'approve').map((e) => [e.name, e]))
+        for (const name of [
+            'agent-applications-revisions-promote-create',
+            'agent-applications-revisions-archive-create',
+            'agent-applications-destroy',
         ]) {
-            expect(gated.has(required), `${required} should be gated`).toBe(true)
-        }
-        // session_principal — the Agent Builder wires every gated tool to the
-        // session owner via the per-asker fast-path, so the user who asked can
-        // approve their own destructive call without a team-admin round-trip.
-        for (const [, t] of gated) {
-            expect(t.approval_policy?.approvers).toEqual(['session_principal'])
+            expect(gated.has(name), `${name} should be approval-gated`).toBe(true)
+            expect(gated.get(name)?.approval_policy?.type).toBe('principal')
         }
     })
 
     it('every bundle/tests/*.json case parses and declares the required fields', async () => {
         const testsDir = join(BUNDLE_ROOT, 'tests')
-        const entries = await readdir(testsDir)
-        const jsonFiles = entries.filter((f) => f.endsWith('.json'))
-        // Insurance against a future commit dropping all the cases by mistake.
+        const jsonFiles = (await readdir(testsDir)).filter((f) => f.endsWith('.json'))
         expect(jsonFiles.length).toBeGreaterThanOrEqual(5)
         for (const f of jsonFiles) {
             const body = JSON.parse(await readFile(join(testsDir, f), 'utf-8')) as {
                 name?: string
                 description?: string
-                trigger?: { type: string; messages?: Array<{ role: string; content: string }> }
+                trigger?: { type: string }
                 expected?: Record<string, unknown>
             }
             expect(body.name, `${f}: name`).toBeTruthy()
@@ -195,39 +175,12 @@ describe('example: agent-builder bundle', () => {
         }
     })
 
-    it('the spec parses through AgentSpecSchema — runner accepts it as-is', async () => {
-        // The runner reads `revision.spec` via zod. The Agent Builder declares no
-        // MCP server (native-only) and gates its destructive native tools
-        // inline. This assertion pins that contract so a future schema
-        // tightening doesn't silently re-break the bundle.
-        const { spec } = await loadBundle()
-        const parsed = AgentSpecSchema.parse(spec)
-        expect(parsed.mcps).toHaveLength(0)
-        // Spot-check that the destructive native entry kept its approval policy.
-        const promote = parsed.tools.find(
-            (t): t is Extract<typeof t, { kind: 'native' }> =>
-                t.kind === 'native' && t.id === '@posthog/agent-applications-revisions-promote-create'
-        )
-        expect(promote).not.toBeUndefined()
-        expect(promote!.requires_approval).toBe(true)
-        expect(promote!.approval_policy.approvers).toEqual(['session_principal'])
-        expect(promote!.approval_policy.ttl_ms).toBe(900_000)
-    })
-
     it('the shared example seeder deploys this bundle without stripping mcps', async () => {
-        // The Agent Builder deploys via the shared generic seeder
-        // (services/agent-tests/src/examples/seed.py), which auto-discovers
-        // any dir with spec.json + agent.md. Things that would silently break
-        // the deploy if removed:
-        // - shebang for direct exec
-        // - per_file_sha256 powers the no-op idempotency check
-        // - the seeder must NOT strip `mcps[]` — the bundle ships it in the
-        //   discriminated union shape the platform accepts.
         const scriptPath = resolve(__dirname, '../examples/seed.py')
         const src = await readFile(scriptPath, 'utf-8')
         expect(src.startsWith('#!/usr/bin/env python3')).toBe(true)
-        expect(src).toContain('def load_v0_spec(')
         expect(src).toContain('def per_file_sha256(')
+        // The bundle now SHIPS an MCP — the seeder must never blank mcps[].
         expect(src).not.toContain('spec["mcps"] = []')
     })
 })

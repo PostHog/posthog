@@ -1,11 +1,16 @@
+import { useValues } from 'kea'
+
 import type { TooltipContext } from '@posthog/quill-charts'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
-import { funnelComparePeriodDateRange } from 'scenes/funnels/funnelUtils'
+import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
+import { FunnelStepTooltip } from '../shared/FunnelStepTooltip'
 import type { FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
 interface FunnelStepsBarTooltipProps {
@@ -27,6 +32,9 @@ export function FunnelStepsBarTooltip({
     resolvedDateRange,
     compareTo,
 }: FunnelStepsBarTooltipProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+
     const stepIndex = context.dataIndex
     const step = steps[stepIndex]
     const entry = context.seriesData[0]
@@ -36,19 +44,28 @@ export function FunnelStepsBarTooltip({
 
     const breakdownIndex = entry.series.meta?.breakdownIndex ?? 0
     const series = step.nested_breakdown?.[breakdownIndex] ?? step
+    const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
+    const comparePeriodDateRange = series.compare_label
+        ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
+        : null
 
-    return (
-        <FunnelTooltip
-            showPersonsModal={showPersonsModal}
-            stepIndex={stepIndex}
-            series={series}
-            groupTypeLabel={groupTypeLabel}
-            breakdownFilter={breakdownFilter}
-            comparePeriodDateRange={
-                series.compare_label
-                    ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
-                    : null
-            }
-        />
+    // Vertical bar chart: cursor above the bar's top pixel is in the track (drop-off) region.
+    const isDropOffHover =
+        stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.y < entry.yPixel
+
+    const sharedProps = {
+        showPersonsModal,
+        stepIndex,
+        series,
+        groupTypeLabel,
+        breakdownFilter,
+        aggregateConversionRate,
+        comparePeriodDateRange,
+    }
+
+    return quillTooltipEnabled ? (
+        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} color={entry.color} />
+    ) : (
+        <FunnelTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
     )
 }

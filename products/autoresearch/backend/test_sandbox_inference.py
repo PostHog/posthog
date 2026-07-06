@@ -26,7 +26,7 @@ from products.autoresearch.backend.sandbox_inference import (
     materialize_training_data,
     score_via_sandbox,
 )
-from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.facade.sandbox import ExecutionResult
 
 
 def _scores_parquet(rows: list[tuple[str, float]]) -> bytes:

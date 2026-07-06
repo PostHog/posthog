@@ -309,34 +309,103 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             ],
             created_at: BASE_DATE,
         },
+        // Task↔report associations now live in the artefact log as `task_run` artefacts; the
+        // detail logic derives the Runs list + purpose from these (no more `/tasks/` endpoint).
+        {
+            id: `${reportId}-tr-research`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-research`,
+                run_id: `${reportId}-task-research-run`,
+                product: 'signals',
+                type: 'research',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
+        },
+        {
+            id: `${reportId}-tr-impl`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-impl`,
+                run_id: `${reportId}-task-impl-run`,
+                product: 'signals',
+                type: 'implementation',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
+        // A handful of log artefacts so the Activity timeline has something to render.
+        {
+            id: `${reportId}-note`,
+            type: 'note',
+            content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-commit`,
+            type: 'commit',
+            content: {
+                repository: 'PostHog/posthog',
+                branch: 'inbox/fix-invites',
+                commit_sha: 'a1b2c3d4e5f6a1b2c3d4e5f6',
+                message: 'fix(invites): reject empty recipient rows before submit',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
+        // Human edits to the report's title / summary are logged as their own artefacts.
+        {
+            id: `${reportId}-title`,
+            type: 'title_change',
+            content: {
+                old_title: 'Invite flow error',
+                new_title: 'Empty recipient rows crash team invites',
+            },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-summary`,
+            type: 'summary_change',
+            content: {
+                old_summary: 'Users hit an error when inviting their team.',
+                new_summary:
+                    'Submitting the invite form with an empty recipient row returns a `500` from `/api/invites`. ' +
+                    'The gap is missing client-side validation before submit.',
+            },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
     ]
     return { results, count: results.length }
 }
 
-export function mockReportTasks(reportId: string): { results: any[]; count: number; next: null; previous: null } {
+function makeTaskRun(taskId: string, runId: string, status: string): any {
     return {
-        results: [
-            {
-                id: `${reportId}-t1`,
-                relationship: 'research',
-                task_id: `${reportId}-task-research`,
-                created_at: BASE_DATE,
-            },
-            {
-                id: `${reportId}-t2`,
-                relationship: 'implementation',
-                task_id: `${reportId}-task-impl`,
-                created_at: BASE_DATE,
-            },
-        ],
-        count: 2,
-        next: null,
-        previous: null,
+        id: runId,
+        task: taskId,
+        stage: null,
+        branch: 'inbox/fix-invites',
+        status,
+        environment: 'cloud',
+        log_url: null,
+        error_message: null,
+        output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
+        state: {},
+        artifacts: [],
+        created_at: BASE_DATE,
+        updated_at: BASE_DATE,
+        completed_at: status === 'in_progress' ? null : BASE_DATE,
     }
 }
 
-export function mockTask(taskId: string): any {
-    const failed = taskId.includes('research')
+// `runStatus` overrides the linked run's status; defaults keep the research task finished and the
+// implementation task live. Pass a terminal status (e.g. 'completed') to render the run viewer's
+// static replay rather than a live SSE stream.
+export function mockTask(taskId: string, runStatus?: string): any {
+    const status = runStatus ?? (taskId.includes('research') ? 'completed' : 'in_progress')
     return {
         id: taskId,
         task_number: 42,
@@ -348,26 +417,85 @@ export function mockTask(taskId: string): any {
         github_integration: 1,
         json_schema: null,
         internal: false,
-        latest_run: {
-            id: `${taskId}-run`,
-            task: taskId,
-            stage: null,
-            branch: 'inbox/fix-invites',
-            status: failed ? 'completed' : 'in_progress',
-            environment: 'cloud',
-            log_url: null,
-            error_message: null,
-            output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
-            state: {},
-            artifacts: [],
-            created_at: BASE_DATE,
-            updated_at: BASE_DATE,
-            completed_at: failed ? BASE_DATE : null,
-        },
+        latest_run: makeTaskRun(taskId, `${taskId}-run`, status),
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         created_by: null,
     }
+}
+
+/** The run-status payload (`/runs/:runId`) the `ReadonlyRunSurface` reads before replaying its log. */
+export function mockTaskRun(taskId: string, runId: string): any {
+    return makeTaskRun(taskId, runId, 'completed')
+}
+
+/**
+ * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
+ * bubble instead of the "conversation backing run not found" error.
+ */
+export function mockRunLog(): string {
+    const entry = {
+        type: 'notification',
+        notification: {
+            method: 'session/update',
+            params: {
+                update: {
+                    sessionUpdate: 'agent_message',
+                    messageId: 'inbox-run-msg',
+                    content: {
+                        type: 'text',
+                        text: 'Investigated the invite failures, confirmed the missing-recipient 500, and opened a fix.',
+                    },
+                },
+            },
+        },
+    }
+    return JSON.stringify(entry)
+}
+
+/**
+ * A realistic multi-file unified diff for the `commit` artefact diff endpoint, matching the mocked
+ * "fix invites" commit. Two TypeScript files so the rendered diff exercises Pierre's syntax
+ * highlighting, hunk headers, and a multi-file layout.
+ */
+export function mockBranchDiff(): { diff: string; truncated: boolean } {
+    const diff = `diff --git a/frontend/src/scenes/invites/inviteLogic.ts b/frontend/src/scenes/invites/inviteLogic.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/frontend/src/scenes/invites/inviteLogic.ts
++++ b/frontend/src/scenes/invites/inviteLogic.ts
+@@ -42,9 +42,13 @@ export const inviteLogic = kea<inviteLogicType>([
+     listeners(({ values, actions }) => ({
+         submitInvites: async () => {
+-            const recipients = values.invites
++            const recipients = values.invites.filter((invite) => invite.email.trim().length > 0)
++            if (recipients.length === 0) {
++                lemonToast.error('Add at least one recipient before sending invites.')
++                return
++            }
+             await api.invites.bulkCreate(recipients)
+             actions.loadInvites()
+         },
+     })),
+diff --git a/frontend/src/scenes/invites/InviteRow.tsx b/frontend/src/scenes/invites/InviteRow.tsx
+index 9c8b7a6..2f3e4d5 100644
+--- a/frontend/src/scenes/invites/InviteRow.tsx
++++ b/frontend/src/scenes/invites/InviteRow.tsx
+@@ -10,7 +10,7 @@ export function InviteRow({ invite, onChange }: InviteRowProps): JSX.Element {
+     return (
+         <div className="flex items-center gap-2">
+             <LemonInput
+-                value={invite.email}
++                value={invite.email}
++                status={invite.email.trim() ? undefined : 'danger'}
+                 onChange={(email) => onChange({ ...invite, email })}
+                 placeholder="email@example.com"
+             />
+         </div>
+     )
+ }
+`
+    return { diff, truncated: false }
 }
 
 export const mockSourceConfigs = {

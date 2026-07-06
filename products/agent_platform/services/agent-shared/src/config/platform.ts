@@ -118,7 +118,7 @@ export const PlatformConfigSchema = z.object({
         .url()
         .default('postgres://posthog:posthog@localhost:5432/posthog')
         .describe(
-            'Main PostHog DB — read for cross-product data only (posthog_integration, users, org membership). No agent tables.'
+            'Main PostHog DB — read for cross-product data only (users, teams, org membership). No agent tables.'
         ),
     agentDbUrl: z
         .string()
@@ -164,6 +164,14 @@ export const PlatformConfigSchema = z.object({
         .enum(['debug', 'info', 'warn', 'error', 'fatal'])
         .default('info')
         .describe('pino level. Set debug to trace per-turn / per-request detail.'),
+    metricsPort: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(6738)
+        .describe(
+            'Dedicated Prometheus scrape port. Every service binds a tiny metrics-only HTTP server here (GET /metrics + /_metrics) — separate from the request/health port so /metrics is never served on the public ingress listener. 6738 matches the rest of the PostHog Node fleet (nodejs/) and the posthog-app chart default; vmagent discovers it via the pod scrape annotations.'
+        ),
 })
 
 export type PlatformConfig = z.infer<typeof PlatformConfigSchema>
@@ -181,6 +189,7 @@ export const PLATFORM_ENV_KEY_MAP: Record<string, keyof PlatformConfig> = {
     HTTPS_PROXY: 'httpsProxy',
     KAFKA_HOSTS: 'kafkaHosts',
     LOG_LEVEL: 'logLevel',
+    AGENT_METRICS_PORT: 'metricsPort',
 }
 
 /**

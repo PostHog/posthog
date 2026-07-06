@@ -31,7 +31,7 @@ class RetentionBaseQueryVariantComparisonMixin:
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
             legacy_result = calculate(legacy_query)
 
-        if not self.should_compare_retention_base_query_variants(query):
+        if not self.should_compare_retention_base_query_variants():
             return legacy_result
 
         dwh_variant_query = deepcopy(query)
@@ -41,7 +41,7 @@ class RetentionBaseQueryVariantComparisonMixin:
         cast(Any, self).assertEqual(dwh_variant_result, legacy_result)
         return legacy_result
 
-    def should_compare_retention_base_query_variants(self, query: dict[str, Any]) -> bool:
+    def should_compare_retention_base_query_variants(self) -> bool:
         test_method_name = getattr(self, "_testMethodName", "")
         if test_method_name in self.retention_base_query_variant_comparison_excluded_tests:
             return False
@@ -50,10 +50,4 @@ class RetentionBaseQueryVariantComparisonMixin:
         if getattr(test_method, SKIP_RETENTION_BASE_QUERY_VARIANT_COMPARISON_ATTR, False):
             return False
 
-        return not self._query_uses_known_retention_base_query_variant_gap(query)
-
-    def _query_uses_known_retention_base_query_variant_gap(self, query: dict[str, Any]) -> bool:
-        if query.get("breakdownFilter"):
-            return True
-
-        return False
+        return True

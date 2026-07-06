@@ -48,7 +48,7 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -236,7 +236,8 @@ export function getMarkdownNotebookNodeTitle(
     }
 
     if (nodeType === NotebookNodeType.Query) {
-        return getQueryTitle(attributes.query) ?? fallback
+        // No fallback label: an unnamed/SQL query stays empty so the title field reads as "Add a title"
+        return getQueryTitle(attributes.query)
     }
     if (nodeType === NotebookNodeType.Embed) {
         return getUnknownStringProp(attributes.src) ?? fallback
@@ -254,7 +255,8 @@ export function getMarkdownNotebookNodeTitle(
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
-        return summarizeTitle(getUnknownStringProp(attributes.code)) ?? fallback
+        // Never suggest the code/SQL body itself as a title — fall back to the language label
+        return fallback
     }
 
     return (
@@ -291,7 +293,8 @@ export function getQueryTitle(queryValue: unknown): string | null {
         return getNotebookStringProp(query.name) ?? getNotebookStringProp(query.shortId) ?? 'Saved insight'
     }
     if (sourceKind === 'HogQLQuery') {
-        return summarizeTitle(getNotebookStringProp(source?.query)) ?? 'SQL query'
+        // Leave SQL queries untitled initially — never suggest the SQL body or a generic label
+        return null
     }
     if (sourceKind === 'TrendsQuery') {
         return source ? (getSeriesTitle(source) ?? 'Trend') : 'Trend'
@@ -302,8 +305,12 @@ export function getQueryTitle(queryValue: unknown): string | null {
     if (sourceKind === 'EventsQuery') {
         return 'Events'
     }
+    if (sourceKind === 'ActorsQuery') {
+        return 'People'
+    }
 
-    return queryKind ?? sourceKind
+    // Don't suggest raw schema kinds (e.g. "DataTableNode") as a title
+    return null
 }
 
 export function getSeriesTitle(query: Record<string, NotebookPropValue>): string | null {
@@ -714,8 +721,13 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        if (value !== undefined && isNotebookPropValue(value)) {
-            props[key] = value as NotebookPropValue
+        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
+        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
+        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
+        const normalized = toSerializablePropValue(value)
+        if (normalized !== undefined && isNotebookPropValue(normalized)) {
+            props[key] = normalized
         }
         return props
     }, {})

@@ -76,7 +76,9 @@ describe('interactive client tool dispatch: real e2e', () => {
         // the in-process await; we should NOT see a matching
         // `client_tool_result` bus event (those only flow through the
         // legacy /client_tool_result path).
-        const res = await request(c.ingress).post('/agents/demo/run').send({ message: 'set the puns key' })
+        const res = await request(c.ingress)
+            .post('/agents/demo/run')
+            .send({ message: 'set the puns key', supported_client_tools: ['set_secret'] })
         const sessionId = res.body.session_id as string
         const busEvents: Array<{ kind: string; data: Record<string, unknown> }> = []
         const unsub = c.bus.subscribe(sessionId, (e) => {
@@ -185,7 +187,9 @@ describe('interactive client tool dispatch: real e2e', () => {
             },
         })
 
-        const res = await request(c.ingress).post('/agents/demo/run').send({ message: 'set it' })
+        const res = await request(c.ingress)
+            .post('/agents/demo/run')
+            .send({ message: 'set it', supported_client_tools: ['set_secret'] })
         const sessionId = res.body.session_id as string
         const calls: string[] = []
         const unsub = c.bus.subscribe(sessionId, (e) => {

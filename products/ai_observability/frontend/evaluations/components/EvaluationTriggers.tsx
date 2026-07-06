@@ -21,7 +21,7 @@ export function EvaluationTriggers(): JSX.Element {
     const addConditionSet = (): void => {
         const newCondition: EvaluationConditionSet = {
             id: `cond-${Date.now()}`,
-            rollout_percentage: 0,
+            rollout_percentage: 100,
             properties: [],
         }
         setTriggerConditions([...evaluation.conditions, newCondition])
@@ -54,11 +54,20 @@ export function EvaluationTriggers(): JSX.Element {
         setTriggerConditions(updatedConditions)
     }
 
+    const isTraceTarget = evaluation.target === 'trace'
+
     return (
         <div className="space-y-6">
             <div className="text-sm text-muted">
                 Each condition set below defines when this evaluation should trigger. If multiple condition sets exist,
                 the evaluation will trigger if ANY of them match (OR logic).
+                {isTraceTarget && (
+                    <>
+                        {' '}
+                        Conditions match individual generations — the whole trace is evaluated once any of its
+                        generations matches, and sampling applies per trace.
+                    </>
+                )}
             </div>
 
             {evaluation.conditions.map((condition, index) => {
@@ -132,7 +141,8 @@ export function EvaluationTriggers(): JSX.Element {
                                 </div>
                             ) : (
                                 <div className="text-xs text-muted">
-                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching generations
+                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching{' '}
+                                    {isTraceTarget ? 'traces' : 'generations'}
                                 </div>
                             )}
                         </div>

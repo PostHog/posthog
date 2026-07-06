@@ -7,6 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AggregationAxisFormat,
+    defaultAggregationAxisFormatForDisplay,
     INSIGHT_UNIT_OPTIONS,
     INSIGHT_UNIT_OPTIONS_SHORT,
 } from 'scenes/insights/aggregationAxisFormat'
@@ -32,6 +33,8 @@ export function UnitPicker(): JSX.Element {
 
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregationAxisFormat || undefined)
+    // Some display types (e.g. Metric) render a default unit when none is explicitly set — reflect it here.
+    const effectiveAxisFormat = localAxisFormat ?? defaultAggregationAxisFormatForDisplay(display)
 
     useKeyboardHotkeys(
         {
@@ -66,8 +69,8 @@ export function UnitPicker(): JSX.Element {
 
     const displayValue = useMemo(() => {
         let displayValue: React.ReactNode = 'None'
-        if (localAxisFormat) {
-            displayValue = INSIGHT_UNIT_OPTIONS_SHORT[localAxisFormat]
+        if (effectiveAxisFormat) {
+            displayValue = INSIGHT_UNIT_OPTIONS_SHORT[effectiveAxisFormat]
         }
         if (trendsFilter?.aggregationAxisPrefix?.length) {
             displayValue = `Prefix: ${trendsFilter?.aggregationAxisPrefix}`
@@ -76,7 +79,7 @@ export function UnitPicker(): JSX.Element {
             displayValue = `Postfix: ${trendsFilter?.aggregationAxisPostfix}`
         }
         return displayValue
-    }, [localAxisFormat, trendsFilter])
+    }, [effectiveAxisFormat, trendsFilter])
 
     const handleCustomPrefix = (): void => {
         showCustomUnitModal({
@@ -112,7 +115,7 @@ export function UnitPicker(): JSX.Element {
                                 <LemonButton
                                     key={index}
                                     onClick={() => handleChange({ format: value })}
-                                    active={value === localAxisFormat}
+                                    active={value === effectiveAxisFormat}
                                     fullWidth
                                 >
                                     {label}

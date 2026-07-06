@@ -60,16 +60,29 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
 
 export function KpiTiles({
     kpis,
+    users,
     intentClusterCount,
     kpisLoading,
+    usersLoading,
     theme,
 }: {
     kpis: KPIData
+    users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
+    usersLoading: boolean
     theme: ChartTheme
 }): JSX.Element {
     const tiles: TileSpec[] = [
+        {
+            label: 'Users',
+            metric: users,
+            // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
+            href: urls.mcpAnalyticsSessions(),
+            format: formatNumber,
+            color: theme.colors[2],
+            loading: usersLoading,
+        },
         {
             label: 'Sessions',
             metric: kpis.sessions,
@@ -116,11 +129,16 @@ export function KpiTiles({
         },
     ]
 
+    // Wrap the six tiles only into rows that divide evenly (6 → 3+3 → 2+2+2), never a lone
+    // trailing card. Container queries key off the card area's own width, so the sidebar can't
+    // push it to an awkward 5+1 the way viewport breakpoints or plain auto-fit would.
     return (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(175px,1fr))] gap-3">
-            {tiles.map((tile) => (
-                <KPITile key={tile.label} tile={tile} theme={theme} />
-            ))}
+        <div className="@container">
+            <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @6xl:grid-cols-6">
+                {tiles.map((tile) => (
+                    <KPITile key={tile.label} tile={tile} theme={theme} />
+                ))}
+            </div>
         </div>
     )
 }

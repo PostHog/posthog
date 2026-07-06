@@ -29,18 +29,27 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefinitionType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActorType,
+    ExporterFormat,
+    PropertiesTimelineFilterType,
+    PropertyDefinitionType,
+} from '~/types'
 
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
@@ -101,6 +110,12 @@ export function PersonsModal({
         useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { startExport } = useActions(exportsLogic)
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const totalActorsCount = missingActorsCount + actors.length
     type ActorsQuery = NonNullable<typeof query>
@@ -311,6 +326,7 @@ export function PersonsModal({
                                         })
                                     }}
                                     tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     data-attr="person-modal-download-csv"
                                 >
                                     Download CSV
@@ -381,6 +397,9 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
         : isSession && actor.person
           ? asDisplay(actor.person)
           : asDisplay(actor)
+    // The most human-readable distinct ID, for the person row's copyable subtitle
+    const bestDistinctId =
+        !isGroupType(actor) && !isSessionType(actor) ? pickBestPersonDistinctId(actor.distinct_ids) : undefined
 
     const onOpenRecordingClick = (): void => {
         if (!actor.matched_recordings) {
@@ -420,14 +439,14 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            {actor.distinct_ids?.[0] && (
+                            {bestDistinctId && (
                                 <CopyToClipboardInline
-                                    explicitValue={actor.distinct_ids[0]}
+                                    explicitValue={bestDistinctId}
                                     iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
                                     className="text-xs text-secondary"
                                 >
-                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                    {midEllipsis(bestDistinctId, 32)}
                                 </CopyToClipboardInline>
                             )}
                         </>
@@ -588,6 +607,12 @@ export function MissingPersonsAlert({
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    if (isSharedView()) {
+        // Shared/exported views authenticate with a sharing token, which can never run the
+        // person-level queries this modal needs — it would only ever render an error state.
+        return
+    }
+
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {

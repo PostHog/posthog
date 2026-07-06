@@ -23,7 +23,7 @@ from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
-from products.tasks.backend.services.sandbox import (
+from products.tasks.backend.facade.sandbox import (
     SandboxBase,
     SandboxClass,
     SandboxConfig,
@@ -552,7 +552,9 @@ class KernelRuntimeService:
         else:
             try:
                 placeholders = self._parse_hogql_placeholders_payload(placeholders_payload)
-                response = execute_hogql_query(query=query, team=team, placeholders=placeholders)
+                response = execute_hogql_query(
+                    query=query, team=team, placeholders=placeholders, user=handle.runtime.user
+                )
                 if hasattr(response, "model_dump"):
                     response_payload = response.model_dump(exclude_none=True)
                 else:
@@ -708,7 +710,7 @@ class KernelRuntimeService:
         if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
             if not handle.sandbox_id:
                 return False
-            from products.tasks.backend.services.sandbox import SandboxStatus
+            from products.tasks.backend.facade.sandbox import SandboxStatus
 
             try:
                 sandbox_class = self._get_sandbox_class(handle.backend)

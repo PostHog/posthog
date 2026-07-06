@@ -475,8 +475,8 @@ def run_training(
 
     Raises if Temporal is unreachable or the task cannot be created.
     """
+    from products.tasks.backend.facade.sandbox import SandboxTemplate
     from products.tasks.backend.models import Task, TaskRun
-    from products.tasks.backend.services.sandbox import SandboxTemplate
 
     now = django_timezone.now()
     training_run = AutoresearchTrainingRun.objects.create(

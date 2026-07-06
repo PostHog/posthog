@@ -11,10 +11,6 @@
     animation: CommandBlock-flash 1500ms ease-out forwards;
 }
 
-.CommandBlock__bounce {
-    animation: CommandBlock-bounce 400ms ease-out;
-}
-
 /* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes CommandBlock-flash {
     0%,
@@ -24,28 +20,5 @@
 
     100% {
         opacity: 0;
-    }
-}
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes CommandBlock-bounce {
-    0% {
-        transform: scale(1);
-    }
-
-    15% {
-        transform: scale(0.96);
-    }
-
-    40% {
-        transform: scale(1.03);
-    }
-
-    70% {
-        transform: scale(0.99);
-    }
-
-    100% {
-        transform: scale(1);
     }
 }

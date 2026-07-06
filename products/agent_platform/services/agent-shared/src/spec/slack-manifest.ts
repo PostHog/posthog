@@ -49,7 +49,9 @@ export interface BuildSlackManifestInput {
     eventsUrl: string | null
     /** Public interactivity Request URL, or null. */
     interactivityUrl: string | null
-    /** Native-tool id → its `requires.scopes`. Injected by the caller (janitor). */
+    /** Native-tool id → the Slack OAuth scopes it needs (its `requires.provider`
+     *  scopes when that provider is `slack`, else `[]`). Injected by the caller
+     *  (janitor) since agent-shared can't import agent-tools. */
     scopesForNativeTool: (id: string) => string[]
 }
 
@@ -62,8 +64,19 @@ export interface BuildSlackManifestResult {
 const EVENTS_URL_PLACEHOLDER = 'https://<set AGENT_INGRESS_PUBLIC_URL>/slack/events'
 const INTERACTIVITY_URL_PLACEHOLDER = 'https://<set AGENT_INGRESS_PUBLIC_URL>/slack/interactivity'
 
-function truncate(value: string, max: number): string {
-    return value.length <= max ? value : value.slice(0, max)
+// Cap to Slack's char limit. With `ellipsis`, cut at a word boundary + "…" so a
+// long description ends cleanly, not mid-word (names/display_name can't — "…"
+// isn't in their allowed charset).
+function truncate(value: string, max: number, ellipsis = false): string {
+    if (value.length <= max) {
+        return value
+    }
+    if (!ellipsis) {
+        return value.slice(0, max)
+    }
+    const slice = value.slice(0, max - 1)
+    const lastSpace = slice.lastIndexOf(' ')
+    return `${(lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trimEnd()}…`
 }
 
 /**
@@ -98,7 +111,10 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     // tools, plus what the trigger itself needs.
     const scopes = new Set<string>(['app_mentions:read', 'chat:write'])
     for (const tool of input.tools) {
-        if (tool.kind === 'native' && tool.id.startsWith('@posthog/slack-')) {
+        // `scopesForNativeTool` returns the tool's Slack scopes only when its
+        // declared provider is `slack` (else `[]`), so we no longer special-case
+        // the `@posthog/slack-` id prefix — the provider is the source of truth.
+        if (tool.kind === 'native') {
             for (const scope of input.scopesForNativeTool(tool.id)) {
                 scopes.add(scope)
             }
@@ -140,7 +156,7 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     const manifest: SlackAppManifest = {
         display_information: {
             name: truncate(input.displayName, 35),
-            ...(input.displayDescription ? { description: truncate(input.displayDescription, 140) } : {}),
+            ...(input.displayDescription ? { description: truncate(input.displayDescription, 140, true) } : {}),
         },
         features: {
             bot_user: { display_name: truncate(input.displayName, 35), always_online: true },

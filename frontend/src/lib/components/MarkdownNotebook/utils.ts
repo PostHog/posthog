@@ -5,7 +5,10 @@ import {
     NotebookInlineMark,
     NotebookInlineNode,
     NotebookListItem,
+    NotebookPropValue,
 } from './types'
+
+const nodeFingerprintCache = new WeakMap<NotebookBlockNode, string>()
 
 export function hashString(value: string): string {
     let hash = 5381
@@ -105,6 +108,17 @@ export function getNodeSignature(node: NotebookBlockNode): string {
 }
 
 export function getNodeFingerprint(node: NotebookBlockNode): string {
+    const cachedFingerprint = nodeFingerprintCache.get(node)
+    if (cachedFingerprint !== undefined) {
+        return cachedFingerprint
+    }
+
+    const fingerprint = getUncachedNodeFingerprint(node)
+    nodeFingerprintCache.set(node, fingerprint)
+    return fingerprint
+}
+
+function getUncachedNodeFingerprint(node: NotebookBlockNode): string {
     if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
         return JSON.stringify({
             type: node.type,
@@ -290,6 +304,20 @@ export function isNotebookPropValue(value: unknown): value is NotebookComponentP
     }
 
     return false
+}
+
+// Project a value onto the serializable NotebookPropValue space — the same JSON.stringify
+// normalization markdown serialization applies — dropping nested `undefined` (e.g. an absent
+// `label`/`group_type_index` on a person-property filter inside a query). Counterpart to the
+// isNotebookPropValue guard: where the guard rejects dirty values, this cleans them. Returns
+// `undefined` for values JSON can't represent (top-level `undefined`, functions, symbols), so
+// callers can omit the key entirely.
+export function toSerializablePropValue(value: unknown): NotebookPropValue | undefined {
+    const serialized = JSON.stringify(value)
+    if (serialized === undefined) {
+        return undefined
+    }
+    return JSON.parse(serialized) as NotebookPropValue
 }
 
 function sortProps(props: NotebookComponentProps): NotebookComponentProps {

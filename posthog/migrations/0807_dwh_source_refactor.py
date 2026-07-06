@@ -2,22 +2,21 @@
 
 from django.db import migrations
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as ExternalDataSourceModel
-
 
 def forwards(apps, schema_editor):
-    ExternalDataSource: ExternalDataSourceModel = apps.get_model("posthog", "ExternalDataSource")
+    ExternalDataSource = apps.get_model("posthog", "ExternalDataSource")
     all_sources = ExternalDataSource.objects.all()
 
     for source in all_sources:
-        source_type = ExternalDataSourceType(source.source_type)
+        # Source-type values inlined (was ExternalDataSourceType enum) to keep this applied
+        # migration hermetic — no live-code import. `source_type` is the stored string value.
+        source_type = source.source_type
         job_inputs = source.job_inputs
 
         if job_inputs is None:
             continue
 
-        if source_type == ExternalDataSourceType.BIGQUERY:
+        if source_type == "BigQuery":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "key_file": {
@@ -39,7 +38,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.MSSQL:
+        elif source_type == "MSSQL":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs.get("host", ""),
@@ -63,7 +62,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.MYSQL:
+        elif source_type == "MySQL":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs.get("host", ""),
@@ -88,7 +87,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.POSTGRES:
+        elif source_type == "Postgres":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs.get("host", ""),
@@ -112,7 +111,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.SNOWFLAKE:
+        elif source_type == "Snowflake":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "account_id": job_inputs.get("account_id", ""),
@@ -130,7 +129,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.VITALLY:
+        elif source_type == "Vitally":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "secret_token": job_inputs.get("secret_token", ""),
@@ -138,7 +137,7 @@ def forwards(apps, schema_editor):
             }
             source.job_inputs = new_job_inputs
             source.save()
-        elif source_type == ExternalDataSourceType.ZENDESK:
+        elif source_type == "Zendesk":
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "subdomain": job_inputs.get("zendesk_subdomain", ""),
@@ -150,7 +149,7 @@ def forwards(apps, schema_editor):
 
 
 def reverse(apps, schema_editor):
-    ExternalDataSource: ExternalDataSourceModel = apps.get_model("posthog", "ExternalDataSource")
+    ExternalDataSource = apps.get_model("posthog", "ExternalDataSource")
     sources = ExternalDataSource.objects.filter(job_inputs__has_key="pre_migration_job_inputs")
 
     for source in sources:

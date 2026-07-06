@@ -56,8 +56,8 @@ export function SlackNotificationsSection(): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
-    const { autonomyConfig, autonomyConfigLoading } = useValues(userAutonomyLogic)
-    const { updateSlackNotifications } = useActions(userAutonomyLogic)
+    const { autonomyConfig, autonomyConfigLoading, slackPickersExpanded } = useValues(userAutonomyLogic)
+    const { updateSlackNotifications, setSlackPickersExpanded } = useActions(userAutonomyLogic)
 
     if (integrationsLoading && slackIntegrations === undefined) {
         return <LemonSkeleton className="h-20 w-full" />
@@ -79,12 +79,16 @@ export function SlackNotificationsSection(): JSX.Element {
     const onToggleEnabled = (enabled: boolean): void => {
         if (enabled) {
             // Turning on just opens the workspace/channel pickers – the actual enable
-            // happens once a channel is chosen. Persist the workspace if it's unambiguous.
+            // happens once a channel is chosen. Reveal them even when the workspace is
+            // ambiguous (multiple connected) so the user can pick one; persist it now
+            // only when it's unambiguous.
+            setSlackPickersExpanded(true)
             if (effectiveIntegration && selectedIntegrationId === null) {
                 updateSlackNotifications({ integrationId: effectiveIntegration.id })
             }
         } else {
-            // Disable by clearing the target.
+            // Disable by clearing the target and collapsing the pickers.
+            setSlackPickersExpanded(false)
             updateSlackNotifications({ integrationId: null, channel: null })
         }
     }
@@ -111,8 +115,9 @@ export function SlackNotificationsSection(): JSX.Element {
         })
     }
 
-    // "On" means the pickers are visible; either an integration is explicitly selected or a channel is set.
-    const showPickers = selectedIntegrationId !== null || !!channel
+    // "On" means the pickers are visible: the user expanded them, or a saved integration/channel
+    // already implies an enabled state.
+    const showPickers = slackPickersExpanded || selectedIntegrationId !== null || !!channel
 
     return (
         <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">

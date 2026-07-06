@@ -62,6 +62,7 @@ fn flag_row(team_id: i32, key: &str, filters: Value) -> FeatureFlagRow {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     }
 }
 
@@ -377,6 +378,81 @@ async fn test_property_filter_selects_matching_persons() -> Result<()> {
     expected.sort();
 
     assert_eq!(matched_uuids(&json_response), expected);
+    assert_eq!(json_response["errors_count"], json!(0));
+    assert_eq!(json_response["next_cursor"], Value::Null);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_datetime_filter_uses_team_timezone_not_utc() -> Result<()> {
+    // Batch eval must interpret naive datetime person values in the team's timezone, the
+    // same as live `/flags` evaluation and HogQL/ClickHouse cohort membership. The handler
+    // reads `team.timezone` from Postgres server-side; the Django caller sends no timezone.
+    //
+    // Phoenix is UTC-7 year-round (no DST), so the arithmetic is unambiguous. The filter
+    // pins an explicit-UTC instant (12:00Z), while the person value is a naive wall-clock
+    // time interpreted in the team timezone:
+    //   - In America/Phoenix, "2024-06-01 08:00:00" is 2024-06-01 15:00 UTC → after 12:00Z → matches.
+    //   - Under a wrong UTC fallback it would be 08:00 UTC → not after 12:00Z → would NOT match.
+    // So this person is matched only if the team timezone is applied.
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    context
+        .update_team_timezone(team.id, "America/Phoenix")
+        .await?;
+    let server = ServerHandle::for_config(batch_eval_config()).await;
+
+    context
+        .insert_flag(
+            team.id,
+            Some(flag_row(
+                team.id,
+                "date-flag",
+                json!({
+                    "groups": [{
+                        "properties": [{
+                            "key": "signup_date",
+                            "type": "person",
+                            "value": "2024-06-01T12:00:00Z",
+                            "operator": "is_date_after",
+                        }],
+                        "rollout_percentage": 100,
+                    }],
+                }),
+            )),
+        )
+        .await?;
+
+    for (distinct_id, signup_date) in [
+        // 15:00 UTC in Phoenix → after the filter only because the team tz is applied.
+        ("tz_dependent_match", "2024-06-01 08:00:00"),
+        // Well before the filter under any timezone → never matches (selection control).
+        ("clearly_before", "2020-01-01 00:00:00"),
+    ] {
+        context
+            .insert_person(
+                team.id,
+                distinct_id.to_string(),
+                Some(json!({ "signup_date": signup_date })),
+            )
+            .await?;
+    }
+
+    let res = send_batch_request(
+        &server,
+        Some(INTERNAL_TOKEN),
+        &batch_body(team.id, "date-flag", 0),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_response = res.json::<Value>().await?;
+
+    let matched = context
+        .get_person_uuid_by_distinct_id(team.id, "tz_dependent_match")
+        .await?;
+
+    assert_eq!(matched_uuids(&json_response), vec![matched]);
     assert_eq!(json_response["errors_count"], json!(0));
     assert_eq!(json_response["next_cursor"], Value::Null);
 

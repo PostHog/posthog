@@ -1,7 +1,7 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { logger } from '../../utils/logger'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -57,7 +57,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                // Warehouse-row invocations don't have a real person — the row is the unit of work
+                // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
+                // rather than relying on event.distinct_id being empty so future changes to the
+                // synthetic event shape don't accidentally re-enable the lookup.
+                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                const personIdOrDistinctId = isWarehouseRow
+                    ? undefined
+                    : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
                 const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
 
                 const [person, groups] = await Promise.all([

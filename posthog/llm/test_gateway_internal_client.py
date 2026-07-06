@@ -105,7 +105,7 @@ class TestAddCredit:
             result = add_credit(42, "25.00", "topping up", "key-123")
 
         url = mock_post.call_args.args[0]
-        assert url == "http://gw/internal/accounts/42/credits"
+        assert url == "http://gw/internal/teams/42/credits"
         assert mock_post.call_args.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
         assert mock_post.call_args.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
         assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer tok"

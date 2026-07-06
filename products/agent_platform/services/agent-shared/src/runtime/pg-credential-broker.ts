@@ -1,7 +1,7 @@
 /**
  * Postgres-backed `CredentialBroker`. Storage shape matches the
- * `agent_session_credential` table from
- * `agent-migrations/.../1780247580000_agent_session_credential.sql`.
+ * Django-owned `agent_session_credential` table (see
+ * products/agent_platform/backend/models.py + migrations/).
  *
  * **Encryption at rest.** The credentials map is encrypted with the
  * platform's `EncryptedFields` (same Fernet-keyed mechanism used for

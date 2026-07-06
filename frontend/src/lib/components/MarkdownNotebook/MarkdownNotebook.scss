@@ -88,6 +88,8 @@
         position: absolute;
         bottom: 100%;
         left: -2px; // aligned with the bar's left edge
+        display: inline-flex;
+        align-items: baseline;
         max-width: 12rem;
         padding: 1px 6px;
         overflow: hidden;
@@ -100,6 +102,31 @@
         user-select: none;
         background: var(--remote-presence-color, currentColor);
         border-radius: 3px 3px 3px 0;
+    }
+
+    &-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    &-ai-dots {
+        display: inline-flex;
+        flex: 0 0 0.75em;
+        margin-left: 1px;
+
+        span {
+            opacity: 0;
+            animation: MarkdownNotebook__AICaretDots 1.2s steps(1, end) infinite;
+
+            &:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+
+            &:nth-child(3) {
+                animation-delay: 0.4s;
+            }
+        }
     }
 }
 
@@ -127,6 +154,8 @@
         position: absolute;
         bottom: 100%;
         left: -2px;
+        display: inline-flex;
+        align-items: baseline;
         max-width: 12rem;
         padding: 1px 6px;
         overflow: hidden;
@@ -145,6 +174,25 @@
 .MarkdownNotebook__remote-caret--fading,
 .MarkdownNotebook__remote-block--fading {
     opacity: 0;
+}
+
+@keyframes MarkdownNotebook__AICaretDots {
+    0%,
+    24% {
+        opacity: 0;
+    }
+
+    25%,
+    100% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MarkdownNotebook__remote-caret-ai-dots span {
+        opacity: 1;
+        animation: none;
+    }
 }
 
 .MarkdownNotebook__debug-toolbar {
@@ -750,8 +798,10 @@
 .MarkdownNotebook__ai-prompt-form textarea.MarkdownNotebook__ai-prompt-input {
     display: block;
     height: auto;
-    overflow: hidden;
+    overflow-y: auto;
     text-overflow: clip;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__ai-prompt-input:focus {
@@ -761,6 +811,20 @@
 
 .MarkdownNotebook__text-block:focus {
     background: var(--bg-light);
+}
+
+.MarkdownNotebook__text-block--ai-writing,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__code-block,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__list-block,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__table-block {
+    background: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 72%, transparent);
+    border-radius: 0.25rem;
+    box-shadow: 0 0 0 0.25rem color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 36%, transparent);
+    animation: MarkdownNotebook__AIWritingPulse 1.8s ease-in-out infinite;
+}
+
+.MarkdownNotebook__text-block--ai-writing {
+    cursor: default;
 }
 
 .MarkdownNotebook__text-block--ai-thinking {
@@ -780,6 +844,26 @@
 
 .MarkdownNotebook__text-block--ai-thinking::selection {
     color: var(--color-text-primary);
+}
+
+@keyframes MarkdownNotebook__AIWritingPulse {
+    0%,
+    100% {
+        background-color: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 54%, transparent);
+    }
+
+    50% {
+        background-color: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 88%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MarkdownNotebook__text-block--ai-writing,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__code-block,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__list-block,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__table-block {
+        animation: none;
+    }
 }
 
 .MarkdownNotebook__text-block[contenteditable='true'] a,
@@ -1567,6 +1651,30 @@ h3.MarkdownNotebook__text-block--heading {
     white-space: nowrap;
 }
 
+.MarkdownNotebook__component-toolbar-title--input {
+    padding: 0.125rem 0.375rem;
+    color: var(--color-text-primary);
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+
+    &::placeholder {
+        color: var(--color-text-tertiary);
+        opacity: 1;
+    }
+
+    &:hover {
+        border-color: var(--color-border-primary);
+    }
+
+    &:focus,
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
 .MarkdownNotebook__component-actions {
     flex: 0 0 auto;
 }
@@ -1934,6 +2042,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
+}
+
+.MarkdownNotebook__discussion-comment-input {
+    max-height: calc(1.4em * 6 + 1rem);
+    overflow-y: auto;
+    resize: none;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__discussion-comment-actions {

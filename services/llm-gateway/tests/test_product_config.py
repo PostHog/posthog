@@ -6,6 +6,9 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    POSTHOG_AI_DEV_APP_ID,
+    POSTHOG_AI_EU_APP_ID,
+    POSTHOG_AI_US_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
@@ -66,6 +69,13 @@ class TestCheckProductAccess:
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
             ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
+            ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", "any-app-id", "claude-sonnet-4-5", False, "not authorized"),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_US_APP_ID, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_EU_APP_ID, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_DEV_APP_ID, "claude-3-opus", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -92,8 +102,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -113,7 +125,6 @@ class TestCheckProductAccess:
             "gpt-4o-mini",
             "claude-3-5-haiku-20241022",
             "claude-3-opus",
-            "claude-fable-5",
             "o1",
         ],
     )
@@ -130,8 +141,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -197,23 +210,6 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
-    @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
-    )
-    def test_posthog_code_rejects_claude_fable_5_via_bedrock_provider(self, mock_get_settings: MagicMock):
-        # Fable 5 has no Bedrock mapping, so the bedrock provider path must not
-        # resurrect it via the BEDROCK_MODELS entries in the allowlist union.
-        allowed, error = check_product_access(
-            "posthog_code",
-            "oauth_access_token",
-            POSTHOG_CODE_US_APP_ID,
-            "claude-fable-5",
-            provider="bedrock",
-        )
-        assert allowed is False
-        assert error is not None
-        assert "not allowed" in error
-
     @pytest.mark.parametrize(
         "model",
         [
@@ -221,7 +217,9 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -301,6 +299,7 @@ class TestCheckProductAccess:
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
         ],
@@ -319,6 +318,27 @@ class TestCheckProductAccess:
     def test_slack_app_rejects_unauthorized_oauth_app(self):
         allowed, error = check_product_access(
             "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
+    @pytest.mark.parametrize(
+        "application_id",
+        [
+            POSTHOG_AI_US_APP_ID,
+            POSTHOG_AI_EU_APP_ID,
+            POSTHOG_AI_DEV_APP_ID,
+        ],
+    )
+    def test_posthog_ai_allows_oauth_apps(self, application_id: str):
+        allowed, error = check_product_access("posthog_ai", "oauth_access_token", application_id, "claude-sonnet-4-5")
+        assert allowed is True
+        assert error is None
+
+    def test_posthog_ai_rejects_posthog_code_oauth_app(self):
+        allowed, error = check_product_access(
+            "posthog_ai", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-5"
         )
         assert allowed is False
         assert error is not None

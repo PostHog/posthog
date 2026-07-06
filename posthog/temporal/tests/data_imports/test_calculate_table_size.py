@@ -5,16 +5,18 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team
-from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
+
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
 )
-
-from products.warehouse_sources.backend.models import DataWarehouseTable
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [
     pytest.mark.django_db(transaction=True),
@@ -74,7 +76,7 @@ def test_calculate_table_size_does_not_clobber_concurrent_completion():
 
     with (
         patch(
-            "posthog.temporal.data_imports.workflow_activities.calculate_table_size.get_size_of_folder",
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size.get_size_of_folder",
             return_value=1.0,
         ),
         patch.object(ExternalDataJob, "save", autospec=True, side_effect=save_with_concurrent_completion),

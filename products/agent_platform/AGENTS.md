@@ -62,6 +62,23 @@ have a case will silently regress when the node side evolves. See
 [agent-tests/CLAUDE.md](../../products/agent_platform/services/agent-tests/CLAUDE.md) for the
 pattern.
 
+## Reading service logs locally
+
+In dev the node services (`agent-ingress`, `agent-runner`, `agent-janitor`) tee
+their JSON logs to `/tmp/posthog-agent-logs/<service>.log` (set via
+`AGENT_LOG_FILE` per service in `bin/mprocs.yaml`) in addition to the mprocs pane.
+So you can read/grep them directly instead of scraping the terminal:
+
+```bash
+tail -n 200 /tmp/posthog-agent-logs/agent-runner.log
+# one session across all services:
+grep -h '<session_id>' /tmp/posthog-agent-logs/*.log | jq -c '{name,event,msg,err}'
+```
+
+Each line is a pino JSON record (`name` = subsystem, plus any bindings like
+`session_id`). Prod logs to stdout only; tests don't write files. Wired in
+`agent-shared/src/runtime/logger.ts`.
+
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —

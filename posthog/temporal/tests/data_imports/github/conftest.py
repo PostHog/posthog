@@ -6,8 +6,16 @@ import pytest
 
 from dateutil import parser as dateutil_parser
 
-from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS, WORKFLOW_RUNS
+from posthog.temporal.tests.data_imports.github.data import (
+    COMMITS,
+    ISSUES,
+    PULL_REQUESTS,
+    STARGAZERS,
+    WORKFLOW_JOBS,
+    WORKFLOW_RUNS,
+)
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 
 
 class MockGithubAPI:
@@ -61,11 +69,15 @@ class MockGithubAPI:
         path = urlparse(request.url).path
         resource = path.split("/")[-1]
 
-        if resource not in self.RESOURCES:
+        if resource == "jobs":
+            # Fan-out child: /repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+            run_id = int(path.split("/")[-2])
+            data = [dict(job) for job in WORKFLOW_JOBS if job.get("run_id") == run_id]
+        elif resource not in self.RESOURCES:
             context.status_code = 404
             return []
-
-        data = list(self.RESOURCES[resource])
+        else:
+            data = list(self.RESOURCES[resource])
 
         if self.max_updated is not None:
             max_dt = dateutil_parser.parse(self.max_updated)
@@ -91,12 +103,12 @@ class MockGithubAPI:
             sort_key = f"{sort_field}_at" if not sort_field.endswith("_at") else sort_field
             data = sorted(
                 data,
-                key=lambda x: x.get(sort_key) or self._get_item_date(x) or "",
+                key=lambda x: str(x.get(sort_key) or self._get_item_date(x) or ""),
                 reverse=(direction == "desc"),
             )
         elif resource == "runs":
             # Workflow runs API always returns newest-first by created_at.
-            data = sorted(data, key=lambda x: x.get("created_at") or "", reverse=True)
+            data = sorted(data, key=lambda x: str(x.get("created_at") or ""), reverse=True)
 
         # total_count is the filtered count before pagination, matching GitHub's
         # enveloped endpoints (the count does not shrink page to page).

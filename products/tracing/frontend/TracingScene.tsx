@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -16,6 +21,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
+import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
 import { tracingDataLogic } from './tracingDataLogic'
@@ -45,7 +51,7 @@ export default function TracingScene(): JSX.Element {
 
 function TracingSceneContents(): JSX.Element {
     const {
-        rootSpans,
+        listRows,
         spansLoading,
         isTraceOpen,
         selectedTraceId,
@@ -53,7 +59,7 @@ function TracingSceneContents(): JSX.Element {
         selectedTraceTs,
         sparklineData,
         sparklineLoading,
-        totalSpansMatchingFilters,
+        totalMatchingFilters,
         openTraceSpans,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -72,8 +78,9 @@ function TracingSceneContents(): JSX.Element {
         durationHistogramLoading,
         visibleRowDurationRange,
         isDurationMode,
-        expandedSpanIds,
+        activeTracingTab,
     } = useValues(tracingSceneLogic())
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         openTrace,
         closeTrace,
@@ -85,11 +92,17 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         loadMoreTraceSpans,
         setVisibleRowRange,
-        toggleExpandSpan,
         setSort,
+        setActiveTracingTab,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
+    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
+
+    // Resolved aggregation window (ms) — turns span counts into a request rate.
+    // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
+    const { sparklineWindowMs } = useValues(tracingFiltersLogic())
+    const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
         addProductIntent({
@@ -168,52 +181,76 @@ function TracingSceneContents(): JSX.Element {
                 />
                 <SceneDivider />
                 <TracingFilterBar />
-                {!sparklineLoading && totalSpansMatchingFilters > 0 && (
-                    <div className="text-xs text-muted px-1">
-                        {totalSpansMatchingFilters.toLocaleString()} spans matching filters
-                    </div>
+                {operationsViewEnabled && (
+                    <LemonTabs
+                        activeKey={activeTracingTab}
+                        onChange={(key) => setActiveTracingTab(key as 'traces' | 'operations')}
+                        tabs={[
+                            { key: 'traces', label: 'Traces' },
+                            { key: 'operations', label: 'Operations' },
+                        ]}
+                    />
                 )}
-                {compareMode ? (
-                    <TraceCompareTable
-                        current={aggregation.current}
-                        previous={aggregation.previous}
+                {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                    <OperationsTable
+                        rows={aggregation.current}
                         loading={aggregationLoading}
-                        onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                        windowMs={operationsWindowMs}
+                        onRowClick={(row) => router.actions.push(urls.tracingOperation(row.service_name, row.name))}
                     />
                 ) : (
-                    <VirtualizedSpanList
-                        dataSource={rootSpans}
-                        loading={spansLoading}
-                        hasMoreToLoad={hasMoreToLoad}
-                        onLoadMore={fetchNextPage}
-                        onVisibleRowRangeChange={setVisibleRowRange}
-                        expandedSpanIds={expandedSpanIds}
-                        onToggleExpand={toggleExpandSpan}
-                        orderBy={filters.orderBy}
-                        orderDirection={filters.orderDirection}
-                        onSort={(column) =>
-                            // Click an active column to flip direction; a new column starts at DESC.
-                            setSort(
-                                column,
-                                column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
-                            )
-                        }
-                        emptyState={
-                            <div className="flex flex-col items-center gap-1">
-                                <span>No spans found</span>
-                                <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                    Learn how to send traces
-                                </Link>
+                    <>
+                        {/* No loading guard: keep the last (view-mode-independent) count visible across reloads,
+                            so a Traces/Spans switch doesn't flicker the label out and back in. */}
+                        {!compareMode && totalMatchingFilters > 0 && (
+                            <div className="text-xs text-muted px-1">
+                                {humanFriendlyNumber(totalMatchingFilters)}{' '}
+                                {filters.viewMode === 'spans' ? 'spans' : 'traces'} matching filters
                             </div>
-                        }
-                        onRowClick={(span: Span) => {
-                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                            // element; react-modal then scrolls it back into view when restoring focus
-                            // on close. Blur so the restore target is <body>, which doesn't scroll.
-                            ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTrace(span.trace_id, { ts: span.timestamp })
-                        }}
-                    />
+                        )}
+                        {compareMode ? (
+                            <TraceCompareTable
+                                current={aggregation.current}
+                                previous={aggregation.previous}
+                                loading={aggregationLoading}
+                                onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                            />
+                        ) : (
+                            <VirtualizedSpanList
+                                dataSource={listRows}
+                                loading={spansLoading}
+                                hasMoreToLoad={hasMoreToLoad}
+                                onLoadMore={fetchNextPage}
+                                onVisibleRowRangeChange={setVisibleRowRange}
+                                orderBy={filters.orderBy}
+                                orderDirection={filters.orderDirection}
+                                onSort={(column) =>
+                                    // Click an active column to flip direction; a new column starts at DESC.
+                                    setSort(
+                                        column,
+                                        column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
+                                    )
+                                }
+                                emptyState={
+                                    <div className="flex flex-col items-center gap-1">
+                                        <span>No spans found</span>
+                                        <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                            Learn how to send traces
+                                        </Link>
+                                    </div>
+                                }
+                                onRowClick={(span: Span) => {
+                                    // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                                    // element; react-modal then scrolls it back into view when restoring focus
+                                    // on close. Blur so the restore target is <body>, which doesn't scroll.
+                                    ;(document.activeElement as HTMLElement | null)?.blur?.()
+                                    // Anchor the waterfall on the clicked span — in Spans mode this is often a
+                                    // child span, so without spanId the drawer would open unfocused at the root.
+                                    openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
+                                }}
+                            />
+                        )}
+                    </>
                 )}
             </TracingSetupPrompt>
             <TraceDrawer

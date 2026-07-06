@@ -100,6 +100,29 @@ export const RestingSummary: Story = {
     },
 }
 
+export const IncompleteTrailingPeriod: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={320}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Total Revenue"
+                        data={REVENUE}
+                        labels={MONTHS}
+                        theme={theme}
+                        color="#22d3ee"
+                        // Last two points are an in-progress period — dashed so it doesn't read as a real dip.
+                        sparklineDashedFromIndex={REVENUE.length - 2}
+                        sparklineClassName="mt-4 -mx-5 -mb-5"
+                        formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}
+
 export const NumberOnly: Story = {
     render: () => (
         <Stage width={360} height={200}>

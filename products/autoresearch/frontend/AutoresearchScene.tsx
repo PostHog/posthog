@@ -79,18 +79,18 @@ export function AutoresearchScene(): JSX.Element {
         {
             title: 'Prediction horizon',
             dataIndex: 'horizon_days',
-            render: (days: AutoresearchPipelineApi['horizon_days']) => (days ? `${days}d` : '—'),
+            render: (_, record: AutoresearchPipelineApi) => (record.horizon_days ? `${record.horizon_days}d` : '—'),
         },
         {
             title: 'Status',
             dataIndex: 'status',
-            render: (status: AutoresearchPipelineApi['status']) => (
-                <Tooltip title={STATUS_DESCRIPTION[status]}>
-                    <LemonTag type={STATUS_TAG_TYPE[status]}>{STATUS_LABEL[status]}</LemonTag>
+            render: (_, record: AutoresearchPipelineApi) => (
+                <Tooltip title={STATUS_DESCRIPTION[record.status]}>
+                    <LemonTag type={STATUS_TAG_TYPE[record.status]}>{STATUS_LABEL[record.status]}</LemonTag>
                 </Tooltip>
             ),
         },
-        createdByColumn<AutoresearchPipelineApi>() as LemonTableColumn<
+        createdByColumn() as unknown as LemonTableColumn<
             AutoresearchPipelineApi,
             keyof AutoresearchPipelineApi | undefined
         >,
@@ -98,19 +98,22 @@ export function AutoresearchScene(): JSX.Element {
             title: 'Holdout AUC',
             dataIndex: 'champion_holdout_auc',
             tooltip: 'Offline AUC of the current champion model, measured on held-out training data.',
-            render: (auc: AutoresearchPipelineApi['champion_holdout_auc']) => (auc == null ? '—' : auc.toFixed(3)),
+            render: (_, record: AutoresearchPipelineApi) =>
+                record.champion_holdout_auc == null ? '—' : record.champion_holdout_auc.toFixed(3),
         },
         {
             title: 'Online accuracy',
             dataIndex: 'champion_realized_auc',
             tooltip:
                 'Realized AUC of the current champion model, measured against actual outcomes once predictions matured.',
-            render: (auc: AutoresearchPipelineApi['champion_realized_auc']) => (auc == null ? '—' : auc.toFixed(3)),
+            render: (_, record: AutoresearchPipelineApi) =>
+                record.champion_realized_auc == null ? '—' : record.champion_realized_auc.toFixed(3),
         },
         {
             title: 'Last scored',
             dataIndex: 'last_scored_at',
-            render: (ts: AutoresearchPipelineApi['last_scored_at']) => (ts ? dayjs(ts).fromNow() : 'Never'),
+            render: (_, record: AutoresearchPipelineApi) =>
+                record.last_scored_at ? dayjs(record.last_scored_at).fromNow() : 'Never',
         },
         {
             title: '',

@@ -1,11 +1,38 @@
 use std::net::SocketAddr;
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
-/// Resolution-mode config, nested into [`crate::config::Config`] via
-/// `#[envconfig(nested = true)]`. Two knobs shared with processing mode live on
-/// the parent config instead and are read from there: `INTERNAL_API_SECRET` and
-/// `SYMBOL_RESOLUTION_CONCURRENCY`.
+use crate::core::config::ResolverConfig;
+
+/// Top-level config for resolution mode. Owns the shared resolver config and the
+/// resolution service settings — no processing-only knobs. `INTERNAL_API_SECRET`
+/// and `SYMBOL_RESOLUTION_CONCURRENCY` come from the nested `resolver`.
+#[derive(Envconfig, Clone)]
+pub struct ResolutionConfig {
+    #[envconfig(nested = true)]
+    pub resolver: ResolverConfig,
+
+    #[envconfig(nested = true)]
+    pub service: Config,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
+    pub posthog_api_key: Option<String>,
+
+    #[envconfig(default = "https://us.i.posthog.com/capture")]
+    pub posthog_endpoint: String,
+}
+
+impl ResolutionConfig {
+    pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
+        Self::init_from_env()
+    }
+}
+
+/// Resolution service settings (gRPC bind, metrics, concurrency, subscribe
+/// cadence). Nested into [`ResolutionConfig`].
 #[derive(Envconfig, Clone)]
 pub struct Config {
     /// gRPC bind address for the cymbal.resolution.v1 server.
