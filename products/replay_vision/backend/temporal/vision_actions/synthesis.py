@@ -19,7 +19,7 @@ from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
+from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data, describe_scanner_outcome
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
@@ -112,7 +112,9 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     # spans — so the reader has that context in-app and in Slack. Defang links across the whole report
     # AFTER prepending: the header carries the free-text scanner name, so a name with link/image
     # markdown must be neutralized too, not just the LLM body.
-    markdown = strip_external_links_markdown(_summary_header(action, batch.window_start, len(batch.lines)) + markdown)
+    markdown = strip_external_links_markdown(
+        _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
+    )
     slack_text = _markdown_to_slack(markdown)
 
     run.synthesized_markdown = markdown
@@ -163,6 +165,9 @@ class _ObservationBatch(NamedTuple):
     lines: list[str]
     observation_ids: list[str]
     window_start: datetime | None
+    # Total SUCCEEDED observations in the window before the cap. When it exceeds the number summarized,
+    # the report only covers a sample — surfaced in the header so the reader knows it isn't exhaustive.
+    window_total: int
 
 
 def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
@@ -173,7 +178,7 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     selection: dict[str, Any] = action.selection or {}
     scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
     if not scanner_ids:
-        return _ObservationBatch(lines=[], observation_ids=[], window_start=None)
+        return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0)
 
     window_start = _window_start(team, action, run)
     observations_qs = ReplayObservation.objects.filter(
@@ -183,6 +188,9 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         created_at__gte=window_start,
         created_at__lt=_window_end(run),
     )
+
+    # Count the whole window so the header can say when the summary is only a sample of it (see cap below).
+    window_total = observations_qs.count()
 
     # Cap how many observations feed the summary (bounds context size + LLM cost). Per-action, tunable
     # via Django admin; falls back to the module default. Fast path: one query fetches the newest `cap`
@@ -213,26 +221,39 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
-        summary = output.get("summary")
-        if not isinstance(summary, str) or not summary.strip():
+        # Summarizers emit `summary`; monitor/classifier/scorer emit only `reasoning`. Fall back to
+        # reasoning (an empty summary counts as absent) so a group summary works on any scanner type —
+        # otherwise a non-summarizer action skips as empty. Each line then leads with the scanner's
+        # outcome (verdict / score / tags, or the summarizer's title) so the model reads what the
+        # observation concluded rather than inferring it from the prose.
+        text = output.get("summary") or output.get("reasoning")
+        if not isinstance(text, str) or not text.strip():
             continue
-        title = output.get("title") if isinstance(output.get("title"), str) else None
-        clean = _EVENT_ID_CITATION_RE.sub("", summary).strip()
-        lines.append(f"- ({created_at:%Y-%m-%d}) {f'{title}: ' if title else ''}{clean}")
+        # Collapse to a single line: keeps the feed one-observation-per-line and stops recording-derived
+        # text from forging extra descriptor-bearing lines inside the untrusted fence.
+        clean = re.sub(r"\s+", " ", _EVENT_ID_CITATION_RE.sub("", text)).strip()
+        descriptor = describe_scanner_outcome(output)
+        lines.append(f"- ({created_at:%Y-%m-%d}) {f'{descriptor}: ' if descriptor else ''}{clean}")
         # Recorded in lockstep with `lines`: only observations whose summary was actually included.
         observation_ids.append(str(observation_id))
 
-    return _ObservationBatch(lines=lines, observation_ids=observation_ids, window_start=window_start)
+    return _ObservationBatch(
+        lines=lines, observation_ids=observation_ids, window_start=window_start, window_total=window_total
+    )
 
 
-def _summary_header(action: VisionAction, window_start: datetime | None, count: int) -> str:
+def _summary_header(action: VisionAction, window_start: datetime | None, count: int, window_total: int = 0) -> str:
     """A trusted one-line preface stating which scanner this summary is for, how many recordings it
-    covers, and the window's start — the "summary for scans since <prev run>" context the reader needs."""
+    covers, and the window's start — the "summary for scans since <prev run>" context the reader needs.
+    When the window held more observations than the cap, it says so ("sampled N of M") so the reader
+    knows the report covers only a sample of the period, not every observation."""
     # Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
     # (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line.
     raw_name = action.scanner.name if action.scanner_id else ""
     scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
     noun = "recording" if count == 1 else "recordings"
+    # When the period held more observations than the cap, only `count` were summarized — say so.
+    coverage = f"sampled {count} of {window_total:,} {noun}" if window_total > count else f"{count} {noun}"
     since = ""
     if window_start is not None:
         tz: tzinfo = UTC
@@ -248,7 +269,7 @@ def _summary_header(action: VisionAction, window_start: datetime | None, count: 
         since = (
             f" since {local.strftime('%b')} {local.day}, {local.year} at {local.strftime('%I:%M %p %Z').lstrip('0')}"
         )
-    return f"**Summary for {scanner_name}** — {count} {noun}{since}\n\n"
+    return f"**Summary for {scanner_name}** — {coverage}{since}\n\n"
 
 
 def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
