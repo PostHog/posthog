@@ -46,6 +46,8 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         clearActiveCloudRun: true,
         // Set by the inline install-step progress view while it's mounted, so the floating FAB hides
         // and the two never render the same run at once (mirrors wizardProgressTrackerLogic.panelMounted).
+        // Last-writer-wins boolean, not a refcount: at most ONE inline view may be mounted at a time,
+        // or the first unmount un-hides the FAB while the second view is still on screen.
         setPanelMounted: (mounted: boolean) => ({ mounted }),
     }),
     reducers({

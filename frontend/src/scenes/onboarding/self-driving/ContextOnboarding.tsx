@@ -127,16 +127,8 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
 function InstallStepWithSync({ onContinue }: { onContinue: () => void }): JSX.Element {
     const isTakeoverActive = useWizardTakeoverActive()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { setPanelMounted } = useActions(activeCloudRunLogic)
+    // The tracker claims the shared inline-panel flag itself, so no coordination is needed here.
     const showLegacyTracker = isTakeoverActive && !activeCloudRun
-    // While the inline legacy tracker shows a local run on this step, claim the shared inline-panel flag
-    // so the detached WizardSyncFab hides and the run is not shown in two places.
-    useEffect(() => {
-        if (showLegacyTracker) {
-            setPanelMounted(true)
-            return () => setPanelMounted(false)
-        }
-    }, [showLegacyTracker, setPanelMounted])
     return showLegacyTracker ? <WizardProgressTracker /> : <InstallOptions onContinue={onContinue} />
 }
 

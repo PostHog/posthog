@@ -228,7 +228,6 @@ function WizardSyncLocalGate(): JSX.Element | null {
  * WizardProgressFab so there is one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {
-    const cloudEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { activeCloudRun, panelMounted } = useValues(activeCloudRunLogic)
 
@@ -238,7 +237,10 @@ export function WizardSyncFab(): JSX.Element | null {
     if (panelMounted) {
         return null
     }
-    if (cloudEnabled && activeCloudRun) {
+    // Deliberately not gated on the cloud-run flag: a persisted handle is proof the run started
+    // while the user was on the test arm, and a mid-experiment flag change must not strand an
+    // in-flight run with no surface (and no way to dismiss it). Only STARTING runs is flag-gated.
+    if (activeCloudRun) {
         return <WizardSyncCloudFab handle={activeCloudRun} />
     }
     if (syncEnabled) {

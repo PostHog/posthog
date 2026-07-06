@@ -104,7 +104,10 @@ export function WizardSyncCard({
                         // No step detail yet (connecting, or a polling-mode run where step
                         // notifications are stream-borne): an indeterminate strip keeps the card
                         // visibly alive instead of looking stalled.
-                        <div className="h-1 rounded-full bg-fill-highlight-100 overflow-hidden">
+                        <div
+                            className="h-1 rounded-full bg-fill-highlight-100 overflow-hidden"
+                            aria-label="Setup in progress"
+                        >
                             <div className="h-full w-1/3 rounded-full bg-accent animate-pulse" />
                         </div>
                     )

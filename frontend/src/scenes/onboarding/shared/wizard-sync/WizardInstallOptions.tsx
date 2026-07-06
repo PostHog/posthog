@@ -55,7 +55,13 @@ export function WizardInstallOptions({
     }
 
     if (!offerCloud) {
-        return <>{localBlock}</>
+        // A persisted run outlives the experiment arm: keep rendering its progress (with the local
+        // fallback) even when the flag no longer offers new cloud runs, so nothing is stranded.
+        return activeCloudRun ? (
+            <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+        ) : (
+            <>{localBlock}</>
+        )
     }
 
     return (
@@ -64,7 +70,11 @@ export function WizardInstallOptions({
                 fullWidth
                 value={effectiveMode}
                 onChange={(value) => {
-                    onModeSelected?.(value)
+                    // LemonSegmentedButton fires onChange on any option click, including the one
+                    // already selected — only report actual switches.
+                    if (value !== effectiveMode) {
+                        onModeSelected?.(value)
+                    }
                     setMode(value)
                 }}
                 options={[
@@ -72,14 +82,14 @@ export function WizardInstallOptions({
                         value: 'cloud',
                         label: 'Open a pull request',
                         icon: <IconCloud />,
-                        'data-attr': 'context-wizard-mode-cloud',
+                        'data-attr': 'wizard-mode-cloud',
                     },
                     {
                         value: 'local',
                         label: 'Run it yourself',
                         icon: <IconTerminal />,
                         disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
-                        'data-attr': 'context-wizard-mode-local',
+                        'data-attr': 'wizard-mode-local',
                     },
                 ]}
             />
