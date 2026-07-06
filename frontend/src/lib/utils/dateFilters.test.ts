@@ -212,6 +212,16 @@ describe('dateFilters utils', () => {
             expect(dateStringToDayJs('1999-12-31')?.utc(true).toISOString()).toEqual('1999-12-31T00:00:00.000Z')
         })
 
+        it('anchors sub-day units at now, not start of day', () => {
+            // frozen: 2012-03-02T11:38:49.321Z. A "-30M" range must mean 30
+            // minutes ago — day-anchoring would yield yesterday 23:30 and the
+            // metrics/logs "last N minutes" pickers would show a ~24h window.
+            expect(dateStringToDayJs('-30M')?.toISOString()).toEqual('2012-03-02T11:08:49.321Z')
+            expect(dateStringToDayJs('-5M')?.toISOString()).toEqual('2012-03-02T11:33:49.321Z')
+            expect(dateStringToDayJs('-1h')?.toISOString()).toEqual('2012-03-02T10:38:49.321Z')
+            expect(dateStringToDayJs('-45s')?.toISOString()).toEqual('2012-03-02T11:38:04.321Z')
+        })
+
         it('handles various units', () => {
             expect(dateStringToDayJs('d')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
             expect(dateStringToDayJs('m')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')

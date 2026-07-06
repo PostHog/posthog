@@ -187,6 +187,23 @@ case "$RS_SVC" in
     export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
     ;;
 
+  cymbal-notifications)
+    # The cymbal binary in notifications mode consumes the notifications topic
+    # produced by processing mode and runs issue side effects.
+    export CYMBAL_MODE=notifications
+    export DEV_RUST_SVC_OVERRIDE=cymbal
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export METRICS_PORT="${METRICS_PORT:-9107}"
+    export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
+    export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
+    export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}"
+    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    ;;
+
   embedding-worker)
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1

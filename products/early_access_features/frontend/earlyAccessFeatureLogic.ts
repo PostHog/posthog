@@ -14,11 +14,13 @@ import { identifierToHuman } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    ActivityScope,
     Breadcrumb,
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
@@ -275,6 +277,19 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         projectTreeRef: [
             () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
             (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: id === 'new' ? null : String(id) }),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.earlyAccessFeature],
+            (earlyAccessFeature): SidePanelSceneContext | null => {
+                return 'id' in earlyAccessFeature && earlyAccessFeature.id
+                    ? {
+                          activity_scope: ActivityScope.EARLY_ACCESS_FEATURE,
+                          activity_item_id: `${earlyAccessFeature.id}`,
+                          access_control_resource: 'early_access_feature',
+                          access_control_resource_id: `${earlyAccessFeature.id}`,
+                      }
+                    : null
+            },
         ],
         optedInCount: [
             (s) => [s.personsCount],

@@ -7,17 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface CICardSummaryApi {
-    /** Count of open pull requests. */
-    open_prs: number
-    /** Distinct repositories with at least one open pull request. */
-    repos: number
-    /** Open, non-draft, non-bot pull requests older than 7 days. */
-    stuck: number
-    /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
-    failing_ci: number
-}
-
 export interface WorkflowCostApi {
     /** GitHub Actions workflow name this cost is for. */
     workflow_name: string
@@ -34,6 +23,135 @@ export interface WorkflowCostApi {
     unsettled_jobs: number
     /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
     excluded_jobs: number
+}
+
+export interface CICardSummaryApi {
+    /** Count of open pull requests. */
+    open_prs: number
+    /** Distinct repositories with at least one open pull request. */
+    repos: number
+    /** Open, non-draft, non-bot pull requests older than 7 days. */
+    stuck: number
+    /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
+    failing_ci: number
+}
+
+export interface RepoRefApi {
+    /** Code host provider, e.g. 'github'. */
+    provider: string
+    /** Repository owner or organization. */
+    owner: string
+    /** Repository name. */
+    name: string
+}
+
+export interface CIFailureLogLineApi {
+    /**
+     * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
+     * @nullable
+     */
+    original_line: number | null
+    /** The log line text, or the omission-marker text. */
+    text: string
+}
+
+export interface CIJobFailureLogApi {
+    /** The thinned failure-log lines in original order, with omission markers. */
+    lines: CIFailureLogLineApi[]
+    /** GitHub Actions job id of the failed job. */
+    job_id: number
+    /** Workflow run id the job belongs to. */
+    run_id: number
+    /** Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs. */
+    conclusion: string
+    /** Git branch the run was triggered on, or '' when unknown. */
+    branch: string
+    /** Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown. */
+    original_total_lines: number
+    /** Number of lines returned for this job (after the per-job cap). */
+    line_count: number
+    /** True when the job had more failure lines than the per-job cap. */
+    truncated: boolean
+}
+
+export interface CIFailureLogsApi {
+    /** Repository the pull request belongs to. */
+    repo: RepoRefApi
+    /** Failed CI jobs with their thinned failure logs, grouped by job. */
+    jobs: CIJobFailureLogApi[]
+    /** Pull request number the failure logs are for. */
+    pr_number: number
+    /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
+    runs_attributed: number
+    /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+    logs_available: boolean
+    /** True when the overall line cap across all jobs was hit. */
+    truncated: boolean
+}
+
+export interface WorkflowJobAggregateApi {
+    /** De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded '${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together. */
+    job_name: string
+    /** Job instances observed in the window (all shards, all attempts). */
+    job_count: number
+    /** Distinct raw job names inside the group - the observed matrix width. */
+    shard_count: number
+    /** Distinct workflow runs the job appeared in. */
+    runs_in: number
+    /**
+     * runs_in divided by the workflow's total runs in the window; below 1.0 means the job is conditional and skips some runs. Null when the workflow had no runs.
+     * @nullable
+     */
+    run_share: number | null
+    /**
+     * Median queue wait (created to started) in seconds - where runner-capacity problems hide. Null when nothing started.
+     * @nullable
+     */
+    queue_p50_seconds: number | null
+    /**
+     * Median duration of completed job instances, in seconds. Null if none completed.
+     * @nullable
+     */
+    p50_seconds: number | null
+    /**
+     * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
+     * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+     * @nullable
+     */
+    failure_rate: number | null
+    /** Job instances that ran on a 2nd+ run attempt - retry pressure. */
+    retry_job_count: number
+    /**
+     * Billable (self-hosted) minutes across the group's instances; null when every instance ran on an unknown tier.
+     * @nullable
+     */
+    billable_minutes: number | null
+    /**
+     * Estimated cost in USD via the runner-tier rate ladder; null when every instance ran on an unknown tier.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
+export interface MasterFailureGroupApi {
+    /** Repository the failures occurred in. */
+    repo: RepoRefApi
+    /** GitHub Actions workflow name the failing runs belong to. */
+    workflow_name: string
+    /** De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure signature together with the workflow. '' when the job-level source isn't synced and the group degrades to workflow level. */
+    failed_job: string
+    /** Distinct failing default-branch runs in this group within the window. */
+    run_count: number
+    /** When the oldest failing run in the group started. */
+    first_seen: string
+    /** When the newest failing run in the group started. */
+    last_seen: string
+    /** Run id of the newest failing run — the drill-down anchor. */
+    latest_run_id: number
 }
 
 export interface RunCostApi {
@@ -81,15 +199,6 @@ export interface AuthorApi {
     avatar_url: string
     /** True if the author is a bot (handle ends in [bot] or is a known bot). */
     is_bot: boolean
-}
-
-export interface RepoRefApi {
-    /** Code host provider, e.g. 'github'. */
-    provider: string
-    /** Repository owner or organization. */
-    owner: string
-    /** Repository name. */
-    name: string
 }
 
 /**
@@ -253,6 +362,8 @@ export interface CIStatusRollupApi {
     failing: number
     /** Latest runs not yet completed (queued or in progress). */
     pending: number
+    /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+    failing_workflows?: string[]
 }
 
 export interface PullRequestListItemApi {
@@ -463,6 +574,72 @@ export interface QuarantineRequestResultApi {
     branch: string
 }
 
+export interface RepoOverviewApi {
+    /** Workflow runs started in the window, all branches and workflows. */
+    run_count: number
+    /** Same count over the equal-length window immediately before date_from — the delta baseline. */
+    run_count_prev: number
+    /**
+     * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+     * @nullable
+     */
+    success_rate: number | null
+    /**
+     * Success rate over the previous window. Null if none completed.
+     * @nullable
+     */
+    success_rate_prev: number | null
+    /** Runs in the window that were a 2nd+ attempt (attempt > 1). */
+    rerun_cycles: number
+    /** Re-run cycles over the previous window. */
+    rerun_cycles_prev: number
+    /**
+     * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
+     * @nullable
+     */
+    median_open_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when nothing merged.
+     * @nullable
+     */
+    median_open_to_merge_seconds_prev: number | null
+    /**
+     * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    billable_minutes: number | null
+    /**
+     * Billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    billable_minutes_prev: number | null
+    /**
+     * Estimated CI cost in USD (billable minutes x runner-tier rate); null when the job-level source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+    /**
+     * Estimated cost over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    estimated_cost_usd_prev: number | null
+    /** Whether the job-level source is synced (cost and queue figures exist). */
+    jobs_available: boolean
+    /** 'master' or 'main', picked by observed run volume in the window. */
+    default_branch: string
+}
+
+export interface RunFailureLogsApi {
+    /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
+    jobs: CIJobFailureLogApi[]
+    /** Workflow run id the failure logs are for. */
+    run_id: number
+    /** False when no failure logs were found — the run didn't fail, or its logs aged out of the short Logs retention. */
+    logs_available: boolean
+    /** True when the overall line cap across all jobs was hit. */
+    truncated: boolean
+}
+
 export interface GitHubSourceApi {
     /** Source id — pass as `source_id` to the other endpoints to read this source. */
     id: string
@@ -536,6 +713,13 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     estimated_cost_usd?: number | null
+    /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
+    rerun_cycles?: number
+    /**
+     * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+     * @nullable
+     */
+    success_rate_prev?: number | null
 }
 
 export interface WorkflowJobApi {
@@ -578,6 +762,36 @@ export interface WorkflowJobApi {
     estimated_cost_usd: number | null
 }
 
+export interface WorkflowRunActivityPointApi {
+    /** GitHub Actions run id. */
+    run_id: number
+    /**
+     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+     * @nullable
+     */
+    conclusion: string | null
+    /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+    run_started_at: string
+    /**
+     * Wall-clock duration in seconds; null until the run completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Git branch the run was triggered on, or '' when unknown. */
+    head_branch: string
+    /** Attributed pull request number, or 0 when unattributed. */
+    pr_number: number
+}
+
+export interface WorkflowRunActivityApi {
+    /** Per-run chart points, newest first, capped at `limit`. */
+    points: WorkflowRunActivityPointApi[]
+    /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+    truncated: boolean
+    /** Maximum number of run points returned in `points`. */
+    limit: number
+}
+
 export interface WorkflowRunnerCostApi {
     /** 'self_hosted' (billable), 'github_hosted' (free), or 'unknown'. */
     provider: string
@@ -594,7 +808,83 @@ export interface WorkflowRunnerCostApi {
     estimated_cost_usd: number | null
 }
 
+export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
+    /**
+     * GitHub handle whose CI spend to break down.
+     */
+    author: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsCiFailureLogsParams = {
+    /**
+     * Pull request number whose CI failure logs to fetch.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsJobAggregatesParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Workflow name to aggregate jobs for.
+     */
+    workflow_name: string
+}
+
+export type EngineeringAnalyticsMasterFailuresParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -672,9 +962,35 @@ export type EngineeringAnalyticsQuarantineParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsRepoOverviewParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * Workflow run id whose failure logs to fetch.
+     */
+    run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string
     /**
@@ -717,7 +1033,38 @@ export type EngineeringAnalyticsWorkflowRunParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsWorkflowRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Workflow name to load run activity for.
+     */
+    workflow_name: string
+}
+
 export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -741,6 +1088,10 @@ export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
 }
 
 export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

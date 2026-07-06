@@ -364,10 +364,16 @@ class LogsFilterBuilder:
             )
 
         if self.query.liveLogsCheckpoint:
+            try:
+                checkpoint = dt.datetime.fromisoformat(self.query.liveLogsCheckpoint)
+            except ValueError as e:
+                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")
+            if checkpoint.tzinfo is None:
+                checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
             exprs.append(
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
-                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=checkpoint)},
                 )
             )
 
@@ -570,7 +576,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "resource_fingerprint": str(result[11]),
                     "instrumentation_scope": result[12],
                     "event_name": result[13],
-                    "live_logs_checkpoint": result[14],
+                    # ClickHouse returns naive datetimes; tag as UTC like timestamp/observed_timestamp
+                    # so the schema's AwareDatetime serializes with an offset rather than as a naive
+                    # string the frontend would misparse in non-UTC timezones.
+                    "live_logs_checkpoint": result[14].replace(tzinfo=ZoneInfo("UTC")) if result[14] else None,
                 }
             )
 

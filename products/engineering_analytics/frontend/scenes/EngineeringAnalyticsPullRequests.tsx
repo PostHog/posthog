@@ -10,11 +10,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { PullRequestTable } from '../components/PullRequestTable'
+import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import { CIStatusFilter, PRStateFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
@@ -51,9 +51,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         refresh,
     } = useActions(engineeringAnalyticsLogic)
 
-    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
-    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
-    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
+    // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
+    // the PR list) shows a retryable error, never the misleading "connect" state.
     if (notConnected) {
         return <ConnectGitHubSource />
     }
@@ -62,15 +61,15 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
     }
 
     const failingPct =
-        cards && cards.openPrs > 0 ? `${humanFriendlyNumber((cards.failingCi / cards.openPrs) * 100)}% of open` : '—'
+        cards && cards.openPrs > 0 ? `${Math.round((cards.failingCi / cards.openPrs) * 100)}% of open` : undefined
 
     return (
         <div className="flex flex-col gap-4">
+            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <StatCard
                     label="Open PRs"
                     value={cards ? humanFriendlyNumber(cards.openPrs) : '—'}
-                    caption={cards ? `across ${pluralize(cards.repos, 'repo')}` : ' '}
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('open')}
                     active={activeCard === 'open'}
@@ -79,7 +78,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 <StatCard
                     label="Failing CI"
                     value={cards ? humanFriendlyNumber(cards.failingCi) : '—'}
-                    caption={`${failingPct} · workflow-level`}
+                    caption={failingPct}
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('failing')}
                     active={activeCard === 'failing'}
@@ -88,7 +87,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 <StatCard
                     label="Stuck > 7d"
                     value={cards ? humanFriendlyNumber(cards.stuck) : '—'}
-                    caption="open > 7d, not draft, not bot"
+                    caption="excludes drafts and bots"
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('stuck')}
                     active={activeCard === 'stuck'}
@@ -148,7 +147,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     />
                 </div>
                 <LemonSwitch
-                    label="Cost & performance lens"
+                    label="Cost columns"
                     checked={costLensEnabled}
                     onChange={setCostLensEnabled}
                     size="small"
@@ -171,15 +170,15 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No pull requests yet — they show up as soon as CI events arrive.'
+                        "No pull requests yet. They'll appear once the GitHub source syncs."
                     )
                 }
             />
 
             <div className="text-xs text-tertiary">
-                CI is a workflow-level rollup via the head-commit join, not per-check — a run that hasn't completed
-                shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs only), never
-                review or cycle time.
+                CI status is workflow-level for each pull request's latest commit, not per-check. A run that hasn't
+                completed shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs
+                only), never review or cycle time.
                 {tableTruncated && ' Showing the most recent 1000 PRs.'}
             </div>
         </div>

@@ -102,9 +102,8 @@ To enable dual writes for an existing output, set the `secondaryTopicEnvVar` and
 ## File layout
 
 ```text
-ingestion/outputs/              — generic infrastructure (pipeline-agnostic)
-ingestion/common/outputs.ts     — shared output constants (e.g. EVENTS_OUTPUT)
-ingestion/common/producers.ts   — shared producer constants and config maps
-ingestion/analytics/outputs.ts  — analytics-specific output constants
-ingestion/analytics/config/     — analytics pipeline config (output types, defaults, registration)
+common/outputs/                               — generic infrastructure and shared output constants (e.g. EVENTS_OUTPUT)
+ingestion/common/outputs/producers.ts         — shared ingestion producer constants and config maps
+ingestion/common/outputs/producer-registry.ts — ingestion producer registry factory
+ingestion/pipelines/analytics/outputs/        — analytics-specific outputs and registry
 ```

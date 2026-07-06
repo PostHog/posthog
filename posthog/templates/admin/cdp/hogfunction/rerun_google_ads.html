@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<div id="content-main">
+    <p>
+        Triggers reruns of failed invocations for every active
+        <code>template-google-ads</code> destination in the database. The
+        rerun runs asynchronously on <code>cdp-rerun-worker</code>; this form
+        only enqueues one wrapper job per hog function and reports which
+        teams they were enqueued for.
+    </p>
+    <p>
+        Leave <em>Dry run</em> checked for the first submission to preview
+        the target set. Uncheck to actually fire the reruns.
+    </p>
+    <form method="post">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            {% for field in form %}
+                <div class="form-row">
+                    {{ field.errors }}
+                    {{ field.label_tag }} {{ field }}
+                    {% if field.help_text %}
+                        <div class="help">{{ field.help_text }}</div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Run" class="default" name="_run">
+        </div>
+    </form>
+
+    {% if output %}
+        <h2>Output</h2>
+        <pre style="background:#f8f8f8;border:1px solid #ddd;padding:12px;overflow:auto;max-height:600px;white-space:pre-wrap;">{{ output }}</pre>
+    {% endif %}
+</div>
+{% endblock %}

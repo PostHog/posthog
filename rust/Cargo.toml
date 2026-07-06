@@ -5,6 +5,7 @@ members = [
   "property-defs-rs",
   "batch-import-worker",
   "capture",
+  "capture-load-gen",
   "capture-logs",
   "cohort-event-shuffler",
   "cohort-stream-processor",
@@ -37,6 +38,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
   "embedding-worker",
@@ -118,7 +120,9 @@ futures = { version = "0.3.29" }
 futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
+hdrhistogram = "7.5"
 http = { version = "1.1.0" }
+humantime = "2.1"
 http-body = "1.0"
 http-body-util = "0.1"
 httpmock = "0.7.0"
@@ -126,6 +130,7 @@ mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
+libdeflater = "1"
 lru = "0.12"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
@@ -169,6 +174,7 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.23.0", features = ["v4", "v5", "v7", "serde"] }
+zstd = "0.13"
 neon = "1"
 quick_cache = "0.6.21"
 ahash = "0.8.11"

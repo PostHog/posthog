@@ -21,6 +21,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -288,6 +289,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             raise serializers.ValidationError(str(err))
 
 
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
+
+
 class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
@@ -524,8 +534,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _require_query_access(self) -> None:
+        # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
+        # enough — a notebook editor whose query access is denied must not read data through it.
+        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # (which carry no scopes) and enforces real RBAC for tokens too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run SQL in a notebook.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -845,7 +872,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content)
+        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -877,7 +904,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
     @extend_schema(exclude=True)
-    @action(methods=["POST"], url_path="sql_v2/run", detail=True)
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
@@ -887,6 +914,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
 
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
@@ -916,7 +944,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response({"run_id": str(run.id)})
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], url_path="sql_v2/runs/(?P<run_id>[^/.]+)", detail=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
     def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
         # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
@@ -927,6 +960,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Scope to the notebook (via get_object → per-notebook access control), not just the
         # team: a team-only lookup lets a user read a run from a notebook they can't access.
         notebook = self._get_notebook_for_kernel()
+        # The result envelope is analytics rows, so gate reads on query access too — a
+        # notebook-reader whose query access is denied must not read the rows back.
+        self._require_query_access()
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
@@ -1248,7 +1284,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if SERVER_GATEWAY_INTERFACE == "ASGI"
             else async_to_sync(
                 lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-            )
+            ),
+            endpoint="notebook_collab",
         )
 
     @action(methods=["GET"], detail=False)

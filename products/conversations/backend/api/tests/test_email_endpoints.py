@@ -2,7 +2,7 @@ from datetime import timedelta
 from io import BytesIO
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
@@ -357,20 +357,22 @@ class TestEmailMultiConfig(BaseTest):
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
 
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+        side_effect=MailgunDomainConflict("Domain example.com is already registered by another Mailgun account"),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_connect_rejects_preexisting_mailgun_domain(
+    def test_connect_rejects_domain_claimed_by_another_mailgun_account(
         self,
         _mock_setting: MagicMock,
         mock_mailgun_delete: MagicMock,
         _mock_mailgun_add: MagicMock,
+        _mock_get_domain: MagicMock,
     ):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
@@ -385,6 +387,83 @@ class TestEmailMultiConfig(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings.get("email_enabled") is not True
+
+    @parameterized.expand(
+        [
+            ("already_unverified", "unverified", "unverified", 200),
+            ("stale_active_reverifies_unverified", "active", "unverified", 200),
+            ("still_active_after_reverify", "active", "active", 400),
+            ("disabled", "disabled", "disabled", 400),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_verify_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_reclaims_stranded_mailgun_domain(
+        self,
+        _name,
+        mailgun_state,
+        reverified_state,
+        expected_status,
+        _mock_setting: MagicMock,
+        mock_add: MagicMock,
+        mock_get_domain: MagicMock,
+        mock_delete: MagicMock,
+        mock_verify: MagicMock,
+    ):
+        fresh_records = {"sending_dns_records": [{"record_type": "TXT", "name": "example.com", "value": "v=spf1"}]}
+        mock_add.side_effect = [MailgunDomainConflict("Domain example.com already exists"), fresh_records]
+        mock_get_domain.return_value = {"name": "example.com", "state": mailgun_state}
+        mock_verify.return_value = {"state": reverified_state}
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            config = EmailChannel.objects.get(team=self.team)
+            assert config.dns_records == fresh_records
+            mock_delete.assert_called_once_with("example.com")
+        else:
+            assert "cannot be registered" in response.json()["error"]
+            assert not EmailChannel.objects.filter(team=self.team).exists()
+            mock_delete.assert_not_called()
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_get_domain",
+        side_effect=RuntimeError("mailgun unavailable"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_add_domain",
+        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_conflict_stands_when_reclaim_lookup_fails(
+        self,
+        _mock_setting: MagicMock,
+        _mock_mailgun_add: MagicMock,
+        _mock_get_domain: MagicMock,
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "cannot be registered" in response.json()["error"]
+        assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -410,13 +489,59 @@ class TestEmailMultiConfig(BaseTest):
         emails = {c["from_email"] for c in data["configs"]}
         assert emails == {"support@example.com", "billing@example.com"}
 
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_config_limit_enforced(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    def test_config_limit_enforced(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock, mock_delete: MagicMock):
         from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
+
+        for i in range(MAX_EMAIL_CONFIGS_PER_TEAM):
+            r = self.client.post(
+                "/api/conversations/v1/email/connect",
+                {"from_email": f"addr{i}@example{i}.com", "from_name": f"Name {i}"},
+                content_type="application/json",
+            )
+            assert r.status_code == 200, f"Failed to connect config {i}: {r.json()}"
+
+        # A failed Mailgun release must not mask the limit error
+        mock_delete.side_effect = RuntimeError("mailgun unavailable")
+        r = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "overflow@overflow.com", "from_name": "Overflow"},
+            content_type="application/json",
+        )
+        assert r.status_code == 400
+        assert "Maximum" in r.json()["error"]
+        # The rejected connect releases its Mailgun registration instead of stranding the domain
+        mock_delete.assert_called_once_with("overflow.com")
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_config_limit_releases_reclaimed_domain(
+        self,
+        _mock_setting: MagicMock,
+        mock_add: MagicMock,
+        mock_get_domain: MagicMock,
+        mock_delete: MagicMock,
+    ):
+        from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
+
+        fresh_records: dict = {"sending_dns_records": []}
+        # First MAX connects register cleanly; the overflow connect hits a Mailgun
+        # conflict, reclaims a stranded unverified domain, then fails on the limit.
+        mock_add.side_effect = [{}] * MAX_EMAIL_CONFIGS_PER_TEAM + [
+            MailgunDomainConflict("Domain overflow.com already exists"),
+            fresh_records,
+        ]
+        mock_get_domain.return_value = {"name": "overflow.com", "state": "unverified"}
 
         for i in range(MAX_EMAIL_CONFIGS_PER_TEAM):
             r = self.client.post(
@@ -431,8 +556,13 @@ class TestEmailMultiConfig(BaseTest):
             {"from_email": "overflow@overflow.com", "from_name": "Overflow"},
             content_type="application/json",
         )
+
         assert r.status_code == 400
         assert "Maximum" in r.json()["error"]
+        assert not EmailChannel.objects.filter(domain="overflow.com").exists()
+        # overflow.com is deleted twice: once churning the stranded registration during
+        # reclaim, once releasing the fresh registration after the limit rejection.
+        assert mock_delete.call_args_list == [call("overflow.com"), call("overflow.com")]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -1215,6 +1345,31 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert comment.item_context["from_email"] is True
         assert comment.item_context["author_type"] == "customer"
 
+    @parameterized.expand(
+        [
+            # (name, extra_post_fields, expected_identity_verified)
+            ("spf_pass_aligned_domain", {"sender": "alice@external.com", "X-Mailgun-Spf": "Pass"}, True),
+            ("no_spf", {}, False),
+            ("spf_pass_misaligned_domain", {"sender": "alice@evil.com", "X-Mailgun-Spf": "Pass"}, False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_identity_verified_reflects_spf(
+        self, _name: str, extra_fields: dict[str, str], expected_verified: bool, _mock_sig: MagicMock
+    ):
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Alice <alice@external.com>",
+                "Message-Id": f"<iv-{_name}@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+                **extra_fields,
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is expected_verified
+
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_no_spf_treated_as_customer(self, _mock_sig: MagicMock):
         """From header matches a team member but no SPF pass → customer."""
@@ -1267,6 +1422,45 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
         assert forged.item_context["author_type"] == "customer"
         assert forged.created_by is None
+
+    @parameterized.expand(
+        [
+            # (name, claimed_email, reply_sender, expected_verified)
+            # Same identity re-authenticates on a later message → legitimately promoted.
+            ("matching_sender", "alice@external.com", "alice@external.com", True),
+            # A different SPF-aligned sender threads onto a ticket claiming someone else's
+            # identity — must NOT promote it to verified (confused-deputy / impersonation).
+            ("different_sender", "victim@external.com", "attacker@evil.com", False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_promotion_requires_authenticated_sender_to_match_ticket_identity(
+        self, _name: str, claimed_email: str, reply_sender: str, expected_verified: bool, _mock_sig: MagicMock
+    ):
+        # First message: unauthenticated (no SPF) → unverified ticket claiming `claimed_email`.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Claimant <{claimed_email}>",
+                "Message-Id": f"<promote-init-{_name}@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        # Reply: SPF-authenticated (envelope sender aligned with From) threaded onto the same ticket.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Reply <{reply_sender}>",
+                "sender": reply_sender,
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": f"<promote-reply-{_name}@external.com>",
+                "In-Reply-To": f"<promote-init-{_name}@external.com>",
+                "stripped-text": "Follow-up",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is expected_verified
 
 
 class TestEmailInboundCcParticipants(BaseTest):

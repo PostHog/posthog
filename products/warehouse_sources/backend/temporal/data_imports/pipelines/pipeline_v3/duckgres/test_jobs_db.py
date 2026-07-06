@@ -381,6 +381,13 @@ class TestDuckgresTeamFilterAndBacklog:
         assert (count, blocked) == (0, 1)
         assert oldest_age is None and blocked_age is not None
 
+        # The v3 allow-list scopes the gauges too: a non-eligible schema drops
+        # out of both the eligible and blocked counts.
+        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            conn, eligible_schema_ids=["other-schema"]
+        )
+        assert (count, blocked) == (0, 0)
+
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
         count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
         assert (count, blocked) == (0, 0)
@@ -546,3 +553,37 @@ class TestBackfillQueueContracts:
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
         assert [str(b.id) for b in batches] == [head]
+
+    @pytest.mark.asyncio
+    async def test_eligible_schema_ids_restricts_claim_to_v3_schemas(self, conn):
+        # The v3 allow-list must exclude a claimable (delta-succeeded, unblocked)
+        # batch when its schema is not v3-enabled — the default batch is
+        # full_refresh, which otherwise bypasses the unprimed block. Guards the
+        # leak where non-v3 (e.g. Postgres) batches were applied via the
+        # team-scoped claim. None = no filter (dev/tests); [] = nothing eligible.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        async def claim(eligible: list[str] | None) -> list[Any]:
+            return await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, eligible_schema_ids=eligible)
+
+        assert len(await claim(None)) == 1
+        assert len(await claim(["schema-1"])) == 1
+        assert await claim(["other-schema"]) == []
+        assert await claim([]) == []
+
+    @pytest.mark.asyncio
+    async def test_eligible_gate_excludes_replace_head_that_bypasses_block(self, conn):
+        # A full_refresh replace-head bypasses the unprimed block, but the v3
+        # allow-list must still exclude it when the schema is not v3-enabled — the
+        # eligibility gate overrides the replace-head carve-out.
+        head = await _insert_batch(conn, run_uuid="run-refresh", sync_type="full_refresh", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=head, job_state="succeeded", attempt=1)
+
+        bypasses = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        assert [str(b.id) for b in bypasses] == [head]
+
+        gated = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, blocked_schema_ids=["schema-1"], eligible_schema_ids=["other-schema"]
+        )
+        assert gated == []

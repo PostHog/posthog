@@ -3,7 +3,7 @@ import { gunzipSync, gzipSync } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { ScrubContext, isObject } from './config'
+import { ScrubContext, ScrubTiming, isObject } from './config'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 
 function latin1ToBytes(s: string): Buffer {
@@ -18,14 +18,24 @@ function latin1ToBytes(s: string): Buffer {
     return buf
 }
 
-function decompressString(s: string): unknown {
+function decompressString(s: string, timing?: ScrubTiming): unknown {
+    const start = performance.now()
     const json = gunzipSync(latin1ToBytes(s)).toString('utf8')
-    return parseJSON(json)
+    const value = parseJSON(json)
+    if (timing) {
+        timing.decompressMs += performance.now() - start
+    }
+    return value
 }
 
-function compressToString(value: unknown): string {
+function compressToString(value: unknown, timing?: ScrubTiming): string {
+    const start = performance.now()
     // latin1 is the inverse of latin1ToBytes; JSON.stringify escapes it on serialization.
-    return gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1')
+    const out = gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1')
+    if (timing) {
+        timing.recompressMs += performance.now() - start
+    }
+    return out
 }
 
 /** Scrub a `cv`-compressed FullSnapshot event in place. Returns whether it changed. */
@@ -35,11 +45,11 @@ export function scrubCompressedFullSnapshot(ctx: ScrubContext, event: Record<str
         // Not actually whole-blob compressed — scrub as a plain object.
         return scrubFullSnapshot(ctx, data)
     }
-    const payload = decompressString(data)
+    const payload = decompressString(data, ctx.timing)
     if (!scrubFullSnapshot(ctx, payload)) {
         return false
     }
-    event.data = compressToString(payload)
+    event.data = compressToString(payload, ctx.timing)
     return true
 }
 
@@ -51,9 +61,9 @@ export function scrubCompressedMutation(ctx: ScrubContext, event: Record<string,
     }
 
     // Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both.
-    const texts = readSubfield(data.texts)
-    const attributes = readSubfield(data.attributes)
-    const adds = readSubfield(data.adds)
+    const texts = readSubfield(data.texts, ctx.timing)
+    const attributes = readSubfield(data.attributes, ctx.timing)
+    const adds = readSubfield(data.adds, ctx.timing)
 
     const synthetic: Record<string, unknown> = {
         source: data.source,
@@ -69,18 +79,18 @@ export function scrubCompressedMutation(ctx: ScrubContext, event: Record<string,
 
     // Array sub-fields were mutated in place; only re-encode the ones that arrived gzipped.
     if (texts.wasCompressed) {
-        data.texts = compressToString(synthetic.texts)
+        data.texts = compressToString(synthetic.texts, ctx.timing)
     }
     if (attributes.wasCompressed) {
-        data.attributes = compressToString(synthetic.attributes)
+        data.attributes = compressToString(synthetic.attributes, ctx.timing)
     }
     if (adds.wasCompressed) {
-        data.adds = compressToString(synthetic.adds)
+        data.adds = compressToString(synthetic.adds, ctx.timing)
     }
     return true
 }
 
-function readSubfield(field: unknown): { array: unknown[]; wasCompressed: boolean } {
+function readSubfield(field: unknown, timing?: ScrubTiming): { array: unknown[]; wasCompressed: boolean } {
     if (field === undefined || field === null) {
         return { array: [], wasCompressed: false }
     }
@@ -88,7 +98,7 @@ function readSubfield(field: unknown): { array: unknown[]; wasCompressed: boolea
         if (field.length === 0) {
             return { array: [], wasCompressed: false }
         }
-        const payload = decompressString(field)
+        const payload = decompressString(field, timing)
         if (!Array.isArray(payload)) {
             // Fail closed: a decodable-but-non-array sub-field is malformed; dropping beats shipping a zeroed block.
             throw new Error('cv mutation sub-field did not decode to an array')

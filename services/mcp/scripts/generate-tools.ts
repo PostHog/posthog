@@ -673,6 +673,14 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            // An `optional` override must also surface as optional in the agent-facing
+            // JSON Schema. When combined with `cast` the field is wrapped in
+            // `z.preprocess(...)`, which doesn't propagate inner `.optional()` (zod 4
+            // marks it required), so register it here for `wrapWithCast` to re-apply.
+            if (override.optional) {
+                optionalParamNames.add(paramName)
+            }
+
             const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
@@ -1064,16 +1072,19 @@ function generateToolCode(
     // Response filtering — pick/omit fields before enrichment
     const responseFilter = buildResponseFilter(config)
     if (responseFilter.code) {
-        // Warn if filtering might break enrich_url
+        // Warn if filtering might break enrich_url — only for response-sourced fields;
+        // '{params.x}' fields are read from the request params, so filtering can't break them.
         if (config.enrich_url) {
-            const { field } = parseEnrichUrl(config.enrich_url)
-            if (config.response?.exclude?.includes(field)) {
-                console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
-            }
-            if (config.response?.include?.length && !config.response?.include.includes(field)) {
-                console.warn(
-                    `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
-                )
+            const { field, source } = parseEnrichUrl(config.enrich_url)
+            if (source === 'result') {
+                if (config.response?.exclude?.includes(field)) {
+                    console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
+                }
+                if (config.response?.include?.length && !config.response?.include.includes(field)) {
+                    console.warn(
+                        `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
+                    )
+                }
             }
         }
     }

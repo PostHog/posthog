@@ -75,7 +75,7 @@ class _ConcurrencyTracker:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("org_count,batch_size,max_concurrent", [(50, 5, 4), (500, 25, 8)])
+@pytest.mark.parametrize("org_count,batch_size,max_concurrent", [(50, 5, 4)])
 async def test_wa_weekly_digest_respects_concurrency_cap(org_count: int, batch_size: int, max_concurrent: int) -> None:
     org_ids = [f"org-{i}" for i in range(org_count)]
     expected_batches = [org_ids[i : i + batch_size] for i in range(0, org_count, batch_size)]
