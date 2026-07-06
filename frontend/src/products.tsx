@@ -2394,6 +2394,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['IngestionWarnings'],
     },
     {
+        path: 'Managed migrations',
+        category: 'Pipeline',
+        iconType: 'data_pipeline_metadata',
+        href: urls.managedMigration(),
+        sceneKey: 'ManagedMigration',
+        sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],
+    },
+    {
         path: 'Managed viewsets',
         category: 'Unreleased',
         iconType: 'managed_viewsets',
