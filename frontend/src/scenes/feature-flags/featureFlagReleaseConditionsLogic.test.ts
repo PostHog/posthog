@@ -1589,4 +1589,58 @@ describe('the feature flag release conditions logic', () => {
             )
         })
     })
+
+    describe('propsChanged does not clobber fresher local edits', () => {
+        it('keeps a local rollout edit when the parent prop has not caught up', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'stale-prop-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            logic.mount()
+
+            // User drags the rollout to 100 locally
+            logic.actions.updateConditionSet(0, 100)
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+
+            // A re-render fires propsChanged with the pre-edit parent snapshot (0%) before the
+            // local edit has round-tripped back to the parent. It must not reset the fresher edit.
+            await expectLogic(logic, () => {
+                featureFlagReleaseConditionsLogic({
+                    id: 'stale-prop-test',
+                    filters: generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                    ]),
+                })
+            }).toNotHaveDispatchedActions(['setFilters'])
+
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(100)
+        })
+
+        it('adopts a genuine external filters change from the parent', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'external-change-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 0, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                featureFlagReleaseConditionsLogic({
+                    id: 'external-change-test',
+                    filters: generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 25, variant: null, sort_key: 'group-1' },
+                    ]),
+                })
+            }).toDispatchActions(['setFilters'])
+
+            expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
+        })
+    })
 })

@@ -859,11 +859,26 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
     }),
-    propsChanged(({ props, values, actions }) => {
+    propsChanged(({ props, values, actions }, oldProps) => {
         // Compare only the fields that affect release conditions and blast radius,
         // excluding payloads which don't affect targeting
-        const { payloads: _newPayloads, ...newRelevant } = props.filters
-        const { payloads: _oldPayloads, ...oldRelevant } = values.filters
+        const { payloads: _newPayloads, ...newRelevant } = props.filters ?? {}
+        const { payloads: _prevPropPayloads, ...prevPropRelevant } = oldProps?.filters ?? {}
+
+        // Only adopt the incoming filters when the parent actually pushed a new value.
+        // The child emits its edits up to the parent, which stores them and echoes them
+        // back down as this prop. A re-render caused by the child's own edit can fire
+        // propsChanged before that edit has round-tripped back to the parent, so
+        // props.filters still holds the pre-edit snapshot. Adopting it here would clobber
+        // the fresher local edit and silently reset the rollout percentage (e.g. back to a
+        // newly-added condition set's 0% default). Reacting only to genuine parent changes
+        // breaks that loop while still syncing external updates (template application,
+        // variant removal, flag reload).
+        if (objectsEqual(newRelevant, prevPropRelevant)) {
+            return
+        }
+
+        const { payloads: _oldPayloads, ...oldRelevant } = values.filters ?? {}
         if (!objectsEqual(newRelevant, oldRelevant)) {
             actions.setFilters(props.filters)
         }
