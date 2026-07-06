@@ -24,7 +24,7 @@ from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -127,6 +127,17 @@ _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRO
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+def _is_expected_user_error(error: BaseException) -> bool:
+    """Whether the error is a 4xx user-input error the caller already sees as an actionable
+    response, not an unexpected server fault.
+
+    DRF raises these deliberately for bad input (e.g. a UNION query with pagination, or an
+    unknown variable). They return a clean 4xx to the caller, so capturing them in error
+    tracking and emitting failure signals is pure noise.
+    """
+    return isinstance(error, APIException) and 400 <= error.status_code < 500
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
@@ -580,6 +591,15 @@ class EndpointExecutionService(PydanticModelMixin):
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
             raise EndpointAtCapacity()
+        except APIException as e:
+            # 4xx user-input errors (e.g. UNION pagination, unknown variable) already returned a
+            # clean, actionable response to the caller — classify them as user errors, not faults.
+            if 400 <= e.status_code < 500:
+                execution_status = "user_error"
+            else:
+                execution_status = "error"
+            error_label = type(e).__name__
+            raise
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -800,8 +820,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail errors and 4xx user-input errors are customer-caused, not faults:
+            # skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_expected_user_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -908,8 +929,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail errors and 4xx user-input errors are customer-caused, not faults:
+            # skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_expected_user_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
