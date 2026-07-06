@@ -264,6 +264,7 @@ the row lists both.
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
 | pipedrive               | HTTP                        | requests                                                        | ✅                          |
 | plain                   | HTTP                        | requests                                                        | ✅                          |
+| planhat                 | HTTP                        | requests                                                        | ✅                          |
 | plausible               | HTTP                        | requests                                                        | ✅                          |
 | polar                   | HTTP                        | requests                                                        | ✅                          |
 | plaid                   | HTTP                        | requests                                                        | ✅                          |
@@ -587,7 +588,6 @@ doesn't conflict with concurrent PRs.
 - pivotal_tracker
 - piwik
 - planetscale
-- planhat
 - plunk
 - pocket
 - podium

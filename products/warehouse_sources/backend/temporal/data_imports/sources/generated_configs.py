@@ -2530,7 +2530,7 @@ class PlanetScaleSourceConfig(config.Config):
 
 @config.config
 class PlanhatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
