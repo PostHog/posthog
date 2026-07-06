@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -32,12 +32,6 @@ export const accountPropertiesInputLogic = kea<accountPropertiesInputLogicType>(
             },
         ],
     })),
-    selectors({
-        nameById: [
-            (s) => [s.definitions],
-            (definitions): Record<string, string> => Object.fromEntries(definitions.map((d) => [d.id, d.name])),
-        ],
-    }),
     listeners({
         loadDefinitionsFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'accountPropertiesInputLogic.load' })

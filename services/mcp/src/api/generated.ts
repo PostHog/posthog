@@ -14205,6 +14205,7 @@ export namespace Schemas {
      * * `date` - date
      * * `datetime` - datetime
      * * `boolean` - boolean
+     * * `select` - select
      */
     export type CustomPropertyDisplayTypeEnum = typeof CustomPropertyDisplayTypeEnum[keyof typeof CustomPropertyDisplayTypeEnum];
 
@@ -14217,7 +14218,65 @@ export namespace Schemas {
       Date: 'date',
       Datetime: 'datetime',
       Boolean: 'boolean',
+      Select: 'select',
     } as const;
+
+    /**
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10
+     */
+    export type CustomPropertyOptionColorEnum = typeof CustomPropertyOptionColorEnum[keyof typeof CustomPropertyOptionColorEnum];
+
+
+    export const CustomPropertyOptionColorEnum = {
+      Preset1: 'preset-1',
+      Preset2: 'preset-2',
+      Preset3: 'preset-3',
+      Preset4: 'preset-4',
+      Preset5: 'preset-5',
+      Preset6: 'preset-6',
+      Preset7: 'preset-7',
+      Preset8: 'preset-8',
+      Preset9: 'preset-9',
+      Preset10: 'preset-10',
+    } as const;
+
+    /**
+     * An allowed value of a select custom property.
+     */
+    export interface CustomPropertyOption {
+      /**
+         * Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.
+         * @nullable
+         */
+      id?: string | null;
+      /**
+         * Display label of the option. Stored as the account's value when picked.
+         * @maxLength 400
+         */
+      label: string;
+      /** Preset color token used to render the option ('preset-1' through 'preset-10').
+       *
+       * * `preset-1` - preset-1
+       * * `preset-2` - preset-2
+       * * `preset-3` - preset-3
+       * * `preset-4` - preset-4
+       * * `preset-5` - preset-5
+       * * `preset-6` - preset-6
+       * * `preset-7` - preset-7
+       * * `preset-8` - preset-8
+       * * `preset-9` - preset-9
+       * * `preset-10` - preset-10 */
+      color: CustomPropertyOptionColorEnum;
+    }
 
     /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
@@ -14292,7 +14351,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -14300,10 +14359,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source: CustomPropertySource | null;
       readonly created_at: string;
@@ -36726,7 +36791,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -36734,10 +36799,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
@@ -42159,6 +42230,16 @@ export namespace Schemas {
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
+         * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+         * @nullable
+         */
+      pending_user_message?: string | null;
+      /**
+         * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+         * @items.maxLength 128
+         */
+      pending_user_artifact_ids?: string[];
+      /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
          */
@@ -43126,6 +43207,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _DayBreakdownRow {
+      /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+      day: string;
+      /** Number of $ai_generation + $ai_embedding events on this day for the scoped product. */
+      event_count: number;
+      /** Total cost in USD on this day for the scoped product. */
+      cost_usd: number;
+    }
+
+    export interface _DayBreakdown {
+      /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
+      items: _DayBreakdownRow[];
+      /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
+      truncated: boolean;
+    }
+
     export interface _TopTraceRow {
       /**
          * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -43162,6 +43259,8 @@ export namespace Schemas {
       by_tool: _ToolBreakdown;
       /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
       by_model: _ModelBreakdown;
+      /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
+      by_day: _DayBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
@@ -53080,6 +53179,16 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+         * @nullable
+         */
+      pending_user_message?: string | null;
+      /**
+         * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+         * @items.maxLength 128
+         */
+      pending_user_artifact_ids?: string[];
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
