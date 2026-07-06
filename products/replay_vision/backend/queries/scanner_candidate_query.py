@@ -40,7 +40,7 @@ MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
-# Calibrated from the prod score distribution (2026-07): focused keeps ~top 25%, balanced ~top 65%.
+# Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
 FOCUSED_SURFACING_THRESHOLD = 0.30
 BALANCED_SURFACING_THRESHOLD = 0.10
 # Below balanced so unscored sessions are skipped by both filtered modes.
