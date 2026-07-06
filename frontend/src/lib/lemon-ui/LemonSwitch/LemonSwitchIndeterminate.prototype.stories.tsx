@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { IconGear } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 
 import {
     PrototypeSwitchProps,
@@ -100,9 +101,11 @@ function VariantRow({ variant }: { variant: (typeof VARIANTS)[number] }): JSX.El
                     </div>
                     <div className="text-secondary text-xs">{variant.description}</div>
                 </div>
-                <LemonButton size="xsmall" type="secondary" onClick={() => setValue('indeterminate')}>
-                    Reset to indeterminate
-                </LemonButton>
+                {value !== 'indeterminate' && (
+                    <Link className="text-xs" onClick={() => setValue('indeterminate')}>
+                        Reset to indeterminate
+                    </Link>
+                )}
             </div>
             <div className="flex items-center gap-8">
                 <Component label="Interactive (click me)" value={value} onChange={setValue} />
@@ -137,8 +140,15 @@ function TestAccountFilterContextRow({ variant }: { variant: (typeof VARIANTS)[n
     const { Component } = variant
     return (
         <div className="flex flex-col gap-1">
-            <div className="text-xs text-secondary">
-                {variant.key} — {variant.name}
+            <div className="flex items-center justify-between text-xs text-secondary">
+                <span>
+                    {variant.key} — {variant.name}
+                </span>
+                {value !== 'indeterminate' && (
+                    <Link className="text-xs" onClick={() => setValue('indeterminate')}>
+                        Reset to indeterminate
+                    </Link>
+                )}
             </div>
             <Component
                 value={value}
