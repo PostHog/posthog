@@ -3320,9 +3320,10 @@ class TestPrinter(BaseTest):
         from posthog.hogql.database.models import DecimalDatabaseField
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        assert context.database is not None
         events = context.database.get_table("events")
-        events.fields["wholesale"] = DecimalDatabaseField(name="wholesale", nullable=True)  # type: ignore
-        events.fields["rate"] = DecimalDatabaseField(name="rate", nullable=True)  # type: ignore
+        events.fields["wholesale"] = DecimalDatabaseField(name="wholesale", nullable=True)
+        events.fields["rate"] = DecimalDatabaseField(name="rate", nullable=True)
 
         # The reported shape: a decimal column divided by nullIf(decimal_column, 0).
         printed = self._select("SELECT wholesale / nullIf(rate, 0) AS ratio FROM events", context)
