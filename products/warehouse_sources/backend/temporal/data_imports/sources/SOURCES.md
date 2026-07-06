@@ -256,6 +256,7 @@ the row lists both.
 | papersign               | HTTP                        | requests                                                        | ✅                          |
 | paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                   | HTTP                        | requests                                                        | ✅                          |
+| persistiq               | HTTP                        | requests                                                        | ✅                          |
 | persona                 | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
 | pexels                  | HTTP                        | requests                                                        | ✅                          |
@@ -579,7 +580,6 @@ doesn't conflict with concurrent PRs.
 - pennylane
 - perigon
 - perk
-- persistiq
 - persona
 - pexels
 - phyllo
