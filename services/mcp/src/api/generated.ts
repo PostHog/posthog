@@ -30641,7 +30641,7 @@ export namespace Schemas {
       up: number;
       /** Thumbs-down ratings on this version's observations. */
       down: number;
-      /** All observations this version produced, rated or not. */
+      /** Succeeded (ratable) observations this version produced, rated or not. */
       total: number;
     }
 

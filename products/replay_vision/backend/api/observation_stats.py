@@ -128,7 +128,8 @@ def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, An
             prompt=Max("snapshot_prompt"),
             up=Count("id", filter=Q(label__is_correct=True)),
             down=Count("id", filter=Q(label__is_correct=False)),
-            total=Count("id"),
+            # Only succeeded observations can be rated, so they are the ratable "scanned" total.
+            total=Count("id", filter=Q(status=ObservationStatus.SUCCEEDED)),
         )
     )
     markers = []

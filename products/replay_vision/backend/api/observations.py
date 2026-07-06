@@ -311,7 +311,7 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
     )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
-    total = serializers.IntegerField(help_text="All observations this version produced, rated or not.")
+    total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
 
 
 class ObservationLabelStatsSerializer(serializers.Serializer):

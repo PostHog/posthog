@@ -110,6 +110,8 @@ class TestObservationLabels(_VisionAPITestCase):
         window_edge = self._create_observation(self.scanner, "sess-down-window-edge")
         just_outside = self._create_observation(self.scanner, "sess-down-just-outside")
         unlabeled = self._create_observation(self.scanner, "sess-unlabeled")
+        failed = self._create_observation(self.scanner, "sess-failed")
+        ReplayObservation.objects.filter(id=failed.id).update(status=ObservationStatus.FAILED)
         # created_at is auto_now_add, so pin every row from one captured `now` (midnight-safe) via update.
         now = timezone.now().replace(hour=12)
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(created_at=now)
@@ -122,10 +124,11 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id=earlier.id).update(
             scanner_snapshot={"scanner_version": 1, "scanner_config": {"prompt": "v1 prompt"}}
         )
-        # The unlabeled observation counts toward v2's scanned total but not its ratings.
-        ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id, unlabeled.id]).update(
-            scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}}
-        )
+        # The unlabeled observation counts toward v2's scanned total but not its ratings; the failed one
+        # counts toward neither, since it never produced a ratable result.
+        ReplayObservation.objects.filter(
+            id__in=[self.observation.id, same_day_down.id, unlabeled.id, failed.id]
+        ).update(scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}})
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window, window_edge, just_outside):
             is_correct = observation is outside_window
