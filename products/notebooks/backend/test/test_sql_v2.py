@@ -41,6 +41,7 @@ from products.notebooks.backend.sql_v2 import (
     mint_callback_token,
     mint_command_token,
     mint_data_plane_token,
+    sql_v2_page_lock_key,
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
@@ -362,6 +363,25 @@ class TestSQLV2RunPage(APIBaseTest):
         _restrict_query_access(self)
         self.assertEqual(self._get(str(run.id)).status_code, 403)
         mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_one_in_flight_page_fetch_per_user(self, _mock_enabled, mock_fetch):
+        # Each out-of-cache page fetch holds a web worker for up to the kernel timeout, so a
+        # user with a fetch already in flight must be rejected instead of stacking workers.
+        mock_fetch.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        run = self._create_run()
+        lock_key = sql_v2_page_lock_key(self.team.id, self.user.id)
+        cache.add(lock_key, True, timeout=10)
+        try:
+            response = self._get(str(run.id))
+            self.assertEqual(response.status_code, 429)
+            mock_fetch.assert_not_called()
+        finally:
+            cache.delete(lock_key)
+        # A finished fetch releases the lock, so back-to-back sequential pages keep working.
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
 
 
 class TestSQLV2PageDispatch(APIBaseTest):

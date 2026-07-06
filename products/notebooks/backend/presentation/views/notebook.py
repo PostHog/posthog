@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -53,10 +54,12 @@ from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookN
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
+    PAGE_LOCK_TTL_SECONDS,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     fetch_sql_v2_page,
     is_sql_v2_enabled,
+    sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
@@ -1032,6 +1035,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 status=400,
             )
 
+        # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
+        # so cap each user at one in-flight page fetch — otherwise parallel paging requests
+        # could occupy many web workers at once.
+        lock_key = sql_v2_page_lock_key(self.team_id, user.id if isinstance(user, User) else None)
+        if not cache.add(lock_key, True, timeout=PAGE_LOCK_TTL_SECONDS):
+            return Response({"detail": "Another page fetch is already in progress — try again shortly."}, status=429)
         try:
             page = fetch_sql_v2_page(
                 notebook,
@@ -1047,6 +1056,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except Exception:
             logger.exception("notebook_sql_v2_page_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to fetch page."}, status=503)
+        finally:
+            cache.delete(lock_key)
 
         return Response(page)
 

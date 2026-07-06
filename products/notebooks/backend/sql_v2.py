@@ -59,7 +59,15 @@ _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 # A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
 _PAGE_POST_TIMEOUT_SECONDS = 60
+# Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
+# worker killed before its finally-release can't wedge the user's paging for long.
+PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
 _COMMAND_TOKEN_TTL_SECONDS = 300
+
+
+def sql_v2_page_lock_key(team_id: int, user_id: int | None) -> str:
+    """One in-flight page fetch per user: each holds a web worker for up to the POST timeout."""
+    return f"sqlv2_page_inflight:{team_id}:{user_id if user_id is not None else 'anon'}"
 
 
 class SQLV2KernelNotRunning(Exception):
