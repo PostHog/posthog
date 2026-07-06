@@ -867,6 +867,11 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.logic.*",
+    # TeamTracingConfig is a Team extension model. Core's Team/Project viewsets host the
+    # per-product `*_config` actions and reference the extension model directly via
+    # get_or_create_team_extension (same pattern as TeamLogsConfig et al.), so the model
+    # has to cross the boundary. Mirrors the mcp_analytics models exposure.
+    "backend\\.models.*",
 ]
 from = [
     "products.tracing",
