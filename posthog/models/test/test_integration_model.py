@@ -19,7 +19,12 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
-from posthog.egress.github.transport import GitHubRateLimitError, raise_if_github_rate_limited
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    raise_if_github_rate_limited,
+)
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
@@ -2034,9 +2039,12 @@ class TestGitHubIntegrationModel(BaseTest):
 
 class TestGitHubIntegrationGhApiGet(BaseTest):
     def _create_integration(self) -> Integration:
+        # integration_id mirrors production (set from config on install) — the egress gate and
+        # tier store key on it; without it every call is identity-blind and skips both.
         return Integration.objects.create(
             team=self.team,
             kind="github",
+            integration_id="INSTALL",
             config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
@@ -2052,6 +2060,33 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         integration = self._create_integration()
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert body == {"default_branch": "main"}
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_batch_instance_is_shed_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+        # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
+        # callers silently ride the never-shed CRITICAL lane again and denials stop deferring work.
+        integration = self._create_integration()
+        github = GitHubIntegration(integration, priority=Priority.BATCH)
+        with pytest.raises(GitHubEgressBudgetExhausted):
+            github.api_request("GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        mock_request.assert_not_called()
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_critical_default_proceeds_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+        ok = MagicMock()
+        ok.status_code = 200
+        mock_request.return_value = ok
+
+        integration = self._create_integration()
+        response = GitHubIntegration(integration).api_request(
+            "GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+        )
+        assert response.status_code == 200
+        mock_request.assert_called_once()
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
