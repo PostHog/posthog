@@ -1,10 +1,17 @@
-"""Internal aggregating tables and lazy joins that power `system.accounts.tags` and
-`system.accounts.notebooks`.
+"""Customer analytics' federated HogQL system tables (`system.accounts`,
+`system.custom_property_definitions`) and the aggregating tables plus lazy joins that
+power `system.accounts.tags`, `system.accounts.notebooks`, and
+`system.accounts.custom_properties`.
 
-The two raw federated tables (`_account_tagged_items`, `_account_resource_notebooks`)
-are tag/notebook junction rows from PostgreSQL. They have no `team_id` column and
-should not be reachable directly from the SQL editor — they exist only so the lazy
-join subqueries below can be resolved by the planner.
+Owned here rather than in core so the coupling between core's HogQL schema and this
+product's Postgres tables is import-visible (tach) and facade-gated (CI): core
+`schema/system.py` and `lazy_join_registry.py` import these definitions instead of
+hardcoding the product's table and column names.
+
+The raw federated junction tables (`_account_tagged_items`, `_account_resource_notebooks`,
+`_account_custom_property_values`) have no `team_id` column and should not be reachable
+directly from the SQL editor — they exist only so the lazy join subqueries below can be
+resolved by the planner.
 """
 
 from posthog.hogql import ast
@@ -15,6 +22,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
@@ -47,7 +55,7 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     predicates: list[Expr] = [parse_expr("account_id IN (SELECT id FROM system.accounts)")]
 
 
-_account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_tagged_items",
     postgres_table_name="posthog_taggeditem",
     description="Internal federated junction table (PostgreSQL `posthog_taggeditem`) of tag-to-account links; not for direct querying — use `system.accounts.tags`.",
@@ -60,7 +68,7 @@ _account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable
     },
 )
 
-_account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_resource_notebooks",
     postgres_table_name="posthog_resourcenotebook",
     description="Internal federated junction table (PostgreSQL `posthog_resourcenotebook`) of notebook-to-account links; not for direct querying — use `system.accounts.notebooks`.",
@@ -76,7 +84,7 @@ _account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgre
 )
 
 
-_account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
@@ -315,4 +323,109 @@ account_custom_properties_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountCustomPropertiesTable(),
     resolver=ACCOUNT_CUSTOM_PROPERTIES,
+)
+
+
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    # Object-level access control filters out ids directly off access_scope, so we use
+    # `account` here (where the per-object grants are stored) instead of the
+    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
+    access_scope="account",
+    description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Account UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(
+            name="external_id", nullable=True, description="Identifier of the account in the source system."
+        ),
+        "name": StringDatabaseField(name="name", description="Display name of the account."),
+        "properties": StringJSONDatabaseField(
+            name="properties",
+            description="JSON map of account properties; the CRM id columns below are extracted from this.",
+        ),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "csm": ExpressionField(
+            name="csm",
+            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
+        ),
+        "account_executive": ExpressionField(
+            name="account_executive",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "account_owner": ExpressionField(
+            name="account_owner",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the account record."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the account record was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the account record was last updated."
+        ),
+        "tags": account_tags_lazy_join,
+        "notebooks": account_notebooks_lazy_join,
+        "custom_properties": account_custom_properties_lazy_join,
+    },
+)
+
+
+custom_property_definitions: PostgresTable = PostgresTable(
+    name="custom_property_definitions",
+    postgres_table_name="customer_analytics_custompropertydefinition",
+    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
+    access_scope="account",
+    description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(
+            name="name", description="Human-readable name of the custom property; unique within the team."
+        ),
+        "description": StringDatabaseField(
+            name="description", nullable=True, description="Optional description of what the property represents."
+        ),
+        "display_type": StringDatabaseField(
+            name="display_type",
+            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.",
+        ),
+        "_is_big_number": BooleanDatabaseField(name="is_big_number", hidden=True),
+        "is_big_number": ExpressionField(
+            name="is_big_number",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_big_number"])]),
+            description="1 if large numeric values are abbreviated (e.g. 10,000 -> 10K), 0 otherwise.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the definition."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the definition was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the definition was last updated."
+        ),
+    },
 )
