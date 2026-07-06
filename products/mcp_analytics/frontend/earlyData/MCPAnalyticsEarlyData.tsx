@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconClock, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonProgress, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
