@@ -148,11 +148,7 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
-            # Keep pipeline-spawned implementation runs out of the default task list — the report
-            # detail surfaces them by id (via task_run artefacts) and shows the draft PR there, so
-            # listing them alongside user-created tasks is just noise. `internal` gates default list
-            # visibility only, not access: retrieve-by-id, PR-url lookup, notifications, and the
-            # `internal=all` Runs tab are all unaffected.
+            # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
         )
         if created.latest_run is None:
