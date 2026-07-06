@@ -47,13 +47,13 @@ prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 
 # AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
-# property values, web/marketing preaggregated). roles/aux/shared holds the env-uniform
+# property values, web/marketing preaggregated). roles/auxiliary/shared holds the env-uniform
 # objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
 # kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
 # ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
-local    aux        roles/shared roles/aux/shared roles/aux/local
-prod-us  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-us
-prod-eu  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-eu
+local    aux        roles/shared roles/auxiliary/shared roles/auxiliary/local
+prod-us  aux        roles/shared roles/auxiliary/shared roles/auxiliary/prod roles/auxiliary/prod-us
+prod-eu  aux        roles/shared roles/auxiliary/shared roles/auxiliary/prod roles/auxiliary/prod-eu
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
 # (session tables are prod-only), so it composes roles/shared alone. prod nodes host
@@ -70,5 +70,11 @@ prod-eu  sessions   roles/shared roles/sessions/shared roles/sessions/prod-eu
 # raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
 prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
 
+# BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
+# store the export workers read; data/ops reach it via Distributed proxies) plus the
+# query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
+# column. Dump-baselined (no local batch-exports node).
+prod-us  batch_exports roles/shared roles/batch_exports/prod-us
+prod-eu  batch_exports roles/shared roles/batch_exports/prod-eu
+
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
-# prod-us  endpoints  roles/shared

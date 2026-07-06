@@ -1,8 +1,11 @@
-import { IconRewindPlay, IconSparkles } from '@posthog/icons'
-import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
@@ -374,9 +377,13 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 export function ObservationDockCard({
     observation,
     onSeek,
+    onRetry,
+    retrying = false,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
+    onRetry?: () => void
+    retrying?: boolean
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -396,7 +403,26 @@ export function ObservationDockCard({
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
-                <FailureDetail errorReason={observation.error_reason} />
+                <div className="space-y-2">
+                    <FailureDetail errorReason={observation.error_reason} />
+                    {onRetry && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={onRetry}
+                                loading={retrying}
+                                data-attr="vision-dock-retry-observation"
+                            >
+                                Retry scan
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                </div>
             )}
 
             {observation.status === 'ineligible' && observation.error_reason && (

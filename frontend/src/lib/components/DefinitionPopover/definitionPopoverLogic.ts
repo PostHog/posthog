@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
+import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/utils'
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
@@ -44,7 +45,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentProjectId'], propertyDefinitionsModel, ['getPropertyDefinition']],
+    })),
     actions(({ values, props }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({
             item,
@@ -66,8 +69,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         return {}
                     }
 
+                    // resolvedDefinition carries the recovered id for name-only pinned/default
+                    // property items, so Save PATCHes the real definition instead of /undefined.
                     let definition = {
-                        ...values.definition,
+                        ...values.resolvedDefinition,
                         ...values.localDefinition,
                     } as TaxonomicDefinitionTypes
                     cache.startTime = performance.now()
@@ -229,21 +234,43 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (s) => [s.type],
             (type) => type === TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
+        resolvedDefinition: [
+            (s) => [s.definition, s.isProperty, s.type, s.getPropertyDefinition],
+            (definition, isProperty, type, getPropertyDefinition): Partial<TaxonomicDefinitionTypes> => {
+                // Pinned/default property items are stored as { name } only. Hydrate them with the
+                // saved definition id recovered from propertyDefinitionsModel so View, Edit and Save
+                // all operate on a complete definition (and self-heal as the model loads) rather
+                // than hitting /data-management/properties/undefined.
+                if (isProperty && definition && !(definition as PropertyDefinition).id) {
+                    const id = resolvePropertyDefinitionId(
+                        definition as PropertyDefinition,
+                        type as TaxonomicFilterGroupType,
+                        getPropertyDefinition
+                    )
+                    if (id) {
+                        // Cast because the union has numeric-id members (ActionType/CohortType);
+                        // this branch only runs for property definitions (string id).
+                        return { ...definition, id } as Partial<TaxonomicDefinitionTypes>
+                    }
+                }
+                return definition
+            },
+        ],
         viewFullDetailUrl: [
-            (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
-            (definition, isAction, isEvent, isProperty, isCohort) => {
+            (s) => [s.resolvedDefinition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
+            (resolvedDefinition, isAction, isEvent, isProperty, isCohort) => {
                 if (isAction) {
-                    // Action Definitions
-                    return urls.action((definition as ActionType).id)
+                    const id = (resolvedDefinition as ActionType).id
+                    return id != null ? urls.action(id) : undefined
                 } else if (isEvent) {
-                    // Event Definitions
-                    return urls.eventDefinition((definition as EventDefinition).id)
+                    const id = (resolvedDefinition as EventDefinition).id
+                    return id ? urls.eventDefinition(id) : undefined
                 } else if (isProperty) {
-                    // Property Definitions
-                    return urls.propertyDefinition((definition as PropertyDefinition).id)
+                    const id = (resolvedDefinition as PropertyDefinition).id
+                    return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
-                    // Cohort
-                    return urls.cohort((definition as CohortType).id)
+                    const id = (resolvedDefinition as CohortType).id
+                    return id != null ? urls.cohort(id) : undefined
                 }
                 return undefined
             },

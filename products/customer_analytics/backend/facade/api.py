@@ -1447,13 +1447,22 @@ def list_account_notes_for_view(
     offset: int,
     limit: int,
     search: str | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: list[int] | None = None,
 ) -> tuple[list[contracts.AccountNoteView], int]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
-    and account name (substring). Returns ``(page, total_count)``."""
+    and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
+    notes authored by the given users. Returns ``(page, total_count)``."""
     accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
-        team_id, account_ids=accessible_account_ids, search=search, offset=offset, limit=limit
+        team_id,
+        account_ids=accessible_account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
     )
     return [
         contracts.AccountNoteView(
@@ -1463,6 +1472,7 @@ def list_account_notes_for_view(
             last_modified_at=note.last_modified_at,
             account_id=note.account_id,
             account_name=note.account_name,
+            created_by=_notebook_user_to_basic_info(note.created_by),
         )
         for note in notes
     ], count

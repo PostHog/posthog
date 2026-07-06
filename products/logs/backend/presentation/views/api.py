@@ -725,6 +725,19 @@ class _LogPatternSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Up to 4 distinct service names this pattern was observed in.",
     )
+    sparkline = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
+            "the volume shape over the window, not exact per-bucket tallies."
+        ),
+    )
+
+
+class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
+    start = serializers.CharField(help_text="Bucket start (ISO 8601, inclusive).")
+    end = serializers.CharField(help_text="Bucket end (ISO 8601, exclusive).")
 
 
 class _LogsPatternsResponseSerializer(serializers.Serializer):
@@ -752,6 +765,14 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
             "Share of the window's log rows that were eligible for sampling (0–100). Below 100, "
             "the scan was bounded to evenly-spaced time slices across the window to keep the "
             "query within its execution budget; rows outside the slices could not appear in the sample."
+        ),
+    )
+    sparkline_buckets = _LogsPatternsSparklineBucketSerializer(
+        many=True,
+        help_text=(
+            "Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to "
+            "time slices, the buckets are the slices themselves (evenly spaced, gaps between them "
+            "were never eligible for sampling); otherwise they divide the window uniformly."
         ),
     )
 
