@@ -3553,6 +3553,76 @@ class TestExperimentService(APIBaseTest):
         assert "Added automatically" in groups[0].get("description", "")
         assert groups[1:] == original_groups
 
+    @parameterized.expand(
+        [
+            ("preserve_targeting", False),
+            ("release_to_everyone", True),
+        ]
+    )
+    def test_ship_variant_on_frozen_experiment_strips_freeze(self, _name: str, release_to_everyone: bool):
+        experiment = self._create_running_experiment(
+            name=f"Ship Frozen {_name}", feature_flag_key=f"ship-frozen-{_name}-flag"
+        )
+        flag = experiment.feature_flag
+
+        # Heterogeneous groups (like real experiment flags) so the round-trip below proves the
+        # freeze's cohort condition, structured keys, and description marker are all stripped
+        # while user-authored properties and descriptions survive.
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+            "description": "Internal test users",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
+        original_groups = deepcopy(flag.filters["groups"])
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name=f'Exposure snapshot for experiment "Ship Frozen {_name}"')
+
+        shipped = self._service().ship_variant(
+            frozen,
+            variant_key="test",
+            release_to_everyone=release_to_everyone,
+            request=self._make_request(),
+        )
+        shipped.feature_flag.refresh_from_db()
+
+        groups = shipped.feature_flag.filters["groups"]
+        if release_to_everyone:
+            assert groups[0]["properties"] == []
+            assert groups[0]["rollout_percentage"] == 100
+            # The frozen snapshot condition below the catch-all is stripped, not left as dead weight.
+            assert groups[1:] == original_groups
+        else:
+            # Shipping ends the enrollment freeze: the winner reaches the original audience, not
+            # just the stale snapshot cohort.
+            assert groups == original_groups
+
+        # The snapshot cohort is no longer referenced by anything the freeze created — cleaned up.
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
+
+    def test_ship_variant_on_frozen_experiment_keeps_cohort_when_flag_save_fails(self):
+        experiment = self._create_running_experiment(name="Ship Frozen Fail", feature_flag_key="ship-frozen-fail-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Ship Frozen Fail"')
+        filters_when_frozen = deepcopy(frozen.feature_flag.filters)
+
+        # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
+        # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
+        with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+            with self.assertRaises(ValidationError):
+                self._service().ship_variant(frozen, variant_key="test", request=self._make_request())
+
+        cohort.refresh_from_db()
+        assert cohort.deleted is not True
+        frozen.feature_flag.refresh_from_db()
+        assert frozen.feature_flag.filters == filters_when_frozen
+        assert frozen.is_exposure_frozen is True
+
     def test_ship_variant_default_preserves_scoped_release_condition(self):
         experiment = self._create_running_experiment(name="Ship Scoped", feature_flag_key="ship-scoped-flag")
 

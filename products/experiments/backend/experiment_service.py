@@ -1968,6 +1968,54 @@ class ExperimentService:
             new_groups.append(new_group)
         return {**current_filters, "groups": new_groups}
 
+    @staticmethod
+    def _strip_frozen_exposure_from_filters(current_filters: dict) -> tuple[dict, list[int]]:
+        """Inverse of _transform_filters_for_frozen_exposure: remove the freeze stamps from every
+        release group — the AND'd snapshot-cohort condition (identified via the per-group
+        EXPOSURE_FROZEN_COHORT_KEY, so user-added cohort conditions survive), the two structured
+        keys, and the description marker note. Groups without the freeze key pass through untouched.
+
+        Returns the stripped filters plus the snapshot cohort ids that were referenced, so callers
+        can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
+        then: deleting earlier would yank the cohort from under a still-frozen flag if the save fails.
+        """
+        new_groups = []
+        cohort_ids: list[int] = []
+        for group in current_filters.get("groups", []):
+            new_group = deepcopy(group)
+            if new_group.get(EXPOSURE_FROZEN_GROUP_KEY) is not True:
+                new_groups.append(new_group)
+                continue
+            new_group.pop(EXPOSURE_FROZEN_GROUP_KEY, None)
+            cohort_id = new_group.pop(EXPOSURE_FROZEN_COHORT_KEY, None)
+            if cohort_id is not None:
+                cohort_ids.append(cohort_id)
+                new_group["properties"] = [
+                    condition
+                    for condition in new_group.get("properties", [])
+                    if not (
+                        condition.get("type") == "cohort"
+                        and condition.get("key") == "id"
+                        and condition.get("value") == cohort_id
+                    )
+                ]
+            description = new_group.get("description")
+            if isinstance(description, str) and EXPOSURE_FROZEN_GROUP_MARKER in description:
+                stripped_description = description.replace(EXPOSURE_FROZEN_GROUP_MARKER, "").strip()
+                if stripped_description:
+                    new_group["description"] = stripped_description
+                else:
+                    # The freeze added the description outright — restore its absence.
+                    del new_group["description"]
+            new_groups.append(new_group)
+        return {**current_filters, "groups": new_groups}, list(dict.fromkeys(cohort_ids))
+
+    def _delete_orphaned_snapshot_cohorts(self, cohort_ids: list[int]) -> None:
+        """Soft-delete freeze snapshot cohorts whose flag reference was just removed."""
+        for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
+            cohort.deleted = True
+            cohort.save(update_fields=["deleted"])
+
     def _report_experiment_exposure_frozen(
         self,
         experiment: Experiment,
@@ -2208,8 +2256,14 @@ class ExperimentService:
         if not any(v["key"] == variant_key for v in variants):
             raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
+        # A frozen experiment's release groups carry a machine-added snapshot-cohort condition.
+        # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
+        # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
+        # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
+        base_filters, frozen_cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters)
+
         new_filters = self._transform_filters_for_winning_variant(
-            flag.filters, variant_key, release_to_everyone=release_to_everyone
+            base_filters, variant_key, release_to_everyone=release_to_everyone
         )
 
         # Update the flag through the serializer to preserve the approval
@@ -2233,6 +2287,12 @@ class ExperimentService:
         # Refresh the flag instance so the experiment's nested flag reflects
         # the updated filters when serialized in the response.
         flag.refresh_from_db()
+
+        # Only now that the stripped filters are persisted: the freeze snapshot cohorts are no
+        # longer referenced by the flag, so clean them up. A failed save above (e.g.
+        # ApprovalRequired) leaves the flag frozen and still serving from the cohorts.
+        if frozen_cohort_ids:
+            self._delete_orphaned_snapshot_cohorts(frozen_cohort_ids)
 
         # End the experiment only if it's still running
         was_running = experiment.is_running
