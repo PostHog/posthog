@@ -2521,9 +2521,9 @@ snapshots:
     insights-funnelbarhorizontalchart--default--light:
         hash: v1.k794b7964.e2a2dfd74c92f8cca870c01752ef858f04f9a6262487ae3121cd85fb4668b4cd.pPtj-XUq0phM9FM0WM4XJK9ezf6mEGSeZZ5_Us7q_aI
     insights-funnelbarhorizontalchart--default-narrow--dark:
-        hash: v1.k794b7964.d9f704f405c68cf8a2023b3b0f6d0c51ed576c3981f8f9cfef63d27e3ab43e18.g6LROmp5EgGi5e7XdC0NdmOL2TaARVysoxgoABQk6Ow
+        hash: v1.k794b7964.eda9d9285d389cf7f6b2f24da81b0068f89afdf82aa10e9f01cae3b88951e772.IG9L_KV3jAimpHalXw5lhQZBq5QhNo0fUOsEhg0U12A
     insights-funnelbarhorizontalchart--default-narrow--light:
-        hash: v1.k794b7964.13f6d785a4319c847b0e695c5b93fa64a0372d4bb54824dde0926376b4cfa112.N7Yn3QPLo00ZjsQDT0MT2iGHyuJo6KNxZalO5NP-gDM
+        hash: v1.k794b7964.a349dd791a40254a87e5e41e3bd38c425f401dc16c1b68f493302e3869338126.NhwZiL-08bOUeVy6P6JbrIypIG1Yu0HWSeMtB3ljV_I
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-breakdown-compare--dark:
         hash: v1.k794b7964.182b50e2d4db20688f53d06f38279667a0934ed21e1172c34e4ff2e531c781dc.h82CZPsRr5s01gYBbn5z4dg_hsbRfONrvPx1GOBouhA
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-breakdown-compare--light:
@@ -5636,6 +5636,10 @@ snapshots:
         hash: v1.k794b7964.cfd075c10189496c867372e36391cf5985948fe5a8137c434545f5825b15ac7e.CBhNqr7PbQNz8qkKG2U9CTIyRe5lDAYRM83-AJ8_zVw
     scenes-app-heatmap-new--new-form--light:
         hash: v1.k794b7964.efcfe6e747715ec98507ddc9a223cc52e821d9c44cde876551edc9e5813c2930.GJ6WxbvpypQJHEukgIxvQmhzq0GFcmtyTNZtdfA959A
+    scenes-app-heatmap-recording--recording-mode-with-clickmap--dark:
+        hash: v1.k794b7964.492513ce4914488895959abce4a09b4ed02c4863b9a51eadeb9457aebe55bab9.eEn1yHIXtiBqb6FBCJCzs4MxDWFgrBoShkXQGwN2XrY
+    scenes-app-heatmap-recording--recording-mode-with-clickmap--light:
+        hash: v1.k794b7964.b5f306346a3c5a6cb0fa6a80b28b4eb75e7c963363a211b187b5f507bca182f9.UeH87H2YKKB_V9x9KaIyN2K0SHmp9Ha8_6CfcS_aCLs
     scenes-app-heatmaps-saved--list--dark:
         hash: v1.k794b7964.8368377e136c567c3c500c97924486837234c230858baf0eb14678b6900d68c6.qpjMZIE3Ii8vpyLrfaKjCdym7waJtp38DGez1iugMMo
     scenes-app-heatmaps-saved--list--light:
