@@ -697,9 +697,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         or payload.get("incremental_field_last_value") is None
                     )
 
-            if "incremental_field" in data:
+            # Webhook schemas derive their incremental field from the source, so a null here is the
+            # client's "not applicable", not an intentional clear. Writing it would wipe the cursor
+            # config a previous append/incremental sync built up, turning the webhook initial sync
+            # into an unbounded full-history scan with no durable watermark progress.
+            is_webhook_target = resulting_sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            if "incremental_field" in data and not (is_webhook_target and incremental_field is None):
                 payload["incremental_field"] = incremental_field
-            if "incremental_field_type" in data:
+            if "incremental_field_type" in data and not (
+                is_webhook_target and data.get("incremental_field_type") is None
+            ):
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
