@@ -58,7 +58,7 @@ from ..logic import (
     run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
-from .date_window import normalize_tracing_date_range
+from .date_window import normalize_tracing_date_range, parse_tracing_date_range_param
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -615,11 +615,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}'))
-        except json.JSONDecodeError:
-            raw_date_range = {"date_from": "-1h"}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(parse_tracing_date_range_param(request.GET.get("dateRange")), DateRange)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
@@ -1164,11 +1160,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(parse_tracing_date_range_param(request.GET.get("dateRange")), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span_attribute", "span_resource_attribute"):
@@ -1198,11 +1190,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(parse_tracing_date_range_param(request.GET.get("dateRange")), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):

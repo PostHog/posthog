@@ -3,7 +3,11 @@ import pytest
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.tracing.backend.presentation.date_window import normalize_tracing_date_range, normalize_tracing_window
+from products.tracing.backend.presentation.date_window import (
+    normalize_tracing_date_range,
+    normalize_tracing_window,
+    parse_tracing_date_range_param,
+)
 
 
 class TestNormalizeTracingWindow:
@@ -91,3 +95,35 @@ class TestNormalizeTracingDateRange:
     def test_invalid_bound_raises(self) -> None:
         with pytest.raises(serializers.ValidationError):
             normalize_tracing_date_range({"date_from": "-30 minutes"})
+
+
+class TestParseTracingDateRangeParam:
+    @parameterized.expand([(None,), ("",), ("   ",)])
+    def test_absent_or_blank_uses_default(self, value) -> None:
+        assert parse_tracing_date_range_param(value) == {"date_from": "-1h"}
+
+    def test_respects_custom_default(self) -> None:
+        assert parse_tracing_date_range_param(None, default_date_from="-24h") == {"date_from": "-24h"}
+
+    def test_valid_json_object_is_normalized(self) -> None:
+        assert parse_tracing_date_range_param('{"date_from": "-7d"}') == {"date_from": "-7d"}
+        assert parse_tracing_date_range_param('{"date_from": "-30m", "date_to": "-5m"}') == {
+            "date_from": "-30M",
+            "date_to": "-5M",
+        }
+
+    @parameterized.expand(
+        [
+            # The headline bug: a bare relative string (the shape the sibling POST tools accept)
+            # is not valid JSON — it must 400, not silently collapse to the default window.
+            ("-7d",),
+            ("banana",),
+            # Valid JSON, but not an object — a bare scalar or array is not a date range.
+            ("-7",),
+            ("[]",),
+            ('"-7d"',),
+        ]
+    )
+    def test_unparseable_or_non_object_raises(self, value: str) -> None:
+        with pytest.raises(serializers.ValidationError):
+            parse_tracing_date_range_param(value)
