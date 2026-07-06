@@ -312,13 +312,12 @@ export class IngestionApiServer implements NodeServer {
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                 overflowType: 'events',
             })
         }
 
         let overflowLaneTTLRefreshService: OverflowRedirectService | undefined
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'consume') {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -530,10 +529,7 @@ export class IngestionApiServer implements NodeServer {
     }
 
     private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.config.INGESTION_CONSUMER_CONSUME_TOPIC
-        )
+        return this.config.INGESTION_OVERFLOW_MODE === 'redirect'
     }
 
     private getCleanupResources(): CleanupResources {

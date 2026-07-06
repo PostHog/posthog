@@ -204,13 +204,10 @@ export class ErrorTrackingServer implements NodeServer {
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
                     cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
-                    overflowEnabled:
-                        !!this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                        this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                            this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                    overflowMode: this.config.INGESTION_OVERFLOW_MODE,
+                    overflowEnabled: this.config.INGESTION_OVERFLOW_MODE === 'redirect',
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                    statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,

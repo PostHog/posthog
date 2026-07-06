@@ -144,13 +144,10 @@ describe('ErrorTrackingConsumer', () => {
             cymbalTimeoutMs: infra.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: infra.config.INGESTION_LANE ?? ('main' as const),
-            overflowEnabled:
-                !!infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                    infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            overflowMode: infra.config.INGESTION_OVERFLOW_MODE,
+            overflowEnabled: infra.config.INGESTION_OVERFLOW_MODE === 'redirect',
             overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-            statefulOverflowEnabled: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
             preservePartitionLocality: infra.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,

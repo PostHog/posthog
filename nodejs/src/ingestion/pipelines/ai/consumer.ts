@@ -42,8 +42,8 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
     PersonHogConfig &
     Pick<
         IngestionConsumerConfig,
+        | 'INGESTION_OVERFLOW_MODE'
         | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
-        | 'INGESTION_STATEFUL_OVERFLOW_ENABLED'
         | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
         | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
         | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
@@ -82,10 +82,9 @@ export type AiSharedScope = Scope<{
 
 export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
-    const overflowEnabled =
-        !!config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-        config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
-    const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
+    const overflowMode = config.INGESTION_OVERFLOW_MODE
+    const overflowEnabled = overflowMode === 'redirect'
+    const overflowLaneEnabled = overflowMode === 'consume'
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
     // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
     // The query name is supplied per call (e.g. "person-properties").
@@ -125,7 +124,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                           bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                           replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                          statefulEnabled: config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                           overflowType: 'ai',
                       })
                     : new DisabledOverflowRedirectComponent()
