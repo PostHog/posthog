@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -210,6 +211,10 @@ class DeltaBatchConsumerAdapter:
         limit: int,
     ) -> None:
         """Mark ExternalDataJobs Failed when their run has a failed queue batch but the app-DB write never landed."""
+        # Piggyback the reconcile cadence for the queue-freshness gauge: same
+        # connection, same periodicity, and isolated so it can't break the sweep.
+        await self._observe_queue_freshness(conn)
+
         refs = await BatchQueue.get_failed_runs(
             conn,
             grace_seconds=grace_seconds,
@@ -256,6 +261,22 @@ class DeltaBatchConsumerAdapter:
                         exc_info=True,
                     )
                     capture_exception(e)
+
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """Report the age of the oldest batch no consumer has picked up yet.
+
+        This is the loader's data-freshness signal: it rises whenever loading
+        stalls, no matter why — the alert on it fires even when every other
+        health signal looks green. Failures are swallowed-with-capture so a
+        broken probe can't take the reconcile sweep down with it.
+        """
+        try:
+            age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        except Exception as e:
+            logger.exception("queue_freshness_probe_failed")
+            capture_exception(e)
+            return
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
 
     async def should_process_batch(
         self,

@@ -46,6 +46,11 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 # abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
 TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 
+# Lookback for the queue-freshness probe. Bounds both the probe's cost and the
+# reported age: an unclaimed batch older than this saturates the gauge at the
+# window, which is already far past any sane alert threshold.
+FRESHNESS_WINDOW = "48 hours"
+
 
 def pending_batch_select_columns(status_alias: str) -> str:
     return f"""
@@ -630,6 +635,37 @@ class BatchQueue:
             )
             for row in rows
         ]
+
+    @staticmethod
+    async def get_oldest_unclaimed_batch_age_seconds(
+        conn: psycopg.AsyncConnection[Any],
+    ) -> float | None:
+        """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
+
+        A batch with no status row has never been claimed — this is the queue's
+        data-freshness signal, and it rises whenever loading stalls regardless
+        of the cause. Bounded to ``FRESHNESS_WINDOW`` so the probe stays cheap
+        on a healthy queue and the reported age saturates instead of scanning
+        unbounded history.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {STATUS_TABLE} s
+                      WHERE s.batch_id = b.id
+                        AND s.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                  )
+                """
+            )
+            row = await cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
 
     @staticmethod
     async def unlock_for_batches(

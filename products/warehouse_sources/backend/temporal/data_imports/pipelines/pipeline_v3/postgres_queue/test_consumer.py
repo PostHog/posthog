@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     FailedRunRef,
     PendingBatch,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
+)
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 
@@ -569,6 +572,40 @@ class TestFailRun:
 
 
 class TestReconcileFailedRuns:
+    @pytest.mark.asyncio
+    async def test_reconcile_reports_queue_freshness_gauge(self):
+        # The gauge feeds the loader's data-freshness alert; if a reconcile
+        # refactor drops the probe, the alert goes silently blind.
+        consumer = _make_consumer()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=1234.5,
+            ) as mock_probe,
+        ):
+            await consumer._reconcile_failed_runs()
+        assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+
+        mock_probe.return_value = None  # empty queue -> gauge resets to 0
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                mock_probe,
+            ):
+                await consumer._reconcile_failed_runs()
+        assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
+
     @pytest.mark.asyncio
     async def test_marks_non_terminal_run_failed(self):
         consumer = _make_consumer()
