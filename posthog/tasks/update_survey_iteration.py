@@ -38,7 +38,11 @@ def _has_final_iteration_ended(survey: Survey) -> bool:
     if last_iteration_start is None:
         return False
 
-    final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
+    try:
+        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
+    except OverflowError:
+        # iteration_frequency_days is not capped by the API; a huge value must not crash the task
+        return False
     return date.today() > final_iteration_end
 
 
