@@ -7,31 +7,24 @@
 //
 //   GHA cron ──> GET /api/projects/:id/engineering_analytics/<action>/ ──> Slack
 //
-// What it reports:
-//   - CI speed WoW: per-workflow p50/p95 duration on `master`, this 7d vs prior 7d,
-//     ranked by % change. Scoped to one branch so the comparison is apples-to-apples
-//     (master + PR runs blended would track the week's run-mix, not duration), and to
-//     master specifically because its gating workflows don't supersede-cancel, so
+// What it reports (this 7d vs prior 7d):
+//   - Throughput & CI health: merged-PR count, median open→merge, CI success rate,
+//     re-run cycles, billable (self-hosted) minutes and estimated Depot $ — all from
+//     repo_overview, which computes them server-side (plain countIf/quantileIf, no
+//     row caps), so the throughput numbers the first cut had to defer are honest now.
+//   - CI speed WoW: per-workflow p50/p95 duration on `master`, ranked by % change.
+//     Scoped to one branch so the comparison is apples-to-apples (master + PR runs
+//     blended would track the week's run-mix, not duration), and to master
+//     specifically because its gating workflows don't supersede-cancel, so
 //     cancelled-run durations barely pollute the percentile there.
-//   - CI cost WoW: total billable (self-hosted) minutes + estimated Depot $ across all
-//     branches, this 7d vs prior. workflow_health carries per-workflow billable_minutes /
-//     estimated_cost_usd, so cost rides the same endpoint as the speed section — its own
-//     all-branch call, no new source and no per-workflow fan-out. All-branch (not
-//     master-scoped) to capture total CI spend, and unlike the duration percentile a
-//     cancelled run consumed real compute, so counting it is correct here. Omitted when the
-//     github_workflow_jobs warehouse schema isn't synced (the cost fields are null then).
+//   - Master failures: the week's default-branch failures grouped error-tracking
+//     style by (workflow, de-sharded failing job) — top offenders by run count.
 //   - Quarantine debt: active / expiring / in-grace / overdue flaky-test quarantines.
 //
-// Two signals are not honestly computable from the general endpoints, so they are omitted
-// until a purpose-built weekly aggregate lands in products/engineering_analytics/backend:
-//   - Throughput WoW (merged-PR count + median time-to-merge): pull_requests caps at
-//     1000 rows ordered by created_at DESC and always includes every open PR, so on a
-//     busy repo most in-window merges are dropped — biased, not just truncated.
-//     Needs a weekly merged-count aggregate (pr_lifecycle is per-PR, not a rollup).
-//   - Fully clean CI speed across all branches: workflow_health's p50/p95 is over
-//     status='completed', which includes cancelled runs (no conclusion filter), so
-//     off-master durations are polluted by supersede-cancels. Needs a conclusion=
-//     'success', branch-scoped duration percentile.
+// Still deferred (the one signal the read layer can't compute yet): a fully clean
+// all-branch CI-speed percentile — workflow_health's p50/p95 is over
+// status='completed' with no conclusion filter, so off-master durations are polluted
+// by supersede-cancels. Needs a conclusion='success' duration percentile upstream.
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
@@ -40,7 +33,7 @@ const REPO = process.env.ENG_ANALYTICS_REPO || '' // 'owner/name', for the quara
 // Pin the source when the project has more than one connected GitHub source; otherwise
 // the endpoints default to the oldest, which may not be the repo you mean.
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
-const BRANCH = process.env.ENG_ANALYTICS_BRANCH || 'master' // CI-speed comparison branch
+const BRANCH = process.env.ENG_ANALYTICS_BRANCH || 'master' // CI-speed + failure-groups branch
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C0AS64N6DJL' // #alerts-devex
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
@@ -113,6 +106,25 @@ function fmtDuration(seconds) {
     return s === 0 ? `${m}m` : `${m}m${s}s`
 }
 
+// PR-lifecycle durations: seconds → '3d4h' / '7h05m' / '42m'. Coarser units than
+// fmtDuration because open→merge lives on an hours-to-days scale.
+function fmtLongDuration(seconds) {
+    if (seconds == null) {
+        return 'n/a'
+    }
+    const totalMinutes = Math.round(seconds / 60)
+    const d = Math.floor(totalMinutes / 1440)
+    const h = Math.floor((totalMinutes % 1440) / 60)
+    const m = totalMinutes % 60
+    if (d > 0) {
+        return h === 0 ? `${d}d` : `${d}d${h}h`
+    }
+    if (h > 0) {
+        return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}m`
+    }
+    return `${m}m`
+}
+
 // '14m→17m' — a prior→current pair of CI durations.
 function fmtTransition(prior, current) {
     return `${fmtDuration(prior)}→${fmtDuration(current)}`
@@ -146,26 +158,112 @@ function fmtUsd(amount) {
     return `$${Math.round(amount).toLocaleString('en-US')}`
 }
 
+// 0..1 rate → '92.1%'.
+function fmtRate(rate) {
+    return `${(rate * 100).toFixed(1)}%`
+}
+
+// Success-rate deltas are percentage-POINT changes, not relative % — '(+1.3pp)'.
+function fmtPpDelta(current, previous) {
+    const delta = (current - previous) * 100
+    const sign = delta > 0 ? '+' : ''
+    return ` (${sign}${delta.toFixed(1)}pp)`
+}
+
 function workflowKey(item) {
     return `${item.repo.owner}/${item.repo.name}:${item.workflow_name}`
 }
 
-// Per-workflow health for this 7d and the prior 7d, fetched together. `extra` merges into
-// both calls' params — the only axis the callers differ on (speed scopes to a branch).
-async function workflowHealthWeeks(now, extra = {}) {
+// The [date_from, date_to] pairs for this 7d and the prior 7d, as ISO strings.
+function weekWindows(now) {
     const thisFrom = new Date(now.getTime() - WEEK_MS).toISOString()
     const priorFrom = new Date(now.getTime() - 2 * WEEK_MS).toISOString()
-    return Promise.all([
-        api('workflow_health', { date_from: thisFrom, date_to: now.toISOString(), ...extra }),
-        api('workflow_health', { date_from: priorFrom, date_to: thisFrom, ...extra }),
-    ])
+    return [
+        { date_from: thisFrom, date_to: now.toISOString() },
+        { date_from: priorFrom, date_to: thisFrom },
+    ]
 }
 
-// CI speed WoW — the headline. Per-workflow p50/p95 on BRANCH, this 7d vs prior 7d,
-// ranked by percentage change so a fast workflow that doubled isn't hidden behind a
+// Merged-PR count for an overview window: the cost_series buckets are zero-filled and
+// bucket-local (merges counted by merged_at), so their sum is the window's exact count.
+// The series is empty until the github_workflow_jobs source syncs — null then.
+function sumMerges(overview) {
+    if (!overview.cost_series || overview.cost_series.length === 0) {
+        return null
+    }
+    return overview.cost_series.reduce((total, bucket) => total + bucket.merges, 0)
+}
+
+// Throughput & CI health WoW — repo_overview's server-side aggregates for this 7d vs
+// the prior 7d (two window-scoped calls; each window's own figures, not the endpoint's
+// baked _prev twins, so the merged-count sum and the other lines share windows exactly).
+// The endpoint aggregates across the whole connected source — for a single-repo source
+// that is the repo. Lines degrade independently: merged counts and the cost lines are
+// null until the github_workflow_jobs source syncs; medians and rates never need it.
+async function headlineSection(now) {
+    const [thisWin, priorWin] = weekWindows(now)
+    const [thisWeek, priorWeek] = await Promise.all([api('repo_overview', thisWin), api('repo_overview', priorWin)])
+
+    const lines = ['*Throughput & CI health — all branches (vs prior week)*']
+    const thisMerges = sumMerges(thisWeek)
+    const priorMerges = sumMerges(priorWeek)
+    if (thisMerges != null && priorMerges != null) {
+        // Bots included — matches the endpoint's merge population (and CI cost's denominator).
+        lines.push(
+            `• Merged PRs (incl. bots): ${priorMerges.toLocaleString('en-US')}→${thisMerges.toLocaleString(
+                'en-US'
+            )}${fmtPct(pctChange(thisMerges, priorMerges))}`
+        )
+    }
+    if (thisWeek.median_open_to_merge_seconds != null && priorWeek.median_open_to_merge_seconds != null) {
+        // Coarse by design (draft + ready-for-review fused); bots and drafts excluded upstream.
+        lines.push(
+            `• Median open→merge (bots/drafts excluded): ${fmtLongDuration(
+                priorWeek.median_open_to_merge_seconds
+            )}→${fmtLongDuration(thisWeek.median_open_to_merge_seconds)}${fmtPct(
+                pctChange(thisWeek.median_open_to_merge_seconds, priorWeek.median_open_to_merge_seconds)
+            )}`
+        )
+    }
+    if (thisWeek.success_rate != null && priorWeek.success_rate != null) {
+        lines.push(
+            `• CI success rate: ${fmtRate(priorWeek.success_rate)}→${fmtRate(thisWeek.success_rate)}${fmtPpDelta(
+                thisWeek.success_rate,
+                priorWeek.success_rate
+            )}`
+        )
+    }
+    lines.push(
+        `• Re-run cycles: ${priorWeek.rerun_cycles.toLocaleString('en-US')}→${thisWeek.rerun_cycles.toLocaleString(
+            'en-US'
+        )}${fmtPct(pctChange(thisWeek.rerun_cycles, priorWeek.rerun_cycles))}`
+    )
+    if (thisWeek.billable_minutes != null && priorWeek.billable_minutes != null) {
+        lines.push(
+            `• Billable minutes: ${fmtMinutes(priorWeek.billable_minutes)}→${fmtMinutes(
+                thisWeek.billable_minutes
+            )}${fmtPct(pctChange(thisWeek.billable_minutes, priorWeek.billable_minutes))}`
+        )
+    }
+    if (thisWeek.estimated_cost_usd != null && priorWeek.estimated_cost_usd != null) {
+        lines.push(
+            `• Est. Depot spend: ${fmtUsd(priorWeek.estimated_cost_usd)}→${fmtUsd(thisWeek.estimated_cost_usd)}${fmtPct(
+                pctChange(thisWeek.estimated_cost_usd, priorWeek.estimated_cost_usd)
+            )}`
+        )
+    }
+    return lines.join('\n')
+}
+
+// CI speed WoW — per-workflow p50/p95 on BRANCH, this 7d vs prior 7d, ranked by
+// percentage change so a fast workflow that doubled isn't hidden behind a
 // large-but-flat slow one.
 async function ciSpeedSection(now) {
-    const [thisWeek, priorWeek] = await workflowHealthWeeks(now, { branch: BRANCH })
+    const [thisWin, priorWin] = weekWindows(now)
+    const [thisWeek, priorWeek] = await Promise.all([
+        api('workflow_health', { ...thisWin, branch: BRANCH }),
+        api('workflow_health', { ...priorWin, branch: BRANCH }),
+    ])
     const priorByKey = new Map(priorWeek.map((w) => [workflowKey(w), w]))
 
     const compared = []
@@ -224,42 +322,28 @@ async function ciSpeedSection(now) {
     return lines.join('\n')
 }
 
-// CI cost WoW — total billable (self-hosted) minutes + estimated Depot $ across ALL
-// branches, this 7d vs prior. workflow_health carries per-workflow billable_minutes /
-// estimated_cost_usd (null until the github_workflow_jobs schema syncs). Upstream keys
-// that cost by workflow_name alone (repo-blind), so two rows sharing a name carry the same
-// value — sum one per name, not per row, or a multi-repo source double-counts. Bounded to
-// the window's top-100 workflows by run volume (workflow_health's cap); cancelled runs
-// count, since they still consumed compute.
-async function ciCostSection(now) {
-    const [thisWeek, priorWeek] = await workflowHealthWeeks(now)
-    // Cost is null on every workflow until the job-level source syncs. If nothing reports
-    // minutes this week, cost isn't available yet — omit the line rather than post zeros.
-    if (!thisWeek.some((w) => w.billable_minutes != null)) {
-        return null
+// Master failures — the week's default-branch failures grouped error-tracking style by
+// (workflow, de-sharded failing job), top offenders by failing-run count. failed_job
+// is '' until the job-level source syncs (groups degrade to workflow level). The
+// underlying query caps at 500 failed runs per window, so on a terrible week the total
+// is a floor, not a census.
+async function masterFailuresSection(now) {
+    const [thisWin] = weekWindows(now)
+    const groups = await api('master_failures', { ...thisWin, branch: BRANCH })
+    const header = `*\`${BRANCH}\` failures (last 7d)*`
+    if (groups.length === 0) {
+        return `${header}\n_None._`
     }
-    // Sum one value per workflow_name (cost is repo-blind upstream — see above).
-    const sumByWorkflow = (items, field) => {
-        const seen = new Set()
-        let total = 0
-        for (const w of items) {
-            if (seen.has(w.workflow_name)) {
-                continue
-            }
-            seen.add(w.workflow_name)
-            total += w[field] ?? 0
-        }
-        return total
+    const total = groups.reduce((n, g) => n + g.run_count, 0)
+    const multiRepo = new Set(groups.map((g) => `${g.repo.owner}/${g.repo.name}`)).size > 1
+    const top = [...groups].sort((a, b) => b.run_count - a.run_count).slice(0, TOP_N)
+    const lines = [header, `${total} failing runs in ${groups.length} groups. Top:`]
+    for (const g of top) {
+        const repoPrefix = multiRepo ? `${g.repo.owner}/${g.repo.name} ` : ''
+        const signature = g.failed_job ? `${g.workflow_name} / ${g.failed_job}` : g.workflow_name
+        lines.push(`• \`${slackEscape(repoPrefix + signature)}\` — ${g.run_count} runs`)
     }
-    const thisMin = sumByWorkflow(thisWeek, 'billable_minutes')
-    const priorMin = sumByWorkflow(priorWeek, 'billable_minutes')
-    const thisUsd = sumByWorkflow(thisWeek, 'estimated_cost_usd')
-    const priorUsd = sumByWorkflow(priorWeek, 'estimated_cost_usd')
-    return [
-        '*CI cost — all branches (vs prior week)*',
-        `• Billable minutes: ${fmtMinutes(priorMin)}→${fmtMinutes(thisMin)}${fmtPct(pctChange(thisMin, priorMin))}`,
-        `• Est. Depot spend: ${fmtUsd(priorUsd)}→${fmtUsd(thisUsd)}${fmtPct(pctChange(thisUsd, priorUsd))}`,
-    ].join('\n')
+    return lines.join('\n')
 }
 
 // Quarantine debt — flaky tests parked past (or near) their expiry. file.entries spans
@@ -295,8 +379,9 @@ async function buildDigest(now) {
     // Run each section independently — one failing endpoint shouldn't sink the digest. Named so a
     // failure block can say which section broke, not just the raw error.
     const sections = [
+        { name: 'Throughput & CI health', run: () => headlineSection(now) },
         { name: 'CI speed', run: () => ciSpeedSection(now) },
-        { name: 'CI cost', run: () => ciCostSection(now) },
+        { name: 'Master failures', run: () => masterFailuresSection(now) },
         { name: 'Quarantine', run: quarantineSection },
     ]
     const results = await Promise.allSettled(sections.map((s) => s.run()))
