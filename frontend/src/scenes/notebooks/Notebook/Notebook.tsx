@@ -119,7 +119,7 @@ export function Notebook({
     const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ shortId, content, comments, setLocalContent })
     }
 
     return (

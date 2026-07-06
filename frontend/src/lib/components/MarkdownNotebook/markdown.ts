@@ -1532,11 +1532,7 @@ export function escapeMarkdownLineStart(line: string): string {
 }
 
 function getCodeBlockFence(text: string): string {
-    let longestRun = 0
-    for (const line of text.split('\n')) {
-        const run = line.trim().match(/^`+/)?.[0].length ?? 0
-        longestRun = Math.max(longestRun, run)
-    }
+    const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length))
     return '`'.repeat(Math.max(3, longestRun + 1))
 }
 

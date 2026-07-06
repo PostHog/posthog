@@ -2,14 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { HedgehogGreek } from '@posthog/brand/hoggies'
+import { IconLetter } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
-import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
@@ -113,7 +114,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -125,6 +126,16 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' && props.id ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(props.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -241,7 +252,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -253,6 +264,16 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(workflow.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -303,7 +324,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     if (!jobs.length) {
         return (
             <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                <ListHog width="100" height="100" className="mb-4" />
+                <HedgehogGreek width="100" height="100" className="mb-4" />
                 <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                 <p className="text-sm text-balance text-tertiary">
                     Once a batch workflow job is triggered, metrics will appear here.

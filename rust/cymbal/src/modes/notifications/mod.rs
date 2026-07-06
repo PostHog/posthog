@@ -1,36 +1,42 @@
-//! Notifications mode: consumes the `error-tracking-ingestion-notifications`
-//! Kafka topic and logs each message. This is the initial read-and-display
-//! stage; downstream handling (routing, delivery) is layered on later. It
-//! starts only a Kafka consumer plus the metrics/health server — no Postgres,
-//! Redis, symbol resolution, or HTTP `/process` pipeline.
+//! Notifications mode: consumes the `error_tracking_ingestion_notifications`
+//! Kafka topic and fans ingestion notifications out to downstream side effects.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
-use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
+use common_kafka::kafka_consumer::SingleTopicConsumer;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::core::{shutdown::wait_for_shutdown, types::notification::IngestionNotification};
+use crate::core::shutdown::wait_for_shutdown;
+use crate::modes::notifications::consumer_loop::consume_loop;
+use crate::modes::notifications::context::NotificationsContext;
 
+pub mod analytics;
 pub mod config;
+mod consumer_loop;
+mod context;
+mod handler;
+mod issue_handler;
+pub mod side_effects;
+pub mod signals;
+pub mod stacktrace;
+pub mod types;
 
 pub use config::NotificationsConfig;
-
-const NOTIFICATIONS_RECEIVED_TOTAL: &str = "cymbal_notifications_received_total";
-const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
-const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
 
 /// Boot the notifications consumer plus its metrics/health server and run until
 /// shutdown.
 pub async fn run(config: NotificationsConfig) {
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())
         .expect("failed to create notifications Kafka consumer");
+    let context = NotificationsContext::from_config(&config)
+        .await
+        .expect("failed to create notifications context");
 
     info!(
         topic = %config.consumer.kafka_consumer_topic,
@@ -44,67 +50,13 @@ pub async fn run(config: NotificationsConfig) {
     let metrics_handle =
         spawn_metrics_server(config.metrics_port, shutdown_rx.clone(), draining.clone());
 
-    consume_loop(consumer, shutdown_rx).await;
+    consume_loop(consumer, context, shutdown_rx).await;
 
     let _ignored = shutdown_tx.send(true);
     if let Err(err) = metrics_handle.await {
         warn!(error = %err, "metrics server task failed during shutdown");
     }
     shutdown_handle.abort();
-}
-
-/// Receive messages until shutdown, logging each one. Offsets for successfully
-/// received messages are stored and auto-committed by the consumer; serde and
-/// empty failures are auto-stored as poison pills inside `json_recv`.
-async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Receiver<bool>) {
-    loop {
-        tokio::select! {
-            biased;
-            changed = shutdown_rx.changed() => {
-                if changed.is_err() || *shutdown_rx.borrow() {
-                    info!("notifications consumer shutting down");
-                    break;
-                }
-            }
-            result = consumer.json_recv::<IngestionNotification>() => {
-                match result {
-                    Ok((notification, offset)) => {
-                        log_notification_summary(&notification);
-                        metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
-                        if let Err(e) = offset.store() {
-                            warn!(error = %e, "failed to store notification offset");
-                        }
-                    }
-                    Err(RecvErr::Serde(e)) => {
-                        warn!(error = %e, "notification serde error (poison pill skipped)");
-                        metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "serde").increment(1);
-                    }
-                    Err(RecvErr::Empty) => {
-                        metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "empty").increment(1);
-                    }
-                    Err(RecvErr::Kafka(e)) => {
-                        error!(error = %e, "notifications kafka error");
-                        metrics::counter!(NOTIFICATIONS_KAFKA_ERRORS_TOTAL).increment(1);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn log_notification_summary(notification: &IngestionNotification) {
-    match notification {
-        IngestionNotification::IssueCreated(issue_created) => {
-            info!(
-                notification_type = "issue_created",
-                team_id = issue_created.team_id,
-                issue_id = %issue_created.issue_id,
-                event_uuid = %issue_created.event_uuid,
-                "received error-tracking ingestion notification"
-            );
-        }
-    }
 }
 
 fn spawn_metrics_server(

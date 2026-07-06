@@ -281,6 +281,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             raise serializers.ValidationError(str(err))
 
 
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
+
+
 class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
@@ -527,6 +536,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -846,7 +864,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content)
+        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -1193,7 +1211,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if SERVER_GATEWAY_INTERFACE == "ASGI"
             else async_to_sync(
                 lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-            )
+            ),
+            endpoint="notebook_collab",
         )
 
     @action(methods=["GET"], detail=False)

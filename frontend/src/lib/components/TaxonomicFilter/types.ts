@@ -304,6 +304,7 @@ export enum TaxonomicFilterGroupType {
     EventMetadata = 'event_metadata',
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
+    PersonMetadata = 'person_metadata',
     PageviewUrls = 'pageview_urls',
     PageviewEvents = 'pageview_events',
     Screens = 'screens',

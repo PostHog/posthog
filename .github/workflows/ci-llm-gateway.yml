@@ -101,17 +101,21 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
-                    echo "LLM Gateway tests failed."
+                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                    echo "LLM Gateway tests did not succeed (result: ${{ needs.llm-gateway.result }})."
                     exit 1
                   fi
 

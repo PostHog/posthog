@@ -14,6 +14,7 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -21,6 +22,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
@@ -185,6 +187,9 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # The writing-style section is wired into the tail, carrying the
+        # session-replay-vs-recording terminology rule scouts must follow.
+        assert "session recordings" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "signals-scout-emit-report" not in prompt
@@ -217,15 +222,24 @@ class TestPromptBuilder(BaseTest):
         assert "inbox-reports-list" in prompt
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt
-        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login) so the prompt
-        # steers the scout toward that route rather than guessing a handle.
+        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login), and when the
+        # owner isn't already in the evidence the prompt points the scout at the in-run
+        # `signals-scout-members-list` tool — so it must name both rather than letting it guess a
+        # handle or reach for the org-scoped resolver that's stripped from a scout run.
         assert "user_uuid" in prompt
+        assert "signals-scout-members-list" in prompt
         # The report channel teaches that the `report:` scratchpad entry is a pointer
         # into the inbox, not a copy of the report — the inbox stays the source of
         # truth, so the scout retrieves the live report before editing. Dropping this
         # discipline re-opens the duplicate / stale-edit failure mode.
         assert "scratchpad entry is a pointer" in prompt
         assert "source of truth" in prompt
+        # The report-channel prompt must carry both dedup nuances: search `ordering=-updated_at`
+        # (else the most recent duplicate sorts below older rows) and don't filter by product name
+        # (a scout's own report-channel signals persist under `source_product=signals_scout`).
+        # Dropping either silently re-opens the duplicate-report failure mode for every report scout.
+        assert "ordering=-updated_at" in prompt
+        assert "source_product=signals_scout" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "signals-scout-emit-signal" not in prompt
@@ -234,6 +248,78 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         assert "Report operational friction" in prompt
         assert "Output format" in prompt
+
+    @parameterized.expand(
+        [
+            # (label, skill_name, metadata, allowed_tools, expect_section). A pristine canonical
+            # scout (harness-seeded row on an on-disk fleet name) must never see the
+            # self-improvement section — applying an `improve:` suggestion would mark its row
+            # diverged and cut it off from upstream sync. Custom scouts get it on both channels,
+            # and so does a *diverged* seeded row (content hash no longer matching the stamped
+            # `canonical_hash`): the team already owns that body, sync leaves it alone.
+            ("custom_signal_scout", "signals-scout-errors", {}, [], True),
+            ("custom_report_scout", "signals-scout-errors", {}, ["emit_report", "edit_report"], True),
+            # No stored canonical_hash (pre-hash-tracking legacy row): unprovable, stays canonical.
+            ("canonical_scout_no_hash", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, [], False),
+            (
+                "diverged_canonical_scout",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "0" * 64},
+                [],
+                True,
+            ),
+        ]
+    )
+    def test_self_improvement_section_gated_on_custom_origin(
+        self,
+        _name: str,
+        skill_name: str,
+        metadata: dict,
+        allowed_tools: list[str],
+        expect_section: bool,
+    ) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=skill_name,
+            description="d",
+            body="b",
+            allowed_tools=allowed_tools,
+            metadata=metadata,
+        )
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, skill_name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert ("Suggest improvements to your own skill" in prompt) is expect_section
+        # The `improve:` key contract is what the meta-skills document — it must ride with the
+        # section, and it must be skill-namespaced (scratchpad keys are unique per (team, key),
+        # so a domain-only key would let two scouts clobber each other's suggestions).
+        assert ("improve:<your-skill-name>:<topic>" in prompt) is expect_section
+        # The upstream friction channel is origin-independent: canonical defects still route there.
+        assert "agent-feedback" in prompt
+
+    def test_pristine_seeded_row_stays_canonical(self) -> None:
+        # A seeded row whose content still matches its stamped canonical_hash is the one case
+        # that must NOT get the section — a regression that ignores the hash comparison (always
+        # custom when a hash is present) would nudge every unedited canonical scout to diverge.
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-general"),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "Suggest improvements to your own skill" not in prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)
@@ -254,6 +340,11 @@ class TestPromptBuilder(BaseTest):
         assert "signals-scout-edit-report" not in prompt
         assert "Authoring reports: search the inbox first" in prompt
         assert "Suggested reviewers route the report" in prompt
+        # The dedup nuances reach the emit-only variant too — not just the both-tools prompt.
+        assert "ordering=-updated_at" in prompt
+        # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
+        # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
+        assert "relapse of a closed report" in prompt
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
@@ -267,6 +358,12 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         assert "suggested_reviewers" in prompt
+        # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
+        # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
+        assert "signals-scout-members-list" in prompt
+        # An edit-only scout searches the inbox to find the report to update, so it needs the same
+        # dedup nuance — else the default ordering hides the most recently updated match.
+        assert "ordering=-updated_at" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

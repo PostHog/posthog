@@ -536,11 +536,11 @@ def forward_posthog_code_followup_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
+    from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade import api as tasks_facade
 
-    if _parse_rules_command(event_text):
+    if parse_rules_command(event_text):
         return False
 
     try:
@@ -807,9 +807,7 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
-    snapshot_ext_id = previous_state.get("snapshot_external_id")
-    if snapshot_ext_id:
-        extra_state["snapshot_external_id"] = snapshot_ext_id
+    extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")

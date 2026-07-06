@@ -315,7 +315,7 @@ class TestGetV2ScheduledDagIds:
         action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow=workflow)
         return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
 
-    def test_lists_client_side_without_workflowtype_query(self):
+    def test_full_sweep_scopes_by_schedule_type_server_side(self):
         captured: dict = {}
         listings = [
             self._listing("dag-on-v2", "data-modeling-execute-dag"),
@@ -323,7 +323,6 @@ class TestGetV2ScheduledDagIds:
         ]
 
         async def fake_list_schedules(*args, **kwargs):
-            captured["args"] = args
             captured["kwargs"] = kwargs
 
             async def gen():
@@ -340,10 +339,9 @@ class TestGetV2ScheduledDagIds:
         ):
             result = get_v2_scheduled_dag_ids()
 
-        # The schedule visibility store rejects filtering on WorkflowType, so we must not pass a
-        # server-side query and must filter the listings client-side instead.
-        assert captured["args"] == ()
-        assert "query" not in captured["kwargs"]
+        # WorkflowType isn't queryable on schedules, so the full sweep scopes server-side on the
+        # PostHogScheduleType tag instead of paginating the whole namespace.
+        assert captured["kwargs"]["query"] == 'PostHogScheduleType = "data-modeling-execute-dag"'
         assert result == {"dag-on-v2"}
 
     def test_scopes_listing_by_posthog_dag_id_when_candidates_given(self):

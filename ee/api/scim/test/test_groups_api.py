@@ -35,8 +35,8 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         # Generate SCIM token
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}

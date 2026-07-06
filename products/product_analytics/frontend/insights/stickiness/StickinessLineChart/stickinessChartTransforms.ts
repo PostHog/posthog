@@ -6,6 +6,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 
 import { ChartDisplayType } from '~/types'
 
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
 import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
 
@@ -90,9 +91,7 @@ export function stickinessPercentFormatter(value: number): string {
     return `${value.toFixed(1)}%`
 }
 
-/** Stickiness adapters pin their tooltip to the top with pinnable rows. Shared so the
- *  line and bar ports stay consistent. */
-export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
+export const STICKINESS_TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
 
 /** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
  *  Render "Stickiness on {interval} {day}" so InsightTooltip doesn't try to

@@ -1,5 +1,6 @@
 import re
 import json
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -46,6 +47,16 @@ NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Mapping[str, str] = {
     "ph-support-tickets": "SupportTickets",
 }
 
+RICH_CONTENT_NODE_TYPE_ALIASES: Mapping[str, str] = {
+    "bullet_list": "bulletList",
+    "ordered_list": "orderedList",
+    "list_item": "listItem",
+    "code_block": "codeBlock",
+    "table_row": "tableRow",
+    "table_cell": "tableCell",
+    "table_header": "tableHeader",
+}
+
 LIST_NODE_TYPES = {"bulletList", "orderedList", "taskList"}
 LIST_ITEM_NODE_TYPES = {"listItem", "taskItem"}
 _SERIALIZATION_OMIT = object()
@@ -70,6 +81,13 @@ def get_markdown_notebook_markdown(content: Any) -> str:
         return ""
     markdown = attrs.get("markdown")
     return markdown if isinstance(markdown, str) else ""
+
+
+def notebook_content_has_comment_marks(content: Any) -> bool:
+    normalized_content = _normalize_notebook_content_for_markdown_conversion(content)
+    if isinstance(normalized_content, str):
+        return False
+    return any(_collect_comment_mark_ids(node) for node in _content_list(normalized_content))
 
 
 def build_markdown_notebook_content(markdown: str, node_id: str = MARKDOWN_NOTEBOOK_NODE_ID) -> JSONContent:
@@ -179,6 +197,13 @@ def _content_list(content: JSONContent | str | None) -> list[JSONContent]:
     return [node for node in nodes if isinstance(node, dict)] if isinstance(nodes, list) else []
 
 
+def _node_type(node: JSONContent) -> str | None:
+    node_type = node.get("type")
+    if not isinstance(node_type, str):
+        return None
+    return RICH_CONTENT_NODE_TYPE_ALIASES.get(node_type, node_type)
+
+
 def _collect_comment_mark_ids(node: JSONContent) -> list[str]:
     mark_ids: list[str] = []
 
@@ -203,7 +228,7 @@ def _serialize_rich_content_node(
     options: NotebookMarkdownConversionOptions | None = None,
 ) -> str:
     options = options or NotebookMarkdownConversionOptions()
-    node_type = node.get("type")
+    node_type = _node_type(node)
 
     if node_type == "text":
         return escape_markdown_block_lines(_serialize_inline_node(node, options))
@@ -234,7 +259,7 @@ def _serialize_rich_content_node(
         attrs = node.get("attrs")
         language = attrs.get("language") if isinstance(attrs, dict) and isinstance(attrs.get("language"), str) else ""
         text = "".join(
-            "\n" if child.get("type") == "hardBreak" else str(child.get("text") or "") for child in _content_list(node)
+            "\n" if _node_type(child) == "hardBreak" else str(child.get("text") or "") for child in _content_list(node)
         )
         return _serialize_code_node(text, language or None)
 
@@ -253,10 +278,18 @@ def _serialize_rich_content_node(
     if node_type == "query":
         return _serialize_legacy_query_node(node)
 
+    if node_type == "ph-link":
+        return _serialize_legacy_link_node(node, options)
+
+    if node_type == "callout":
+        return _serialize_callout_node(node, options)
+
     if isinstance(node_type, str) and node_type in NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG:
         return _serialize_component_node(
             NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node_type],
-            _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None),
+            _with_default_hidden_filters(
+                _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None)
+            ),
         )
 
     child_markdown = "\n\n".join(
@@ -283,7 +316,10 @@ def _serialize_legacy_insight_node(node: JSONContent) -> str:
     insight_short_id = attrs.get("short_id") if isinstance(attrs.get("short_id"), str) else attrs.get("id")
     if not isinstance(insight_short_id, str) or not insight_short_id:
         return _serialize_unknown_rich_content_node(node)
-    return _serialize_component_node("Query", {"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}})
+    return _serialize_component_node(
+        "Query",
+        _with_default_hidden_filters({"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}}),
+    )
 
 
 def _serialize_legacy_dashboard_node(node: JSONContent) -> str:
@@ -299,7 +335,42 @@ def _serialize_legacy_query_node(node: JSONContent) -> str:
     query = props.get("query")
     if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
         props["query"] = {"kind": "DataVisualizationNode", "source": query}
-    return _serialize_component_node("Query", props)
+    return _serialize_component_node("Query", _with_default_hidden_filters(props))
+
+
+def _serialize_legacy_link_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
+    attrs = node.get("attrs")
+    href = attrs.get("href") if isinstance(attrs, dict) else None
+    sanitized_href = sanitize_notebook_link_href(href) if isinstance(href, str) else None
+    label = _serialize_inline_content(_content_list(node), options).strip()
+
+    if sanitized_href:
+        link_label = label or escape_inline_markdown_text(sanitized_href)
+        return f"[{link_label}]({sanitized_href})"
+
+    if label:
+        return label
+
+    if isinstance(href, str) and href.strip():
+        return escape_markdown_block_lines(escape_inline_markdown_text(href.strip()))
+
+    return _serialize_unknown_rich_content_node(node)
+
+
+def _serialize_callout_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
+    attrs = node.get("attrs")
+    raw_emoji = attrs.get("emoji") if isinstance(attrs, dict) else None
+    emoji = raw_emoji.strip() if isinstance(raw_emoji, str) else ""
+    body = "\n\n".join(
+        block
+        for block in (_serialize_rich_content_node(child, 0, options) for child in _content_list(node))
+        if block.strip()
+    ).strip()
+    if emoji:
+        body = f"{escape_inline_markdown_text(emoji)} {body}".strip()
+    if not body:
+        return _serialize_unknown_rich_content_node(node)
+    return "\n".join(f"> {line}" for line in body.split("\n"))
 
 
 def _serialize_unknown_rich_content_node(node: JSONContent) -> str:
@@ -320,7 +391,7 @@ def _serialize_inline_content(
 
 def _serialize_inline_node(node: JSONContent, options: NotebookMarkdownConversionOptions | None = None) -> str:
     options = options or NotebookMarkdownConversionOptions()
-    node_type = node.get("type")
+    node_type = _node_type(node)
 
     if node_type == "text":
         marks = _mark_list(node)
@@ -373,9 +444,9 @@ def _apply_formatting_marks(text: str, marks: list[JSONContent]) -> str:
     marked_text = text
     for mark in marks:
         mark_type = mark.get("type")
-        if mark_type == "bold":
+        if mark_type in ("bold", "strong"):
             marked_text = f"**{marked_text}**"
-        elif mark_type == "italic":
+        elif mark_type in ("italic", "em"):
             marked_text = f"*{marked_text}*"
         elif mark_type == "underline":
             marked_text = f"<u>{marked_text}</u>"
@@ -407,7 +478,7 @@ def _serialize_list(
             blocks.append("\n".join(pending_list_lines))
             pending_list_lines = []
 
-    items = [child for child in _content_list(node) if child.get("type") in LIST_ITEM_NODE_TYPES]
+    items = [child for child in _content_list(node) if _node_type(child) in LIST_ITEM_NODE_TYPES]
     for index, item in enumerate(items):
         list_lines, trailing_blocks = _serialize_list_item(item, ordered, depth, index, options)
         pending_list_lines.extend(list_lines)
@@ -428,15 +499,14 @@ def _serialize_list_item(
 ) -> tuple[list[str], list[str]]:
     marker = f"{index + 1}." if ordered else "-"
     children = _content_list(item)
-    first_paragraph = next((child for child in children if child.get("type") == "paragraph"), None)
-    nested_lists = [child for child in children if child.get("type") in LIST_NODE_TYPES]
+    item_type = _node_type(item)
+    first_paragraph = next((child for child in children if _node_type(child) == "paragraph"), None)
+    nested_lists = [child for child in children if _node_type(child) in LIST_NODE_TYPES]
     extra_blocks = [
-        child for child in children if child is not first_paragraph and child.get("type") not in LIST_NODE_TYPES
+        child for child in children if child is not first_paragraph and _node_type(child) not in LIST_NODE_TYPES
     ]
     checked = item.get("attrs", {}).get("checked") if isinstance(item.get("attrs"), dict) else False
-    checkbox = (
-        "[x] " if item.get("type") == "taskItem" and checked else "[ ] " if item.get("type") == "taskItem" else ""
-    )
+    checkbox = "[x] " if item_type == "taskItem" and checked else "[ ] " if item_type == "taskItem" else ""
     item_text = re.sub(
         r"\s*\n\s*", " ", _serialize_inline_content(_content_list(first_paragraph), options) if first_paragraph else ""
     )
@@ -455,13 +525,13 @@ def _serialize_list_item(
 
 def _serialize_table(node: JSONContent, options: NotebookMarkdownConversionOptions | None = None) -> str:
     options = options or NotebookMarkdownConversionOptions()
-    rows = [child for child in _content_list(node) if child.get("type") == "tableRow"]
+    rows = [child for child in _content_list(node) if _node_type(child) == "tableRow"]
     if not rows:
         return ""
 
     serialized_rows: list[list[str]] = []
     for row in rows:
-        cells = [cell for cell in _content_list(row) if cell.get("type") in ("tableCell", "tableHeader")]
+        cells = [cell for cell in _content_list(row) if _node_type(cell) in ("tableCell", "tableHeader")]
         serialized_cells: list[str] = []
         for cell in cells:
             cell_text = " ".join(_serialize_rich_content_node(child, 0, options) for child in _content_list(cell))
@@ -563,6 +633,12 @@ def _get_serializable_component_props(props: Mapping[str, NotebookPropValue]) ->
     return next_props
 
 
+def _with_default_hidden_filters(props: dict[str, NotebookPropValue]) -> dict[str, NotebookPropValue]:
+    if isinstance(props.get("hideFilters"), bool) or isinstance(props.get("edit"), bool):
+        return props
+    return {**props, "hideFilters": True}
+
+
 def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) -> list[tuple[str, NotebookPropValue]]:
     entries = list(props.items())
     ordered_keys = ["hideFilters", "hideResults"]
@@ -574,8 +650,22 @@ def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) 
 
 def _serialize_prop_value(value: NotebookPropValue) -> str:
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return "{" + json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "}"
+        return _json_stringify(value)
+    return "{" + _json_stringify(value) + "}"
+
+
+def _json_stringify(value: NotebookPropValue) -> str:
+    return json.dumps(_normalize_json_numbers(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def _normalize_json_numbers(value: NotebookPropValue) -> NotebookPropValue:
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_normalize_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_json_numbers(item) for key, item in value.items()}
+    return value
 
 
 def _serialize_code_node(text: str, language: str | None = None) -> str:
@@ -597,7 +687,10 @@ def sanitize_notebook_link_href(href: str) -> str | None:
     trimmed_href = href.strip()
     if not re.match(r"^https?://\S+$", trimmed_href, flags=re.IGNORECASE):
         return None
-    parsed = urlparse(trimmed_href)
+    try:
+        parsed = urlparse(trimmed_href)
+    except ValueError:
+        return None
     return trimmed_href if parsed.scheme in ("http", "https") and parsed.netloc else None
 
 

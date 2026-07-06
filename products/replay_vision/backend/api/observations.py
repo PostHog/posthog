@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, cast, get_args
 
 from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
@@ -12,7 +12,7 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -21,23 +21,26 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
+from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
+from products.replay_vision.backend.api.trigger import (
+    WorkflowStartOutcome,
+    check_observation_quota,
+    start_apply_scanner_workflow,
+)
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import (
-    ReplayScanner,
-    ScannerModel,
-    ScannerProvider,
-    ScannerType,
-)
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -60,13 +63,11 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
     )
-    model = serializers.ChoiceField(
-        choices=ScannerModel.choices,
-        help_text="Concrete model that ran the observation.",
+    model = serializers.CharField(
+        help_text="Concrete model that ran the observation; historical rows may carry since-retired model ids.",
     )
-    provider = serializers.ChoiceField(
-        choices=ScannerProvider.choices,
-        help_text="Concrete provider that ran the observation.",
+    provider = serializers.CharField(
+        help_text="Concrete provider that ran the observation; historical rows may carry since-retired providers.",
     )
     emits_signals = serializers.BooleanField(
         help_text="Whether the observation was run with Signal emission enabled.",
@@ -96,16 +97,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
-    error_reason = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = serializers.CharField(read_only=True, allow_blank=True, help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
@@ -292,6 +284,17 @@ class ObservationStatsSerializer(serializers.Serializer):
     )
 
 
+class RetryResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/."""
+
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the re-run. The retried observation row is deleted; look up its "
+            "replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>."
+        ),
+    )
+
+
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
@@ -300,7 +303,8 @@ _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
 
 
-_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
+# Derived from the scanner output schema so the filter can never drift from what monitors emit.
+_MONITOR_VERDICTS = frozenset(get_args(MonitorVerdict))
 
 
 class _ObservationOrderByFilter(OrderByFilter):
@@ -309,6 +313,9 @@ class _ObservationOrderByFilter(OrderByFilter):
     _allowed_keys = frozenset(_ALL_ORDER_KEYS)
 
     def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
+        if key in ("started_at", "completed_at"):
+            # Null until the row starts/settles — keep in-flight rows out of the way regardless of direction.
+            return self._order_nulls_last(qs, key, descending)
         if key in OBSERVATION_ORDER_FIELDS:
             return self._order_plain(qs, key, descending)
         if key == "recording_subject_email":
@@ -382,7 +389,8 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
             "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
+            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
+            "last regardless of direction."
         ),
     )
 
@@ -433,7 +441,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 description=(
                     "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
                     "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending."
+                    "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
                 ),
             )
         ]
@@ -513,6 +521,40 @@ class ReplayObservationViewSet(
             recent_days = 14
         payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)
+
+    @extend_schema(request=None, responses={202: RetryResponseSerializer})
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    def retry(self, request: Request, **kwargs: Any) -> Response:
+        """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
+        if observation.status != ObservationStatus.FAILED:
+            raise ValidationError("Only failed observations can be retried.")
+        check_observation_quota(self.team.organization_id)
+        session_id = observation.session_id
+        # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
+        observation.delete()
+        workflow_id, outcome = start_apply_scanner_workflow(
+            scanner, session_id, triggered_by_user_id=cast(User, request.user).id
+        )
+        if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
+            # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
+            return Response(
+                {"detail": "The previous run is still finishing. Scan the recording again in a moment."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if outcome is WorkflowStartOutcome.FAILED:
+            # `detail` (not `error`) so ApiError carries the message into the frontend toast.
+            return Response(
+                {
+                    "detail": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
 
 
 @extend_schema_view(
@@ -600,4 +642,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        return sse_streaming_response(stream_observation_progress(observation))
+        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

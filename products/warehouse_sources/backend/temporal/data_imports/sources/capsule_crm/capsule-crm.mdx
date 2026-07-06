@@ -1,0 +1,55 @@
+---
+title: Linking Capsule CRM as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: CapsuleCRM
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import SourceParameters from '../_snippets/source-parameters.mdx'
+import SourceTables from '../_snippets/source-tables.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+Capsule CRM is a CRM for small and medium businesses covering contacts, the sales pipeline, and project management. This connector syncs your Capsule contacts, opportunities, projects, tasks, and supporting reference data into the PostHog data warehouse so you can join CRM records with your product and revenue data.
+
+## Prerequisites
+
+To connect Capsule CRM, you need a Capsule account and a **Personal Access Token**. The token inherits the permissions of the user that created it, so make sure that user can see the records you want to sync.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+You'll need a Capsule CRM Personal Access Token:
+
+1. Sign in to Capsule and open **My Preferences → API Authentication Tokens**.
+2. Generate a new token and copy it.
+3. Paste the token into the **Personal Access Token** field in PostHog.
+
+Capsule's API is rate limited to roughly 4,000 requests per hour per user, so very large initial syncs may take some time to complete.
+
+## Sync modes
+
+<SyncModes />
+
+Parties, opportunities, and projects support **incremental** syncs using Capsule's `since` change filter (tracked on `updatedAt`), so ongoing syncs only pull records that changed since the last run. The remaining tables (tasks, users, milestones, pipelines, categories, and lost reasons) are full refresh only, since Capsule does not expose a server-side change filter for them.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Invalid Personal Access Token** — if the connection fails to validate, regenerate the token in **My Preferences → API Authentication Tokens** and reconnect. A revoked or mistyped token returns a `401 Unauthorized`.
+- **A table fails to sync with a permission error** — the token can only read what its owning user can see. Make sure that user has access to the records (parties, opportunities, projects, tasks) you're trying to sync.
+
+<TroubleshootingLink />

@@ -1,8 +1,10 @@
+import { AwsS3SetupModal } from 'scenes/integrations/aws-s3/AwsS3SetupModal'
 import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
 import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLSetupModal'
+import { S3CompatibleSetupModal } from 'scenes/integrations/s3-compatible/S3CompatibleSetupModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
@@ -95,5 +97,27 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <AzureBlobSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'aws-s3',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new AWS S3 connection',
+        onClick: () => openModal('aws-s3'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 's3-compatible',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new S3-compatible storage connection',
+        onClick: () => openModal('s3-compatible'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <S3CompatibleSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })

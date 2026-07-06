@@ -520,6 +520,14 @@ export function MountedRealNotebookNodeComponent({
         isResizeable || attributes.height
             ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
             : undefined
+    // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
+    const nodeStyle: CSSProperties | undefined =
+        options.minHeight !== undefined
+            ? ({
+                  '--markdown-notebook-real-node-min-height':
+                      typeof options.minHeight === 'number' ? `${options.minHeight}px` : options.minHeight,
+              } as CSSProperties)
+            : undefined
 
     // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
     // table or visualization keeps its size after reloads.
@@ -575,7 +583,7 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node">
+                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />

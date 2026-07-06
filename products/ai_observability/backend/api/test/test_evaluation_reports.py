@@ -13,7 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
 
 class TestEvaluationReportApi(APIBaseTest):
@@ -63,6 +63,21 @@ class TestEvaluationReportApi(APIBaseTest):
             evaluation_config={},
             output_type="sentiment",
             output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _create_trace_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Trace Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            target=EvaluationTarget.TRACE,
+            target_config={"window_seconds": 60},
             enabled=True,
             created_by=self.user,
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
@@ -158,6 +173,38 @@ class TestEvaluationReportApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_create_rejects_trace_target_evaluation(self):
+        trace_evaluation = self._create_trace_evaluation()
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(trace_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_deliverable_excludes_trace_target_reports(self):
+        # A report directly attached to a trace eval (e.g. created before the eval switched targets,
+        # bypassing the serializer) must not enter the delivery pipeline.
+        gen_report = self._create_report()
+        trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
+
+        self.assertIn(gen_report.id, deliverable_ids)
+        self.assertNotIn(trace_report.id, deliverable_ids)
+
+    def test_generate_rejects_trace_target_evaluation(self):
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_excludes_sentiment_reports(self):
         sentiment_evaluation = self._create_sentiment_evaluation()

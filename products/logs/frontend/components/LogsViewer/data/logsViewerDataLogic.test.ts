@@ -145,6 +145,58 @@ describe('logsViewerDataLogic', () => {
         })
     })
 
+    describe('sparklineIncompleteBarIndices selector', () => {
+        // 60s buckets ending at 00:02:00; last bucket start = 00:02:00.
+        const buckets = [
+            { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+            { time: '2024-01-01T00:01:00Z', severity: 'info', count: 3 },
+            { time: '2024-01-01T00:02:00Z', severity: 'info', count: 2 },
+        ]
+        // Same buckets but the trailing three are empty.
+        const emptyTailBuckets = [
+            { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+            { time: '2024-01-01T00:01:00Z', severity: 'info', count: 0 },
+            { time: '2024-01-01T00:02:00Z', severity: 'info', count: 0 },
+            { time: '2024-01-01T00:03:00Z', severity: 'info', count: 0 },
+        ]
+
+        it.each([
+            ['checkpoint is null', buckets, null, []],
+            ['there are fewer than two buckets', buckets.slice(0, 1), '2024-01-01T00:00:30Z', []],
+            ['the checkpoint has caught up to the latest bar', buckets, '2024-01-01T00:01:50Z', []],
+            ['the checkpoint lags the latest bucket start by a quarter bar', buckets, '2024-01-01T00:01:30Z', [1, 2]],
+            ['more than two empty buckets lag — only the latest bar', emptyTailBuckets, '2024-01-01T00:01:00Z', [3]],
+            [
+                'more than two buckets lag but one has data — all of them',
+                [
+                    { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                    { time: '2024-01-01T00:01:00Z', severity: 'info', count: 0 },
+                    { time: '2024-01-01T00:02:00Z', severity: 'info', count: 1 },
+                    { time: '2024-01-01T00:03:00Z', severity: 'info', count: 0 },
+                ],
+                '2024-01-01T00:01:00Z',
+                [1, 2, 3],
+            ],
+        ])('returns the right indices when %s', async (_, sparklineInput, checkpoint, expected) => {
+            logic.actions.setSparkline(sparklineInput as any[])
+            logic.actions.setLiveLogsCheckpoint(checkpoint)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.sparklineIncompleteBarIndices).toEqual(expected)
+        })
+
+        it('clears the indices when a new query starts, until a fresh checkpoint lands', async () => {
+            logic.actions.setSparkline(buckets as any[])
+            logic.actions.setLiveLogsCheckpoint('2024-01-01T00:01:30Z')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.sparklineIncompleteBarIndices).toEqual([1, 2])
+
+            logic.actions.clearLogs()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.sparklineIncompleteBarIndices).toEqual([])
+        })
+    })
+
     describe('query failure event capture', () => {
         beforeEach(() => {
             jest.clearAllMocks()

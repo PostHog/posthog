@@ -6,7 +6,12 @@ from unittest.mock import patch
 from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 
-pytestmark = pytest.mark.async_migrations
+pytestmark = [
+    pytest.mark.async_migrations,
+    pytest.mark.skip(
+        reason="Async migrations are frozen for self-hosted backwards compat; only test_migrations_not_required still runs"
+    ),
+]
 
 MIGRATION_NAME = "0010_move_old_partitions"
 migration_module = importlib.import_module(f"posthog.async_migrations.migrations.{MIGRATION_NAME}")
