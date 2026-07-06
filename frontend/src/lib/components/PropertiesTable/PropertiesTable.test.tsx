@@ -219,14 +219,12 @@ describe('PropertiesTable inline editor', () => {
 
         // The expanded array table renders an "array" type tag in its header; the collapsed
         // JSON viewer does not — so its absence is a reliable proxy for "not expanded".
-        it('expands array property values into a table by default', () => {
-            renderWith(false)
-            expect(screen.getByText('array')).toBeInTheDocument()
-        })
-
-        it('collapses array property values when collapsible', () => {
-            renderWith(true)
-            expect(screen.queryByText('array')).not.toBeInTheDocument()
+        it.each([
+            { collapsible: false, expectArrayTag: true },
+            { collapsible: true, expectArrayTag: false },
+        ])('collapsible=$collapsible renders expanded array table: $expectArrayTag', ({ collapsible, expectArrayTag }) => {
+            renderWith(collapsible)
+            expect(!!screen.queryByText('array')).toBe(expectArrayTag)
         })
     })
 })
