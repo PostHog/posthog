@@ -104,6 +104,14 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
+# Schema introspection (`DESCRIBE TABLE s3()/deltaLake()`) runs inline in the create-table request and
+# forces a network round-trip to the object store to read parquet/delta metadata. Bound each DESCRIBE's
+# server-side execution and cap the retry count so a slow object-store read can't block the request past
+# the API gateway timeout (~120s) and surface to the user as a silent 504. Worst case with these values is
+# roughly chdb(15s) + 3 * 15s + backoff(3s) ≈ 63s, comfortably under the gateway limit.
+COLUMN_INTROSPECTION_MAX_EXECUTION_TIME_SECONDS = 15
+COLUMN_INTROSPECTION_ATTEMPTS = 3
+
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
     def queryable(self) -> "DataWarehouseTableQuerySet":
@@ -300,12 +308,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
+            # Bound the embedded read so a slow object-store round-trip can't hang the request unbounded.
+            chdb_settings = f"SET max_execution_time = {COLUMN_INTROSPECTION_MAX_EXECUTION_TIME_SECONDS}"
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                chdb_query = (
-                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
-                )
+                chdb_settings += f"; SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}"
+            chdb_query = f"{chdb_settings}; {chdb_query}"
             chdb_result = chdb.query(chdb_query, output_format="CSV")
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
@@ -325,11 +334,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
             # The cluster is a little broken right now, and so this can intermittently fail.
-            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
-            attempts = 5
+            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context.
+            # Keep the attempt count and per-query timeout low: this runs inline in the create-table
+            # request, so the total (attempts * timeout + backoff) must stay under the API gateway limit.
+            attempts = COLUMN_INTROSPECTION_ATTEMPTS
             for i in range(attempts):
                 try:
-                    get_columns_settings: dict[str, int] = {}
+                    get_columns_settings: dict[str, int] = {
+                        "max_execution_time": COLUMN_INTROSPECTION_MAX_EXECUTION_TIME_SECONDS,
+                    }
                     if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                         get_columns_settings["format_csv_allow_double_quotes"] = (
                             1 if self.csv_allow_double_quotes else 0

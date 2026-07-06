@@ -30,7 +30,12 @@ from products.data_warehouse.backend.direct_snowflake import (
 )
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import (
+    COLUMN_INTROSPECTION_ATTEMPTS,
+    COLUMN_INTROSPECTION_MAX_EXECUTION_TIME_SECONDS,
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseTable,
+)
 from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -458,6 +463,41 @@ class TestTable(BaseTest):
                     "valid": True,
                 }
             }
+
+    def test_get_columns_bounds_clickhouse_execution_time(self):
+        # Schema inference runs inline in the create-table request; an unbounded DESCRIBE against a
+        # slow object store is what blocked the request past the gateway timeout and 504'd. Guard that
+        # the ClickHouse DESCRIBE is sent with a bounded max_execution_time.
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Int64"]]
+            table.get_columns()
+
+        settings = sync_execute_results.call_args.kwargs["settings"]
+        assert settings["max_execution_time"] == COLUMN_INTROSPECTION_MAX_EXECUTION_TIME_SECONDS
+
+    def test_get_columns_caps_retries_on_persistent_failure(self):
+        # The retry/backoff loop must stay bounded so a persistently slow or flaky cluster can't keep the
+        # inline request alive past the gateway limit. Guard the attempt count.
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with (
+            patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results,
+            patch("products.warehouse_sources.backend.models.table.time.sleep") as sleep_mock,
+        ):
+            sync_execute_results.side_effect = Exception("cluster unavailable")
+            with pytest.raises(Exception):
+                table.get_columns(safe_expose_ch_error=False)
+
+        assert sync_execute_results.call_count == COLUMN_INTROSPECTION_ATTEMPTS
+        assert sleep_mock.call_count == COLUMN_INTROSPECTION_ATTEMPTS - 1
 
     @parameterized.expand(
         [
