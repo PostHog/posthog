@@ -2388,7 +2388,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         # A feature_flag-only PATCH must not clobber unrelated parameters.
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 30)
+        self.assertEqual((experiment.parameters or {})["minimum_detectable_effect"], 30)
 
     def test_feature_flag_object_takes_precedence_over_parameters(self):
         """When both inputs are sent, the explicit `feature_flag` object wins over the legacy
