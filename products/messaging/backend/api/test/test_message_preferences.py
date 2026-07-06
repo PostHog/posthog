@@ -254,13 +254,13 @@ class TestMessagePreferencesViews(BaseTest):
     @patch("posthog.views.capture_internal")
     @patch("posthog.views.validate_messaging_preferences_token")
     def test_no_unsubscribed_event_when_flag_off(
-        self, save_point, mock_validate_messaging_preferences_token, mock_capture_internal
+        self, code_path, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
-        if save_point == "one_click":
+        if code_path == "one_click":
             response = self.client.get(
                 reverse("message_preferences", kwargs={"token": self.token}),
                 {"one_click_unsubscribe": "1"},

@@ -511,13 +511,18 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
         team = Team.objects.get(id=team_id)
         if not team.workflows_config.capture_workflows_engagement_events:
             return
+    except Exception as e:
+        capture_exception(e)
+        return
 
-        for category_id in category_ids:
-            properties: dict[str, Any] = {
-                "$email": identifier,
-                "category": category_id,
-                "source": source,
-            }
+    # Each category is independently best-effort: one failed capture must not skip the rest
+    for category_id in category_ids:
+        properties: dict[str, Any] = {
+            "$email": identifier,
+            "category": category_id,
+            "source": source,
+        }
+        try:
             result = capture_internal(
                 token=team.api_token,
                 event_name="$workflows_email_unsubscribed",
@@ -532,8 +537,8 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
                     category=category_id,
                     error=result.error,
                 )
-    except Exception as e:
-        capture_exception(e)
+        except Exception as e:
+            capture_exception(e)
 
 
 @csrf_exempt
