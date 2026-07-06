@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -443,7 +444,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbdp001")
 
     def _post(self, body: dict, token: str | None = None):
-        kwargs = {"data": json.dumps(body), "content_type": "application/json"}
+        kwargs: dict[str, Any] = {"data": json.dumps(body), "content_type": "application/json"}
         if token is not None:
             kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
         return self.client.post(self.URL, **kwargs)
