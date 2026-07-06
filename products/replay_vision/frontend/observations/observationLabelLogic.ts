@@ -47,7 +47,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             {
                 setFeedbackDraft: (_, { feedback }) => feedback,
                 // Keep the working draft while rated so an autosave round-trip can't clobber characters
-                // typed while it was in flight; clear it only when the rating is removed.
+                // typed while it was in flight. Clear it only when the rating is removed.
                 labelUpdated: (state, { label }) => (label ? state : ''),
             },
         ],
@@ -57,7 +57,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         // Autosave feedback once the user pauses typing, so they don't have to remember to press a button.
         setFeedbackDraft: async ({ feedback }, breakpoint) => {
             const label = values.label
-            // Feedback only exists on a rated observation; it applies to thumbs-up and thumbs-down alike.
+            // Feedback only exists on a rated observation and applies to thumbs-up and thumbs-down alike.
             if (!label || (label.feedback ?? '') === feedback) {
                 return
             }

@@ -110,7 +110,7 @@ class TestObservationLabels(_VisionAPITestCase):
         for observation in (same_day_down, earlier, outside_window):
             is_correct = observation is outside_window
             self.client.post(self._label_url(observation), {"is_correct": is_correct}, format="json")
-        # Ratings all happened "now"; pin their updated_at (queryset update bypasses auto_now) for by_rating_day.
+        # Ratings all happened "now". Pin updated_at for by_rating_day, since queryset update bypasses auto_now.
         ReplayObservationLabel.objects.all().update(updated_at=now)
 
         labels = self.client.get(f"{self.observations_url(self.scanner.id)}stats/?recent_days=14").json()["labels"]
