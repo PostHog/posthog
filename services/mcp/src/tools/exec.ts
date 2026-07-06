@@ -41,7 +41,7 @@ export interface ExecInnerCallProperties {
      */
     input_tokens?: number
     output_tokens?: number
-    validated_input?: Record<string, unknown>
+    input?: Record<string, unknown>
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -438,7 +438,7 @@ export function createExecTool(
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
-                            validated_input: input,
+                            input,
                         })
                         throw err
                     }
@@ -474,7 +474,7 @@ export function createExecTool(
                             output_format: 'structured',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
-                            validated_input: input,
+                            input,
                         })
                         return payload
                     }
@@ -502,7 +502,7 @@ export function createExecTool(
                         output_format: useJson ? 'json' : 'text',
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
-                        validated_input: input,
+                        input,
                     })
                     return outputText
                 }
