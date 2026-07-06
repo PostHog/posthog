@@ -563,6 +563,12 @@ jobs:
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
+                  # When only (non-coupled) data-warehouse import sources changed, the Temporal
+                  # segment is the sole coverage (build_django_matrix trims Django to it). Those
+                  # source connectors are facade-isolated, so no other product's tests exercise
+                  # them — narrow the product matrix to warehouse_sources alone instead of the
+                  # full all-products fan-out. Guarded + fail-open in the `changes` job above.
+                  DATA_IMPORT_SOURCES_ONLY: ${{ github.event_name != 'pull_request' && 'false' || needs.changes.outputs.data_import_sources_only }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
