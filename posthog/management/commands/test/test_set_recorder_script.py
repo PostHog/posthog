@@ -7,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -115,9 +116,13 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
+        # Sampling is deterministic on team id, so the command must update exactly the teams
+        # that hash into the sample. Asserting a rough proportion is flaky: consecutive ids hash
+        # into a narrow band, so the count lands near 0 or near 100 rather than around 50.
+        expected_ids = {team.id for team in Team.objects.all() if sample_on_property(str(team.id), 0.5)}
+        updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
 
-        assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
+        assert updated_ids == expected_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual

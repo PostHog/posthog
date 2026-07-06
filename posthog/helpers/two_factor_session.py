@@ -431,7 +431,9 @@ class EmailMFAVerifier:
 
         return EmailMFACheckResult(should_send=True)
 
-    def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
+    def create_token_and_send_email_mfa_verification(
+        self, request: HttpRequest, user: User, next_url: str | None = None
+    ) -> bool:
         from posthog.tasks import email
 
         if not self.should_send_email_mfa_verification(user).should_send:
@@ -439,9 +441,11 @@ class EmailMFAVerifier:
 
         try:
             token = email_mfa_token_generator.make_token(user)
-            email.send_email_mfa_link(user.pk, token)
+            email.send_email_mfa_link(user.pk, token, next_url)
             request.session["email_mfa_pending_user_id"] = user.pk
             request.session["email_mfa_token_created_at"] = int(time.time())
+            # Stash so the resend endpoint can rebuild a link that resumes the same post-login destination.
+            request.session["email_mfa_next"] = next_url
             mfa_logger.info(
                 "Email MFA verification email sent",
                 user_id=user.pk,
