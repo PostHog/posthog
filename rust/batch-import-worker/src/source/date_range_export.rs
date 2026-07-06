@@ -466,6 +466,22 @@ impl DateRangeExportSource {
             key
         );
 
+        // A 200 with a zero-byte body is an export interval with no data (some
+        // export APIs return this instead of a 404). It is not a decodable gzip
+        // stream, so treat it as an empty part - mirroring the 404 branch above
+        // and s3_gzip's zero-byte handling - rather than handing the decoder an
+        // empty file it would reject as "unexpected end of file".
+        if total_bytes == 0 {
+            info!("No data available for key: {} (empty response body)", key);
+            if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
+                warn!(
+                    "Failed to remove empty raw file {}: {e}",
+                    raw_file_path.display()
+                );
+            }
+            return Ok(PreparedPart::empty());
+        }
+
         // Keep the `.raw` file and decompress on demand as the job reads forward.
         let reader = self.extractor.open_reader(raw_file_path.clone());
 
@@ -679,6 +695,103 @@ mod tests {
         .with_headers(HashMap::new())
         .build()
         .unwrap()
+    }
+
+    /// A source decoding real gzip (the production PlainGzip extractor), for tests
+    /// that exercise decode failures and empty bodies end to end.
+    fn create_gzip_source(base_url: String, staging_dir: PathBuf) -> DateRangeExportSource {
+        let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        DateRangeExportSource::builder(
+            base_url,
+            start,
+            end,
+            3600,
+            crate::extractor::ExtractorType::PlainGzip.create_extractor(),
+            staging_dir,
+        )
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .build()
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_corrupt_gzip_errors_instead_of_silently_truncating() {
+        // A gzip that decodes some blocks then fails mid-stream. get_chunk's retry
+        // loop must surface the decode error - not have a retried read observe the
+        // dead producer's closed channel as a clean EOF, record the partial decode
+        // length as the part's total size, and let the job commit a truncated part
+        // as complete (silent data loss).
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, "line\n".repeat(100_000).as_bytes()).unwrap();
+        let mut body = gz.finish().unwrap();
+        body.truncate(body.len() - 5);
+
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(200).body(body.clone());
+        });
+
+        let staging = TempDir::new().unwrap();
+        let source = create_gzip_source(server.url("/export"), staging.path().to_path_buf());
+        source.prepare_for_job().await.unwrap();
+        let key = source.keys().await.unwrap().remove(0);
+        source.prepare_key(&key).await.unwrap();
+
+        // Read forward exactly like the job's chunker until the source reports
+        // either an error (correct) or end-of-part (must not happen).
+        let mut offset = 0u64;
+        let outcome = loop {
+            match source.get_chunk(&key, offset, 64 * 1024).await {
+                Ok(chunk) if chunk.is_empty() => break Ok(()),
+                Ok(chunk) => offset += chunk.len() as u64,
+                Err(e) => break Err(e),
+            }
+        };
+
+        assert!(
+            outcome.is_err(),
+            "mid-stream decode failure must error the read, not end the part early"
+        );
+        assert_eq!(
+            source.size(&key).await.unwrap(),
+            None,
+            "a truncated decode must never be recorded as the part's total size"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_empty_200_body_is_an_empty_part_by_design() {
+        // A 200 with a zero-byte body (an export day with no events, without gzip
+        // framing) must become an empty part with its size known immediately after
+        // prepare - mirroring the 404 branch and s3_gzip's zero-byte handling - not
+        // a streaming part whose first read hits "unexpected end of file".
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(200).body(Vec::<u8>::new());
+        });
+
+        let staging = TempDir::new().unwrap();
+        let source = create_gzip_source(server.url("/export"), staging.path().to_path_buf());
+        source.prepare_for_job().await.unwrap();
+        let key = source.keys().await.unwrap().remove(0);
+        source.prepare_key(&key).await.unwrap();
+
+        assert_eq!(
+            source.size(&key).await.unwrap(),
+            Some(0),
+            "empty body must prepare as an empty part with a known size"
+        );
+        assert!(source.get_chunk(&key, 0, 1024).await.unwrap().is_empty());
+        assert_eq!(
+            count_raw_files(staging.path()),
+            0,
+            "the zero-byte .raw must not be kept"
+        );
     }
 
     #[tokio::test]

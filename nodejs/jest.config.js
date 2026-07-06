@@ -14,7 +14,11 @@ module.exports = {
     setupFilesAfterEnv: ['./jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
-    modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
+    // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.
+    modulePathIgnorePatterns: [
+        '<rootDir>/.tmp/',
+        '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
+    ],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {

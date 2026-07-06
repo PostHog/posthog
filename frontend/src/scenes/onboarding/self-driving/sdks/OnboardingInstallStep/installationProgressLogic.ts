@@ -4,7 +4,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import type { installationProgressLogicType } from './installationProgressLogicType'
-import { taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
+import { taskRunPrUrl, taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 
 // The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
 // own sub-progress on. Matches wizardProgressTrackerLogic's WORKFLOW_ID.
@@ -113,10 +113,7 @@ export function cloudProgress(
               })
             : null
 
-    // The agent opens the PR mid-run (while it keeps CI green), so the url arrives via the "pr" progress
-    // step before the run reaches a terminal output. Prefer the terminal output when present.
-    const prStepUrl = progressSteps.find((p) => p.step === 'pr')?.detail
-    const prUrl = taskRunState?.output?.pr_url ?? (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
+    const prUrl = taskRunPrUrl(taskRunState, progressSteps)
 
     return {
         phase,
