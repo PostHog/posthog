@@ -626,10 +626,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.instance is None or "threshold" in attrs or "detector_config" in attrs
         )
 
-        # Mirror the UI: a cadence finer than the insight's interval re-checks a frozen completed
-        # bucket, so default the ongoing-bucket check on when it's left unset. Keeps API/MCP-created
-        # alerts consistent with the editor. Only when the caller didn't set it explicitly.
-        # Applied before validate_alert_config so the validated config is the persisted config.
+        # Mirror the UI's default for cadences finer than the insight interval. Applied before
+        # validate_alert_config so the validated config is the persisted config.
         if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
             if should_default_check_ongoing_interval(
                 query=query,
@@ -697,7 +695,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        # Total alert count only checked on create.
         if self.context["request"].method == "POST":
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})

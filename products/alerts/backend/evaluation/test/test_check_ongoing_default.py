@@ -41,15 +41,12 @@ DECREASE = {"type": "relative_decrease"}
 class TestShouldDefaultCheckOngoingInterval:
     @parameterized.expand(
         [
-            # cadence finer than a day-grouped insight, valid trends gate → default on
             ("trends day + 15min", _trends_query(), TRENDS, ABSOLUTE, _threshold(), "every_15_minutes", True),
             ("trends day + hourly", _trends_query(), TRENDS, ABSOLUTE, _threshold(), "hourly", True),
             ("trends day + real_time increase", _trends_query(), TRENDS, INCREASE, _threshold(), "real_time", True),
-            # cadence not finer than the insight interval → leave default off
             ("trends day + daily", _trends_query(), TRENDS, ABSOLUTE, _threshold(), "daily", False),
             ("trends hour + hourly", _trends_query("hour"), TRENDS, ABSOLUTE, _threshold(), "hourly", False),
             ("trends hour + 15min", _trends_query("hour"), TRENDS, ABSOLUTE, _threshold(), "every_15_minutes", True),
-            # ongoing-check gates: needs absolute/increase AND an upper bound
             (
                 "trends no upper bound",
                 _trends_query(),
@@ -69,7 +66,6 @@ class TestShouldDefaultCheckOngoingInterval:
                 "hourly",
                 False,
             ),
-            # funnels: only time-series (trends) funnels, and only when finer
             ("trends funnel day + 15min", _funnels_query(), FUNNELS, ABSOLUTE, _threshold(), "every_15_minutes", True),
             (
                 "steps funnel day + 15min",

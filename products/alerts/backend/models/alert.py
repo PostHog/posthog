@@ -383,7 +383,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             return None
 
         allowed = feature.get("limit")
-        # If allowed is None then the org is allowed unlimited real-time alerts
         if allowed is None:
             return None
 

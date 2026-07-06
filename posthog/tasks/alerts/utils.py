@@ -46,9 +46,8 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
-# How often a real-time alert actually evaluates. Also encoded in the cadence duration maps
-# (products/alerts/backend/evaluation/validation.py and the frontend twin) and calibrated
-# against the real-time Temporal timeouts in posthog/temporal/alerts/retry_policy.py.
+# Also encoded in the cadence duration maps in products/alerts/backend/evaluation/validation.py
+# and its frontend twin, and calibrated against the timeouts in posthog/temporal/alerts/retry_policy.py.
 REAL_TIME_CADENCE_MINUTES = 2
 
 # Cheaper, more time-sensitive checks get workers first when the due batch is large.

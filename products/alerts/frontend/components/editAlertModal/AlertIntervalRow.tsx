@@ -82,9 +82,6 @@ export function AlertIntervalRow({
                                     guardAvailableFeature,
                                     onSelect: (selected) => {
                                         onChange(selected)
-                                        // A cadence finer than the insight's bucket re-checks a frozen
-                                        // completed value until the bucket closes. Default it to evaluating
-                                        // the ongoing bucket so the faster cadence actually does something.
                                         if (
                                             cadenceFinerThanInsightInterval(selected, trendInterval) &&
                                             canCheckOngoingInterval &&
