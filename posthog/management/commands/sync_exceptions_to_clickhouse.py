@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.apps import apps
 from django.core.management.base import BaseCommand
@@ -10,7 +11,10 @@ from posthog.kafka_client.routing import flush_all_producers
 
 from products.error_tracking.backend.facade import override_error_tracking_issue_fingerprint
 
-ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+if TYPE_CHECKING:
+    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+else:
+    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

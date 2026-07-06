@@ -59,18 +59,28 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
     from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
     from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
+    from products.error_tracking.backend.models import (
+        ErrorTrackingAssignmentRule,
+        ErrorTrackingBypassRule,
+        ErrorTrackingIssue,
+        ErrorTrackingIssueAssignment,
+        ErrorTrackingIssueFingerprintV2,
+        ErrorTrackingRelease,
+        ErrorTrackingSuppressionRule,
+        ErrorTrackingSymbolSet,
+    )
 else:
     Account = apps.get_model("customer_analytics", "Account")
     CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
     CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
-
-ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
-ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
-ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
-ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
-ErrorTrackingAssignmentRule = apps.get_model("error_tracking", "ErrorTrackingAssignmentRule")
-ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
-ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
+    ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+    ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
+    ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
+    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+    ErrorTrackingAssignmentRule = apps.get_model("error_tracking", "ErrorTrackingAssignmentRule")
+    ErrorTrackingBypassRule = apps.get_model("error_tracking", "ErrorTrackingBypassRule")
+    ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
+    ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -318,8 +328,6 @@ def _create_error_tracking_assignment_rule(team: Team, label: str):
 
 
 def _create_error_tracking_bypass_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingBypassRule
-
     return ErrorTrackingBypassRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
     )
