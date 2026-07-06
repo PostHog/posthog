@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCloud, IconTerminal } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { useWizardCommand } from '../SetupWizardBanner'
@@ -47,13 +48,18 @@ export function WizardInstallOptions({
     const offerCloud = cloudRunEnabled && isCloudOrDev
 
     // GROW-117: this component is where the cloud-run AB arms diverge — control collapses to the
-    // local block, test shows the picker — so mounting it on a cloud/dev instance IS the exposure.
-    // Self-hosted never offers cloud runs on either arm, so it stays out of the experiment.
-    useOnMountEffect(() => {
-        if (isCloudOrDev) {
+    // local block, test shows the picker — so showing it on a cloud/dev instance IS the exposure.
+    // Both gates resolve asynchronously (preflight for isCloudOrDev, posthog-js for the flags), so
+    // fire on readiness rather than once at mount: a mount-time snapshot would drop or mis-bucket
+    // exposures for exactly the fresh-signup population the experiment measures. The listener
+    // dedupes and skips unenrolled users, so re-fires are safe. Self-hosted never offers cloud
+    // runs on either arm, so it stays out of the experiment.
+    const { receivedFeatureFlags } = useValues(featureFlagLogic)
+    useEffect(() => {
+        if (isCloudOrDev && receivedFeatureFlags) {
             reportWizardCloudRunExperimentExposed()
         }
-    })
+    }, [isCloudOrDev, receivedFeatureFlags, reportWizardCloudRunExperimentExposed])
     // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked
     // and the view pins to the cloud run's progress until it is cleared (e.g. via the failure fallback).
     const localBlocked = !!activeCloudRun

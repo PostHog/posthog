@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
@@ -19,8 +20,14 @@ const CONTEXT_ONBOARDING_EVENT_PROPS = { version: 2, flow_variant: 'context_firs
 /** Arm of the cloud-wizard AB test (GROW-117): `test` offers the cloud run, `control` is local-only. */
 export type CloudRunExperimentArm = 'control' | 'test'
 
-export function resolveCloudRunExperimentArm(featureFlags: FeatureFlagsSet): CloudRunExperimentArm {
-    return featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN] === 'test' ? 'test' : 'control'
+/**
+ * The user's experiment arm, or null when they are not enrolled: an unset/boolean flag value (not
+ * rolled out, targeting excludes them, flags not loaded yet) must NOT be collapsed into `control`,
+ * or never-enrolled users pollute the control cohort and bias the readout toward "no effect".
+ */
+export function resolveCloudRunExperimentArm(featureFlags: FeatureFlagsSet): CloudRunExperimentArm | null {
+    const value = featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]
+    return value === 'test' || value === 'control' ? value : null
 }
 
 // Wizard-sync events fire from BOTH onboarding variants (GROW-121): same v2 event shape, but
@@ -29,7 +36,7 @@ export function resolveCloudRunExperimentArm(featureFlags: FeatureFlagsSet): Clo
 function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
     version: 2
     flow_variant: string
-    cloud_run_experiment_arm: CloudRunExperimentArm
+    cloud_run_experiment_arm: CloudRunExperimentArm | null
 } {
     return {
         version: 2,
@@ -38,10 +45,14 @@ function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
     }
 }
 
-// The exposure is once per pageload, not per render: the install step remounts on navigation, and a
-// re-fired exposure would inflate the denominator. Module-scoped, mirroring the wizard tracker's
-// once-per-session report guards.
-let reportedCloudRunExperimentExposure = false
+// One exposure per project per pageload: the install step remounts on navigation, and a re-fired
+// exposure would inflate the denominator, but a project switch mid-session is a fresh exposure.
+// Module-scoped, mirroring the wizard tracker's once-per-session report guards.
+const reportedCloudRunExperimentExposures = new Set<string>()
+
+export function resetCloudRunExperimentExposureForTests(): void {
+    reportedCloudRunExperimentExposures.clear()
+}
 
 /**
  * Funnel events for the context-first onboarding flow (v2) — a dedicated logic rather than more
@@ -53,7 +64,7 @@ let reportedCloudRunExperimentExposure = false
 export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     path(['scenes', 'onboarding', 'onboardingEventUsageLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], projectLogic, ['currentProjectId']],
     })),
     actions({
         reportContextOnboardingStarted: true,
@@ -167,10 +178,19 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             })
         },
         reportWizardCloudRunExperimentExposed: () => {
-            if (reportedCloudRunExperimentExposure) {
+            // Enrollment-gated: callers fire on readiness (preflight + receivedFeatureFlags), and a
+            // null arm means the user is not in the experiment — no exposure, no guard, so a later
+            // dispatch after enrollment resolves can still count them. Never stamp a guessed arm:
+            // a mis-bucketed exposure cannot be repaired retroactively.
+            const arm = resolveCloudRunExperimentArm(values.featureFlags)
+            if (arm === null) {
                 return
             }
-            reportedCloudRunExperimentExposure = true
+            const projectKey = String(values.currentProjectId ?? 'unknown')
+            if (reportedCloudRunExperimentExposures.has(projectKey)) {
+                return
+            }
+            reportedCloudRunExperimentExposures.add(projectKey)
             posthog.capture('wizard cloud run experiment exposed', {
                 ...wizardSyncEventProps(values.featureFlags),
             })
