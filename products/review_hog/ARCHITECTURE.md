@@ -179,6 +179,24 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    dupes are rare — chunks are distinct concerns), and dedup as **plain LLM calls** instead of a sandbox
    agent (it compares finding texts + prior comments, no repo access needed) — faster for sure
    **(BUILT 2026-07-03 for the size-gated case, chunking included — see the section below)**.
+7. **✅ INVESTIGATED 2026-07-03, candidate roster 2026-07-06 — prompt caching / review-stage cost.**
+   Item 6's "per-stage token attribution" clause graduated into a full investigation (cross-sandbox cache
+   reuse: why sharing is measured zero today — harness `Task-Id`/dynamic-section system-prompt violations,
+   Tasks-team ticket territory — and what the fixes are) plus an adversarially audited roster of 10
+   experiment candidates (3 more killed and recorded so they are not re-proposed), archived at
+   `eval/experiments/2026-07-prompt-caching/` (`INVESTIGATION.md` + `CANDIDATES.md`; the former top-level
+   `PROMPT_CACHING_INVESTIGATION.md` moved there). Headlines: naive $/run overstates true sonnet-5 cost
+   ~4.8x (cache reads at 0.1x are now the largest true-cost bucket); **user veto 2026-07-06 (locked):
+   one-shot LLM calls for code investigation are permanently out of scope** — a single call cannot do
+   detective work and quality is the moat, so only chunking + dedup stay one-shot and every review unit
+   remains a full sandbox agent. That killed the direct-call review candidates and made the
+   sandbox-preserving family the program: skill-body splice + pre-pack touched files as cheap builds, then
+   the per-chunk **warm-up+fork ladder as flagship** (T2/T3 harness work + Spike-3 overlap gate at
+   s >= ~0.55) — shared exploration arrives as a 0.1x cached prefix while reviewers keep unrestricted
+   exploration; savings scale per chunk, so large PRs (the stated priority) benefit most. Nothing built;
+   the Gate-0 measurement pack (cache-aware `dump_result.py` split + gateway cache probe + fork-sizing
+   spikes, ~$0) is greenlit with a run-ready `PLAN.md` in the same folder — experiments run iteratively,
+   in isolation, one per branch, per the working mode locked 2026-07-06.
 
 ### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
 

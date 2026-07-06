@@ -11,6 +11,12 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
   and **stale** — its head `243ddf40295c` has been frozen since 2026-06-15 — so every run reviews
   **identical code** and a change in findings reflects a change in _the reviewer_, not the PR. Keep using a
   frozen PR until the **step-16 head_sha pin** lands (review a fixed commit instead of "current head").
+- **⚠️ #63625 is DEAD as of 2026-07-03**: the PR merged and its branch was deleted, so the sandbox
+  checkout now fails (`git fetch origin <branch>` finds nothing) and every unit dies in setup.
+  Pick a new frozen non-fork sample PR before the next pseudo-eval series (the eval yardstick PR
+  [#62096](https://github.com/PostHog/posthog/pull/62096) was still open with a live branch on 2026-07-06).
+  This is also the standing reminder that branch-ref checkout, not head_sha pinning, is the mechanism —
+  merged-and-deleted PRs cannot be reviewed at all until the SHA-pin fix lands.
 - The **codebase-state label** = what changed in the reviewer (prompt/code) + the `signals/reviewhog`
   working state ("uncommitted" while iterating). Quality is only comparable across runs at the **same**
   reviewed `head_sha`.
@@ -21,6 +27,25 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 > branch that moved mid-iteration — not reproducible, so cleared).
 
 ---
+
+## 2026-07-06 · harness smoke: LOCAL agent build in sandboxes + surprise partial cross-sandbox cache sharing ✅
+
+- **Purpose:** NOT a quality run — verify the two-repo harness dev loop for the prompt-caching program
+  (`eval/experiments/2026-07-prompt-caching/HARNESS.md`): `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` overlay ->
+  locally built `@posthog/agent` (clean, unpatched `main`) runs the review sandboxes. Quality not comparable
+  to the log above (different PR).
+- **Run 1 (#63625): environmental failure** — the frozen sample PR merged 2026-07-03, branch deleted, all
+  units died at checkout (see the ⚠️ note in the header). **Run 2 (live #68735, +74/-12, no-publish): exit 0**,
+  report `019f38b5-7414-…`, single chunk, wave 3/3 + blind-spot + validation completed.
+- **Local-build proof:** all 3 wave units broadcast `agentVersion=0.0.0-dev` (the local build's inlined
+  version; published npm was 2.3.1272) in their TaskRun logs — the overlay delivered our bytes.
+- **Surprise (turn-1 cache tripwire over the run window):** p2 led (t1 cache_read 0 / write 59,423);
+  p3 (+4s) and p1 (+50s) each **read an identical 27,618 tokens at turn 1 of a fresh sandbox** — i.e.
+  cross-sandbox prompt-cache sharing of the [tools + system-preset] segment is ALREADY partially live via
+  natural provisioning jitter; the Task-Id append poisons only the bytes after it, not the whole prefix.
+  The July "turn-1 cache_read median = 0" claim is stale on the current agent/SDK. Blind-spot fired 10 min
+  after the wave and read 0 (5-min sliding TTL expired) — live confirmation of the wave->blind-spot TTL gap
+  the fork-sizing spike measures. Full analysis + implications: `experiments/2026-07-prompt-caching/HARNESS.md`.
 
 ## 2026-06-29 · #66456 SHA-changed re-review (turn 2) — full re-review + fresh publish at new head ✅
 

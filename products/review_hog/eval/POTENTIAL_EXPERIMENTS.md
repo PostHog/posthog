@@ -9,6 +9,8 @@
 This doc supersedes the seed list in `ARCHITECTURE.md` § "🎯 NEXT" item 6 ("Investigate potential experiments").
 Nothing here contradicts locked items 1–5; validator-dependent work is explicitly sequenced after item 4.
 
+> **2026-07-06:** the caching/cost thread of this registry (the T1 cache-rewrite ticket, Tier-3 warm sessions, the rejected pre-pass artefact and cache-prefix reorder) has a dedicated successor program: `experiments/2026-07-prompt-caching/` (`INVESTIGATION.md` + `CANDIDATES.md`, its own adversarially audited roster + a corrected cache-aware baseline — naive sonnet-5 $ overstates true cost ~4.8x). Read that before re-litigating any caching-adjacent item here; this doc's $ figures are opus-era.
+
 ### Measured baseline (local ClickHouse, all 17 eval runs, PR #62096 frozen)
 
 | stage                                            | gens | in_M  | cacheRead_M | cacheWrite_M | out_K  | cost$  | avg_lat_s |
