@@ -356,7 +356,6 @@ describe('hog-charts bar scales', () => {
             })
             expect(yAxes!.left.position).toBe('left')
             expect(yAxes!.y1.position).toBe('right')
-            // Each axis's stack scales against its own domain, so both fill the plot height.
             expect(yAxes!.left.scale(30)).toBeCloseTo(yAxes!.y1.scale(3000), 0)
         })
 
@@ -370,7 +369,6 @@ describe('hog-charts bar scales', () => {
             })
             expect(yAxes!.left.position).toBe('right')
             expect(yAxes!.y1.position).toBe('left')
-            // The log override applies per axis: y1 gets a positive log domain, left stays linear from 0.
             expect(yAxes!.left.scale.domain()[0]).toBe(0)
             expect(yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
         })

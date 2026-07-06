@@ -102,7 +102,6 @@ function ComboChartInner<Meta = unknown>({
         yAxes: configYAxes,
     } = config ?? {}
     const smooth = curve === 'monotone'
-    // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
     const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
