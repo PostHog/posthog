@@ -5,13 +5,14 @@ use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post,
 use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
+use capture_logs::internal_metrics::{self, InternalMetricsRecorder};
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
 };
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes, setup_metrics_routes_with_secondary_recorder};
 use std::future::ready;
 use std::net::SocketAddr;
 
@@ -109,7 +110,22 @@ async fn main() {
             "/_liveness",
             get(move || ready(health_registry.get_status())),
         );
-    let management_router = setup_metrics_routes(management_router);
+    // With a token configured, the service exports its own metrics into the
+    // metrics product through its own Kafka sink (fanned out alongside the
+    // unchanged Prometheus scrape endpoint).
+    let management_router = match config.internal_metrics_token.as_deref() {
+        Some(token) if !token.is_empty() => {
+            let recorder = InternalMetricsRecorder::new();
+            internal_metrics::spawn_exporter(
+                recorder.clone(),
+                kafka_sink.clone(),
+                token.to_string(),
+                Duration::from_secs(config.internal_metrics_interval_secs),
+            );
+            setup_metrics_routes_with_secondary_recorder(management_router, recorder)
+        }
+        _ => setup_metrics_routes(management_router),
+    };
     let management_bind = format!("{}:{}", config.management_host, config.management_port);
     info!("Healthcheck and metrics listening on {}", management_bind);
     let management_listener = tokio::net::TcpListener::bind(management_bind)

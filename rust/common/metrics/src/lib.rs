@@ -6,6 +6,7 @@ use axum::{
 };
 pub use metrics_exporter_prometheus::Matcher;
 use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_util::layers::FanoutBuilder;
 use std::sync::OnceLock;
 
 type LabelFilterFn =
@@ -76,6 +77,28 @@ pub fn setup_metrics_routes_for_product_with_overrides(
     overrides: &[(Matcher, &[f64])],
 ) -> Router {
     install_metrics_routes(router, Some(product.into()), overrides)
+}
+
+/// Like [`setup_metrics_routes`], but fans every metric out to a caller-provided
+/// secondary recorder alongside the Prometheus one. The `/metrics` scrape endpoint
+/// behaves exactly as with [`setup_metrics_routes`]; the secondary recorder sees the
+/// same stream of counter/gauge/histogram operations. Used by services that export
+/// their own metrics into the PostHog metrics product in addition to being scraped.
+pub fn setup_metrics_routes_with_secondary_recorder<R>(router: Router, secondary: R) -> Router
+where
+    R: metrics::Recorder + Send + Sync + 'static,
+{
+    let prometheus_recorder = build_prometheus_builder(None).build_recorder();
+    let handle = prometheus_recorder.handle();
+    let fanout = FanoutBuilder::default()
+        .add_recorder(prometheus_recorder)
+        .add_recorder(secondary)
+        .build();
+    metrics::set_global_recorder(fanout).expect("global metrics recorder already installed");
+
+    router
+        .route("/metrics", get(move || std::future::ready(handle.render())))
+        .layer(axum::middleware::from_fn(track_metrics))
 }
 
 fn install_metrics_routes(
