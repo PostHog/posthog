@@ -459,6 +459,9 @@ account_relationships: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_accountrelationship",
     # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
+    # Child rows expose per-account data: object-level denies must filter the account FK,
+    # not the assignment's own id, or a denied account's relationships leak.
+    access_control_id_field="account_id",
     description="User-to-account relationship assignments (CSM, Account executive, ...), one row per assignment with its effective range — `ended_at` is NULL while active, set when the assignment ends, so historical account management is queryable. Active assignments per account are also exposed as a JSON object via the `system.accounts.relationships` lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship assignment UUID."),
