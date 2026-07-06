@@ -306,6 +306,24 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
+        it('keeps the layouts reference stable when a tile refresh changes results but not geometry', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialLayouts = logic.values.layouts
+            const firstTile = logic.values.dashboard!.tiles[0]
+
+            await expectLogic(logic, () => {
+                // A refresh response: same insight, new object identity and results, untouched layouts.
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...firstTile.insight!,
+                    result: [{ count: 42 }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.tiles[0].insight!.result).toEqual([{ count: 42 }])
+            expect(logic.values.layouts).toBe(initialLayouts)
+        })
+
         it('saving without changes does not call api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

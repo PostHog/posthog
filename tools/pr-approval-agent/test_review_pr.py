@@ -250,6 +250,87 @@ def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPa
     assert output["final_verdict"] == "WAIT"
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        pytest.param("frontend/package.json", id="package-json"),
+        pytest.param("common/esbuilder/tsconfig.json", id="tsconfig"),
+        pytest.param("setup.cfg", id="setup-cfg"),
+    ],
+)
+def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch, manifest: str) -> None:
+    # Manifests are .json/.cfg so the allow-list would classify them T0 and
+    # skip the reviewer entirely — making the scripts/hooks REFUSE guard dead
+    # code for exactly the files it exists to check. They must land T1.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda *a: [])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": manifest, "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T1-agent"
+    assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
+
+
+def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The deterministic scan is the first line against scripts/hook edits —
+    # when it fires, the PR must land T2-never rather than the LLM-only path.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda paths, *a: list(paths))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": "frontend/package.json", "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T2-never"
+    assert "deps_toolchain" in pipeline.classification["deny_categories"]
+    assert pipeline.classification["manifest_script_changes"] == ["frontend/package.json"]
+
+
+@pytest.mark.parametrize(
+    "files, expected_flags",
+    [
+        pytest.param(
+            ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py"],
+            [],
+            id="connector-only-pr-not-flagged",
+        ),
+        pytest.param(
+            [
+                "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py",
+                "posthog/api/foo.py",
+            ],
+            ["auth", "billing"],
+            id="mixed-pr-keeps-flags",
+        ),
+    ],
+)
+def test_title_flags_respect_exempt_paths(
+    monkeypatch: pytest.MonkeyPatch, files: list[str], expected_flags: list[str]
+) -> None:
+    # A connector-only PR legitimately says "stripe"/"oauth" in its title;
+    # flagging it re-creates the friction the connector path exemption
+    # exists to remove.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.title = "fix(stripe): refresh oauth token before sync"
+    pr.files = [{"filename": f, "additions": 2, "deletions": 1, "status": "M"} for f in files]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["title_scrutiny_flags"] == expected_flags
+
+
 def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     # A deny-listed PR can't be approved over an in-flight review, so waiting
     # 5 minutes before the inevitable REFUSE is pure runner cost.

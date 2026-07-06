@@ -1481,6 +1481,9 @@ importers:
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
+      '@posthog/hogvm-node':
+        specifier: workspace:*
+        version: link:../rust/common/hogvm/node
       '@posthog/replay-headless':
         specifier: workspace:*
         version: link:../common/replay-headless
@@ -4387,6 +4390,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+
+  rust/common/hogvm/node: {}
 
   rust/cyclotron-node:
     devDependencies:

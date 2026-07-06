@@ -21,10 +21,12 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
@@ -55,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -132,14 +135,49 @@ BIGQUERY_INVALID_IDENTIFIER_ERROR = (
 _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
 
+def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
+    """True for BigQuery's per-second rate quotas, which are transient and recover on their own.
+
+    BigQuery caps some operations by a per-second rate (e.g. "Quota exceeded: Your project ...
+    exceeded quota for tabledata.list bytes per second per project."), surfaced from
+    `jobs.getQueryResults` as a `Forbidden` (403, reason `quotaExceeded`). The quota window resets
+    each second, so a query that trips one recovers within moments — but the library's own retry
+    predicates only cover `rateLimitExceeded` / `backendError` / `internalError`, not
+    `quotaExceeded`, so neither the API-call retry nor the job retry waits it out and the read/copy
+    query crashes the whole sync. This is distinct from the administrator-set "Custom quota
+    exceeded" daily cost cap (kept non-retryable in `get_non_retryable_errors`), which resets only
+    on Google's daily schedule and must not be retried in place. Matched on the stable "per second"
+    wording rather than the volatile project/quota id.
+    """
+    message = str(exc)
+    return "per second" in message and "Custom quota exceeded" not in message
+
+
 def _query_job_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
-    return _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _job_should_retry(exc)
+    return (
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _is_transient_rate_quota_exceeded(exc) or _job_should_retry(exc)
+    )
 
 
 BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+
+
+# The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
+# ("Received RST_STREAM with error code 2"). The client's default ReadRows retry only reconnects on
+# ServiceUnavailable, so the INTERNAL escapes as an unhandled InternalServerError and fails the whole
+# read, and with it the import activity, which then re-runs the (potentially large) temp-table copy
+# from scratch. Reconnecting resumes the stream from the last-read offset, so widen the default
+# predicate to also retry INTERNAL. Parameters mirror the library's default ReadRows retry.
+BIGQUERY_READ_ROWS_RETRY = Retry(
+    predicate=if_exception_type(ServiceUnavailable, InternalServerError),
+    initial=0.1,
+    maximum=60.0,
+    multiplier=1.3,
+    deadline=86400.0,
+)
 
 
 class BigQueryDatasetNotFoundError(Exception):
@@ -276,6 +314,16 @@ def bigquery_client(
         location=location,
         credentials=credentials,
         _http=authed_session,
+    )
+    # `_connection.API_BASE_URL` is the endpoint the client will actually call (it honors
+    # api_endpoint overrides and universe-domain hosts), so the logged host can't drift.
+    # It's a private attribute, so read it fail-soft: a library rename must degrade the log
+    # field, not crash the sync.
+    api_base_url: str = getattr(getattr(client, "_connection", None), "API_BASE_URL", None) or "bigquery.googleapis.com"
+    log_connection_open(
+        db_host=urlparse(api_base_url).hostname or api_base_url,
+        via="vendor_https",
+        project_id=project_id,
     )
 
     try:
@@ -872,7 +920,7 @@ def _run_destination_query_with_job_retry(
 
     def _run() -> None:
         job = client.query(query, job_config=job_config, project=project)
-        job.result()
+        job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     _with_job_not_found_retry(_run)
 
@@ -895,7 +943,7 @@ def _query_result_with_job_retry(
 
     def _run() -> RowIterator:
         job = client.query(query, job_config=job_config, project=project)
-        return job.result(page_size=page_size)
+        return job.result(page_size=page_size, job_retry=BIGQUERY_QUERY_JOB_RETRY)
 
     return _with_job_not_found_retry(_run)
 
@@ -1345,7 +1393,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         return
 
                     stream_name = read_session.streams[0].name
-                    read_rows_stream = bq_storage.read_rows(stream_name)
+                    read_rows_stream = bq_storage.read_rows(stream_name, retry=BIGQUERY_READ_ROWS_RETRY)
                     rows_iterator = read_rows_stream.rows()
 
                     record_batches = []

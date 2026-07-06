@@ -76,10 +76,21 @@ class Command(BaseCommand):
             default=60.0,
             help="Health check timeout in seconds (default: 60.0)",
         )
+        parser.add_argument(
+            "--stuck-batch-timeout",
+            type=float,
+            default=7200.0,
+            help=(
+                "Stop reporting liveness once any single batch has been executing longer than this many "
+                "seconds, so a wedged sink connection becomes a pod restart instead of an invisible stall. "
+                "0 disables the watchdog (default: 7200.0)"
+            ),
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
         health_timeout = options["health_timeout"]
+        stuck_batch_timeout = options["stuck_batch_timeout"] or None
 
         config = ConsumerConfig(
             database_url=WAREHOUSE_SOURCES_DATABASE_URL,
@@ -89,6 +100,7 @@ class Command(BaseCommand):
             max_attempts=options["max_attempts"],
             health_port=health_port,
             health_timeout_seconds=health_timeout,
+            stuck_batch_timeout_seconds=stuck_batch_timeout,
         )
 
         logger.info(
@@ -98,6 +110,7 @@ class Command(BaseCommand):
             poll_limit=config.poll_limit,
             max_attempts=config.max_attempts,
             health_port=health_port,
+            stuck_batch_timeout=stuck_batch_timeout,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)

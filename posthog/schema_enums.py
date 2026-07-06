@@ -65,6 +65,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    REAL_TIME = "real_time"
     EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"

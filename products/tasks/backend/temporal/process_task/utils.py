@@ -237,6 +237,12 @@ def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) 
     return None
 
 
+def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> bool:
+    """Whether a stored snapshot may be restored into a new sandbox; False falls back to a fresh one.
+    A directory snapshot whose stored mount path was invalidated (legacy "/tmp" captures) can't be restored."""
+    return not (kind == SNAPSHOT_KIND_DIRECTORY and mount_path is None)
+
+
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
@@ -276,11 +282,22 @@ class RunState(BaseModel, extra="allow"):
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
     def resume_snapshot_is_usable(self) -> bool:
-        """A directory snapshot whose stored mount path was invalidated (e.g. legacy "/tmp"
-        captures) can't be restored anywhere — callers must provision fresh instead."""
-        return not (
-            self.resume_snapshot_kind() == SNAPSHOT_KIND_DIRECTORY and self.resume_snapshot_mount_path() is None
-        )
+        """See ``is_resume_snapshot_usable`` — callers must provision fresh when False."""
+        return is_resume_snapshot_usable(self.resume_snapshot_kind(), self.resume_snapshot_mount_path())
+
+    def resume_snapshot_carry_state(self) -> dict[str, Any]:
+        """State keys a successor run must copy (always the full set, never the external ID
+        alone) to resume from this run's snapshot; ``{}`` when there is no usable snapshot."""
+        if not self.snapshot_external_id or not self.resume_snapshot_is_usable():
+            return {}
+        carried: dict[str, Any] = {
+            "snapshot_external_id": self.snapshot_external_id,
+            "snapshot_kind": self.resume_snapshot_kind(),
+        }
+        mount_path = self.resume_snapshot_mount_path()
+        if mount_path is not None:
+            carried["snapshot_mount_path"] = mount_path
+        return carried
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
@@ -294,8 +311,8 @@ class SnapshotMetadata:
 
     @property
     def is_usable(self) -> bool:
-        """See ``RunState.resume_snapshot_is_usable`` — same invalidation rule."""
-        return not (self.kind == SNAPSHOT_KIND_DIRECTORY and self.mount_path is None)
+        """See ``is_resume_snapshot_usable`` — same invalidation rule."""
+        return is_resume_snapshot_usable(self.kind, self.mount_path)
 
 
 def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:

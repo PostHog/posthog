@@ -60,14 +60,13 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
 
-        # Hourly before daily before weekly/monthly so the cheaper, more
-        # time-sensitive checks get workers first when the due batch is large.
         # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
-            default=Value(3),
+            When(calculation_interval=AlertCalculationInterval.REAL_TIME.value, then=Value(0)),
+            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(1)),
+            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(2)),
+            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(3)),
+            default=Value(4),
             output_field=IntegerField(),
         )
 
@@ -104,7 +103,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
+            )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
@@ -120,6 +121,21 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
+        # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        # Only one of these will be non-None for any given interval — each returns None when
+        # the interval doesn't match, so this is an exclusive check, not a combination.
+        entitlement_error = AlertConfiguration.real_time_interval_validation_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        ) or AlertConfiguration.every_15_minutes_interval_validation_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        )
+        if entitlement_error:
+            disable_invalid_alert(alert, entitlement_error)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=entitlement_error)
 
         now = datetime.now(UTC)
 

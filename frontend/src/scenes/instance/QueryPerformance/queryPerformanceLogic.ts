@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,6 +13,36 @@ export interface PrecomputationTeam {
     organization_name: string | null
     organization_arr: number | null
     experiment_precomputation_enabled: boolean
+}
+
+export type ExperimentsTab = 'slowest_queries' | 'cache_health'
+
+export interface CachePartitionStats {
+    partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
+    rows: number
+    bytes_on_disk: number
+    parts: number
+}
+
+export interface CacheTableStats {
+    table: string
+    total_rows: number
+    bytes_on_disk: number
+    active_parts: number
+    partition_count: number
+    oldest_partition: string | null
+    newest_partition: string | null
+    partitions: CachePartitionStats[]
+}
+
+export interface CacheHealthResponse {
+    tables: CacheTableStats[]
+}
+
+// One row of the partition breakdown table: a single expiry day, with each cache table's stats for that day.
+export interface CachePartitionRow {
+    partition: string
+    perTable: Record<string, CachePartitionStats>
 }
 
 export interface SlowestQuery {
@@ -61,6 +91,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
         setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
+        setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
     }),
     reducers({
         search: [
@@ -99,6 +130,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
             },
         ],
+        experimentsTab: [
+            'slowest_queries' as ExperimentsTab,
+            {
+                setExperimentsTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precomputationTeams: [
@@ -123,6 +160,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     return values.search
                         ? updatedList
                         : updatedList.filter((team) => team.experiment_precomputation_enabled)
+                },
+            },
+        ],
+        cacheHealth: [
+            null as CacheHealthResponse | null,
+            {
+                loadCacheHealth: async () => {
+                    return await api.get('api/debug_ch_queries/cache_health/')
                 },
             },
         ],
@@ -153,6 +198,24 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             },
         ],
     })),
+    selectors({
+        cachePartitionRows: [
+            (s) => [s.cacheHealth],
+            (cacheHealth): CachePartitionRow[] => {
+                const byPartition: Record<string, CachePartitionRow> = {}
+                for (const table of cacheHealth?.tables ?? []) {
+                    for (const partition of table.partitions) {
+                        const row = (byPartition[partition.partition] ??= {
+                            partition: partition.partition,
+                            perTable: {},
+                        })
+                        row.perTable[table.table] = partition
+                    }
+                }
+                return Object.values(byPartition).sort((a, b) => a.partition.localeCompare(b.partition))
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
@@ -180,6 +243,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
             actions.loadSlowestQueries()
+            actions.loadCacheHealth()
         }
     }),
 ])

@@ -143,7 +143,14 @@ def _compute_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime
         Cohort.objects.filter(team_id=team_id, deleted=False, is_static=False)
         .annotate(_filters_text=Cast("filters", output_field=TextField()))
         .filter(Q(_filters_text__icontains="behavioral") | Q(_filters_text__icontains="cohort"))
-        .only("id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at")
+        .only(
+            "id",
+            "is_static",
+            "filters",
+            "cohort_type",
+            "last_backfill_person_properties_at",
+            "last_backfill_events_at",
+        )
     )
     all_cohorts = {cohort.id: cohort for cohort in graph_source}
     return find_behavioral_cohorts(all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled)
