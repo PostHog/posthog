@@ -39,7 +39,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
             {
                 loadEndpoints: async () => {
                     const response = await api.endpoint.list()
-                    return response.results || []
+                    return response?.results ?? []
                 },
             },
         ],
