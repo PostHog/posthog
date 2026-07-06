@@ -121,7 +121,7 @@ class TestRewriteMechanism(SimpleTestCase):
     _METRIC = "posthog_environments_prefix_requests_total"
     _OUTCOMES = ("rewritten", "passthrough", "env_only")
 
-    def _run(self, path: str, enabled: bool) -> tuple[str, str | None]:
+    def _run(self, path: str, enabled: bool, expected_outcome: str | None) -> tuple[str, str | None]:
         captured: dict[str, str] = {}
 
         def get_response(request: HttpRequest) -> HttpResponse:
@@ -139,7 +139,8 @@ class TestRewriteMechanism(SimpleTestCase):
             for o in self._OUTCOMES
             if (REGISTRY.get_sample_value(self._METRIC, {"outcome": o}) or 0.0) - before[o] == 1.0
         ]
-        self.assertLessEqual(len(incremented), 1, f"more than one outcome incremented: {incremented}")
+        expected_count = 1 if expected_outcome is not None else 0
+        self.assertEqual(len(incremented), expected_count, f"unexpected outcome increments: {incremented}")
         return captured["path"], (incremented[0] if incremented else None)
 
     @parameterized.expand(
@@ -159,7 +160,7 @@ class TestRewriteMechanism(SimpleTestCase):
     def test_resolved_path_and_outcome_metric(
         self, _name: str, path: str, enabled: bool, expected_path: str, expected_outcome: str | None
     ) -> None:
-        resolved, outcome = self._run(path, enabled)
+        resolved, outcome = self._run(path, enabled, expected_outcome)
         self.assertEqual(resolved, expected_path)
         self.assertEqual(outcome, expected_outcome)
 
