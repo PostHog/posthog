@@ -41,12 +41,6 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
-        // RTL's auto-cleanup is inert in this repo (jest.setup.ts imports @testing-library/react
-        // during the setupFiles phase, before afterEach exists, so its hook never registers).
-        // Without unmounting, each test leaves ~50 heavy rows mounted; every later waitFor's
-        // act() then re-flushes all accumulated trees, ballooning 500ms tests to 3s+ and past
-        // the per-test timeout on contended CI runners. Unmount while the synchronous rAF spy
-        // is still installed so unmount work can't schedule timers into the next test.
         cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
