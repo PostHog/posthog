@@ -185,10 +185,14 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            # Only present when the placeholder is a direct operand of a comparison. When it's
+            # nested inside a call or arithmetic expression the stack is empty, so we resolve the
+            # placeholder to a constant instead of relying on the comparison-skip mechanism.
+            compare_op_wrapper = self.compare_operations[-1] if self.compare_operations else None
 
             if no_filters:
-                compare_op_wrapper.skip = True
+                if compare_op_wrapper is not None:
+                    compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
             assert self.filters is not None
@@ -204,13 +208,15 @@ class ReplaceFilters(CloningVisitor):
 
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
+                if compare_op_wrapper is not None:
+                    compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            compare_op_wrapper = self.compare_operations[-1] if self.compare_operations else None
 
             if no_filters:
-                compare_op_wrapper.skip = True
+                if compare_op_wrapper is not None:
+                    compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
             assert self.filters is not None
@@ -225,7 +231,8 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
+                if compare_op_wrapper is not None:
+                    compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
         if node.chain and node.chain[0] == "filters":
