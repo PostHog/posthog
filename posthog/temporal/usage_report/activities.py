@@ -233,6 +233,10 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
             "total_orgs": inputs.aggregate.total_orgs,
             "total_orgs_with_usage": inputs.aggregate.total_orgs_with_usage,
         }
+        # Omit the key for legacy contexts (field absent pre-deploy); billing
+        # reads it with `.get(...)` and skips the flow-latency metric when None.
+        if inputs.ctx.workflow_started_at is not None:
+            pointer["workflow_started_at"] = inputs.ctx.workflow_started_at.isoformat()
 
         @sync_to_async
         def send() -> None:

@@ -132,10 +132,12 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     integration: UserIntegration
 
-    def __init__(self, integration: UserIntegration) -> None:
+    def __init__(self, integration: UserIntegration, *, source: str | None = None) -> None:
         if integration.kind != "github":
             raise Exception("UserGitHubIntegration initialized with non-github integration")
         self.integration = integration
+        if source is not None:
+            self.source = source
 
     # --- Token refresh hooks ---
 
@@ -145,6 +147,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             user_id=self.integration.user_id,
             status_code=response.status_code,
         )
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     def _on_token_refreshed(self) -> None:
         logger.info(
