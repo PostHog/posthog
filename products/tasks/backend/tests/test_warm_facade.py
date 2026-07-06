@@ -12,10 +12,36 @@ from products.tasks.backend.facade import (
     api as facade,
     contracts,
 )
+from products.tasks.backend.logic.services.staged_artifacts import (
+    build_task_artifact_entry,
+    build_task_staged_artifact_cache_key,
+)
 from products.tasks.backend.logic.services.warm import WarmResult
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import get_tasks_cache
 
 FACADE = "products.tasks.backend.facade.api"
+
+
+def _artifact_entry(artifact_id: str) -> dict[str, Any]:
+    return build_task_artifact_entry(
+        artifact_id=artifact_id,
+        name="millie.zip",
+        artifact_type="skill_bundle",
+        source="user_attachment",
+        size=128,
+        content_type="application/zip",
+        storage_path=f"tasks/artifacts/{artifact_id}/millie.zip",
+        metadata={
+            "skill_name": "millie",
+            "skill_source": "user",
+            "content_sha256": "a" * 64,
+            "bundle_format": "zip",
+            "schema_version": 1,
+        },
+    )
+
+
 WARM_SRC = "products.tasks.backend.logic.services.warm.SandboxWarmer"
 TITLE_SRC = "products.tasks.backend.logic.services.title_generator"
 
@@ -196,6 +222,62 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) != str(warm_task.id)
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
+    def test_forwards_pending_message_and_run_artifacts_on_warm_reuse(self):
+        warm_task, run = self._warm_run()
+        run.artifacts = [_artifact_entry("artifact-1")]
+        run.save(update_fields=["artifacts"])
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+            dto = self._create(
+                description="/millie readme this skill",
+                pending_user_message='<skill name="millie" source="user" /> readme this skill',
+                pending_user_artifact_ids=["artifact-1"],
+            )
+
+        assert str(dto.id) == str(warm_task.id)
+        _, kwargs = m_signal.call_args
+        assert kwargs["content"] == '<skill name="millie" source="user" /> readme this skill'
+        assert kwargs["artifact_ids"] == ["artifact-1"]
+        warm_task.refresh_from_db()
+        assert warm_task.description == "/millie readme this skill"
+
+    def test_skips_warm_reuse_when_pending_artifacts_missing_from_warm_run(self):
+        warm_task, run = self._warm_run()
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as m_signal,
+            patch(f"{TITLE_SRC}.generate_task_title", return_value="T"),
+        ):
+            dto = self._create(pending_user_artifact_ids=["not-uploaded"])
+
+        assert str(dto.id) != str(warm_task.id)
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+
+    def test_create_endpoint_passes_pending_fields_to_warm_activation(self):
+        warm_task, run = self._warm_run()
+        run.artifacts = [_artifact_entry("artifact-1")]
+        run.save(update_fields=["artifacts"])
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "description": "/millie readme this skill",
+                    "repository": "posthog/posthog",
+                    "branch": "main",
+                    "pending_user_message": "resolved skill message",
+                    "pending_user_artifact_ids": ["artifact-1"],
+                },
+                format="json",
+            )
+
+        assert response.status_code == 201, response.content
+        assert response.json()["id"] == str(warm_task.id)
+        _, kwargs = m_signal.call_args
+        assert kwargs["content"] == "resolved skill message"
+        assert kwargs["artifact_ids"] == ["artifact-1"]
+
 
 class TestRunTaskWarmActivation(APIBaseTest):
     """The normal run path activates an idling warm Run instead of dispatching a fresh workflow."""
@@ -248,6 +330,53 @@ class TestRunTaskWarmActivation(APIBaseTest):
 
         _, kwargs = m_signal.call_args
         assert kwargs["content"] == "from description"
+
+    def test_materializes_staged_artifacts_onto_warm_run_before_activation(self):
+        task, run = self._warm_run()
+        staged = _artifact_entry("artifact-1")
+        get_tasks_cache().set(build_task_staged_artifact_cache_key(str(task.id), "artifact-1"), staged, timeout=60)
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do it",
+                    "pending_user_artifact_ids": ["artifact-1"],
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 1
+        run.refresh_from_db()
+        assert [artifact["id"] for artifact in run.artifacts] == ["artifact-1"]
+        assert "await_user_message" not in run.state
+        _, kwargs = m_signal.call_args
+        assert kwargs["artifact_ids"] == ["artifact-1"]
+
+    def test_missing_staged_artifacts_skip_warm_activation(self):
+        task, run = self._warm_run()
+        with patch(f"{FACADE}.signal_task_run_user_message") as m_signal:
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do it",
+                    "pending_user_artifact_ids": ["ghost"],
+                },
+            )
+
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+        assert result is not None and result.error is not None
+        assert task.runs.count() == 1
 
     def test_branch_mismatch_does_not_activate_warm_run(self):
         # Requesting a different branch than the warm Run was provisioned on must NOT activate it
