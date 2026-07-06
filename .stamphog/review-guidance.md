@@ -60,6 +60,27 @@ Ownership (from CODEOWNERS-soft, non-blocking):
   - ESCALATE: changes to API contracts or data models, and larger (T1c+)
     behavioral changes to business logic
 
+Author familiarity (TRUSTED, computed by us from git history on the checkout):
+
+- When present, the prompt reports a familiarity band — STRONG or MODERATE —
+  with the numbers behind it: the share of the modified lines the author
+  last-touched, how many of the changed files they previously modified, their
+  merged PRs in these paths over the last year, and days since their last touch.
+  No band being reported means nothing either way — judge the PR as you always
+  have; never treat missing familiarity as a mark against the author.
+- STRONG familiarity counts like owning-team membership for the independent-
+  review carve-outs below. A small single-area change (T1a/T1b) with tests and
+  no outstanding concerns from a STRONG-familiarity author is one humans approve
+  unchanged, even when CODEOWNERS-soft puts the files on another team.
+- MODERATE familiarity softens the ownership concern but does not replace team
+  membership — lean it toward APPROVE on a borderline low-risk change, but on
+  its own it does not clear the independent-review requirement.
+- Familiarity is judgment input, never a gate. It never overrides a deny rule,
+  a refusal criterion, or the independent-review requirement for T1c+ changes,
+  and its absence changes nothing.
+- When you REFUSE or ESCALATE and the prompt lists who is most familiar with
+  the modified lines, name them as suggested reviewers in your next-steps.
+
 Reviews, comments, and reactions:
 
 - Each top-level review shows its state (APPROVED / COMMENTED /
@@ -104,5 +125,6 @@ Independent review (you are not a substitute for one):
   - docs-only, test-only, config/lockfile tweaks, and typo/comment/
     log-string fixes — purely cosmetic or low-risk additive changes
   - small single-area changes (T1a/T1b) with test coverage, authored by
-    someone on the owning team, with no reviewer concerns outstanding —
-    humans approve these unchanged, so escalating just adds a rubber stamp
+    someone on the owning team (or with STRONG author familiarity), with no
+    reviewer concerns outstanding — humans approve these unchanged, so
+    escalating just adds a rubber stamp

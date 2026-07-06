@@ -117,6 +117,34 @@ class OverrideContract:
 
 
 @dataclass(frozen=True)
+class FamiliarityStrong:
+    # STRONG = blame overlap ≥ threshold OR the alt_ trio all satisfied.
+    min_blame_overlap_pct: float
+    alt_min_prior_prs: int
+    alt_min_files_prev_frac: float
+    alt_max_days_since_touch: int
+
+
+@dataclass(frozen=True)
+class FamiliarityModerate:
+    # MODERATE = both satisfied.
+    min_prior_prs: int
+    max_days_since_touch: int
+
+
+@dataclass(frozen=True)
+class FamiliarityPolicy:
+    """Band thresholds for the author-familiarity signal (judgment layer only).
+
+    Non-delegable by construction — absent from the `overrides` contract, so a
+    folder file can never grant or tune it.
+    """
+
+    strong: FamiliarityStrong
+    moderate: FamiliarityModerate
+
+
+@dataclass(frozen=True)
 class Policy:
     version: int
     deny: dict[str, DenyCategory]
@@ -126,6 +154,7 @@ class Policy:
     t1_subclasses: dict[str, T1Subclass]
     dismiss: DismissData
     overrides: dict[str, OverrideContract]
+    familiarity: FamiliarityPolicy
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -151,7 +180,7 @@ class PolicyError(ValueError):
 
 # ── Global policy loading + validation ───────────────────────────
 
-_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides"}
+_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides", "familiarity"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -299,6 +328,74 @@ def _parse_overrides(raw: Any) -> dict[str, OverrideContract]:
     return overrides
 
 
+_FAMILIARITY_STRONG_KEYS = {
+    "min_blame_overlap_pct",
+    "alt_min_prior_prs",
+    "alt_min_files_prev_frac",
+    "alt_max_days_since_touch",
+}
+_FAMILIARITY_MODERATE_KEYS = {"min_prior_prs", "max_days_since_touch"}
+
+
+def _require_percentage(value: Any, context: str) -> float:
+    _require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{context}: must be a number")
+    _require(0 <= value <= 100, f"{context}: must be between 0 and 100")
+    return float(value)
+
+
+def _require_fraction(value: Any, context: str) -> float:
+    _require(isinstance(value, (int, float)) and not isinstance(value, bool), f"{context}: must be a number")
+    _require(0 <= value <= 1, f"{context}: must be between 0 and 1")
+    return float(value)
+
+
+def _require_positive_int(value: Any, context: str) -> int:
+    _require(isinstance(value, int) and not isinstance(value, bool), f"{context}: must be an integer")
+    _require(value > 0, f"{context}: must be positive")
+    return value
+
+
+def _require_exact_keys(raw: dict, expected: set[str], context: str) -> None:
+    unknown = set(raw) - expected
+    _require(not unknown, f"{context}: unknown keys {sorted(unknown)}")
+    missing = expected - set(raw)
+    _require(not missing, f"{context}: missing keys {sorted(missing)}")
+
+
+def _parse_familiarity(raw: Any) -> FamiliarityPolicy:
+    _require(isinstance(raw, dict), "familiarity: must be a mapping")
+    _require_exact_keys(raw, {"strong", "moderate"}, "familiarity")
+
+    strong_raw = raw["strong"]
+    moderate_raw = raw["moderate"]
+    _require(isinstance(strong_raw, dict), "familiarity.strong: must be a mapping")
+    _require(isinstance(moderate_raw, dict), "familiarity.moderate: must be a mapping")
+    _require_exact_keys(strong_raw, _FAMILIARITY_STRONG_KEYS, "familiarity.strong")
+    _require_exact_keys(moderate_raw, _FAMILIARITY_MODERATE_KEYS, "familiarity.moderate")
+
+    strong = FamiliarityStrong(
+        min_blame_overlap_pct=_require_percentage(
+            strong_raw["min_blame_overlap_pct"], "familiarity.strong.min_blame_overlap_pct"
+        ),
+        alt_min_prior_prs=_require_positive_int(
+            strong_raw["alt_min_prior_prs"], "familiarity.strong.alt_min_prior_prs"
+        ),
+        alt_min_files_prev_frac=_require_fraction(
+            strong_raw["alt_min_files_prev_frac"], "familiarity.strong.alt_min_files_prev_frac"
+        ),
+        alt_max_days_since_touch=_require_positive_int(
+            strong_raw["alt_max_days_since_touch"], "familiarity.strong.alt_max_days_since_touch"
+        ),
+    )
+    moderate = FamiliarityModerate(
+        min_prior_prs=_require_positive_int(moderate_raw["min_prior_prs"], "familiarity.moderate.min_prior_prs"),
+        max_days_since_touch=_require_positive_int(
+            moderate_raw["max_days_since_touch"], "familiarity.moderate.max_days_since_touch"
+        ),
+    )
+    return FamiliarityPolicy(strong=strong, moderate=moderate)
+
+
 def load_policy(policy_path: Path | None = None, *, lockfile_names: Iterable[str]) -> Policy:
     """Parse and validate `.stamphog/policy.yml`, splicing code-derived data.
 
@@ -330,6 +427,7 @@ def load_policy(policy_path: Path | None = None, *, lockfile_names: Iterable[str
         t1_subclasses=_parse_tiers(raw["tiers"]),
         dismiss=_parse_dismiss(raw["dismiss"]),
         overrides=_parse_overrides(raw["overrides"]),
+        familiarity=_parse_familiarity(raw["familiarity"]),
     )
 
 

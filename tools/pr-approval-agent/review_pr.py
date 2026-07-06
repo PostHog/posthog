@@ -20,14 +20,17 @@ second-pass audit.
 Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 """
 
+import os
 import json
 import time
 import argparse
+import tempfile
 import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     MAX_FILES,
     MAX_LINES,
@@ -49,15 +52,13 @@ from gates import (
     t1_risk_subclass,
     test_only,
 )
-from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
+from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, resolve
 from reviewer import Reviewer
 
 try:
-    import os
-
     import posthoganalytics
 
     posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
@@ -221,6 +222,7 @@ class Pipeline:
                 if self._only_pending_migration_check():
                     return self._refuse_pending_migration_check()
 
+        self._maybe_compute_familiarity()
         self._llm_review(gate_verdict)
         return self.final_verdict
 
@@ -435,7 +437,43 @@ class Pipeline:
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
+            # Judgment-layer signal, filled in later only for the T1-agent path
+            # (see _maybe_compute_familiarity). None here keeps every other path
+            # — and the reviewer prompt — byte-identical to before.
+            "familiarity": None,
         }
+
+    def _maybe_compute_familiarity(self) -> None:
+        """Attach the author-familiarity signal for the T1-agent path only.
+
+        Judgment layer only — never touches gates, and any failure leaves the
+        signal absent (None) so behavior stays exactly as before. T0 skips the
+        LLM and T2 is a deny, so neither benefits from the signal.
+        """
+        if self.classification.get("tier") != "T1-agent":
+            return
+        self.classification["familiarity"] = self._compute_familiarity()
+
+    def _compute_familiarity(self) -> AuthorFamiliarity | None:
+        pr = self.pr
+        fd, name = tempfile.mkstemp(prefix="stamphog-familiarity-", suffix=".patch")
+        os.close(fd)
+        diff_path = Path(name)
+        try:
+            write_pr_diff(pr.base_sha, pr.head_sha, diff_path, REPO_ROOT)
+            return compute_familiarity(
+                author_login=pr.author,
+                diff_path=diff_path,
+                base_sha=pr.base_sha,
+                repo=self.repo,
+                repo_root=REPO_ROOT,
+                thresholds=POLICY.familiarity,
+            )
+        except Exception as exc:
+            print(_warn(f"familiarity computation failed ({exc}); continuing without the signal"))
+            return None
+        finally:
+            diff_path.unlink(missing_ok=True)
 
     def _run_gates(self) -> None:
         print(_bold("Gates"))
@@ -705,6 +743,7 @@ class Pipeline:
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
+                "familiarity": familiarity_evidence(self.classification.get("familiarity")),
             },
             "gates": [
                 {"gate": g.gate, "passed": g.passed, "message": g.message} for g in self.gate_results if g is not None

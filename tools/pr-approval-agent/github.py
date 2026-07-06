@@ -395,6 +395,24 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
     return files
 
 
+def write_pr_diff(base_sha: str, head_sha: str, dest: Path, repo_root: Path) -> Path:
+    """Write the base...head PR diff to `dest` from the local checkout.
+
+    Shared by the reviewer (feeds the LLM the diff to read) and the familiarity
+    signal (parses the same diff for base-side modified line ranges), so the
+    `git diff` invocation lives in one place.
+    """
+    result = subprocess.run(
+        ["git", "diff", f"{base_sha}...{head_sha}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=repo_root,
+    )
+    dest.write_text(result.stdout if result.returncode == 0 else f"git diff failed: {result.stderr}")
+    return dest
+
+
 def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
     """Fetch PR commits if not available locally."""
     result = subprocess.run(

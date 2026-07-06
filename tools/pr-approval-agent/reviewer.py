@@ -8,12 +8,11 @@ and reach a verdict on whether a PR is safe to auto-approve.
 import json
 import asyncio
 import textwrap
-import subprocess
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
-from github import PRData
+from github import PRData, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path
 
 try:
@@ -287,15 +286,7 @@ class Reviewer:
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
         diff_path = self.repo_root / ".pr-review-diff.patch"
-        result = subprocess.run(
-            ["git", "diff", f"{pr.base_sha}...{pr.head_sha}"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=self.repo_root,
-        )
-        diff_path.write_text(result.stdout if result.returncode == 0 else f"git diff failed: {result.stderr}")
-        return diff_path
+        return write_pr_diff(pr.base_sha, pr.head_sha, diff_path, self.repo_root)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
@@ -337,6 +328,7 @@ class Reviewer:
         pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
 
         ownership = self._format_ownership(cl)
+        familiarity_block = self._format_familiarity(cl)
 
         gate_lines = []
         for g in gate_context["gates"]:
@@ -397,7 +389,7 @@ class Reviewer:
             Gate results:
             {chr(10).join(gate_lines)}
             Gate verdict: {gate_verdict}
-            {constraint}
+            {constraint}{familiarity_block}
 
             The full diff is at: {diff_path}
             Read this file to review the changes, then submit your verdict.
@@ -425,6 +417,53 @@ class Reviewer:
         if not reactions:
             return ""
         return "  {" + ", ".join(_reaction_token(r) for r in reactions) + "}"
+
+    def _format_familiarity(self, cl: dict) -> str:
+        """Render the TRUSTED author-familiarity block, or "" when the signal is absent.
+
+        Empty string keeps the prompt byte-identical to the pre-familiarity
+        version — the one-way ratchet. The block is TRUSTED (computed by us from
+        the checkout), so it sits with the other gate facts, not in the
+        untrusted region.
+        """
+        fam = cl.get("familiarity")
+        if fam is None:
+            return ""
+        if fam.band == "NONE":
+            # One-way ratchet: a NONE band must not make the reviewer stricter
+            # than the pre-familiarity status quo, so its negative facts are
+            # withheld. The reviewer-routing hint alone is still valuable —
+            # unfamiliar authors are exactly who escalations need routing for.
+            if not fam.top_prior_authors:
+                return ""
+            return (
+                "\nMost familiar with the modified lines (suggested reviewers if you escalate): "
+                + ", ".join(fam.top_prior_authors)
+                + "."
+            )
+        parts = [
+            f"band {fam.band}",
+            f"author last-touched {fam.blame_overlap_pct:.0f}% of the lines this diff modifies",
+            f"{fam.files_prev_count}/{fam.files_total} changed files previously modified",
+            f"{fam.prior_prs_in_paths} merged PRs in these paths in 12 months",
+        ]
+        if fam.days_since_last_touch is not None:
+            parts.append(f"last touch {fam.days_since_last_touch} days ago")
+        else:
+            parts.append("no prior touch found in the last 18 months")
+        line = (
+            "Author familiarity with the changed code (computed from git history on the "
+            "trusted checkout): " + "; ".join(parts) + "."
+        )
+        if fam.capped:
+            line += " (Metrics computed on a bounded subset of the changed files.)"
+        if fam.top_prior_authors:
+            line += (
+                "\nMost familiar with these lines (suggested reviewers if you escalate): "
+                + ", ".join(fam.top_prior_authors)
+                + "."
+            )
+        return "\n" + line
 
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})
