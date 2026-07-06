@@ -4,9 +4,9 @@ use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
-use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::types::v1::{
-    GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    GetPersonRequest, GetPersonResponse, Person, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use sqlx::postgres::PgPool;
@@ -154,19 +154,39 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
+/// Extract the routing partition from the `x-partition` request-metadata
+/// header. The router stamps this on every leader call after hashing
+/// `(team_id, person_id)`; its absence means a misrouted or malformed
+/// request, so we fail closed with `InvalidArgument` rather than guessing.
+// `Status` is the idiomatic tonic error throughout this service; the small
+// `Ok(u32)` against a large `Status` trips `result_large_err`, but boxing
+// here would diverge from every other handler's signature.
+#[allow(clippy::result_large_err)]
+fn partition_from_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
+    request
+        .metadata()
+        .get("x-partition")
+        .ok_or_else(|| Status::invalid_argument("missing x-partition metadata"))?
+        .to_str()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not valid ASCII"))?
+        .parse::<u32>()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
+}
+
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
         &self,
-        request: Request<LeaderGetPersonRequest>,
+        request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
         };
 
-        let person = self.lookup_or_load(req.partition, &cache_key).await?;
+        let person = self.lookup_or_load(partition, &cache_key).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -177,6 +197,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         &self,
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
 
         // Track this write as inflight for its partition. The handoff protocol
@@ -185,7 +206,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // zero count implies every acked write is durable in Kafka. Using a
         // non-`_` prefixed binding so the RAII guard is held for the full
         // handler lifetime (see the `let_underscore_drop` lint).
-        let _inflight_guard = self.inflight.begin(req.partition);
+        let _inflight_guard = self.inflight.begin(partition);
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
@@ -218,9 +239,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .clone();
         let _guard = mutex.lock().await;
 
-        let person = self
-            .lookup_or_load_locked(req.partition, &cache_key)
-            .await?;
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
 
         // Compute property updates
         let updates = compute_event_property_updates(
@@ -267,7 +286,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
         if let Err(e) =
-            produce_person_changelog(&self.producer, &self.changelog_topic, &proto).await
+            produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto).await
         {
             tracing::error!(
                 team_id = cache_key.team_id,
@@ -280,7 +299,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             )));
         }
 
-        self.cache.put(req.partition, cache_key, updated_person);
+        self.cache.put(partition, cache_key, updated_person);
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {

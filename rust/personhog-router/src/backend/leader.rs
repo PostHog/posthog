@@ -1,28 +1,30 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use async_trait::async_trait;
+use bytes::Bytes;
 use dashmap::DashMap;
-use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
-use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
-use personhog_proto::personhog::types::v1::{
-    GetPersonRequest, GetPersonResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
-};
+use http::{HeaderMap, HeaderValue};
+use http_body_util::{BodyExt, Full};
+use metrics::histogram;
 use tokio::sync::RwLock;
-use tonic::codec::CompressionEncoding;
+use tonic::body::BoxBody;
 use tonic::transport::Channel;
-use tonic::{Request, Status};
+use tonic::{Code, Status};
+use tower::{Service, ServiceExt};
 
-use personhog_common::grpc::{current_caller_tag, current_client_name};
+use personhog_common::grpc::current_client_name;
 
 use super::retry::with_retry;
 use super::stash::{StashDecision, StashTable};
-use super::LeaderOps;
 use crate::config::RetryConfig;
+use crate::grpc_http::grpc_error_response;
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// gRPC path prefix for the leader service; raw forwards target
+/// `{LEADER_PREFIX}{method}`.
+const LEADER_PREFIX: &str = "/personhog.leader.v1.PersonHogLeader/";
 
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
 /// from `Config` so the constructor stays narrow as we add fields.
@@ -30,8 +32,6 @@ pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,
     pub retry_config: RetryConfig,
-    pub max_send_message_size: usize,
-    pub max_recv_message_size: usize,
 }
 
 /// Backend that routes person writes and strong reads to leader pods
@@ -39,8 +39,10 @@ pub struct LeaderBackendConfig {
 pub struct LeaderBackend {
     /// Read-only handle to the routing table (partition → pod_name).
     routing_table: Arc<RwLock<HashMap<u32, String>>>,
-    /// Cached gRPC clients keyed by pod gRPC address.
-    clients: DashMap<String, PersonHogLeaderClient<Channel>>,
+    /// Cached gRPC channels keyed by pod gRPC address. All leader traffic —
+    /// strong reads and writes — forwards raw request frames over these
+    /// channels.
+    channels: DashMap<String, Channel>,
     /// Resolves pod_name → gRPC address.
     address_resolver: AddressResolver,
     config: LeaderBackendConfig,
@@ -63,7 +65,7 @@ impl LeaderBackend {
         );
         Self {
             routing_table,
-            clients: DashMap::new(),
+            channels: DashMap::new(),
             address_resolver,
             config,
             stash,
@@ -76,12 +78,12 @@ impl LeaderBackend {
         self.stash.clone()
     }
 
-    /// Remove cached gRPC client for a pod so the next request reconnects.
-    /// Called during partition handoff cutover to drop the connection to the
-    /// old leader pod.
+    /// Remove the cached gRPC channel for a pod so the next request
+    /// reconnects. Called during partition handoff cutover to drop the
+    /// connection to the old leader pod.
     pub fn clear_client_cache(&self, pod_name: &str) {
         if let Some(address) = (self.address_resolver)(pod_name) {
-            self.clients.remove(&address);
+            self.channels.remove(&address);
         }
     }
 
@@ -101,11 +103,10 @@ impl LeaderBackend {
         positive % self.config.num_partitions
     }
 
-    /// Resolve the leader gRPC client for a given partition.
-    async fn resolve_leader(
-        &self,
-        partition: u32,
-    ) -> Result<PersonHogLeaderClient<Channel>, Status> {
+    /// Resolve the leader gRPC channel for a given partition, building and
+    /// caching a lazy channel on first use. All leader traffic — strong
+    /// reads and writes — forwards raw requests over this channel.
+    pub async fn resolve_leader_channel(&self, partition: u32) -> Result<Channel, Status> {
         let pod_name = self
             .routing_table
             .read()
@@ -120,8 +121,8 @@ impl LeaderBackend {
             Status::unavailable(format!("cannot resolve address for pod {pod_name}"))
         })?;
 
-        if let Some(client) = self.clients.get(&address) {
-            return Ok(client.clone());
+        if let Some(channel) = self.channels.get(&address) {
+            return Ok(channel.clone());
         }
 
         let channel = Channel::from_shared(address.clone())
@@ -129,13 +130,129 @@ impl LeaderBackend {
             .timeout(self.config.timeout)
             .tcp_nodelay(true)
             .connect_lazy();
-        let client = PersonHogLeaderClient::new(channel)
-            .max_encoding_message_size(self.config.max_send_message_size)
-            .max_decoding_message_size(self.config.max_recv_message_size)
-            .send_compressed(CompressionEncoding::Zstd)
-            .accept_compressed(CompressionEncoding::Zstd);
-        self.clients.insert(address, client.clone());
-        Ok(client)
+        self.channels.insert(address, channel.clone());
+        Ok(channel)
+    }
+
+    /// Forward a raw gRPC request frame to the leader pod owning
+    /// `partition`, retrying transient channel failures. The partition
+    /// travels in the `x-partition` header the leader reads in place of a
+    /// body field; the client's own headers (`x-client-name`,
+    /// `x-caller-tag`, etc.) are forwarded verbatim. A leader response that
+    /// carries a gRPC error is returned as `Ok` — only transport failures
+    /// retry and surface as `Err`. On success also returns the channel
+    /// round-trip time, used by the read path's network-overhead metric.
+    pub async fn forward_raw(
+        &self,
+        method: &'static str,
+        partition: u32,
+        headers: &HeaderMap,
+        frame: &Bytes,
+    ) -> Result<(http::Response<BoxBody>, f64), Status> {
+        let path = format!("{LEADER_PREFIX}{method}");
+        let partition_header = HeaderValue::from(partition);
+        let client = current_client_name();
+
+        with_retry(&self.config.retry_config, method, || {
+            let channel_fut = self.resolve_leader_channel(partition);
+            let headers = headers.clone();
+            let frame = frame.clone();
+            let path = path.clone();
+            let partition_header = partition_header.clone();
+            let client = client.clone();
+            async move {
+                let mut channel = channel_fut.await?;
+
+                let ready_start = Instant::now();
+                let ready_result = channel.ready().await;
+                let ready_outcome = if ready_result.is_ok() { "ok" } else { "error" };
+                histogram!(
+                    "personhog_router_channel_ready_wait_ms",
+                    "method" => method,
+                    "client" => client.clone(),
+                    "outcome" => ready_outcome,
+                )
+                .record(ready_start.elapsed().as_secs_f64() * 1000.0);
+                let ready = ready_result
+                    .map_err(|e| Status::unavailable(format!("leader channel not ready: {e}")))?;
+
+                let body = BoxBody::new(Full::new(frame).map_err(|never| match never {}));
+                let mut req = http::Request::new(body);
+                *req.method_mut() = http::Method::POST;
+                *req.uri_mut() = http::Uri::builder()
+                    .path_and_query(path)
+                    .build()
+                    .expect("leader path is a valid URI");
+                *req.version_mut() = http::Version::HTTP_2;
+                *req.headers_mut() = headers;
+                req.headers_mut().insert("x-partition", partition_header);
+
+                let call_start = Instant::now();
+                let call_result = ready.call(req).await;
+                let call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+                let call_outcome = if call_result.is_ok() { "ok" } else { "error" };
+                histogram!(
+                    "personhog_router_channel_call_ms",
+                    "method" => method,
+                    "client" => client,
+                    "outcome" => call_outcome,
+                )
+                .record(call_ms);
+                let response = call_result
+                    .map_err(|e| Status::unavailable(format!("leader backend error: {e}")))?;
+                Ok((response, call_ms))
+            }
+        })
+        .await
+    }
+
+    /// Forward a write to the leader, honoring the per-partition stash.
+    /// While a handoff for this partition is in a non-terminal phase the
+    /// stash is open and the request parks until drain replays it to the
+    /// new owner (or its deadline expires); otherwise it forwards
+    /// immediately. Returns the final gRPC response — the leader's, or a
+    /// router-generated error when the stash is full or dropped — plus the
+    /// channel round-trip time when the request forwarded directly
+    /// (`None` for stashed requests, whose latency is dominated by the
+    /// handoff wait and tracked by the stash-wait histogram instead).
+    pub async fn forward_or_stash(
+        &self,
+        method: &'static str,
+        partition: u32,
+        key: (i64, i64),
+        headers: HeaderMap,
+        frame: Bytes,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
+        // The stash module emits its own enqueued/rejected counters at the
+        // source; we don't double-count here.
+        match self
+            .stash
+            .enqueue_or_forward(partition, frame.clone(), headers.clone(), key)
+            .await
+        {
+            StashDecision::Stashed(rx) => {
+                let response = rx.await.unwrap_or_else(|_| {
+                    grpc_error_response(
+                        Code::Unavailable,
+                        "router stash dropped before handoff completed",
+                    )
+                });
+                (response, None)
+            }
+            StashDecision::Rejected => (
+                grpc_error_response(
+                    Code::Unavailable,
+                    &format!("router stash full for partition {partition}"),
+                ),
+                None,
+            ),
+            StashDecision::Forward => {
+                match self.forward_raw(method, partition, &headers, &frame).await {
+                    Ok((response, call_ms)) => (response, Some(call_ms)),
+                    Err(status) => (grpc_error_response(status.code(), status.message()), None),
+                }
+            }
+        }
     }
 }
 
@@ -193,138 +310,6 @@ fn kafka_murmur2(data: &[u8]) -> i32 {
     h
 }
 
-#[async_trait]
-impl LeaderOps for LeaderBackend {
-    async fn get_person(&self, request: GetPersonRequest) -> Result<GetPersonResponse, Status> {
-        let partition = self.partition_for_person(request.team_id, request.person_id);
-        let leader_req = LeaderGetPersonRequest {
-            team_id: request.team_id,
-            person_id: request.person_id,
-            partition,
-        };
-        with_retry(&self.config.retry_config, "get_person", || {
-            let client_fut = self.resolve_leader(partition);
-            let req = leader_req;
-            let client_name = current_client_name();
-            let caller_tag = current_caller_tag();
-            async move {
-                let mut client = client_fut.await?;
-                let mut request = Request::new(req);
-                if let Ok(val) = client_name.parse() {
-                    request.metadata_mut().insert("x-client-name", val);
-                }
-                if let Ok(val) = caller_tag.parse() {
-                    request.metadata_mut().insert("x-caller-tag", val);
-                }
-                client.get_person(request).await.map(|r| r.into_inner())
-            }
-        })
-        .await
-    }
-
-    async fn update_person_properties(
-        &self,
-        request: UpdatePersonPropertiesRequest,
-    ) -> Result<UpdatePersonPropertiesResponse, Status> {
-        let partition = self.partition_for_person(request.team_id, request.person_id);
-        let mut req_with_partition = request;
-        req_with_partition.partition = partition;
-
-        // Stash fast path. While a handoff for this partition is in any
-        // non-terminal phase (`Freezing`, `Draining`, or `Warming`), the
-        // partition is registered in the stash table and writes are
-        // queued instead of forwarded. The coordinator atomically writes
-        // `Complete` together with the new `PartitionAssignment`; at
-        // that point `drain_stash` flushes the queue to the new owner
-        // via `update_person_properties_no_stash` (bypassing this hook
-        // to avoid re-enqueueing during drain), and subsequent requests
-        // fall through to the normal forward path below.
-        // The stash module emits its own enqueued/rejected counters with
-        // appropriate labels at the source; we don't double-count here.
-        match self
-            .stash
-            .enqueue_or_forward(
-                partition,
-                req_with_partition.clone(),
-                Some(current_client_name().to_string()),
-            )
-            .await
-        {
-            StashDecision::Stashed(rx) => {
-                return rx.await.unwrap_or_else(|_| {
-                    Err(Status::unavailable(
-                        "router stash dropped before handoff completed",
-                    ))
-                });
-            }
-            StashDecision::Rejected => {
-                return Err(Status::unavailable(format!(
-                    "router stash full for partition {partition}"
-                )));
-            }
-            StashDecision::Forward => {}
-        }
-
-        self.forward_to_leader(req_with_partition, partition).await
-    }
-}
-
-impl LeaderBackend {
-    /// Forward an update directly to the leader, bypassing the stash
-    /// hook. Used by the drain handler so each replayed request goes to
-    /// the leader instead of re-entering the stash queue (which would
-    /// deadlock the drain — the dashmap entry is still present until
-    /// the drain loop observes the queue empty under the lock).
-    ///
-    /// Callers that want the normal stash-aware path should call
-    /// `update_person_properties` instead. This method assumes its
-    /// caller has already computed the correct partition and stamped
-    /// it onto the request.
-    pub async fn update_person_properties_no_stash(
-        &self,
-        request: UpdatePersonPropertiesRequest,
-    ) -> Result<UpdatePersonPropertiesResponse, Status> {
-        let partition = request.partition;
-        self.forward_to_leader(request, partition).await
-    }
-
-    /// Internal: do the actual gRPC forward to the leader for a given
-    /// partition, with retry on transient errors. Shared between the
-    /// normal `update_person_properties` (post-stash) and the drain's
-    /// `update_person_properties_no_stash` path.
-    async fn forward_to_leader(
-        &self,
-        request: UpdatePersonPropertiesRequest,
-        partition: u32,
-    ) -> Result<UpdatePersonPropertiesResponse, Status> {
-        with_retry(
-            &self.config.retry_config,
-            "update_person_properties",
-            || {
-                let client_fut = self.resolve_leader(partition);
-                let req = request.clone();
-                let client_name = current_client_name();
-                let caller_tag = current_caller_tag();
-                async move {
-                    let mut client = client_fut.await?;
-                    let mut request = Request::new(req);
-                    if let Ok(val) = client_name.parse() {
-                        request.metadata_mut().insert("x-client-name", val);
-                    }
-                    if let Ok(val) = caller_tag.parse() {
-                        request.metadata_mut().insert("x-caller-tag", val);
-                    }
-                    client
-                        .update_person_properties(request)
-                        .await
-                        .map(|r| r.into_inner())
-                }
-            },
-        )
-        .await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,8 +323,6 @@ mod tests {
                 initial_backoff_ms: 1,
                 max_backoff_ms: 1,
             },
-            max_send_message_size: 4 * 1024 * 1024,
-            max_recv_message_size: 4 * 1024 * 1024,
         }
     }
 
@@ -440,7 +423,7 @@ mod tests {
         );
 
         let partition = backend.partition_for_person(1, 42);
-        let result = backend.resolve_leader(partition).await;
+        let result = backend.resolve_leader_channel(partition).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::Unavailable);
     }
@@ -462,7 +445,7 @@ mod tests {
             .insert(partition, "leader-0".to_string());
 
         let partition = backend.partition_for_person(1, 42);
-        let result = backend.resolve_leader(partition).await;
+        let result = backend.resolve_leader_channel(partition).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::Unavailable);
     }
@@ -485,12 +468,12 @@ mod tests {
             .insert(partition, "leader-0".to_string());
 
         let partition = backend.partition_for_person(1, 42);
-        let result = backend.resolve_leader(partition).await;
+        let result = backend.resolve_leader_channel(partition).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn resolve_leader_caches_client() {
+    async fn resolve_leader_caches_channel() {
         let routing_table = Arc::new(RwLock::new(HashMap::new()));
         let resolver: AddressResolver = Arc::new(|_| Some("http://localhost:50053".to_string()));
         let backend = LeaderBackend::new(
@@ -507,23 +490,19 @@ mod tests {
             .insert(partition, "leader-0".to_string());
 
         let partition = backend.partition_for_person(1, 42);
-        let _client1 = backend.resolve_leader(partition).await.unwrap();
-        assert_eq!(backend.clients.len(), 1);
+        let _channel1 = backend.resolve_leader_channel(partition).await.unwrap();
+        assert_eq!(backend.channels.len(), 1);
 
-        let _client2 = backend.resolve_leader(partition).await.unwrap();
-        assert_eq!(backend.clients.len(), 1); // still 1, cached
+        let _channel2 = backend.resolve_leader_channel(partition).await.unwrap();
+        assert_eq!(backend.channels.len(), 1); // still 1, cached
     }
 
-    /// When the partition's stash is open and full, `update_person_properties`
-    /// must short-circuit with `Status::unavailable` instead of falling
-    /// through to the forward path. This proves the stash-rejection branch
-    /// in `update_person_properties` and that callers see a retryable
-    /// error code rather than getting their request silently dropped.
+    /// When the partition's stash is open and full, `forward_or_stash`
+    /// must short-circuit with an UNAVAILABLE gRPC response instead of
+    /// forwarding, so callers see a retryable status rather than getting
+    /// their write silently dropped.
     #[tokio::test]
-    async fn update_person_properties_returns_unavailable_when_stash_full() {
-        use personhog_proto::personhog::types::v1::UpdatePersonPropertiesRequest;
-        use tonic::Code;
-
+    async fn forward_or_stash_returns_unavailable_when_stash_full() {
         let routing_table = Arc::new(RwLock::new(HashMap::new()));
         let resolver: AddressResolver = Arc::new(|_| Some("http://localhost:50053".to_string()));
         // `max_messages = 0` rejects any enqueue once the stash is open.
@@ -540,22 +519,21 @@ mod tests {
         let partition = backend.partition_for_person(1, 42);
         stash.begin_stash(partition).await;
 
-        let request = UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0, // overwritten by update_person_properties
-            event_name: "test".to_string(),
-            set_properties: Vec::new(),
-            set_once_properties: Vec::new(),
-            unset_properties: Vec::new(),
-        };
+        let (response, call_ms) = backend
+            .forward_or_stash(
+                "UpdatePersonProperties",
+                partition,
+                (1, 42),
+                HeaderMap::new(),
+                Bytes::new(),
+            )
+            .await;
 
-        let result = backend.update_person_properties(request).await;
-        let err = result.expect_err("stash with max_messages=0 must reject");
         assert_eq!(
-            err.code(),
-            Code::Unavailable,
+            response.headers().get("grpc-status").unwrap(),
+            &format!("{}", Code::Unavailable as i32),
             "rejection must surface as UNAVAILABLE so callers retry"
         );
+        assert!(call_ms.is_none(), "no forward happened, so no call time");
     }
 }

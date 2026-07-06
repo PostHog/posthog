@@ -17,12 +17,11 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
+use bytes::Bytes;
 use dashmap::DashMap;
-use personhog_proto::personhog::types::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
+use http::HeaderMap;
 use tokio::sync::{oneshot, Mutex};
-use tonic::Status;
+use tonic::body::BoxBody;
 
 /// Fixed per-request overhead estimate that approximates the bookkeeping
 /// cost of holding a request in the queue (struct fields, oneshot
@@ -48,25 +47,26 @@ impl RejectCause {
     }
 }
 
-/// Approximate the memory footprint of a stashed request. Used to
-/// enforce the byte-based stash bound. Sums the variable-size fields
-/// plus a fixed overhead estimate; doesn't attempt exact proto-encoded
-/// sizing because we only need an order-of-magnitude bound, and
-/// approximate counting is cheaper.
-fn approximate_size(req: &UpdatePersonPropertiesRequest) -> usize {
-    PER_REQUEST_OVERHEAD
-        + req.event_name.len()
-        + req.set_properties.len()
-        + req.set_once_properties.len()
-        + req.unset_properties.iter().map(|s| s.len()).sum::<usize>()
+/// Approximate the memory footprint of a stashed request — the raw frame
+/// plus a fixed per-entry overhead estimate. Used to enforce the
+/// byte-based stash bound; an order-of-magnitude bound is enough, so this
+/// doesn't attempt exact accounting of the headers map.
+fn approximate_size(frame: &Bytes) -> usize {
+    PER_REQUEST_OVERHEAD + frame.len()
 }
 
-/// A request held in the stash along with the channel used to deliver its
-/// response back to the original caller.
+/// A raw write held in the stash along with everything needed to replay it
+/// to the new owner and return the response to the original caller.
 pub struct StashedRequest {
-    pub request: UpdatePersonPropertiesRequest,
-    pub client_name: Option<String>,
-    pub reply: oneshot::Sender<Result<UpdatePersonPropertiesResponse, Status>>,
+    /// The raw gRPC request frame, forwarded verbatim on replay.
+    pub frame: Bytes,
+    /// The client's request headers, forwarded verbatim (the router stamps
+    /// `x-partition` at forward time).
+    pub headers: HeaderMap,
+    /// `(team_id, person_id)` — the leader's per-person serialization key,
+    /// used to preserve per-key ordering during drain.
+    pub key: (i64, i64),
+    pub reply: oneshot::Sender<http::Response<BoxBody>>,
     /// Wall-clock time the request was enqueued. Used to record stash-wait
     /// histograms when drain forwards the request, giving operators
     /// visibility into how long callers spent parked during a handoff.
@@ -122,7 +122,7 @@ impl PartitionStash {
 /// stash is full (either too many messages or too many bytes).
 pub enum StashDecision {
     Forward,
-    Stashed(oneshot::Receiver<Result<UpdatePersonPropertiesResponse, Status>>),
+    Stashed(oneshot::Receiver<http::Response<BoxBody>>),
     Rejected,
 }
 
@@ -181,8 +181,9 @@ impl StashTable {
     pub async fn enqueue_or_forward(
         &self,
         partition: u32,
-        request: UpdatePersonPropertiesRequest,
-        client_name: Option<String>,
+        frame: Bytes,
+        headers: HeaderMap,
+        key: (i64, i64),
     ) -> StashDecision {
         let stash = match self.inner.get(&partition) {
             Some(entry) => Arc::clone(entry.value()),
@@ -197,7 +198,7 @@ impl StashTable {
             return StashDecision::Forward;
         };
 
-        let request_size = approximate_size(&request);
+        let request_size = approximate_size(&frame);
 
         if queue.requests.len() >= stash.max_messages {
             metrics::counter!(
@@ -218,8 +219,9 @@ impl StashTable {
 
         let (tx, rx) = oneshot::channel();
         queue.requests.push_back(StashedRequest {
-            request,
-            client_name,
+            frame,
+            headers,
+            key,
             reply: tx,
             enqueued_at: Instant::now(),
         });
@@ -305,6 +307,7 @@ impl StashTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::{BodyExt, Empty};
 
     /// Collect drained requests into a `Vec` via the forward-batch
     /// closure. Mirrors the original return-VecDeque API for tests
@@ -332,37 +335,47 @@ mod tests {
             .unwrap()
     }
 
-    fn mk_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest {
-        UpdatePersonPropertiesRequest {
-            team_id,
-            person_id,
-            partition: 0,
-            event_name: "test".to_string(),
-            set_properties: Vec::new(),
-            set_once_properties: Vec::new(),
-            unset_properties: Vec::new(),
-        }
+    /// Enqueue a minimal stashed write for `(team_id = 1, person_id)`.
+    async fn enqueue(table: &StashTable, partition: u32, person_id: i64) -> StashDecision {
+        table
+            .enqueue_or_forward(
+                partition,
+                Bytes::from_static(b"x"),
+                HeaderMap::new(),
+                (1, person_id),
+            )
+            .await
     }
 
-    fn mk_request_with_payload(
+    /// Enqueue a stashed write whose frame is `payload` bytes, exercising
+    /// the byte-based stash bound.
+    async fn enqueue_sized(
+        table: &StashTable,
+        partition: u32,
         person_id: i64,
-        payload_size: usize,
-    ) -> UpdatePersonPropertiesRequest {
-        UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id,
-            partition: 0,
-            event_name: "test".to_string(),
-            set_properties: vec![0u8; payload_size],
-            set_once_properties: Vec::new(),
-            unset_properties: Vec::new(),
-        }
+        payload: usize,
+    ) -> StashDecision {
+        table
+            .enqueue_or_forward(
+                partition,
+                Bytes::from(vec![0u8; payload]),
+                HeaderMap::new(),
+                (1, person_id),
+            )
+            .await
+    }
+
+    /// A trivial gRPC response for exercising the reply channel.
+    fn test_response() -> http::Response<BoxBody> {
+        http::Response::new(BoxBody::new(
+            Empty::<Bytes>::new().map_err(|never| match never {}),
+        ))
     }
 
     #[tokio::test]
     async fn forward_when_not_frozen() {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
-        match table.enqueue_or_forward(0, mk_request(1, 1), None).await {
+        match enqueue(&table, 0, 1).await {
             StashDecision::Forward => {}
             _ => panic!("expected Forward"),
         }
@@ -373,22 +386,22 @@ mod tests {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
         table.begin_stash(0).await;
 
-        let _rx1 = match table.enqueue_or_forward(0, mk_request(1, 1), None).await {
+        let _rx1 = match enqueue(&table, 0, 1).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
-        let _rx2 = match table.enqueue_or_forward(0, mk_request(1, 2), None).await {
+        let _rx2 = match enqueue(&table, 0, 2).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
 
         let drained = drain_to_vec(&table, 0).await;
         assert_eq!(drained.len(), 2);
-        let ids: Vec<i64> = drained.iter().map(|s| s.request.person_id).collect();
+        let ids: Vec<i64> = drained.iter().map(|s| s.key.1).collect();
         assert_eq!(ids, vec![1, 2]);
 
         // After drain, new requests forward.
-        match table.enqueue_or_forward(0, mk_request(1, 3), None).await {
+        match enqueue(&table, 0, 3).await {
             StashDecision::Forward => {}
             _ => panic!("expected Forward after drain"),
         }
@@ -419,7 +432,7 @@ mod tests {
     async fn drain_then_begin_stash_starts_fresh() {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
         table.begin_stash(0).await;
-        let _rx = match table.enqueue_or_forward(0, mk_request(1, 1), None).await {
+        let _rx = match enqueue(&table, 0, 1).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
@@ -429,7 +442,7 @@ mod tests {
         // New handoff begins
         table.begin_stash(0).await;
         // Fresh queue; brand-new requests stash, not forward
-        match table.enqueue_or_forward(0, mk_request(1, 2), None).await {
+        match enqueue(&table, 0, 2).await {
             StashDecision::Stashed(_) => {}
             _ => panic!("expected Stashed for fresh handoff"),
         }
@@ -441,15 +454,15 @@ mod tests {
         table.begin_stash(0).await;
 
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 1), None).await,
+            enqueue(&table, 0, 1).await,
             StashDecision::Stashed(_)
         ));
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 2), None).await,
+            enqueue(&table, 0, 2).await,
             StashDecision::Stashed(_)
         ));
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 3), None).await,
+            enqueue(&table, 0, 3).await,
             StashDecision::Rejected
         ));
     }
@@ -462,21 +475,15 @@ mod tests {
         table.begin_stash(0).await;
 
         assert!(matches!(
-            table
-                .enqueue_or_forward(0, mk_request_with_payload(1, 2 * 1024), None)
-                .await,
+            enqueue_sized(&table, 0, 1, 2 * 1024).await,
             StashDecision::Stashed(_)
         ));
         assert!(matches!(
-            table
-                .enqueue_or_forward(0, mk_request_with_payload(2, 2 * 1024), None)
-                .await,
+            enqueue_sized(&table, 0, 2, 2 * 1024).await,
             StashDecision::Stashed(_)
         ));
         assert!(matches!(
-            table
-                .enqueue_or_forward(0, mk_request_with_payload(3, 2 * 1024), None)
-                .await,
+            enqueue_sized(&table, 0, 3, 2 * 1024).await,
             StashDecision::Rejected
         ));
     }
@@ -489,12 +496,12 @@ mod tests {
         table.begin_stash(0).await;
 
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 1), None).await,
+            enqueue(&table, 0, 1).await,
             StashDecision::Stashed(_)
         ));
         // Second message rejected on count even though bytes are nowhere near.
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 2), None).await,
+            enqueue(&table, 0, 2).await,
             StashDecision::Rejected
         ));
     }
@@ -506,11 +513,11 @@ mod tests {
 
         // p0 stashes, p1 forwards
         assert!(matches!(
-            table.enqueue_or_forward(0, mk_request(1, 1), None).await,
+            enqueue(&table, 0, 1).await,
             StashDecision::Stashed(_)
         ));
         assert!(matches!(
-            table.enqueue_or_forward(1, mk_request(1, 1), None).await,
+            enqueue(&table, 1, 1).await,
             StashDecision::Forward
         ));
     }
@@ -532,11 +539,9 @@ mod tests {
             let mut handles = Vec::with_capacity(ENQUEUERS);
             for i in 0..ENQUEUERS {
                 let table = table.clone();
-                handles.push(tokio::spawn(async move {
-                    table
-                        .enqueue_or_forward(0, mk_request(1, i as i64), None)
-                        .await
-                }));
+                handles.push(tokio::spawn(
+                    async move { enqueue(&table, 0, i as i64).await },
+                ));
             }
 
             // Race the drain against the in-flight enqueues.
@@ -583,23 +588,23 @@ mod tests {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
         table.begin_stash(0).await;
 
-        let rx = match table.enqueue_or_forward(0, mk_request(1, 1), None).await {
+        let rx = match enqueue(&table, 0, 1).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
 
         let mut drained = drain_to_vec(&table, 0).await;
         let req = drained.remove(0);
-        let response = UpdatePersonPropertiesResponse {
-            person: None,
-            updated: true,
-        };
+        let mut response = test_response();
+        response
+            .headers_mut()
+            .insert("x-test", http::HeaderValue::from_static("ok"));
         req.reply
-            .send(Ok(response.clone()))
+            .send(response)
             .expect("send must succeed when receiver is alive");
 
         let received = rx.await.expect("receiver must observe sender");
-        assert_eq!(received.unwrap(), response);
+        assert_eq!(received.headers().get("x-test").unwrap(), "ok");
     }
 
     /// If the original caller dropped its receiver (e.g. the gRPC client
@@ -611,7 +616,7 @@ mod tests {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
         table.begin_stash(0).await;
 
-        let rx = match table.enqueue_or_forward(0, mk_request(1, 1), None).await {
+        let rx = match enqueue(&table, 0, 1).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
@@ -619,12 +624,8 @@ mod tests {
 
         let mut drained = drain_to_vec(&table, 0).await;
         let req = drained.remove(0);
-        let response = UpdatePersonPropertiesResponse {
-            person: None,
-            updated: false,
-        };
         assert!(
-            req.reply.send(Ok(response)).is_err(),
+            req.reply.send(test_response()).is_err(),
             "send must return Err after the receiver is dropped"
         );
     }
@@ -674,7 +675,7 @@ mod tests {
             // outcome here; what we *don't* accept is a non-empty
             // drained queue that was just initialized by begin_stash on
             // an orphaned Arc, which the tombstone prevents.
-            let outcome = table.enqueue_or_forward(0, mk_request(1, 1), None).await;
+            let outcome = enqueue(&table, 0, 1).await;
             match outcome {
                 StashDecision::Stashed(_) => {
                     // Fresh dashmap entry exists — begin_stash set it up correctly.

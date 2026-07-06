@@ -16,8 +16,9 @@ use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::{CacheLookup, PartitionedCache};
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
-use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
-use personhog_proto::personhog::types::v1::{Person, UpdatePersonPropertiesRequest};
+use personhog_proto::personhog::types::v1::{
+    GetPersonRequest, Person, UpdatePersonPropertiesRequest,
+};
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
@@ -25,6 +26,33 @@ use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
+
+/// Wrap a request with the `x-partition` metadata the leader reads in place
+/// of a body field, matching how the router forwards to the leader.
+fn with_partition<T>(req: T, partition: u32) -> tonic::Request<T> {
+    let mut request = tonic::Request::new(req);
+    request
+        .metadata_mut()
+        .insert("x-partition", partition.to_string().parse().unwrap());
+    request
+}
+
+/// Build a `GetPerson` request carrying the partition in `x-partition`
+/// metadata, matching how the router forwards strong reads to the leader.
+fn leader_get_request(
+    team_id: i64,
+    person_id: i64,
+    partition: u32,
+) -> tonic::Request<GetPersonRequest> {
+    with_partition(
+        GetPersonRequest {
+            team_id,
+            person_id,
+            read_options: None,
+        },
+        partition,
+    )
+}
 
 // ============================================================
 // Test 1: Full lifecycle via etcd coordination
@@ -82,11 +110,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     // gRPC get_person should succeed
     let mut client = create_leader_client(pod.leader_addr).await;
     let response = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
+        .get_person(leader_get_request(1, 42, 0))
         .await
         .unwrap();
 
@@ -96,15 +120,18 @@ async fn service_accepts_requests_after_coordination_warmup() {
 
     // Update should succeed
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Updated"})).unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Updated"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
         .await
         .unwrap();
 
@@ -114,11 +141,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
 
     // Read back should reflect the update
     let response = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
+        .get_person(leader_get_request(1, 42, 0))
         .await
         .unwrap();
 
@@ -171,17 +194,94 @@ async fn unowned_partition_returns_failed_precondition() {
     let mut client = create_leader_client(addr).await;
 
     // Request for unowned partition → FailedPrecondition
-    let result = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
-        .await;
+    let result = client.get_person(leader_get_request(1, 42, 0)).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::FailedPrecondition);
 
     // Write to unowned partition → FailedPrecondition
+    let result = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: vec![],
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
+        .await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::FailedPrecondition);
+
+    // Manually warm partition → now NotFound (partition exists, no data)
+    cache.create_partition(0);
+
+    let result = client.get_person(leader_get_request(1, 42, 0)).await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 2b: Requests without x-partition metadata fail closed
+// (no etcd needed)
+// ============================================================
+
+/// The partition arrives only via `x-partition` metadata, stamped by the
+/// router. A request without it is misrouted or malformed and must be
+/// rejected with INVALID_ARGUMENT rather than served against a guessed
+/// partition — even when the person exists and its partition is warm.
+#[tokio::test]
+async fn missing_partition_metadata_returns_invalid_argument() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+    );
+
+    // Warm the partition and seed the person so the only failure mode
+    // left is the missing metadata itself.
+    cache.create_partition(0);
+    seed_person(&cache, 0, test_cached_person());
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    let mut client = create_leader_client(addr).await;
+
+    let result = client
+        .get_person(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        })
+        .await;
+    let status = result.expect_err("read without x-partition must fail closed");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("x-partition"));
+
     let result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
             team_id: 1,
@@ -190,24 +290,11 @@ async fn unowned_partition_returns_failed_precondition() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await;
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), tonic::Code::FailedPrecondition);
-
-    // Manually warm partition → now NotFound (partition exists, no data)
-    cache.create_partition(0);
-
-    let result = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
-        .await;
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+    let status = result.expect_err("write without x-partition must fail closed");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("x-partition"));
 
     cancel.cancel();
 }
@@ -260,11 +347,7 @@ async fn release_partition_stops_serving() {
     // Verify get_person works on pod 1
     let mut client1 = create_leader_client(pod1.leader_addr).await;
     let response = client1
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
+        .get_person(leader_get_request(1, 42, 0))
         .await
         .unwrap();
     assert_eq!(response.into_inner().person.unwrap().id, 42);
@@ -306,11 +389,7 @@ async fn release_partition_stops_serving() {
 
     // Pod 1: released partition → FailedPrecondition
     let result = client1
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: moved_partition,
-        })
+        .get_person(leader_get_request(1, 42, moved_partition))
         .await;
     assert!(result.is_err());
     assert_eq!(
@@ -322,11 +401,7 @@ async fn release_partition_stops_serving() {
     // Pod 2: warmed partition but empty cache → NotFound
     let mut client2 = create_leader_client(pod2.leader_addr).await;
     let result = client2
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: moved_partition,
-        })
+        .get_person(leader_get_request(1, 42, moved_partition))
         .await;
     assert!(result.is_err());
     assert_eq!(
@@ -413,13 +488,7 @@ async fn rewarm_after_pod_crash() {
 
     // Partitions are warm but empty → NotFound
     let mut client2 = create_leader_client(pod2.leader_addr).await;
-    let result = client2
-        .get_person(LeaderGetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            partition: 0,
-        })
-        .await;
+    let result = client2.get_person(leader_get_request(1, 42, 0)).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
 
@@ -433,13 +502,17 @@ async fn rewarm_after_pod_crash() {
 
 #[tokio::test]
 async fn update_produces_person_state_to_kafka() {
-    let cache = Arc::new(PartitionedCache::new(100));
-    // Single-partition topic: this test verifies the producer's delivery
-    // path, not partition routing. Using a single partition makes the
-    // assertion (consume from partition 0) deterministic regardless of
-    // rdkafka's default key-hash partitioner.
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(1).await;
+    // The changelog must land on the exact Kafka partition the request's
+    // `x-partition` named — warming rebuilds a routing partition's cache by
+    // consuming the same-numbered Kafka partition, so key-hash placement
+    // (whose partitioner config could diverge from the router's murmur2)
+    // is not acceptable. A multi-partition topic with a non-zero routing
+    // partition makes misplacement observable: the consumer below reads
+    // only partition 2 and must find the message there.
+    const ROUTING_PARTITION: u32 = 2;
+    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
 
+    let cache = Arc::new(PartitionedCache::new(100));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -449,9 +522,9 @@ async fn update_produces_person_state_to_kafka() {
         Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
-    cache.create_partition(0);
+    cache.create_partition(ROUTING_PARTITION);
     let person = test_cached_person();
-    seed_person(&cache, 0, person);
+    seed_person(&cache, ROUTING_PARTITION, person);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -474,15 +547,18 @@ async fn update_produces_person_state_to_kafka() {
 
     // Perform an update
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Kafka Test"})).unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Kafka Test"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            ROUTING_PARTITION,
+        ))
         .await
         .unwrap();
 
@@ -490,7 +566,8 @@ async fn update_produces_person_state_to_kafka() {
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, 2);
 
-    // Consume the message from the mock Kafka cluster
+    // Consume only the routing partition — finding the message here proves
+    // the explicit-partition produce, not just delivery.
     let consumer: BaseConsumer = ClientConfig::new()
         .set("bootstrap.servers", mock_cluster.bootstrap_servers())
         .set("group.id", "test-consumer")
@@ -498,13 +575,17 @@ async fn update_produces_person_state_to_kafka() {
         .expect("failed to create consumer");
 
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset(CHANGELOG_TOPIC, 0, rdkafka::Offset::Beginning)
-        .unwrap();
+    tpl.add_partition_offset(
+        CHANGELOG_TOPIC,
+        ROUTING_PARTITION as i32,
+        rdkafka::Offset::Beginning,
+    )
+    .unwrap();
     consumer.assign(&tpl).unwrap();
 
     let msg = consumer
         .poll(Duration::from_secs(5))
-        .expect("no message received")
+        .expect("no message received on the routing partition")
         .expect("kafka error");
 
     // Verify message key
@@ -572,16 +653,18 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
     // Update should fail because Kafka produce fails
     let result = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Should Rollback"}))
-                .unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Should Rollback"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
         .await;
 
     assert!(result.is_err());
@@ -603,16 +686,18 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     mock_cluster.clear_request_errors(RDKafkaApiKey::Produce);
 
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "After Recovery"}))
-                .unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "After Recovery"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
         .await
         .unwrap();
 
@@ -667,15 +752,18 @@ async fn e2e_update_produces_to_local_kafka() {
 
     // Perform an update via gRPC
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "E2E Test"})).unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "E2E Test"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
         .await
         .unwrap();
 
@@ -758,11 +846,7 @@ async fn pg_fallback_loads_person_on_cache_miss() {
 
     // First call: cache miss → PG fallback → loads and caches the person
     let response = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: team_id as i64,
-            person_id,
-            partition: 0,
-        })
+        .get_person(leader_get_request(team_id as i64, person_id, 0))
         .await
         .unwrap();
 
@@ -801,11 +885,7 @@ async fn pg_fallback_returns_not_found_for_missing_person() {
 
     // Query a person that doesn't exist in PG
     let result = client
-        .get_person(LeaderGetPersonRequest {
-            team_id: 99999,
-            person_id: 99999999,
-            partition: 0,
-        })
+        .get_person(leader_get_request(99999, 99999999, 0))
         .await;
 
     assert!(result.is_err());
@@ -842,18 +922,20 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
 
     // Update a person not in cache — should load from PG then apply
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: team_id as i64,
-            person_id,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({
-                "pg_fallback_test": "it_works"
-            }))
-            .unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: team_id as i64,
+                person_id,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({
+                    "pg_fallback_test": "it_works"
+                }))
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
         .await
         .unwrap();
 

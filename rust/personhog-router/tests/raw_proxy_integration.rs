@@ -10,7 +10,7 @@ use common::{
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person, PersonWithDistinctIds,
+    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
     UpdatePersonPropertiesRequest,
 };
 use tonic::Request;
@@ -239,7 +239,6 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
             set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await
         .unwrap();
@@ -270,7 +269,6 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
                 .unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await
         .unwrap();
@@ -339,7 +337,6 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await;
 
@@ -347,6 +344,52 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unimplemented);
     assert!(status.message().contains("leader"));
+}
+
+/// Leader-path requests must arrive uncompressed: the router scans the
+/// request bytes for the routing key, which a compressed frame hides. A
+/// client with send-compression enabled gets a clear UNIMPLEMENTED rather
+/// than a misroute. (Compressed requests remain fully supported on the
+/// replica path — see the compression tests below.)
+#[tokio::test]
+async fn raw_proxy_rejects_compressed_leader_requests() {
+    let replica_service = TestReplicaService::new();
+    let leader_service = TestLeaderService::new().with_person(create_test_person());
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut compressed = create_compressed_client(router_addr).await;
+
+    let update_result = compressed
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            // Enough payload that tonic actually compresses the frame.
+            set_properties: vec![b'x'; 4096],
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        })
+        .await;
+    let status = update_result.expect_err("compressed write must be rejected");
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
+    assert!(status.message().contains("compressed"));
+
+    let read_result = compressed
+        .get_person(with_consistency(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: 42,
+                read_options: None,
+            },
+            "strong",
+        ))
+        .await;
+    let status = read_result.expect_err("compressed strong read must be rejected");
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
+    assert!(status.message().contains("compressed"));
 }
 
 // ============================================================
@@ -398,7 +441,6 @@ async fn raw_proxy_rejects_oversized_leader_request() {
             set_properties: oversized_props,
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await;
 
@@ -443,8 +485,15 @@ fn complex_properties() -> Vec<u8> {
     .unwrap()
 }
 
+/// Request compression is not supported anywhere in personhog: no backend
+/// enables a tonic request codec (the zstd codec that once served the typed
+/// router hop is gone). On the replica path the router forwards compressed
+/// frames untouched and the backend's UNIMPLEMENTED rejection relays cleanly
+/// back to the client, while a plain client on the same router keeps
+/// working. (The leader path rejects at the router itself — see
+/// `raw_proxy_rejects_compressed_leader_requests`.)
 #[tokio::test]
-async fn raw_proxy_compressed_request_matches_uncompressed() {
+async fn raw_proxy_compressed_replica_request_rejected_by_backend() {
     let person = Person {
         properties: complex_properties(),
         ..create_test_person()
@@ -462,47 +511,14 @@ async fn raw_proxy_compressed_request_matches_uncompressed() {
         read_options: None,
     };
 
+    let status = compressed
+        .get_person(req())
+        .await
+        .expect_err("compressed replica request must be rejected by the backend");
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
+
     let plain_resp = plain.get_person(req()).await.unwrap().into_inner();
-    let compressed_resp = compressed.get_person(req()).await.unwrap().into_inner();
-    assert_eq!(plain_resp, compressed_resp);
-}
-
-#[tokio::test]
-async fn raw_proxy_compressed_get_persons_by_distinct_ids() {
-    let persons = vec![
-        PersonWithDistinctIds {
-            distinct_id: "user-1".to_string(),
-            person: Some(create_test_person()),
-        },
-        PersonWithDistinctIds {
-            distinct_id: "user-2".to_string(),
-            person: None,
-        },
-    ];
-    let replica_service = TestReplicaService::new().with_persons_by_distinct_id(persons);
-    let replica_addr = start_test_replica(replica_service).await;
-    let router_addr = start_test_router_raw(replica_addr).await;
-
-    let mut plain = create_client(router_addr).await;
-    let mut compressed = create_compressed_client(router_addr).await;
-
-    let req = || GetPersonsByDistinctIdsInTeamRequest {
-        team_id: 1,
-        distinct_ids: vec!["user-1".to_string(), "user-2".to_string()],
-        read_options: None,
-    };
-
-    let plain_resp = plain
-        .get_persons_by_distinct_ids_in_team(req())
-        .await
-        .unwrap()
-        .into_inner();
-    let compressed_resp = compressed
-        .get_persons_by_distinct_ids_in_team(req())
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(plain_resp, compressed_resp);
+    assert_eq!(plain_resp.person.unwrap().id, person.id);
 }
 
 // ============================================================
