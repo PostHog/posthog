@@ -61,7 +61,11 @@ const openMenu = async (container: HTMLElement): Promise<void> => {
 }
 
 const clickMenuItem = (label: string): void => {
-    fireEvent.click(screen.getByRole('menuitem', { name: label }))
+    const item = screen.getAllByRole('menuitem').find((el) => el.textContent === label)
+    if (!item) {
+        throw new Error(`menu item "${label}" not found`)
+    }
+    fireEvent.click(item)
 }
 
 const typeAndSave = (input: HTMLInputElement, newText: string): void => {

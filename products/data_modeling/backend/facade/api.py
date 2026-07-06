@@ -17,6 +17,8 @@ _LAZY = {
     "is_saved_query_on_v2_schedule": "logic.node_materialization",
     "materialize_saved_query": "logic.node_materialization",
     "start_node_materialization": "logic.node_materialization",
+    "compute_enrichment_hash": "logic.enrich_view_semantics",
+    "enrich_view_semantics_sync": "logic.enrich_view_semantics",
 }
 
 __all__ = sorted(_LAZY)

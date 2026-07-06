@@ -6,6 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -135,7 +136,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -155,7 +156,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -223,7 +224,7 @@ describe('TrendsLineChart', () => {
 
             // One data series + one moving-average overlay = 2 rendered series.
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
         })
 
@@ -247,7 +248,7 @@ describe('TrendsLineChart', () => {
             renderInsight({ query: buildTrendsQuery() })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 1 data series/i)).toBeInTheDocument()
             })
         })
     })
@@ -288,7 +289,7 @@ describe('TrendsLineChart', () => {
                 inSharedMode: true,
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
         })
     })
@@ -306,7 +307,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
         })
 
@@ -324,7 +325,7 @@ describe('TrendsLineChart', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
                 const ticks = getHogChart().yTicks()
                 expect(ticks.length).toBeGreaterThan(0)
@@ -393,7 +394,7 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery(),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             // Reference lines come exclusively from goalLines in this test (none configured),
             // so the count must be 0 — anything here would be a leaked alert overlay.
             expect(getHogChart().referenceLines()).toHaveLength(0)
@@ -413,7 +414,7 @@ describe('TrendsLineChart', () => {
 
             // Wait for both series before toggling.
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             await legend.toggle('Napped')
@@ -436,14 +437,14 @@ describe('TrendsLineChart', () => {
 
             await waitFor(() => {
                 // 2 main + 2 trend lines = 4 series
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
             })
 
             await legend.toggle('Napped')
 
             await waitFor(() => {
                 // Hiding Napped removes its main series + its trend line.
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             // No Napped value labels remain (Napped's data is 1, 3, 5, 8, 2; the 8 was the
@@ -476,7 +477,7 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({ trendsFilter }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(getHogChart().xAxisLabel()).toBe(expectedX)
             expect(getHogChart().yAxisLabel()).toBe(expectedY)
         })
@@ -532,7 +533,7 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({ trendsFilter: { goalLines } }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(
                 () => {
                     const lines = getHogChart().referenceLines()
@@ -593,7 +594,7 @@ describe('TrendsLineChart', () => {
         it('renders no labels when showValuesOnSeries is disabled', async () => {
             renderInsight({ query: buildTrendsQuery() })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(getHogChart().valueLabels()).toHaveLength(0)
         })
     })
@@ -608,7 +609,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -628,7 +629,7 @@ describe('TrendsLineChart', () => {
 
         it('adds a CI band series when enabled', async () => {
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
         })
 
@@ -651,7 +652,7 @@ describe('TrendsLineChart', () => {
 
         it('adds a dashed trend-line series when enabled', async () => {
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
         })
 
@@ -680,7 +681,7 @@ describe('TrendsLineChart', () => {
 
             // main + raw trendline + moving avg + moving-avg trendline = 4 series.
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
             })
         })
     })
@@ -696,7 +697,7 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
             })
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
 
         it('uses context.emptyStateHeading override when provided', async () => {
@@ -792,6 +793,26 @@ describe('TrendsLineChart', () => {
             // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
         })
+
+        describe('shared mode', () => {
+            beforeEach(() => {
+                // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+            })
+
+            afterEach(() => {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+            })
+
+            it('clicking a data point does not open the persons modal', async () => {
+                renderInsight({ query: buildTrendsQuery(), inSharedMode: true })
+
+                await chart.clickAtIndex(2)
+
+                // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+                expect(personsModal.get()).not.toBeInTheDocument()
+            })
+        })
     })
 
     describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
@@ -811,7 +832,7 @@ describe('TrendsLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)
@@ -823,7 +844,7 @@ describe('TrendsLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
             const legendEl = getInChartLegend(container)
 
@@ -851,7 +872,7 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
             const legendEl = getInChartLegend(container)
 
@@ -874,7 +895,7 @@ describe('TrendsLineChart', () => {
                 })
 
                 await waitFor(() => {
-                    expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                    expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
                 })
 
                 const legendEl = getInChartLegend(container)

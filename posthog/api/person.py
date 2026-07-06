@@ -1,6 +1,7 @@
 import json
 import uuid
 import builtins
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -69,11 +70,23 @@ from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.split_person import split_person
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+from posthog.utils import (
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    refresh_requested_by_client,
+    relative_date_parse_with_delta_mapping,
+)
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.product_analytics.backend.api.insight import capture_legacy_api_call
+from products.workflows.backend.api.message_assets import (
+    MessageAssetSerializer,
+    PersonMessageAssetsRequestSerializer,
+    fetch_message_assets_for_person,
+    workflow_email_assets_ui_enabled,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -1447,6 +1460,47 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         properties_timeline = PropertiesTimeline().run(filter, self.team, person)
 
         return response.Response(data=properties_timeline)
+
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        person = self.get_object()
+        if not workflow_email_assets_ui_enabled(self.team, request.user):
+            raise NotFound()
+        param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets_for_person(
+            team_id=self.team_id,
+            person_id=str(person.uuid),
+            limit=params["limit"],
+            offset=params["offset"],
+            after=after_date,
+            before=before_date,
+        )
+        # Single lookup for every workflow referenced by this page of rows so the tab shows
+        # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
+        # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
+        # both sides to string when building the lookup dict.
+        function_ids = {row.function_id for row in data}
+        name_by_id = {
+            str(pk): (name or "")
+            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
+        }
+        enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
+        return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

@@ -53,10 +53,14 @@ fn temp_store_in(dir: &TempDir) -> CohortStore {
 
 /// `All` mode so `compose_stage2` exercises the blocking-pool transport; handlers still take the raw store.
 fn handle(store: &CohortStore) -> StoreHandle {
+    handle_with_mode(store, OffloadMode::All)
+}
+
+fn handle_with_mode(store: &CohortStore, mode: OffloadMode) -> StoreHandle {
     StoreHandle::new(
         store.clone(),
         OffloadConfig {
-            mode: OffloadMode::All,
+            mode,
             event_read_permits: 16,
             maintenance_permits: 6,
         },
@@ -2217,4 +2221,147 @@ fn redelivered_record_merge_is_idempotent_via_merge_max() {
         after_first,
         "the redelivered merge left P_new's record byte-identical",
     );
+}
+
+/// The merge drain and apply run inside `run_section` (the section lane) and stage-2 compose reads
+/// through the event lane; the offload mode changes only *where* those run, never the result. A
+/// mode-plumbing bug that inverted a lane inside the merge path would surface as a divergence here.
+/// Mirrors `each_offload_mode_yields_the_same_emissions_and_state` in the sweep suite, for the merge
+/// drain → apply → compose path — which the rest of the merge suite only exercises under `All`.
+#[tokio::test]
+async fn each_offload_mode_yields_the_same_merge_result() {
+    #[derive(Debug, PartialEq)]
+    struct ModeOutcome {
+        composed: Vec<(i32, String, MembershipStatus)>,
+        behavioral: Vec<(Vec<u8>, Vec<u8>)>,
+        /// `[P_old, P_new]` raw person records: the drain deletes P_old's, and P_new's absorbed
+        /// dedup must be byte-identical across modes (the codec is canonical).
+        records: Vec<Option<Vec<u8>>>,
+    }
+
+    let p_old = Uuid::from_u128(0xBEE5);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+    // Fixed once so `last_updated` cannot vary the compose output across arms.
+    let last_updated = now_last_updated();
+
+    let mut per_mode: Vec<ModeOutcome> = Vec::new();
+    for mode in [OffloadMode::Off, OffloadMode::Maintenance, OffloadMode::All] {
+        let dir = TempDir::new().unwrap();
+        let store = temp_store_in(&dir);
+        let handle = handle_with_mode(&store, mode);
+        let filters = build_filters();
+
+        // After the merge P_new's daily flip AND its person leaf compose an enter (as in
+        // `apply_transitions_compose_into_stage2`).
+        fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
+        fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
+
+        // Drain P_old through the section lane, exactly as the worker's `handle_merge` does. `filters`
+        // is rebuilt inside the `'static` closure (it is not `Clone`), deterministically.
+        let drain_event = merge_event(p_old, p_new);
+        let transfer = match handle
+            .run_section("merge_drain", move |store| {
+                handle_merge_event(
+                    p_old_part,
+                    store,
+                    &build_filters(),
+                    &drain_event,
+                    (5, 100),
+                    COHORT_PARTITION_COUNT,
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            DrainOutcome::Drained { transfer, .. } => transfer,
+            other => panic!("mode {mode:?}: expected Drained, got {other:?}"),
+        };
+
+        // Apply on P_new's partition through the section lane.
+        let transitions = match handle
+            .run_section("merge_apply", move |store| {
+                handle_transfer(
+                    p_new_part,
+                    store,
+                    &build_filters(),
+                    &transfer,
+                    (5, 7),
+                    COHORT_PARTITION_COUNT,
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            ApplyOutcome::Applied { transitions, .. } => transitions,
+            other => panic!("mode {mode:?}: expected Applied, got {other:?}"),
+        };
+
+        // Compose stage-2 through the event lane.
+        let changes = compose_stage2(
+            p_new_part,
+            &handle,
+            &filters,
+            &transitions,
+            MERGED_AT,
+            &last_updated,
+        )
+        .await
+        .unwrap();
+
+        let mut composed: Vec<(i32, String, MembershipStatus)> = changes
+            .iter()
+            .map(|change| (change.cohort_id, change.person_id.clone(), change.status))
+            .collect();
+        composed.sort_by(|a, b| (a.0, a.1.as_str()).cmp(&(b.0, b.1.as_str())));
+
+        let mut behavioral: Vec<(Vec<u8>, Vec<u8>)> = [p_old_part, p_new_part]
+            .into_iter()
+            .flat_map(|pid| store.scan_behavioral(pid, None, 10_000).unwrap())
+            .map(|(key, value)| (key.encode().to_vec(), value))
+            .collect();
+        behavioral.sort();
+
+        let records: Vec<Option<Vec<u8>>> = [(p_old_part, p_old), (p_new_part, p_new)]
+            .into_iter()
+            .map(|(pid, person)| {
+                store
+                    .get_person_record(&PersonRecordKey::new(pid, TEAM as u64, person))
+                    .unwrap()
+            })
+            .collect();
+
+        per_mode.push(ModeOutcome {
+            composed,
+            behavioral,
+            records,
+        });
+    }
+
+    // The scenario must actually compose an enter for P_new, so parity compares real work rather than
+    // three identically-empty outcomes.
+    assert!(
+        per_mode[0].composed.iter().any(|(_, person, status)| {
+            *person == p_new.to_string() && *status == MembershipStatus::Entered
+        }),
+        "the seed must produce a composable enter for P_new",
+    );
+    assert!(
+        per_mode[0].records[0].is_none() && per_mode[0].records[1].is_some(),
+        "the drain must delete P_old's record and leave P_new's in place",
+    );
+
+    let (off, rest) = per_mode.split_first().unwrap();
+    for (arm, mode) in rest
+        .iter()
+        .zip([OffloadMode::Maintenance, OffloadMode::All])
+    {
+        assert_eq!(
+            arm, off,
+            "mode {mode:?} diverged from Off: merge emissions, cf_behavioral bytes, and person records must be identical across operating points",
+        );
+    }
 }

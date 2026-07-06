@@ -13,10 +13,6 @@
 //! range delete over its person prefix. P_old's `cf_stage2` keys are built from the catalog (no
 //! reads needed; deleting an absent key is a no-op).
 
-// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so direct `CohortStore`
-// I/O is already off the runtime threads.
-#![allow(clippy::disallowed_methods)]
-
 use metrics::{counter, histogram};
 use uuid::Uuid;
 
@@ -73,6 +69,9 @@ pub enum DrainSkip {
 /// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
 /// the fast-path-vs-slow-path decision turns on whether P_new hashes onto `partition_id` under this
 /// count, so it must match the deploy's topology.
+// Sync drain core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O (and that of `fast_path`/`slow_path`) is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_merge_event(
     partition_id: u16,
     store: &CohortStore,
@@ -213,7 +212,7 @@ pub fn handle_merge_event(
 }
 
 /// Same-partition fast path: drain P_old and apply into P_new in one atomic batch.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn fast_path(
     partition_id: u16,
     store: &CohortStore,
@@ -277,7 +276,7 @@ fn fast_path(
 }
 
 /// Cross-partition slow path: drain P_old, stage the transfer for the caller to produce.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn slow_path(
     partition_id: u16,
     store: &CohortStore,

@@ -48,12 +48,26 @@ tools:
         enabled: false
     elements-stats-retrieve:
         operation: elements_stats_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - element:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get element click stats
+        description: >
+            Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each
+            result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date
+            range, event types, URL or other event/person properties, and the project's internal-test-account filters.
+            This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
+            or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
+            paginate with `offset` if you need more results.
     elements-update:
         operation: elements_update
         enabled: false
-    elements-values-retrieve:
-        operation: elements_values_retrieve
+    elements-values-list:
+        operation: elements_values_list
         enabled: false
     insight-create:
         operation: insights_create

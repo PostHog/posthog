@@ -16,8 +16,10 @@ import type {
     ColumnConfigurationsListParams,
     ElementApi,
     ElementStatsResponseApi,
+    ElementValueApi,
     ElementsListParams,
     ElementsStatsRetrieveParams,
+    ElementsValuesListParams,
     InsightApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
@@ -292,10 +294,9 @@ export const getElementsStatsRetrieveUrl = (projectId: string, params?: Elements
 }
 
 /**
- * The original version of this API always and only returned $autocapture elements
- * If no include query parameter is sent this remains true.
- * Now, you can pass a combination of include query parameters to get different types of elements
- * Currently only $autocapture and $rageclick and $dead_click are supported
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
  */
 export const elementsStatsRetrieve = async (
     projectId: string,
@@ -308,12 +309,28 @@ export const elementsStatsRetrieve = async (
     })
 }
 
-export const getElementsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/values/`
+export const getElementsValuesListUrl = (projectId: string, params: ElementsValuesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/elements/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/values/`
 }
 
-export const elementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsValuesRetrieveUrl(projectId), {
+export const elementsValuesList = async (
+    projectId: string,
+    params: ElementsValuesListParams,
+    options?: RequestInit
+): Promise<ElementValueApi[]> => {
+    return apiMutator<ElementValueApi[]>(getElementsValuesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

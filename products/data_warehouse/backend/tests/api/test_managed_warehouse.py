@@ -59,6 +59,25 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMock) -> None:
+    # duckgres denies a provision without a default team, so the provisioning team must be
+    # forwarded as default_team_id in the outbound body.
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    json_body = mock_request.call_args.kwargs["json_body"]
+    assert json_body["default_team_id"] == team.id
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 def test_provision_persists_bucket_returned_by_control_plane(mock_request: MagicMock) -> None:
     # When the control plane returns the authoritative bucket name, persist it
     # verbatim instead of re-deriving — the CP owns the naming rule (it pins the

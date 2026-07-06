@@ -8,7 +8,7 @@ import type { BlockedWindow, ScheduleRestriction } from 'lib/components/Alerts/t
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { estimateCheckSlotsNext24h } from 'products/alerts/frontend/logic/scheduleRestrictionPreview'
 
 import { QuietHoursDayTimeline } from './QuietHoursDayTimeline'
@@ -107,7 +107,7 @@ export function QuietHoursFields({
         [enabled, windows]
     )
 
-    const nonHighFrequencyInterval = !isHighFrequencyAlertInterval(calculationInterval)
+    const coarseInterval = !isSubDailyAlertInterval(calculationInterval)
         ? calculationInterval === AlertCalculationInterval.DAILY
             ? 'day'
             : calculationInterval === AlertCalculationInterval.WEEKLY
@@ -130,10 +130,10 @@ export function QuietHoursFields({
             />
             {enabled ? (
                 <>
-                    {nonHighFrequencyInterval ? (
+                    {coarseInterval ? (
                         <LemonBanner type="info">
                             If a scheduled run would fall during quiet hours, it runs at the next allowed time in that
-                            same day or cycle instead of waiting until the next {nonHighFrequencyInterval}.
+                            same day or cycle instead of waiting until the next {coarseInterval}.
                         </LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-2">

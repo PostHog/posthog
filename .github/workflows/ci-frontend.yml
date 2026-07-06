@@ -21,6 +21,9 @@ permissions:
     pull-requests: write
     actions: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run frontend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -30,11 +33,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
-        # Skip when a bot's push adds only snapshot baselines — Visual Review auto-commits
-        # frontend/snapshots.yml after human review and CI approval, so re-running the suite
-        # on that commit is pure waste. The detect step keys off the push delta (this push's
-        # commits), not the whole-PR diff dorny reports, so it fires even when the PR also
-        # carries real code changes. The aggregator (frontend_tests) treats skips as success.
+        # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
+        # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
+        # suites), not these checks. Jest, TypeScript, format, and bundle-size don't depend on
+        # the baseline and still gate merge, so they run purely off the paths filter here.
         outputs:
             # AND the broad filter with `exclude` (below): a PR that touches only
             # Node-only product workspaces (their own ci-agents.yml suite, no stories,
@@ -42,12 +44,12 @@ jobs:
             # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
             frontend: >-
                 ${{ (steps.filter.outputs.frontend || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             frontend_code: >-
                 ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
-                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
-                    && steps.baseline_push.outputs.result != 'true' }}
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
+            replay_shared: >-
+                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -122,36 +124,16 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
-
-            - name: Detect Visual Review baseline-only push
-              id: baseline_push
-              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  ACTOR: ${{ github.actor }}
-                  BEFORE: ${{ github.event.before }}
-                  AFTER: ${{ github.event.after }}
-              run: |
-                  set -euo pipefail
-                  result=false
-                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
-                  case "$ACTOR" in
-                      *'[bot]' | posthog-bot) is_bot=true ;;
-                      *) is_bot=false ;;
-                  esac
-                  zero=0000000000000000000000000000000000000000
-                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
-                      # Diff only the commits this push added. compare uses merge-base(before, after),
-                      # which for an appended commit is exactly the push delta; a force-push/rebase
-                      # widens it and won't match. dorny above already covers the whole-PR diff.
-                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
-                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
-                          result=true
-                      fi
-                  fi
-                  echo "result=$result" >>"$GITHUB_OUTPUT"
-                  echo "Visual Review baseline-only push: $result"
+                      # The @posthog/replay-shared package's own jest suite (the
+                      # jest-replay-shared job). posthog-js bumps land via the catalog +
+                      # lockfile and have broken it before (rrweb subpath entries switching
+                      # to ESM); its zstd tests need the node:zlib support pinned by .nvmrc.
+                      replay_shared:
+                        - 'common/replay-shared/**'
+                        - pnpm-workspace.yaml
+                        - pnpm-lock.yaml
+                        - .nvmrc
+                        - .github/workflows/ci-frontend.yml
 
             # The broad `products/**/*.ts(x)` rules above correctly match all product
             # frontend code (which doesn't always live under frontend/ — see
@@ -420,6 +402,10 @@ jobs:
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
+            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            - name: Check toolbar bundle stays under the CloudFront gzip limit
+              run: pnpm --filter=@posthog/frontend check-toolbar-size
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -625,7 +611,7 @@ jobs:
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs, master push, and merge_group it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -640,12 +626,26 @@ jobs:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
+              id: run-jest
+              # continue-on-error so a failure doesn't fail the job here; the quarantine
+              # gate below is the verdict — it passes when every failure is an
+              # already-quarantined flake, fails otherwise.
+              continue-on-error: true
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 2
+                  # Keep shard runtime well under timeout-minutes: the EE suite at 2
+                  # shards ran 13-15 min on the 2-worker config and regularly died at
+                  # the 15-min timeout, failing the whole run.
+                  SHARD_COUNT: 4
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # top-level describe, which collides across files. Anchor identity to the file.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
@@ -665,12 +665,110 @@ jobs:
                           --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
-                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
                   fi
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). FOSS and EE run the same test files,
+            # so each segment uploads under its own variant to keep their histories distinct.
+            # Runs the token only on internal PRs, master, and the merge queue — never on fork
+            # PRs or Dependabot, which have no secret.
+            - name: Quarantine gate
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  org-slug: posthog-inc
+                  variant: ${{ matrix.segment }}
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on jest failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+              shell: bash
+              run: exit 1
+
+    jest-replay-shared:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.replay_shared == 'true'
+        name: Jest test (replay-shared)
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Full workspace install: the suite's jsdom test environment resolves
+            # through the workspace root, not the package's own dependencies, so a
+            # filtered install can't run it.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Test with Jest
+              id: run-jest
+              # continue-on-error so the quarantine gate below is the verdict.
+              continue-on-error: true
+              env:
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-replay-shared.xml
+                  # Anchor flake identity to the test file, matching the main jest job.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
+              run: pnpm --filter=@posthog/replay-shared test
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-replay-shared
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Quarantine gate: see the jest job for the full rationale. Runs the token only
+            # on internal PRs, master, and the merge queue — never on fork PRs or Dependabot.
+            - name: Quarantine gate
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-replay-shared.xml
+                  org-slug: posthog-inc
+                  variant: replay-shared
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on jest failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+              shell: bash
+              run: exit 1
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
+        needs:
+            [
+                jest,
+                jest-replay-shared,
+                frontend-typescript-checks,
+                frontend-format,
+                frontend-bundle-size,
+                frontend_tests,
+                changes,
+            ]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -712,7 +810,7 @@ jobs:
                   runner: 'github'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -726,6 +824,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
+                  if [[ "${{ needs.jest-replay-shared.result }}" != "success" && "${{ needs.jest-replay-shared.result }}" != "skipped" ]]; then
+                    echo "Replay shared jest tests failed."
+                    exit 1
+                  fi
+                  echo "Replay shared jest tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1

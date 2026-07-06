@@ -11,10 +11,6 @@
 //! state to the live survivor instead — inline when the survivor co-resides on this partition,
 //! forwarded on `cohort_merge_state_transfer` when it lives on another.
 
-// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so direct `CohortStore`
-// I/O is already off the runtime threads.
-#![allow(clippy::disallowed_methods)]
-
 use metrics::counter;
 use uuid::Uuid;
 
@@ -98,6 +94,10 @@ pub enum ApplyOutcome {
 /// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
 /// the forward-vs-inline target resolution turns on whether the survivor hashes onto `partition_id`
 /// under this count, so it must match the deploy's topology.
+// Sync apply core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O (and that of `apply_into`/`apply_leaves`/`merge_person_records`) is already off
+// the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
@@ -176,6 +176,7 @@ fn applied_key(
 /// Apply `transfer`'s leaves into `target` (the resolved survivor, co-resident on `partition_id`),
 /// commit the merged puts + the `cf_merge_applied` marker keyed by `target`, schedule deadlines, and
 /// return the survivor's transitions. For the `NotMerged` case `target` is just `new_person_uuid`.
+#[allow(clippy::disallowed_methods)]
 fn apply_into(
     partition_id: u16,
     store: &CohortStore,
@@ -267,6 +268,7 @@ fn apply_into(
 /// `None` to write nothing. A present target record absorbs P_old as an ancestor (idempotent under
 /// redelivery). A target with no record — or a corrupt one — writes nothing: the person re-evaluates
 /// lazily on their next event.
+#[allow(clippy::disallowed_methods)]
 pub(crate) fn merge_person_records(
     store: &CohortStore,
     target_prefix: &PersonPrefix,
@@ -302,6 +304,7 @@ pub(crate) struct LeafApply {
 /// Merge each of P_old's `leaves` into P_new's state on `partition_new`. Pure reads only — the
 /// caller composes the final write batch. A leaf whose LSK left the catalog is skipped; a corrupt
 /// P_new record is treated as absent.
+#[allow(clippy::disallowed_methods)]
 pub(crate) fn apply_leaves(
     partition_new: u16,
     store: &CohortStore,

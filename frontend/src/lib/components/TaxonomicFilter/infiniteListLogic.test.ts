@@ -18,8 +18,9 @@ import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, P
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { infiniteListLogic } from './infiniteListLogic'
+import { clearApiCache, infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from './taxonomicFilterPinnedPropertiesLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -73,6 +74,7 @@ describe('infiniteListLogic', () => {
             },
         })
         initKeaTests()
+        clearApiCache()
     })
 
     const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {
@@ -386,6 +388,181 @@ describe('infiniteListLogic', () => {
                             results: [{ name: 'All events', value: null }, ...mockEventDefinitions],
                         }),
                     })
+            })
+        })
+    })
+
+    describe('transient empty responses are not pinned in the module cache', () => {
+        let flakyLogic: ReturnType<typeof infiniteListLogic.build>
+        let requestCounts: Record<string, number>
+
+        beforeEach(() => {
+            requestCounts = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        requestCounts[search] = (requestCounts[search] ?? 0) + 1
+                        // Simulate a backend blip: the first fetch for this term comes back empty,
+                        // later fetches surface the event that actually exists.
+                        const results =
+                            search === 'flaky_event'
+                                ? requestCounts[search] === 1
+                                    ? []
+                                    : [{ ...mockEventDefinitions[0], name: 'flaky_event' }]
+                                : mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            flakyLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'flakyList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            flakyLogic.mount()
+        })
+
+        it('re-fetches the same query after an empty blip instead of serving a pinned blank', async () => {
+            await expectLogic(flakyLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial mount
+
+            // First search hits the blip and comes back empty.
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.setSearchQuery('flaky_event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({ remoteItems: partial({ count: 0 }) })
+
+            // Retrying the identical query must re-hit the backend (the empty was not cached) and
+            // surface the event that exists — otherwise it would keep reading as "No results".
+            await expectLogic(flakyLogic, () => {
+                flakyLogic.actions.loadRemoteItems({ offset: 0, limit: 100 })
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ results: partial([partial({ name: 'flaky_event' })]) }),
+                })
+        })
+    })
+
+    describe('switching tabs reconciles a stale remote list', () => {
+        let staleLogic: ReturnType<typeof infiniteListLogic.build>
+        let surveyRequestCount: number
+
+        beforeEach(() => {
+            surveyRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        if (search === 'survey') {
+                            surveyRequestCount += 1
+                            // First fetch is cut short (a transient client-side failure stands in for
+                            // an in-flight debounced load a tab switch cancels). The event exists.
+                            if (surveyRequestCount === 1) {
+                                return [500, { detail: 'transient error' }]
+                            }
+                            const results = [{ ...mockEventDefinitions[0], name: 'Survey Responded' }]
+                            return [200, { results, count: results.length }]
+                        }
+                        const results = mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            clearApiCache()
+            staleLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'staleTabList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
+            })
+            staleLogic.mount()
+        })
+
+        it('re-fetches the current query when the cached remote results are stale for it', async () => {
+            await expectLogic(staleLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial empty-query load
+
+            // The search is cut short, leaving the tab on its stale empty-query results even
+            // though "Survey Responded" exists for this term.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('survey')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+            expect(staleLogic.values.remoteItems.searchQuery).not.toBe('survey')
+
+            // Switching category tabs must reconcile the stale tab against the active query rather
+            // than leaving it on a false "No results".
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({
+                        searchQuery: 'survey',
+                        results: partial([partial({ name: 'Survey Responded' })]),
+                    }),
+                })
+        })
+
+        it('does not re-fetch when the tab is already fresh for the current query', async () => {
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteItems: partial({ searchQuery: 'event' }) })
+
+            // The cached remote query already matches, so a tab switch must not trigger a
+            // redundant reload.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['setActiveTab'])
+                .toNotHaveDispatchedActions(['loadRemoteItems'])
+        })
+    })
+
+    describe('remote fetch failure settles the list', () => {
+        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const failingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'failingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            failingLogic.mount()
+            await expectLogic(failingLogic, () => {
+                failingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showLoadingState: false,
+                    showEmptyState: true,
+                })
+
+            // The failure lands on the same empty state as a genuine no-match, so telemetry is
+            // the only prod signal that the backend blipped — losing this capture makes the
+            // worst case ("event exists, fetch failed") invisible.
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: 'user_signed_up',
             })
         })
     })
@@ -910,6 +1087,84 @@ describe('infiniteListLogic', () => {
                 expect(emptyCalls).toHaveLength(0)
             }
         })
+    })
+
+    describe('suggested list dedupes pinned against recents', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const seedRecentAndPins = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$current_url',
+                item: { name: '$current_url' },
+            })
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$current_url',
+                {
+                    name: '$current_url',
+                }
+            )
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
+                name: '$browser',
+            })
+            // Guards against default-pin seeding turning the first togglePin into an
+            // unpin, which would make the dedupe assertions pass vacuously.
+            expect(pinnedLogic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', '$browser'])
+        }
+
+        const mountSuggestedList = (): ReturnType<typeof infiniteListLogic.build> => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-pinned-dedupe-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        const pinnedValues = (results: unknown[]): unknown[] =>
+            results.filter((item) => hasPinnedContext(item)).map((item) => item._pinnedContext.value)
+
+        it.each([
+            { description: 'in the idle prefix', searchQuery: '', expectedPinned: ['$browser'] },
+            { description: 'in search matches', searchQuery: 'current', expectedPinned: [] },
+        ])(
+            'shows an item that is both recent and pinned once, under recents: $description',
+            async ({ searchQuery, expectedPinned }) => {
+                seedRecentAndPins()
+                const listLogic = mountSuggestedList()
+
+                if (searchQuery) {
+                    listLogic.actions.setSearchQuery(searchQuery)
+                    await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+                }
+
+                const results = listLogic.values.items.results
+                expect(pinnedValues(results)).toEqual(expectedPinned)
+                expect(
+                    results.filter(
+                        (item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url'
+                    )
+                ).toHaveLength(1)
+            }
+        )
     })
 
     describe('contextFilteredRecentItems', () => {
