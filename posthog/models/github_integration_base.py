@@ -22,7 +22,9 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
@@ -93,6 +95,11 @@ class GitHubIntegrationBase:
     # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
     # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
     source: str = _OBSERVABILITY_SOURCE
+    # How sheddable this instance's calls are when the installation's shared budget runs hot.
+    # CRITICAL (the default) is never blocked; deferrable background callers construct with
+    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
+    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority = Priority.CRITICAL
 
     @property
     def github_installation_id(self) -> str | None:
@@ -648,7 +655,9 @@ class GitHubIntegrationBase:
 
         ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
         from the installation token's own API call, so they are inherently trusted — not
-        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or
+        error — except rate limits (``GitHubRateLimitError``) and, on a sheddable instance, budget
+        denial (``GitHubEgressBudgetExhausted``), which raise so callers can defer the sweep.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
@@ -773,9 +782,10 @@ class GitHubIntegrationBase:
     def get_pull_request_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the classification-relevant PR signals in one GraphQL call.
 
-        On any handled failure returns ``{"success": False, "error": ...}``;
-        rate-limit and unexpected errors raise ``GitHubIntegrationError`` so the
-        caller can back off.
+        On any handled failure returns ``{"success": False, "error": ...}``; unexpected errors
+        raise ``GitHubIntegrationError``. GitHub rate limits raise ``GitHubRateLimitError``, and on
+        a sheddable instance (``priority=NORMAL/BATCH``) a denied budget raises
+        ``GitHubEgressBudgetExhausted`` — callers own the back-off for both.
         """
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
@@ -1294,6 +1304,7 @@ class GitHubIntegrationBase:
         headers: dict[str, str] | None = None,
         timeout: int = 10,
         retry_transient: bool | None = None,
+        priority: Priority | None = None,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -1305,7 +1316,9 @@ class GitHubIntegrationBase:
         callers that want dict-or-raise semantics.
 
         ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
-        recorder template the raw URL. Attribution uses ``self.source``.
+        recorder template the raw URL. Attribution uses ``self.source``; the limiter lane defaults
+        to ``self.priority`` — on a sheddable lane (NORMAL/BATCH) a denied call raises
+        ``GitHubEgressBudgetExhausted`` instead of being sent, and the caller owns the deferral.
         """
         if not path.startswith("/"):
             raise ValueError(f"api_request path must start with '/', got {path!r}")
@@ -1332,6 +1345,7 @@ class GitHubIntegrationBase:
                     # Token last: a caller-supplied Authorization must not bypass the managed lifecycle.
                     headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                     installation_id=self.github_installation_id,
+                    priority=priority if priority is not None else self.priority,
                     endpoint=endpoint,
                     params=params,
                     json=json_body,
@@ -1346,6 +1360,9 @@ class GitHubIntegrationBase:
                     )
                     continue
                 raise GitHubIntegrationError(f"GitHubIntegration: api_request network error on {path}") from exc
+            # Successful installation-token responses are the only trusted source of the tier the
+            # limiter budgets to; the store filters non-2xx/non-core itself.
+            remember_observed_core_limit(self.github_installation_id, response)
             # Auth failure → refresh token and retry once (safe for any method: 401 means nothing ran).
             if response.status_code == 401 and attempt == 0:
                 try:

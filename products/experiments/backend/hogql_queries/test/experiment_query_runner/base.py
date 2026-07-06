@@ -23,7 +23,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import M
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
 

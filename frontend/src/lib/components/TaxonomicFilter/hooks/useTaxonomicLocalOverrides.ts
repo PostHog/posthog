@@ -10,7 +10,7 @@
  * + `optionsFromProp` and report `0` for every logic-backed tab.
  */
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
@@ -45,18 +45,21 @@ export function useTaxonomicLocalOverrides(context: {
     const { dataWarehouseTablesAndViews } = useValues(dataWarehouseSettingsSceneLogic)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
 
+    // Memoized so repeated calls return the same array reference — the result feeds
+    // `useGroupList` memo deps and `useEffect` deps (e.g. the sole-substantive-group
+    // recents promotion), where a fresh array per render means an infinite update loop.
+    const contextFilteredRecentItems = useMemo(
+        () => filterRecentsForContext(recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly),
+        [recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly]
+    )
+
     return useCallback(
         (groupType: TaxonomicFilterGroupType): TaxonomicDefinitionTypes[] | undefined => {
             switch (groupType) {
                 case TaxonomicFilterGroupType.Actions:
                     return actionsSorted as unknown as TaxonomicDefinitionTypes[]
                 case TaxonomicFilterGroupType.RecentFilters:
-                    return filterRecentsForContext(
-                        recentFilterItems,
-                        taxonomicGroupTypes,
-                        excludedOperators,
-                        selectingKeyOnly
-                    )
+                    return contextFilteredRecentItems
                 case TaxonomicFilterGroupType.PinnedFilters:
                     return pinnedFilterItems
                 case TaxonomicFilterGroupType.Dashboards:
@@ -73,15 +76,12 @@ export function useTaxonomicLocalOverrides(context: {
         },
         [
             actionsSorted,
-            recentFilterItems,
+            contextFilteredRecentItems,
             pinnedFilterItems,
             nameSortedDashboards,
             experiments,
             dataWarehouseTablesAndViews,
             columnsJoinedToPersons,
-            taxonomicGroupTypes,
-            excludedOperators,
-            selectingKeyOnly,
         ]
     )
 }
