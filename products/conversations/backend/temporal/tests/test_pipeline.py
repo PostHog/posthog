@@ -685,8 +685,14 @@ class TestDiagnosticScopes:
 
     @pytest.mark.asyncio
     async def test_non_opted_in_org_stays_base_even_for_diagnostic_ticket(self):
-        _, scopes = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=False, ticket_type="diagnostic")
+        prompt, scopes = await self._run_draft(
+            needs_diagnostics=True, diagnostics_allowed=False, ticket_type="diagnostic"
+        )
         assert scopes == BASE_DRAFT_SCOPES
+        # No data tools were granted, so don't instruct the agent to investigate data it can't
+        # reach. The investigation block requires grants_customer_data, not needs_diagnostics alone.
+        assert "DIAGNOSTIC INVESTIGATION" not in prompt
+        assert "DATA ACCESS" not in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_block_gated_on_needs_diagnostics(self):
