@@ -17,7 +17,7 @@ from posthog.test.base import (
 )
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -5074,3 +5074,23 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
         self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+    def test_bulk_restore_skips_tiles_on_dashboards_the_user_cannot_edit(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        insight = self._create_insight()
+        tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
+
+        # Simulate the requester only having view access to the dashboard the insight sits on.
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.effective_privilege_level",
+            new_callable=PropertyMock,
+            return_value=Dashboard.PrivilegeLevel.CAN_VIEW,
+        ):
+            response = self._bulk_restore([insight.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
+        self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
+        # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
+        self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)

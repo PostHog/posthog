@@ -419,7 +419,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     toastId: 'bulk-delete-insights',
                     button: {
                         label: 'Undo',
-                        action: () => actions.bulkRestoreInsights(deletedIds),
+                        action: () => actions.bulkRestoreInsights({ ids: deletedIds }),
                     },
                 })
             } else if (skipped.length > 0) {

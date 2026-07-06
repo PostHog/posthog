@@ -2287,7 +2287,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
-                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
+                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts. Alerts are
+                # deleted one at a time (not a queryset .delete()) so ModelActivityMixin.delete logs each removal.
                 DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
                 for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
                     alert.delete()
@@ -2341,11 +2342,23 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
-                # Re-activate tiles linking these insights to dashboards that still exist. Tiles removed before
-                # the bulk delete may also reappear; acceptable for the immediate-undo case this backs.
-                DashboardTile.objects_including_soft_deleted.filter(
+                # Re-activate tiles linking these insights to live dashboards, but only ones the requester may
+                # edit — mirrors the per-dashboard CAN_EDIT check in InsightSerializer._update_insight_dashboards
+                # so a restore can't force an insight back onto a dashboard the user can only view. Tiles removed
+                # before the bulk delete may also reappear; acceptable for the immediate-undo case this backs.
+                candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
                     insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
-                ).update(deleted=False)
+                ).select_related("dashboard")
+                restorable_tile_ids = [
+                    tile.id
+                    for tile in candidate_tiles
+                    if self.user_permissions.dashboard(tile.dashboard).effective_privilege_level
+                    == Dashboard.PrivilegeLevel.CAN_EDIT
+                ]
+                if restorable_tile_ids:
+                    DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(
+                        deleted=False
+                    )
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
