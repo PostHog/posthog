@@ -391,7 +391,13 @@ def _context(text: str) -> dict:
 
 
 def _button(label: str, action_id: str, value: str = "", *, style: str | None = None, url: str | None = None) -> dict:
-    button: dict = {"type": "button", "text": {"type": "plain_text", "text": label}, "action_id": action_id}
+    # Slack rejects a message whose interactive elements share an action_id, so a button's value
+    # doubles as an id suffix; `handle_block_action` dispatches on the base id before the ":".
+    button: dict = {
+        "type": "button",
+        "text": {"type": "plain_text", "text": label},
+        "action_id": f"{action_id}:{value}" if value else action_id,
+    }
     if value:
         button["value"] = value
     if style:
@@ -447,6 +453,8 @@ def build_fleet_reveal_blocks(team_id: int, readiness: dict, detected_tools: lis
             blocks.append(_context("✅ Ready — I can see the data this needs."))
             continue
         detected_kind = next((kind for kind in detected_tools if kind in spec.connectable_sources), None)
+        # Button values are "<readiness_key>:<kind|catalog>": sibling connect buttons must not
+        # collide on value (it doubles as the action_id suffix), and telemetry gets the scout.
         if detected_kind:
             label = _TOOL_LABEL_BY_KIND.get(detected_kind, detected_kind)
             blocks.append(
@@ -459,7 +467,7 @@ def build_fleet_reveal_blocks(team_id: int, readiness: dict, detected_tools: lis
                         _button(
                             f"Connect {label}",
                             CONNECT_SOURCE_ACTION_ID,
-                            detected_kind,
+                            f"{spec.readiness_key}:{detected_kind}",
                             url=source_connect_url(team_id, detected_kind),
                         )
                     ],
@@ -471,7 +479,12 @@ def build_fleet_reveal_blocks(team_id: int, readiness: dict, detected_tools: lis
                 {
                     "type": "actions",
                     "elements": [
-                        _button("Browse sources", CONNECT_SOURCE_ACTION_ID, "catalog", url=sources_catalog_url(team_id))
+                        _button(
+                            "Browse sources",
+                            CONNECT_SOURCE_ACTION_ID,
+                            f"{spec.readiness_key}:catalog",
+                            url=sources_catalog_url(team_id),
+                        )
                     ],
                 }
             )
@@ -786,7 +799,9 @@ def handle_home_start(payload: dict) -> HttpResponse:
 
 
 def handle_block_action(payload: dict, action: dict) -> HttpResponse:
-    action_id = str(action.get("action_id") or "")
+    # Valued buttons carry their value as an ":<value>" action_id suffix (see `_button`);
+    # routing happens on the base id.
+    action_id = str(action.get("action_id") or "").split(":", 1)[0]
     try:
         if action_id == START_ACTION_ID:
             return handle_home_start(payload)
@@ -848,11 +863,13 @@ def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
     ctx = _load_context(payload)
     if ctx is not None:
+        scout_key, _, source_kind = str(action.get("value") or "").rpartition(":")
         capture_slack_event(
             ctx.integration,
             EVENT_CONNECT_CLICKED,
             slack_user_id=ctx.slack_user_id,
-            source_kind=str(action.get("value") or ""),
+            source_kind=source_kind,
+            scout_readiness_key=scout_key or None,
         )
 
 

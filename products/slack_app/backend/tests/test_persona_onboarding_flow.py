@@ -500,3 +500,38 @@ class TestPersonaOnboardingInteractivityRouting:
 
     def test_payload_without_actions_is_not_claimed(self):
         assert api._is_persona_onboarding_interactivity({}, "block_actions") is False
+
+
+class TestBlockKitActionIdUniqueness:
+    # Slack rejects any message whose interactive elements share an action_id (`invalid_blocks`),
+    # so every builder that can emit sibling buttons is exercised in its busiest configuration.
+    @parameterized.expand(
+        [
+            ("kickoff_ask", lambda: persona_onboarding.build_kickoff_blocks("Pat", None)),
+            (
+                "kickoff_csm_candidate",
+                lambda: persona_onboarding.build_kickoff_blocks("Pat", persona_onboarding.PERSONA_CSM),
+            ),
+            (
+                "kickoff_engineer_candidate",
+                lambda: persona_onboarding.build_kickoff_blocks("Pat", persona_onboarding.PERSONA_ENGINEER),
+            ),
+            ("fleet_reveal_all_gaps_no_tools", lambda: persona_onboarding.build_fleet_reveal_blocks(1, {}, [])),
+            (
+                "fleet_reveal_all_gaps_tools_detected",
+                lambda: persona_onboarding.build_fleet_reveal_blocks(1, {}, ["Salesforce", "Linear", "Stripe"]),
+            ),
+            ("channel_prompt_with_create", lambda: persona_onboarding.build_channel_prompt_blocks(True)),
+            ("invite_needed", lambda: persona_onboarding.build_invite_needed_blocks("C1", "posthog-inbox")),
+        ]
+    )
+    def test_action_ids_unique_within_message(self, _name, build):
+        blocks = build()
+        action_ids = [
+            element["action_id"]
+            for block in blocks
+            for element in block.get("elements", [])
+            if isinstance(element, dict) and "action_id" in element
+        ]
+        assert action_ids, "builder emitted no interactive elements — extractor or builder is broken"
+        assert len(action_ids) == len(set(action_ids)), f"duplicate action_ids in one message: {action_ids}"
