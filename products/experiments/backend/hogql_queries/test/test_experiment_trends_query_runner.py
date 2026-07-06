@@ -38,6 +38,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
@@ -951,7 +952,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 3)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 

@@ -24,8 +24,8 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall, RequiredToolCall
-from ee.hogai.eval.sandboxed.sql.scorers import SQLResultMessageAlignment, SQLSchemaAlignment
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
+from ee.hogai.eval.sandboxed.sql.scorers import AnswerQueryRan, SQLResultMessageAlignment, SQLSchemaAlignment
 
 
 def _sql_case(*, name: str, prompt: str, expected_sql: str) -> SandboxedEvalCase:
@@ -385,7 +385,7 @@ WHERE properties.interests IS NOT NULL
         scorers=[
             ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            RequiredToolCall(required={"execute-sql"}, name="execute_sql_called"),
+            AnswerQueryRan(name="execute_sql_called"),
             LastToolCallNot(
                 forbidden={"query-trends", "query-funnel", "query-retention"},
                 name="last_call_not_typed_query",

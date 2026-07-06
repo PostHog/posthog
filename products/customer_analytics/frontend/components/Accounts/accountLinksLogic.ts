@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +15,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { accountLinksLogicType } from './accountLinksLogicType'
+import { SALESFORCE_ORIGIN } from './constants'
 
 const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
@@ -23,7 +26,7 @@ export interface AccountLinksLogicProps {
     accountId: string
 }
 
-export type AccountLinkFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link'
+export type AccountLinkFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link' | 'sfdc_id'
 
 export interface AccountLinkFieldDef {
     key: AccountLinkFieldKey
@@ -38,6 +41,7 @@ export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
     { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
     { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
     { key: 'usage_dashboard_link', label: 'Usage dashboard link', placeholder: 'https://…' },
+    { key: 'sfdc_id', label: 'Salesforce ID', placeholder: 'e.g. 0011t00000AbCdEfGhI' },
 ]
 
 const EMPTY_FIELDS: AccountLinkFieldValues = {
@@ -45,6 +49,7 @@ const EMPTY_FIELDS: AccountLinkFieldValues = {
     billing_id: '',
     slack_channel_id: '',
     usage_dashboard_link: '',
+    sfdc_id: '',
 }
 
 export interface AccountLink {
@@ -122,20 +127,29 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 billing_id: account?.properties?.billing_id ?? '',
                 slack_channel_id: account?.properties?.slack_channel_id ?? '',
                 usage_dashboard_link: account?.properties?.usage_dashboard_link ?? '',
+                sfdc_id: account?.properties?.sfdc_id ?? '',
             }),
         ],
         links: [
-            (s) => [s.account],
-            (account: AccountApi | null): AccountLink[] => {
+            (s) => [s.account, router.selectors.currentLocation],
+            (account: AccountApi | null, currentLocation): AccountLink[] => {
                 const externalId = account?.external_id ?? null
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
+                const sfdcId = account?.properties?.sfdc_id ?? null
+                const backUrl =
+                    removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
                 return [
                     {
                         key: 'organization',
                         label: 'Organization',
-                        to: externalId ? urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId) : null,
+                        to: externalId
+                            ? combineUrl(urls.group(ORGANIZATION_GROUP_TYPE_INDEX, externalId), {
+                                  backUrl,
+                                  backName: 'Accounts',
+                              }).url
+                            : null,
                         targetBlank: false,
                         disabledReason: externalId ? null : 'No external ID set',
                     },
@@ -167,6 +181,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         targetBlank: true,
                         disabledReason: billingId ? null : 'No billing ID set',
                     },
+                    {
+                        key: 'salesforce',
+                        label: 'Salesforce',
+                        to: sfdcId ? `${SALESFORCE_ORIGIN}/${sfdcId}` : null,
+                        targetBlank: true,
+                        disabledReason: sfdcId ? null : 'No Salesforce ID set',
+                    },
                 ]
             },
         ],
@@ -192,6 +213,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         billing_id: orNull(form.billing_id),
                         slack_channel_id: orNull(form.slack_channel_id),
                         usage_dashboard_link: orNull(form.usage_dashboard_link),
+                        sfdc_id: orNull(form.sfdc_id),
                     } as PatchedAccountApiProperties,
                 })
                 actions.loadAccountSuccess(updated)

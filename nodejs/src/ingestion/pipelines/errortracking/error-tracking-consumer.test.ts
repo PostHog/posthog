@@ -4,17 +4,17 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, PipelineEvent, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-import { parseJSON } from '~/utils/json-parse'
-import { UUIDT } from '~/utils/utils'
+import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
@@ -27,8 +27,8 @@ const createMockKafkaConsumer = (): jest.Mocked<Pick<KafkaConsumer, 'connect' | 
 
 jest.setTimeout(60000)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -36,10 +36,10 @@ jest.mock('~/utils/posthog', () => {
 })
 
 // Mock the IngestionWarningLimiter to always allow warnings
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/utils/token-bucket'),
+        ...jest.requireActual('~/common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -47,7 +47,7 @@ jest.mock('~/utils/token-bucket', () => {
 })
 
 // Mock the logger to reduce noise
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -131,41 +131,42 @@ const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
 
 describe('ErrorTrackingConsumer', () => {
     let consumer: ErrorTrackingConsumer
-    let hub: Hub
+    let infra: IngestionTestInfra
     let team: Team
     let fixedTime: DateTime
     let mockHogTransformer: jest.Mocked<ErrorTrackingHogTransformer>
 
-    const createConsumer = async (hub: Hub) => {
+    const createConsumer = async (infra: IngestionTestInfra) => {
         const config = {
-            groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
-            topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
-            cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
-            cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
-            lane: hub.INGESTION_LANE ?? ('main' as const),
+            groupId: infra.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+            topic: infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            cymbalBaseUrl: infra.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+            cymbalTimeoutMs: infra.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+            cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
+            lane: infra.config.INGESTION_LANE ?? ('main' as const),
             overflowEnabled:
-                !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !== hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
-            overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-            statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
-            statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-            statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-            preservePartitionLocality: hub.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-            pipeline: hub.INGESTION_PIPELINE ?? 'errortracking',
-            rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
-            rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
-            rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
-            rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
-            rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-            rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-            perIssueGuardThreshold: hub.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-            perIssueGuardWindowTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-            perIssueGuardCooldownTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
-            fallbackRedisUrl: hub.REDIS_URL,
-            rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                !!infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
+                infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
+                    infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+            overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+            statefulOverflowEnabled: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
+            statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+            statefulOverflowLocalCacheTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+            preservePartitionLocality: infra.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            pipeline: infra.config.INGESTION_PIPELINE ?? 'errortracking',
+            rateLimiterEnabled: infra.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+            rateLimiterReportingMode: infra.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+            rateLimiterRedisHost: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+            rateLimiterRedisPort: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+            rateLimiterRedisTls: infra.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+            rateLimiterTtlSeconds: infra.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+            perIssueGuardThreshold: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
+            perIssueGuardWindowTtlSeconds: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
+            perIssueGuardCooldownTtlSeconds: infra.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
+            fallbackRedisUrl: infra.config.REDIS_URL,
+            rateLimiterRedisPoolMinSize: infra.config.REDIS_POOL_MIN_SIZE,
+            rateLimiterRedisPoolMaxSize: infra.config.REDIS_POOL_MAX_SIZE,
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
@@ -173,7 +174,7 @@ describe('ErrorTrackingConsumer', () => {
             outputs: new IngestionOutputs({
                 events: new SingleIngestionOutput(
                     'events',
-                    hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                    infra.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
                     mockProducer,
                     'test'
                 ),
@@ -183,10 +184,15 @@ describe('ErrorTrackingConsumer', () => {
                     mockProducer,
                     'test'
                 ),
-                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, mockProducer, 'test'),
+                dlq: new SingleIngestionOutput(
+                    'dlq',
+                    infra.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                    mockProducer,
+                    'test'
+                ),
                 overflow: new SingleIngestionOutput(
                     'overflow',
-                    hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
+                    infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
                     mockProducer,
                     'test'
                 ),
@@ -198,16 +204,16 @@ describe('ErrorTrackingConsumer', () => {
                     'test'
                 ),
             }),
-            teamManager: hub.teamManager,
-            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
+            teamManager: infra.teamManager,
+            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(infra.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: new ReadOnlyGroupTypeManager({
                 fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
                 fetchGroupTypesByTeamIds: jest.fn().mockResolvedValue({}),
                 fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
             }),
-            cookielessManager: hub.cookielessManager,
-            redisPool: hub.redisPool,
+            cookielessManager: infra.cookielessManager,
+            redisPool: infra.redisPool,
             personRepository: createMockPersonRepository(),
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
@@ -248,15 +254,15 @@ describe('ErrorTrackingConsumer', () => {
 
         offsetIncrementer = 0
         await resetTestDatabase()
-        hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        infra = await createIngestionTestInfra()
+        team = await getFirstTeam(infra.postgres)
 
-        consumer = await createConsumer(hub)
+        consumer = await createConsumer(infra)
     })
 
     afterEach(async () => {
         await consumer.stop()
-        await closeHub(hub)
+        await infra.close()
         mockProducerObserver.resetKafkaProducer()
     })
 
@@ -433,7 +439,7 @@ describe('ErrorTrackingConsumer', () => {
             projectRateLimit?: number | null
             perIssueRateLimit?: number | null
         }): Promise<void> => {
-            await hub.postgres.query(
+            await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_errortrackingsettings
                     (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
@@ -451,9 +457,9 @@ describe('ErrorTrackingConsumer', () => {
 
         const enableRateLimiter = async (): Promise<void> => {
             await consumer.stop()
-            hub.ERROR_TRACKING_RATE_LIMITER_ENABLED = true
-            hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE = false
-            consumer = await createConsumer(hub)
+            infra.config.ERROR_TRACKING_RATE_LIMITER_ENABLED = true
+            infra.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE = false
+            consumer = await createConsumer(infra)
 
             await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
                 // Per-issue buckets are hash-tagged (`tokens/{teamId}/…`); the team-global
@@ -642,6 +648,43 @@ describe('ErrorTrackingConsumer', () => {
                 await send('foo')
                 await drainProduces()
                 expect(producedCount()).toBe(5)
+            })
+
+            it('emits per-issue app_metrics2 rows keyed by the Cymbal-assigned issue id', async () => {
+                await upsertSettings({ perIssueRateLimit: 2 })
+                await enableRateLimiter()
+
+                // issue-foo bucket of 2: 4 events → 2 allowed, 2 rate_limited.
+                const events = Array.from({ length: 4 }, () => exceptionEvent('foo'))
+                await consumer.handleKafkaBatch(createKafkaMessages(events))
+                await drainProduces()
+
+                const appMetrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    .map((m) => m.value)
+
+                expect(appMetrics).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            team_id: team.id,
+                            app_source: 'exceptions',
+                            app_source_id: 'issue-foo',
+                            metric_kind: 'rate_limiting',
+                            metric_name: 'allowed',
+                            count: 2,
+                        }),
+                        expect.objectContaining({
+                            team_id: team.id,
+                            app_source: 'exceptions',
+                            app_source_id: 'issue-foo',
+                            metric_kind: 'rate_limiting',
+                            metric_name: 'rate_limited',
+                            count: 2,
+                        }),
+                    ])
+                )
+                // Every rate-limiting row is keyed by the issue id, not collapsed per team.
+                expect(appMetrics.every((v) => v?.app_source_id === 'issue-foo')).toBe(true)
             })
         })
     })

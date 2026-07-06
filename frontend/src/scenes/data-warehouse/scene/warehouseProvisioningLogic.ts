@@ -10,6 +10,7 @@ import { Region } from '~/types'
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
     dataWarehouseDeprovisionCreate,
+    dataWarehouseEnableBackfillCreate,
     dataWarehouseProvisionCreate,
     dataWarehouseResetPasswordCreate,
     dataWarehouseWarehouseStatusRetrieve,
@@ -31,6 +32,10 @@ const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
     [Region.DEV]: 'dev.postwh.com',
 }
 
+// The table name is used verbatim as the suffix in events_<suffix> / persons_<suffix>, so it
+// must already be a safe SQL identifier. Mirrors validate_table_suffix in posthog/ducklake/common.py.
+const TABLE_NAME_REGEX = /^[a-z0-9_]{1,63}$/
+
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
 
@@ -44,7 +49,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
     })),
 
     actions({
-        provisionWarehouse: (params: { databaseName: string }) => params,
+        provisionWarehouse: (params: { databaseName: string; tableName: string }) => params,
         provisionWarehouseComplete: true,
         deprovisionWarehouse: true,
         deprovisionWarehouseComplete: true,
@@ -59,6 +64,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         checkDatabaseName: (name: string) => ({ name }),
         setDatabaseNameAvailable: (available: boolean | null) => ({ available }),
         setDatabaseNameChecking: (checking: boolean) => ({ checking }),
+        setTableName: (name: string) => ({ name }),
+        enableBackfill: (params: { tableName: string }) => params,
+        enableBackfillComplete: (suffix: string | null) => ({ suffix }),
     }),
 
     loaders({
@@ -144,6 +152,37 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 resetPasswordComplete: () => false,
             },
         ],
+        tableName: [
+            '',
+            {
+                setTableName: (_, { name }) => name,
+            },
+        ],
+        isEnablingBackfill: [
+            false,
+            {
+                enableBackfill: () => true,
+                enableBackfillComplete: () => false,
+            },
+        ],
+        backfillTableSuffix: [
+            null as string | null,
+            {
+                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.table_suffix ?? null,
+                enableBackfillComplete: (state, { suffix }) => suffix ?? state,
+                deprovisionWarehouse: () => null,
+            },
+        ],
+        // Whether this project already has a backfill configured. When true, the table name is
+        // fixed (immutable), so we show a read-only state instead of re-offering the enable form.
+        hasBackfill: [
+            false,
+            {
+                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.has_backfill ?? false,
+                enableBackfillComplete: (state, { suffix }) => (suffix ? true : state),
+                deprovisionWarehouse: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -178,13 +217,17 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             (s) => [s.databaseName, s.lastRequestedDatabaseName],
             (databaseName, lastRequestedDatabaseName): string => databaseName || lastRequestedDatabaseName || '',
         ],
+        // The table name is used verbatim as the table suffix, so it must already be a valid
+        // identifier (mirrors the backend validator) — we reject rather than silently rewrite.
+        isValidTableName: [(s) => [s.tableName], (name): boolean => TABLE_NAME_REGEX.test(name)],
         canProvision: [
-            (s) => [s.isValidDatabaseName, s.databaseNameAvailable],
-            (valid, available): boolean => valid && available === true,
+            (s) => [s.isValidDatabaseName, s.databaseNameAvailable, s.isValidTableName],
+            (valid, available, validEvents): boolean => valid && available === true && validEvents,
         ],
         canRetryProvision: [
-            (s) => [s.retryDatabaseName],
-            (retryDatabaseName): boolean => !!retryDatabaseName && WAREHOUSE_NAME_REGEX.test(retryDatabaseName),
+            (s) => [s.retryDatabaseName, s.isValidTableName],
+            (retryDatabaseName, validEvents): boolean =>
+                !!retryDatabaseName && WAREHOUSE_NAME_REGEX.test(retryDatabaseName) && validEvents,
         ],
     }),
 
@@ -216,12 +259,13 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.setDatabaseNameChecking(false)
             },
 
-            provisionWarehouse: async ({ databaseName }) => {
+            provisionWarehouse: async ({ databaseName, tableName }) => {
                 actions.setLastRequestedDatabaseName(databaseName)
                 window.localStorage.setItem(databaseNameStorageKey(teamLogic.values.currentTeamId), databaseName)
                 try {
                     const result = await dataWarehouseProvisionCreate(currentProjectId(), {
                         database_name: databaseName,
+                        table_name: tableName,
                     })
                     if (result.password) {
                         actions.setInitialPassword(result.password)
@@ -240,6 +284,21 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     }
                 }
                 actions.provisionWarehouseComplete()
+            },
+
+            enableBackfill: async ({ tableName }) => {
+                try {
+                    const result = await dataWarehouseEnableBackfillCreate(currentProjectId(), {
+                        table_name: tableName,
+                    })
+                    lemonToast.success('Warehouse backfill enabled for this project')
+                    actions.enableBackfillComplete(result.table_suffix ?? null)
+                    // Refresh from the server so the read-only state reflects the now-fixed table.
+                    actions.loadWarehouseStatus()
+                } catch (e: any) {
+                    lemonToast.error(`Failed to enable backfill: ${e.detail || e.message || 'Unknown error'}`)
+                    actions.enableBackfillComplete(null)
+                }
             },
 
             resetPassword: async () => {
@@ -301,6 +360,18 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         )
         if (persistedDatabaseName) {
             actions.setLastRequestedDatabaseName(persistedDatabaseName)
+        }
+        // Prefill the table name with a valid default derived from the project name (lowercased,
+        // non-identifier chars collapsed to underscores). It's only a starting point — the user
+        // edits/confirms it, and the input is validated verbatim from there.
+        const projectName = teamLogic.values.currentTeam?.name
+        const defaultTableName = projectName
+            ?.toLowerCase()
+            .replace(/[^a-z0-9_]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 63)
+        if (defaultTableName) {
+            actions.setTableName(defaultTableName)
         }
         actions.loadWarehouseStatus()
     }),

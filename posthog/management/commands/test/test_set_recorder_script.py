@@ -7,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -105,9 +106,14 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_sampling_is_consistent(self):
-        teams = []
-        for i in range(100):
-            teams.append(Team.objects.create(organization=self.organization, name=f"Team {i}"))
+        # simple_hash maps consecutive decimal ids into a narrow band mod 10000, so a sequence-assigned
+        # id block usually samples all-or-nothing; fixed ids give a deterministic 80/20 split at rate 0.5.
+        Team.objects.bulk_create(
+            [
+                Team(id=9_400_000 + i, organization=self.organization, project=self.project, name=f"Team {i}")
+                for i in range(100)
+            ]
+        )
 
         call_command(
             "set_recorder_script",
@@ -115,9 +121,13 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
+        all_ids = set(Team.objects.values_list("id", flat=True))
+        expected_ids = {team_id for team_id in all_ids if sample_on_property(str(team_id), 0.5)}
+        updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
 
-        assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
+        assert updated_ids == expected_ids
+        # Both sides non-empty proves the command actually filtered rather than updating none or all.
+        assert updated_ids and all_ids - updated_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual

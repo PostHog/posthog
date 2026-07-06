@@ -23,11 +23,11 @@ from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
-# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (10–43200). A
+# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (30–43200). A
 # seed interval comes from arbitrary flag JSON and is written via `get_or_create`, which bypasses
 # model validators — so an out-of-range value is validated here and treated as absent rather than
 # persisted (a large enough int would otherwise raise a DB error and abort the coordinator tick).
-MIN_RUN_INTERVAL_MINUTES = 10
+MIN_RUN_INTERVAL_MINUTES = 30
 MAX_RUN_INTERVAL_MINUTES = 43200
 
 
@@ -73,7 +73,7 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     - `enabled_skills`: allowlist of canonical scouts that auto-enable on seed; the rest register
       disabled. `None` (no valid layer) means "no allowlist" — every scout enables, historical.
     - `enabled_interval_minutes`: cadence stamped on the auto-enabled rows, validated against the
-      model's 10–43200 bounds; `None` keeps the model default.
+      model's 30–43200 bounds; `None` keeps the model default.
     """
     layers = [layer for layer in (seed_config_layers or []) if isinstance(layer, dict)]
 
@@ -98,13 +98,50 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     return enabled_skills, enabled_interval
 
 
-def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None = None) -> set[str]:
+def live_scout_skill_names(
+    team_id: int,
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> set[str]:
+    """Live (latest, non-deleted) `signals-scout-*` skill names for a team, minus the holdback set.
+
+    The read-only half of `register_missing_configs`'s skill scan, with no seeding side effects. The
+    coordinator dispatches only configs whose skill is in this set, so a config whose skill was
+    deleted or superseded isn't run. Used on the wildcard (no-seed) dispatch path — a team that
+    self-enrolled through the UI already has its configs, so the per-tick seed/reconcile is skipped
+    and this cheap read is what still gates dispatch correctly.
+    """
+    names = set(
+        LLMSkill.objects.filter(
+            team_id=team_id,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+            is_latest=True,
+            deleted=False,
+        ).values_list("name", flat=True)
+    )
+    if withheld_skill_names:
+        names -= set(withheld_skill_names)
+    return names
+
+
+def register_missing_configs(
+    team_id: int,
+    seed_config_layers: list[dict] | None = None,
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> set[str]:
     """Auto-create a config for each scout skill lacking a row, honouring an optional seed posture.
 
     Idempotent — `get_or_create` keyed on the `(team, skill_name)` unique constraint, so
     concurrent callers (coordinator tick racing an API call) converge on one row. Returns
     the set of live `signals-scout-*` skill names for the team, so the caller can skip
     dispatching configs whose skill is gone.
+
+    `withheld_skill_names` is the per-team holdback denylist (resolved by the coordinator from
+    the `signals-scout` flag's `withheld_skills` key). Withheld skills are dropped from the
+    returned set before any work, so no config is seeded for them AND the coordinator (which
+    dispatches only configs whose skill is in this return) never runs them — the second and
+    third enforcement points of the holdback, after `sync_canonical_skills` keeps the skill row
+    from being seeded at all. Belt-and-suspenders for the case where a row already exists (a team
+    that was previously allowed): the scout stays visible but is never enabled or dispatched here.
 
     `seed_config_layers` are the team's flag config layers, most-specific first (its `team_configs`
     override, then the fleet `default_team_config`); `_resolve_seed_posture` resolves them per key.
@@ -134,6 +171,12 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         ).values_list("name", "metadata")
     )
     skill_names = {name for name, _ in rows}
+    # Drop held-back scouts up front: no config is seeded for them, and the returned set the
+    # coordinator dispatches from never includes them. `sync_canonical_skills` already keeps
+    # withheld skills from being seeded as `LLMSkill` rows, so this is mostly belt-and-suspenders
+    # — it also covers a team that was previously allowed and still has the row.
+    if withheld_skill_names:
+        skill_names -= set(withheld_skill_names)
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick.
     ensure_scout_category(team_id)
@@ -168,8 +211,9 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         defaults: dict = {} if seed_enabled else {"enabled": False}
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
-        # toggles on runs at the daily launch cadence, not the 3h model default. Custom scouts
-        # keep the model default so a user's own scout isn't forced onto the fleet's schedule.
+        # toggles on runs at the flag's launch cadence rather than the model default (daily).
+        # Custom scouts keep the model default so a user's own scout isn't forced onto the
+        # fleet's schedule.
         if gated and enabled_interval is not None:
             defaults["run_interval_minutes"] = enabled_interval
 

@@ -259,8 +259,8 @@ mod test {
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbolication::symbol_store::{
             apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-            proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
-            Catalog, MockS3Client,
+            native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
+            sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
 
@@ -330,7 +330,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp, apple, native);
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
             let res = raw_frame

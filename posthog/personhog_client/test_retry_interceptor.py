@@ -66,6 +66,7 @@ class TestRetryInterceptorBehavior:
             ("unavailable", grpc.StatusCode.UNAVAILABLE),
             ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
             ("aborted", grpc.StatusCode.ABORTED),
+            ("unknown", grpc.StatusCode.UNKNOWN),
         ]
     )
     @patch("posthog.personhog_client.interceptor.time.sleep")
@@ -89,7 +90,6 @@ class TestRetryInterceptorBehavior:
             ("failed_precondition", grpc.StatusCode.FAILED_PRECONDITION),
             ("internal", grpc.StatusCode.INTERNAL),
             ("resource_exhausted", grpc.StatusCode.RESOURCE_EXHAUSTED),
-            ("unknown", grpc.StatusCode.UNKNOWN),
         ]
     )
     def test_does_not_retry_non_retryable_error(self, _name: str, status_code: grpc.StatusCode):

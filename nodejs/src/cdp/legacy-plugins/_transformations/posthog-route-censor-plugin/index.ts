@@ -1,4 +1,5 @@
-import { parseJSON } from '../../../../utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { LegacyTransformationPluginMeta } from '../../types'
 
 // NOTE: The dist.js is a compiled version of the plugin as it is has external dependencies that it inlines

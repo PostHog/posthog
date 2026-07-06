@@ -109,6 +109,9 @@ tools:
     integrations-github-oauth-authorize-create:
         operation: integrations_github_oauth_authorize_create
         enabled: false
+    integrations-github-prepare-callback-create:
+        operation: integrations_github_prepare_callback_create
+        enabled: false
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create
         enabled: false
@@ -142,10 +145,32 @@ tools:
         enabled: false
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List Jira projects
+        description: >
+            List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira
+            first to find the integration id, then pass a returned project key as `config.project_key` when creating an
+            error tracking external reference.
     integrations-linear-teams-retrieve:
         operation: integrations_linear_teams_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List Linear teams
+        description: >
+            List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear
+            first to find the integration id, then pass a returned team id as `config.team_id` when creating an error
+            tracking external reference.
     integrations-linkedin-ads-accounts-retrieve:
         operation: integrations_linkedin_ads_accounts_retrieve
         enabled: false

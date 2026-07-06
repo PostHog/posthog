@@ -77,6 +77,12 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .max(annotationsCreateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**
@@ -144,6 +150,12 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(annotationsPartialUpdateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**

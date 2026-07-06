@@ -134,7 +134,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			eventTypes = strings.Split(eventType, ",")
 		}
 
-		propertyFilters := parsePropertyFilters(c.QueryParams()["property"])
+		propertyFilters := parsePropertyFilters(c.QueryParam("properties"), c.QueryParams()["property"])
 
 		subscription := events.Subscription{
 			SubID:           atomic.AddUint64(&subID, 1),
@@ -189,22 +189,78 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 	}
 }
 
-func parsePropertyFilters(raw []string) map[string][]string {
+func parsePropertyFilters(propertiesJSON string, legacy []string) []events.CompiledPropertyFilter {
+	filters := parsePropertyFiltersJSON(propertiesJSON)
+	filters = append(filters, parseLegacyPropertyFilters(legacy)...)
+	if len(filters) == 0 {
+		return nil
+	}
+	return filters
+}
+
+func parsePropertyFiltersJSON(raw string) []events.CompiledPropertyFilter {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	var payloads []struct {
+		Key      string      `json:"key"`
+		Operator string      `json:"operator"`
+		Value    interface{} `json:"value"`
+	}
+	if err := dec.Decode(&payloads); err != nil {
+		return nil
+	}
+	out := make([]events.CompiledPropertyFilter, 0, len(payloads))
+	for _, p := range payloads {
+		if p.Key == "" || p.Operator == "" {
+			continue
+		}
+		out = append(out, events.NewCompiledPropertyFilter(p.Key, p.Operator, normalizeFilterValues(p.Value)))
+	}
+	return out
+}
+
+func parseLegacyPropertyFilters(raw []string) []events.CompiledPropertyFilter {
 	if len(raw) == 0 {
 		return nil
 	}
-	out := make(map[string][]string, len(raw))
+	grouped := make(map[string][]string, len(raw))
+	order := make([]string, 0, len(raw))
 	for _, entry := range raw {
 		k, v, ok := strings.Cut(entry, "=")
 		if !ok || k == "" {
 			continue
 		}
-		out[k] = append(out[k], v)
+		if _, seen := grouped[k]; !seen {
+			order = append(order, k)
+		}
+		grouped[k] = append(grouped[k], v)
 	}
-	if len(out) == 0 {
-		return nil
+	out := make([]events.CompiledPropertyFilter, 0, len(order))
+	for _, k := range order {
+		out = append(out, events.NewCompiledPropertyFilter(k, events.OpExact, grouped[k]))
 	}
 	return out
+}
+
+func normalizeFilterValues(value interface{}) []string {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if item != nil {
+				out = append(out, fmt.Sprint(item))
+			}
+		}
+		return out
+	default:
+		return []string{fmt.Sprint(v)}
+	}
 }
 
 func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error {

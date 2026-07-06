@@ -28,6 +28,8 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    SandboxMessageResponseApi,
+    SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
@@ -161,17 +163,41 @@ export const getConversationsCancelPartialUpdateUrl = (projectId: string, conver
     return `/api/projects/${projectId}/conversations/${conversation}/cancel/`
 }
 
+/**
+ * Cancel the conversation's in-progress LangGraph run.
+ */
 export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi?: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
-): Promise<ConversationApi> => {
-    return apiMutator<ConversationApi>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
+): Promise<void> => {
+    return apiMutator<void>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedConversationApi),
+    })
+}
+
+export const getConversationsOpenCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/projects/${projectId}/conversations/${conversation}/open/`
+}
+
+/**
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ */
+export const conversationsOpenCreate = async (
+    projectId: string,
+    conversation: string,
+    sandboxOpenApi?: SandboxOpenApi,
+    options?: RequestInit
+): Promise<SandboxMessageResponseApi | void> => {
+    return apiMutator<SandboxMessageResponseApi | void>(getConversationsOpenCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxOpenApi),
     })
 }
 

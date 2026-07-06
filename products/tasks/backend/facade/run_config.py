@@ -14,6 +14,7 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    InitialPermissionMode,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -23,8 +24,10 @@ from products.tasks.backend.temporal.process_task.utils import (
     RunSource,
     RunState,
     RuntimeAdapter,
+    get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_supported_reasoning_efforts,
     parse_run_state,
 )
 
@@ -32,6 +35,7 @@ __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
+    "InitialPermissionMode",
     "PUBLIC_REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",
@@ -39,7 +43,9 @@ __all__ = [
     "RunSource",
     "RunState",
     "RuntimeAdapter",
+    "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_supported_reasoning_efforts",
     "parse_run_state",
 ]

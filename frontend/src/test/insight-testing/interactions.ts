@@ -165,7 +165,7 @@ export const chart = {
     async clickTooltipRow(label: string | RegExp): Promise<void> {
         const tooltip = await waitForHogChartTooltip()
         const row = within(tooltip).getByText(label)
-        const clickable = row.closest('tr') ?? row
+        const clickable = row.closest('[data-attr="hog-chart-tooltip-row"]') ?? row.closest('tr') ?? row
         fireEvent.click(clickable)
     },
 }

@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tracing::{info, warn};
 
-use crate::core::config::ResolverConfig;
+use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
 
 pub mod app_context;
 pub mod auth;
@@ -70,7 +70,15 @@ pub async fn serve(
         service_config,
         draining,
     );
-    let auth_interceptor = InternalApiSecretInterceptor::new(resolver.internal_api_secret.clone());
+    let internal_api_secret_fallbacks = resolver
+        .internal_api_secret_fallbacks
+        .split(',')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let auth_interceptor = InternalApiSecretInterceptor::new(
+        resolver.internal_api_secret.clone(),
+        internal_api_secret_fallbacks,
+    );
 
     let listener = tokio::net::TcpListener::bind(res.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);
@@ -161,18 +169,6 @@ async fn readiness(draining: Arc<AtomicBool>) -> (StatusCode, &'static str) {
     }
 
     (StatusCode::OK, "ok")
-}
-
-async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
-    if *shutdown_rx.borrow() {
-        return;
-    }
-
-    while shutdown_rx.changed().await.is_ok() {
-        if *shutdown_rx.borrow() {
-            return;
-        }
-    }
 }
 
 #[cfg(unix)]

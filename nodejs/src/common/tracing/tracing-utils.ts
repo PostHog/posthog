@@ -1,10 +1,10 @@
 import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
 import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
-import { defaultConfig } from '~/config/config'
-import { timeoutGuard } from '~/utils/db/utils'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
+import { defaultConfig } from '~/common/config/config'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 const instrumentedFnSummary = new Summary({
     name: 'instrumented_fn_duration_ms',

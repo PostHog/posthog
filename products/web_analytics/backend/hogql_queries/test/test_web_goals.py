@@ -25,6 +25,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Person
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.utils import uuid7
+from posthog.test.persons import add_cohort_members
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -395,7 +396,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             # Add persons to the cohort
-            cohort.people.add(p1, p2)
+            add_cohort_members(cohort, [p1, p2])
 
             # Insert person_distinct_id_overrides that create the scenario for any() function
             # This creates multiple overrides for the same distinct_id in ClickHouse with the same version

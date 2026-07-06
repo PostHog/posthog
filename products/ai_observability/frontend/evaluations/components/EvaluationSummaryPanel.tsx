@@ -4,18 +4,28 @@ import { IconCheck, IconChevronDown, IconMinus, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationPattern, EvaluationRun, EvaluationSummary, EvaluationSummaryFilter } from '../types'
+import {
+    EvaluationPattern,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    SentimentEvaluationRunsFilter,
+} from '../types'
 import { PatternCard } from './PatternCard'
+
+type ReportPatternFilter = Exclude<EvaluationSummaryFilter, 'all' | SentimentEvaluationRunsFilter>
 
 const FILTER_LABELS: Record<Exclude<EvaluationSummaryFilter, 'all'>, string> = {
     pass: 'passing ',
     fail: 'failing ',
     na: 'N/A ',
+    negative: 'negative ',
+    positive: 'positive ',
+    neutral: 'neutral ',
 }
 
 function getFilterLabel(filter: EvaluationSummaryFilter): string {
@@ -44,12 +54,6 @@ const BASE_FILTER_OPTIONS: FilterOption[] = [
 
 const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
 
-function useShowEvaluationSummary(): boolean {
-    const summaryFlag = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
-    const earlyAdoptersFlag = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
-    return summaryFlag || earlyAdoptersFlag
-}
-
 export function EvaluationSummaryControls(): JSX.Element | null {
     const {
         evaluation,
@@ -65,9 +69,8 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         setEvaluationSummaryFilter,
         trackSummarizeClicked,
     } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useShowEvaluationSummary()
 
-    if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
+    if (!runsSummary || runsSummary.total === 0) {
         return null
     }
 
@@ -124,11 +127,6 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
     const { toggleSummaryExpanded } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useShowEvaluationSummary()
-
-    if (!showSummaryFeature) {
-        return null
-    }
 
     if (evaluationSummaryLoading) {
         return (
@@ -293,7 +291,7 @@ function PatternList({
 }
 
 const FILTER_CONFIG: Record<
-    Exclude<EvaluationSummaryFilter, 'all'>,
+    ReportPatternFilter,
     {
         patternsKey: 'pass_patterns' | 'fail_patterns' | 'na_patterns'
         icon: JSX.Element
@@ -325,6 +323,10 @@ const FILTER_CONFIG: Record<
     },
 }
 
+function isReportPatternFilter(filter: EvaluationSummaryFilter): filter is ReportPatternFilter {
+    return filter === 'pass' || filter === 'fail' || filter === 'na'
+}
+
 function FilteredPatternSection({
     filter,
     evaluationSummary,
@@ -334,7 +336,7 @@ function FilteredPatternSection({
     evaluationSummary: EvaluationSummary
     runsLookup: Record<string, EvaluationRun>
 }): JSX.Element | null {
-    if (filter === 'all') {
+    if (filter === 'all' || !isReportPatternFilter(filter)) {
         return null
     }
 

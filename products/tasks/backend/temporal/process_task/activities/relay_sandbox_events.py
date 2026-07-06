@@ -4,12 +4,14 @@ import json
 import time
 import asyncio
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 import httpx_sse
 import structlog
 import temporalio.client
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
@@ -49,6 +51,10 @@ class RelaySandboxEventsInput:
     team_id: int
     distinct_id: str
     sandbox_id: str | None = None
+    # When True + slack_thread_context set, the relay forwards per-turn signals
+    # to the parent to drive SlackAgentDesignRelayWorkflow children.
+    slack_thread_context: dict[str, Any] | None = None
+    is_agent_design_enabled: bool = False
 
 
 @activity.defn
@@ -118,6 +124,8 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             background_logs_enabled=background_logs_enabled,
             task_run=task_run,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
+            slack_thread_context=input.slack_thread_context,
+            is_agent_design_enabled=input.is_agent_design_enabled,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -136,7 +144,11 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             return
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
-        raise
+        # The stream now carries an error sentinel — a retried attempt would
+        # append events past it that disconnected consumers never see. Fail
+        # the activity for good; retries are reserved for attempt-level
+        # deaths (worker restart), where no sentinel was written.
+        raise ApplicationError(str(e), non_retryable=True) from e
     except Exception as e:
         try:
             marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
@@ -162,7 +174,9 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
                 logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
             else:
                 logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        raise
+        # A complete/error sentinel was written above (or attempted) — same
+        # reasoning as the RuntimeError path: don't retry past a sentinel.
+        raise ApplicationError(str(e), non_retryable=True) from e
 
 
 async def _mark_error_unless_run_is_terminal(
@@ -239,6 +253,8 @@ async def _relay_loop(
     background_logs_enabled: bool = False,
     task_run: TaskRunModel | None = None,
     inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
+    slack_thread_context: dict[str, Any] | None = None,
+    is_agent_design_enabled: bool = False,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -259,8 +275,15 @@ async def _relay_loop(
     # The background heartbeat reads this to decide whether the agent is active.
     last_event_time: list[float] = [0.0]  # list used as mutable container
     last_workflow_signal: list[float] = [0.0]  # shared with background heartbeat
-    agent_active: list[bool] = [True]  # agent is working; False after end_turn
+    # Whether the agent is mid-turn. Starts False (idle until a generating
+    # session_update) and resets to False on reconnect so a dropped end_of_turn
+    # can't leave it stuck True and emit phantom heartbeats.
+    agent_active: list[bool] = [False]
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
+    # Brackets turn_started / turn_completed signals to the parent.
+    slack_turn_active: list[bool] = [False]
+    # ACP emits one tool_call + N tool_call_update per id; only render the start.
+    emitted_tool_call_ids: set[str] = set()
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
@@ -326,8 +349,36 @@ async def _relay_loop(
                                     # does sync Redis (cache.add) and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
-                            elif not agent_active[0] and _is_session_update(event_data):
+                                if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
+                                    slack_turn_active[0] = False
+                                    asyncio.create_task(_signal_safely(workflow_handle, "turn_completed"))
+                            elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
+
+                            # Agent-design signal fan-out: first session/update opens the
+                            # child relay; tool_call → step, agent_message_chunk → markdown.
+                            if is_agent_design_enabled and workflow_handle is not None:
+                                if not slack_turn_active[0] and _is_session_update(event_data):
+                                    slack_turn_active[0] = True
+                                    asyncio.create_task(
+                                        _signal_safely(
+                                            workflow_handle,
+                                            "turn_started",
+                                            arg={"slack_thread_context": slack_thread_context or {}},
+                                        )
+                                    )
+                                if slack_turn_active[0]:
+                                    step_payload = _extract_tool_call_step(event_data, emitted_tool_call_ids)
+                                    if step_payload is not None:
+                                        asyncio.create_task(
+                                            _signal_safely(workflow_handle, "agent_status_update", arg=step_payload)
+                                        )
+                                if slack_turn_active[0] and _is_session_update(event_data):
+                                    text_delta = _extract_agent_message_text(event_data)
+                                    if text_delta:
+                                        asyncio.create_task(
+                                            _signal_safely(workflow_handle, "agent_text_delta", arg=text_delta)
+                                        )
 
                             now = time.monotonic()
                             if (
@@ -354,6 +405,8 @@ async def _relay_loop(
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
+                # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
+                agent_active[0] = False
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -374,6 +427,7 @@ async def _relay_loop(
                     return
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -385,6 +439,7 @@ async def _relay_loop(
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -407,11 +462,144 @@ async def _relay_loop(
 
 
 def _is_session_update(event_data: dict) -> bool:
-    """Check if an event is a session/update notification (active agent processing)."""
+    """Check if an event is a session/update notification."""
     if event_data.get("type") != "notification":
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
+
+
+# session/update sub-types that mean the agent is actively generating. Allowlist
+# (not denylist) so an unknown/missing sub-type — a future ACP lifecycle event,
+# or a malformed payload — fails safe to "not active" rather than re-latching
+# agent_active and reviving the idle heartbeat storm.
+_GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call",
+        "tool_call_update",
+        "plan",
+        "user_message",
+        "user_message_chunk",
+    }
+)
+
+
+def _is_active_agent_update(event_data: dict) -> bool:
+    """True only for session/update events where the agent is actively generating."""
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
+
+
+# Priority order for picking the plan-block step's details line from rawInput.
+_TOOL_ARGS_PREVIEW_KEYS = (
+    "file_path",
+    "notebook_path",
+    "path",
+    "command",  # Bash
+    "code",  # MCP exec / hogql / sql payloads
+    "query",
+    "pattern",
+    "url",
+    "description",
+    "prompt",  # Task / Agent sub-agent
+    "name",
+    "title",
+)
+_TOOL_ARGS_PREVIEW_LIMIT = 240
+
+
+def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
+    """Build {title, details} from an ACP tool_call/tool_call_update.
+
+    Streaming Claude tools arrive with empty rawInput first; we defer the
+    emit + seen-write until rawInput populates so the step gets a details line.
+    """
+    if not _is_session_update(event_data):
+        return None
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    if update.get("sessionUpdate") not in ("tool_call", "tool_call_update"):
+        return None
+
+    tool_call_id = update.get("toolCallId")
+    if not isinstance(tool_call_id, str) or tool_call_id in seen:
+        return None
+
+    # Bare tool name ("Read", "Bash") from agent meta; fall back to rendered title.
+    meta = update.get("_meta") or {}
+    title = ((meta.get("claudeCode") or {}) if isinstance(meta, dict) else {}).get("toolName")
+    if not isinstance(title, str) or not title:
+        title = update.get("title")
+    if not isinstance(title, str) or not title:
+        return None
+
+    details = _tool_args_preview(update.get("rawInput"))
+    if not details:
+        # rawInput not assembled yet — next tool_call_update will retry here.
+        return None
+
+    seen.add(tool_call_id)
+    return {"title": title, "details": details}
+
+
+def _tool_args_preview(raw_input: Any) -> str | None:
+    """First non-empty string from _TOOL_ARGS_PREVIEW_KEYS, trimmed to one line."""
+    if not isinstance(raw_input, dict):
+        return None
+    pick: str | None = None
+    for key in _TOOL_ARGS_PREVIEW_KEYS:
+        value = raw_input.get(key)
+        if isinstance(value, str) and value:
+            pick = value
+            break
+    if pick is None:
+        for value in raw_input.values():
+            if isinstance(value, str) and value.strip():
+                pick = value
+                break
+    if not pick:
+        return None
+    one_line = " ".join(pick.split())
+    if len(one_line) > _TOOL_ARGS_PREVIEW_LIMIT:
+        return one_line[: _TOOL_ARGS_PREVIEW_LIMIT - 1] + "…"
+    return one_line
+
+
+def _extract_agent_message_text(event_data: dict) -> str | None:
+    """Text delta from an ACP agent_message_chunk session/update, else None."""
+    notification = event_data.get("notification", {})
+    if notification.get("method") != "session/update":
+        return None
+    params = notification.get("params") or {}
+    update = params.get("update") or {}
+    if update.get("sessionUpdate") != "agent_message_chunk":
+        return None
+    content = update.get("content")
+    if not isinstance(content, dict):
+        return None
+    if content.get("type") != "text":
+        return None
+    text = content.get("text")
+    return text if isinstance(text, str) and text else None
+
+
+async def _signal_safely(
+    workflow_handle: temporalio.client.WorkflowHandle,
+    signal_name: str,
+    arg: Any = None,
+) -> None:
+    """Fire-and-forget signal — failures must never break the relay loop."""
+    try:
+        if arg is None:
+            await workflow_handle.signal(signal_name)
+        else:
+            await workflow_handle.signal(signal_name, arg=arg)
+    except Exception as e:
+        logger.warning("slack_app_relay_signal_failed", signal=signal_name, error=str(e))
 
 
 def _is_keepalive_event(event_data: dict) -> bool:

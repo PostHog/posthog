@@ -1,0 +1,80 @@
+# Node composition manifest — the source of truth for object placement (replaces codegen/topology.py).
+#
+# A node's schema = compose(its layers, in order). Each line is:
+#     <env>  <role>  <layer> [<layer> ...]
+# layers are directories relative to this file (posthog/clickhouse/hcl/).
+#
+# node_roles for an object is DERIVED, not declared: it is the set of roles whose
+# composition includes the layer that defines the object. check.sh, diff.sh, and the
+# migration generator all read this file. Cross-role objects (in roles/shared/) appear
+# in every role's composition -> node_roles = every role here; OPS-only objects (under
+# roles/ops/) appear only in the ops compositions -> node_roles = [OPS].
+#
+# Layout: roles/shared/ (objects on every role) + roles/<role>/<env-or-shared>/ where
+# `shared` = all envs of that role and `prod` = both prod envs (e.g. the OPS metrics
+# suite is prod-only but env-identical).
+#
+# Both managed roles (OPS, LOGS) are modeled for all three cloud envs (dev, prod-us,
+# prod-eu); OPS additionally has `local`. OPS carries the env differences; LOGS carries
+# the shared managed subset (env-identical, but verified per env for fidelity).
+#
+# SCOPE: the pilot is OPS + LOGS. The other roles (data/endpoints/aux/ai_events/sessions)
+# also host the shared query_log_archive path + custom_metrics, but are intentionally
+# left out for now, so node_roles for shared objects derives to [OPS, LOGS] rather than
+# every role. To bring a role under management, uncomment its line and regenerate the
+# golden from a host of that role (codegen/README has the extraction).
+
+local    ops        roles/shared roles/ops/shared roles/ops/local
+dev      ops        roles/shared roles/ops/shared roles/ops/dev
+prod-us  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-us
+prod-eu  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-eu
+
+local    logs       roles/logs/local
+dev      logs       roles/shared roles/logs/shared roles/logs/dev
+prod-us  logs       roles/shared roles/logs/shared roles/logs/prod roles/logs/prod-us
+prod-eu  logs       roles/shared roles/logs/shared roles/logs/prod roles/logs/prod-eu
+
+# AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
+# (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
+# + distributed ai_events reader; US/EU run the WarpStream variant
+# (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK dropped by migration 0248)
+# writing into a single ai_events data table. roles/ai_events/shared holds the
+# env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
+# has only the top-level shared objects (per the latest dump).
+local    ai_events  roles/shared roles/ai_events/shared roles/ai_events/local
+dev      ai_events  roles/shared
+prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
+prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
+
+# AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
+# property values, web/marketing preaggregated). roles/auxiliary/shared holds the env-uniform
+# objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
+# kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
+# ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
+local    aux        roles/shared roles/auxiliary/shared roles/auxiliary/local
+prod-us  aux        roles/shared roles/auxiliary/shared roles/auxiliary/prod roles/auxiliary/prod-us
+prod-eu  aux        roles/shared roles/auxiliary/shared roles/auxiliary/prod roles/auxiliary/prod-eu
+
+# SESSIONS satellite: the local node runs only the shared query_log_archive path
+# (session tables are prod-only), so it composes roles/shared alone. prod nodes host
+# the session tables (sessions, raw_sessions, raw_sessions_v3), the events replica,
+# channel_definition + web_pre_aggregated_teams (+ their dictionaries), and person
+# join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
+# carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
+# has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
+local    sessions   roles/shared
+prod-us  sessions   roles/shared roles/sessions/shared roles/sessions/prod-us
+prod-eu  sessions   roles/shared roles/sessions/shared roles/sessions/prod-eu
+
+# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
+# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
+prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
+
+# BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
+# store the export workers read; data/ops reach it via Distributed proxies) plus the
+# query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
+# column. Dump-baselined (no local batch-exports node).
+prod-us  batch_exports roles/shared roles/batch_exports/prod-us
+prod-eu  batch_exports roles/shared roles/batch_exports/prod-eu
+
+# prod-us  data       roles/shared roles/data/shared roles/data/prod-us

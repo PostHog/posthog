@@ -4,8 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -42,7 +42,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Survey} minAccessLevel={AccessControlLevel.Editor}>
-            <AppShortcut
+            <Shortcut
                 name="NewSurvey"
                 keybind={[keyBinds.new]}
                 intent="New survey"
@@ -59,7 +59,7 @@ function NewSurveyButton(): JSX.Element {
                 >
                     New survey
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }

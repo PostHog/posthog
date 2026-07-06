@@ -1,30 +1,8 @@
-use std::sync::Arc;
-
-use crate::modes::processing::rules::grouping::{try_grouping_rules, GroupingRule};
-use crate::{
-    app_context::AppContext,
-    error::UnhandledError,
-    modes::processing::rules::assignment::NewAssignment,
-    types::{ExceptionList, RawErrProps},
-};
-use common_types::TeamId;
+use crate::modes::processing::rules::grouping::GroupingRule;
+use crate::types::ExceptionList;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use uuid::Uuid;
-
-pub async fn resolve_fingerprint(
-    ctx: &Arc<AppContext>,
-    team_id: TeamId,
-    props: &RawErrProps,
-) -> Result<Fingerprint, UnhandledError> {
-    let mut conn = ctx.posthog_pool.acquire().await?;
-    let team_manager = &ctx.team_manager;
-    if let Some(rule) = try_grouping_rules(&mut conn, team_id, team_manager, props).await? {
-        Ok(Fingerprint::from_rule(rule))
-    } else {
-        Ok(Fingerprint::from_exception_list(&props.exception_list))
-    }
-}
 
 // We put a vec of these on the event as a record of what actually went into a fingerprint.
 // This data is user-facing/used in the frontend, so make changes with caution
@@ -54,9 +32,6 @@ pub trait FingerprintComponent {
 pub struct Fingerprint {
     pub value: String,
     pub record: Vec<FingerprintRecordPart>,
-    // DEPRECATED: assignment is never used
-    #[serde(skip)]
-    pub assignment: Option<NewAssignment>, // If this fingerprint came from a custom rule, it might carry an assignment with it
 }
 
 #[derive(Debug, Clone, Default)]
@@ -80,7 +55,6 @@ impl FingerprintBuilder {
         Fingerprint {
             value: content,
             record: self.record,
-            assignment: None,
         }
     }
 }
@@ -91,7 +65,6 @@ impl Fingerprint {
         Fingerprint {
             value: content,
             record: vec![FingerprintRecordPart::Custom { rule_id: rule.id }],
-            assignment: rule.assignment(),
         }
     }
 
@@ -103,6 +76,30 @@ impl Fingerprint {
         }
 
         fingerprint.finalize()
+    }
+}
+
+// Versions of the automatic fingerprint algorithm. The grouping stage computes every
+// registered version for each event, keeps the newest version already used by an existing issue,
+// and falls back to the newest version for new issues. Adding a version = one variant + one arm
+// in `compute()` + appending to `all()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FingerprintVersion {
+    V1,
+}
+
+impl FingerprintVersion {
+    // All registered versions, ascending. Order is meaningful: selection keeps the newest
+    // already-used fingerprint, and new issues are created under the last (newest) entry.
+    pub fn all() -> &'static [FingerprintVersion] {
+        &[FingerprintVersion::V1]
+    }
+
+    pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
+        match self {
+            FingerprintVersion::V1 => Fingerprint::from_exception_list(exception_list),
+        }
     }
 }
 

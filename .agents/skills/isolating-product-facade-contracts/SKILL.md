@@ -17,23 +17,23 @@ exists only as the merge base for team-sliced sweeps — per the PR strategy bel
 
 Read these before changing code:
 
-1. [products/architecture.md](products/architecture.md)
-2. [products/README.md](products/README.md)
-3. [docs/internal/monorepo-layout.md](docs/internal/monorepo-layout.md)
-4. [posthog/models/team/README.md](posthog/models/team/README.md) (team extension model rule)
-5. [docs/published/handbook/engineering/type-system.md](docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
-6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
-7. [.agents/security.md](.agents/security.md) (SQL/HogQL security guidelines)
+1. [products/architecture.md](../../../products/architecture.md)
+2. [products/README.md](../../../products/README.md)
+3. [docs/internal/monorepo-layout.md](../../../docs/internal/monorepo-layout.md)
+4. [posthog/models/team/README.md](../../../posthog/models/team/README.md) (team extension model rule)
+5. [docs/published/handbook/engineering/type-system.md](../../../docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
+6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](../../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
+7. [.agents/security.md](../../../.agents/security.md) (SQL/HogQL security guidelines)
 
 Use Visual review as the concrete reference implementation:
 
-- [products/visual_review/backend/facade/contracts.py](products/visual_review/backend/facade/contracts.py)
-- [products/visual_review/backend/facade/api.py](products/visual_review/backend/facade/api.py)
-- [products/visual_review/backend/presentation/views.py](products/visual_review/backend/presentation/views.py)
-- [products/visual_review/backend/presentation/serializers.py](products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](products/visual_review/backend/logic.py)
-- [products/visual_review/backend/tests/test_api.py](products/visual_review/backend/tests/test_api.py)
-- [products/visual_review/backend/tests/test_presentation.py](products/visual_review/backend/tests/test_presentation.py)
+- [products/visual_review/backend/facade/contracts.py](../../../products/visual_review/backend/facade/contracts.py)
+- [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
+- [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
+- [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
+- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
+- [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
 Before changing code, get the baseline:
 
@@ -284,6 +284,39 @@ in `facade/api.py` with the viewset deferred.
       string-reference section surfaces the latter). tach/import-linter
       only police the import channel; a mechanical check for these
       non-import channels is a known gap, noted and deferred.
+   - **Permanent-interface exception (irreducible import coupling).** Some
+     import coupling genuinely cannot be drained: ClickHouse DDL modules
+     (`backend.sql`, `backend.embedding`, …) are imported by core's
+     `posthog/clickhouse/schema.py` registry, `conftest.py`, and **frozen**
+     ClickHouse migrations that hardcode the import path forever. You cannot
+     reroute a frozen migration or move the module. For this, mark the
+     tach `[[interfaces]]` block that exposes those modules with a
+     `# isolation:permanent-interface` comment on the line(s) directly above
+     it. The marker tells `hogli product:lint` the block is a declared,
+     irreducible exposure — **not** a legacy leak — so it stops withholding
+     `backend:contract-check`. Soundness is preserved by pairing it with
+     turbo.json: every permanently-exposed module **must** appear in the
+     contract-check `inputs` (e.g. `backend/sql.py`), so a change to it still
+     re-runs the full suite. `IsolationChainCheck` enforces that pairing and
+     fails if a marked module is missing from the inputs. Use this only for
+     coupling that is both non-behavioral-over-HTTP and impossible to reroute
+     (frozen-migration / schema-registry DDL) — not as an escape hatch for
+     model/logic imports you simply haven't migrated yet. That restriction is
+     structural, not stylistic: the marker is only sound when every
+     frozen-pinned module contains **only DDL**. `error_tracking` is the worked
+     example (`sql` / `embedding` / `indexed_embedding` are pure-DDL modules).
+     `cohorts` matches too — migration 0010 pins
+     `products.cohorts.backend.models.sql`, a DDL-only submodule, so the marker
+     applies to exactly that submodule (not `backend.models.*`).
+     `event_definitions` does **not**: migration 0120 pins
+     `products.event_definitions.backend.models.property_definition`, a module
+     that defines the `PropertyDefinition` model class alongside its DDL
+     constant, so marking it permanent would expose model access — precisely
+     the escape hatch this exception forbids. Products with that shape need the
+     DDL extracted into a dedicated module first, with the frozen import path
+     preserved by a re-export shim in the original module; the shim's residual
+     exposure (the frozen migration still imports the model module) must be
+     documented honestly in the block comment, not papered over by the marker.
    - Verify with `tach check --dependencies --interfaces`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining

@@ -21,14 +21,16 @@ export function buildActiveEnvironmentContextPrompt(
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
+        const projectToken = project?.api_token ?? 'unknown'
+
         if (org) {
             const orgName = org.name ?? 'Unknown'
             const orgId = org.id ?? 'unknown'
             lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+                `You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}) within organization "${orgName}" (id: ${orgId}).`
             )
         } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
+            lines.push(`You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}).`)
         }
     }
     if (regionalBaseUrl) {

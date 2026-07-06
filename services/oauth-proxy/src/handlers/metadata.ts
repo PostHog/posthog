@@ -24,6 +24,7 @@ interface WellKnownOAuthAuthorizationServerMetadata {
     response_types_supported: string[]
     response_modes_supported: string[]
     grant_types_supported: string[]
+    authorization_grant_profiles_supported: string[]
     token_endpoint_auth_methods_supported: string[]
     code_challenge_methods_supported: string[]
     service_documentation: string

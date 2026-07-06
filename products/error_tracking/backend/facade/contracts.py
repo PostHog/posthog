@@ -134,6 +134,24 @@ class ErrorTrackingRelease:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingSymbolSet:
+    id: UUID
+    ref: str
+    team_id: int
+    created_at: datetime
+    last_used: datetime | None
+    failure_reason: str | None
+    has_uploaded_file: bool
+    release: ErrorTrackingRelease | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSymbolSetDownload:
+    has_file: bool
+    url: str | None
+
+
+@dataclass(frozen=True)
 class ErrorTrackingStackFrame:
     id: UUID
     raw_id: str
@@ -188,5 +206,36 @@ class ErrorTrackingSuppressionRule:
     order_key: int
     disabled_data: dict | None
     sampling_rate: float
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingBypassRule:
+    id: UUID
+    filters: dict
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueBasics:
+    id: UUID
+    name: str | None
+    description: str | None
+    status: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRecommendation:
+    id: UUID
+    type: str
+    meta: dict
+    completed: bool
+    status: str
+    computed_at: datetime | None
+    dismissed_at: datetime | None
     created_at: datetime
     updated_at: datetime

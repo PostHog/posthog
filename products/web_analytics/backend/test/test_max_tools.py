@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 
 from posthog.schema import (
     CompareFilter,
@@ -22,6 +22,23 @@ class TestWebAnalyticsFilterOptionsToolkit(APIBaseTest):
         assert "final_answer" in tool_names
         assert "retrieve_web_analytics_property_values" in tool_names
         assert "ask_user_for_help" in tool_names
+
+
+class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):
+    def test_retrieve_event_property_values_returns_distinct_values(self):
+        for browser in ["Chrome", "Chrome", "Firefox"]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="d1",
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        toolkit = WebAnalyticsFilterOptionsToolkit(self.team, self.user)
+        values = toolkit._retrieve_event_property_values("$browser")
+
+        assert set(values) == {"Chrome", "Firefox"}
 
 
 class TestWebAnalyticsAssistantFilters(APIBaseTest):

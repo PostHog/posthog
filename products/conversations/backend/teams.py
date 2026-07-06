@@ -27,6 +27,7 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .services.attachments import build_content_with_images
 from .support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
@@ -36,6 +37,7 @@ from .support_teams import (
     is_trusted_teams_service_url,
     mark_teams_graph_message_seen,
 )
+from .teams_attachments import extract_teams_bot_attachments
 from .teams_formatting import teams_html_to_content_and_rich_content
 
 logger = structlog.get_logger(__name__)
@@ -528,6 +530,7 @@ def create_or_update_teams_ticket(
     is_thread_reply: bool = False,
     channel_detail: ChannelDetail | None = None,
     graph_post_context: dict | None = None,
+    images: list[dict[str, Any]] | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one from a Teams Activity.
@@ -569,7 +572,12 @@ def create_or_update_teams_ticket(
     # Convert Teams HTML to content and rich_content
     cleaned_text, rich_content = teams_html_to_content_and_rich_content(text_html)
 
-    if not cleaned_text:
+    # Merge extracted images into content + rich_content
+    resolved_images = images or []
+    if resolved_images:
+        cleaned_text, rich_content = build_content_with_images(cleaned_text, rich_content, resolved_images)
+
+    if not cleaned_text and not resolved_images:
         logger.warning("teams_ticket_ingest_empty", team_id=team_id, activity_id=activity_id)
         return None
 
@@ -624,6 +632,7 @@ def create_or_update_teams_ticket(
                 "teams_author_name": user_info["name"],
                 "teams_author_email": user_info.get("email"),
                 "teams_graph_message_id": activity_id,
+                "teams_images": resolved_images if resolved_images else None,
             },
         )
         mark_teams_graph_message_seen(team_id, channel_id, activity_id)
@@ -678,6 +687,8 @@ def create_or_update_teams_ticket(
         teams_service_url=service_url,
         teams_tenant_id=tenant_id,
         unread_team_count=0 if is_team_member else 1,
+        # Created from a signature-validated Teams webhook — platform-attested identity.
+        identity_verified=True,
     )
 
     Comment.objects.create(
@@ -695,6 +706,7 @@ def create_or_update_teams_ticket(
             "teams_author_name": user_info["name"],
             "teams_author_email": user_info.get("email"),
             "teams_graph_message_id": activity_id,
+            "teams_images": resolved_images if resolved_images else None,
         },
     )
 
@@ -747,6 +759,18 @@ def _configured_support_channel_ids(settings: dict) -> set[str]:
     return ids
 
 
+def _extract_bot_images(activity: dict, team: Team) -> list[dict[str, Any]]:
+    """Best-effort extraction of image attachments from a bot-framework activity."""
+    attachments = activity.get("attachments")
+    if not attachments:
+        return []
+    try:
+        bot_token = get_bot_framework_token()
+    except ValueError:
+        return []
+    return extract_teams_bot_attachments(attachments, team, bot_token)
+
+
 def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
     """
     Handle a Teams message activity for the dedicated support channel.
@@ -781,11 +805,13 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
             if channel_id not in configured_channels:
                 return
 
+        images = _extract_bot_images(activity, team)
         create_or_update_teams_ticket(
             team=team,
             activity=activity,
             tenant_id=tenant_id,
             is_thread_reply=True,
+            images=images,
         )
         return
 
@@ -793,12 +819,14 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         return
 
     # Top-level message -> create new ticket
+    images = _extract_bot_images(activity, team)
     create_or_update_teams_ticket(
         team=team,
         activity=activity,
         tenant_id=tenant_id,
         is_thread_reply=False,
         channel_detail=ChannelDetail.TEAMS_CHANNEL_MESSAGE,
+        images=images,
     )
 
 
@@ -839,12 +867,14 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
         teams_conversation_id__in=candidate_conversation_ids,
     ).exists()
 
+    images = _extract_bot_images(activity, team)
     create_or_update_teams_ticket(
         team=team,
         activity=activity,
         tenant_id=tenant_id,
         is_thread_reply=existing,
         channel_detail=ChannelDetail.TEAMS_BOT_MENTION,
+        images=images,
     )
 
 
@@ -870,7 +900,8 @@ def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> d
 
     body = msg.get("body") or {}
     content = body.get("content") or ""
-    if not content.strip():
+    has_hosted_images = bool(msg.get("hostedContents"))
+    if not content.strip() and not has_hosted_images:
         return None
 
     # System/bot/app posts (incl. our own confirmation cards) carry from.application
@@ -935,7 +966,8 @@ def graph_reply_to_activity(
 
     body = msg.get("body") or {}
     content = body.get("content") or ""
-    if not content.strip():
+    has_hosted_images = bool(msg.get("hostedContents"))
+    if not content.strip() and not has_hosted_images:
         logger.debug(
             "teams_reply_skipped",
             reason="empty_content",

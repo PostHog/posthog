@@ -1,8 +1,6 @@
 import json
 from typing import Any
 
-from unittest.mock import patch
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -28,13 +26,6 @@ def _expected_splits(n: int) -> list[int]:
 class TestExperimentsCreateFromPrompt(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
-        self.feature_flag_patcher = patch(
-            "products.experiments.backend.presentation.views.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
-        self.addCleanup(self.feature_flag_patcher.stop)
-
         self.prompt_name = "my-prompt"
         for version in (1, 2, 3, 4, 5):
             LLMPrompt.objects.create(
@@ -69,17 +60,6 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
             self.assertIn("label", entry)
             self.assertIn("description", entry)
 
-    def test_create_from_prompt_404_when_feature_flag_disabled(self) -> None:
-        self.mock_feature_enabled.return_value = False
-        response = self._post()
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(Experiment.objects.filter(team_id=self.team.id).exists())
-
-    def test_prompt_templates_404_when_feature_flag_disabled(self) -> None:
-        self.mock_feature_enabled.return_value = False
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/prompt_templates/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     @parameterized.expand(
         [(name, n) for name in TEMPLATE_NAMES for n in (2, 3, 5)],
         name_func=lambda fn, _i, p: f"{fn.__name__}_{p.args[0]}_n{p.args[1]}",
@@ -103,8 +83,10 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(prompt_metadata["templates"], [template_name])
         self.assertEqual(prompt_metadata["versions"], versions)
 
-        # Variant split distribution sums to 100 with the right shape
-        variants = experiment.parameters["feature_flag_variants"]
+        # Variant split distribution sums to 100 with the right shape. The flag is the source of
+        # truth for variants (parameters no longer mirrors them).
+        feature_flag = FeatureFlag.objects.get(key=experiment.feature_flag.key, team_id=self.team.id)
+        variants = feature_flag.filters["multivariate"]["variants"]
         self.assertEqual(len(variants), n)
         self.assertEqual(sum(_split_distribution(variants)), 100)
         self.assertEqual(_split_distribution(variants), _expected_splits(n))
@@ -116,11 +98,6 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
             expected_key = "test" if n == 2 else f"test-{i}"
             self.assertEqual(variant["key"], expected_key)
             self.assertEqual(variant["name"], f"v{versions[i]}")
-
-        # Feature flag was created with the variants
-        feature_flag = FeatureFlag.objects.get(key=experiment.feature_flag.key, team_id=self.team.id)
-        flag_variants = feature_flag.filters["multivariate"]["variants"]
-        self.assertEqual([v["key"] for v in flag_variants], [v["key"] for v in variants])
 
         # Each variant carries a JSON payload with {prompt_name, prompt_version} so the SDK can
         # read it via flags.get_flag_payload(...) without consulting any other state.

@@ -15,7 +15,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import find_task_run
 
@@ -99,6 +100,64 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["task_id"], str(self.task.id))
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/fork-merge",
+            output={},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/attacker/posthog/pull/2",
+                "merged": True,
+                "head": {"ref": "feature/fork-merge", "repo": {"full_name": "attacker/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {})
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_for_other_pr_on_same_branch_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="feature/shared-branch",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/10"},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/11",
+                "merged": True,
+                "head": {"ref": "feature/shared-branch", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -391,11 +450,12 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             title="Test report",
             summary="Test summary",
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=self.report,
-            task=self.task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(self.task.id),
         )
 
     def _post_pr_webhook(self, action: str, merged: bool):
@@ -461,7 +521,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
-        SignalReportTask.objects.filter(task=self.task).delete()
+        from products.signals.backend.models import SignalReportArtefact
+
+        SignalReportArtefact.objects.filter(task=self.task).delete()
 
         response = self._post_pr_webhook(action="closed", merged=True)
 
@@ -515,6 +577,10 @@ class TestExternalPRWebhook(TestCase):
                 "title": "Internal customer change",
                 "base": {"ref": "main"},
                 "head": {"ref": "feature/x"},
+                "additions": 120,
+                "deletions": 30,
+                "changed_files": 5,
+                "commits": 3,
             },
         }
 
@@ -547,6 +613,10 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_number"], 7)
         self.assertEqual(props["pr_author"], "octocat")
         self.assertEqual(props["pr_base_ref"], "main")
+        self.assertEqual(props["pr_additions"], 120)
+        self.assertEqual(props["pr_deletions"], 30)
+        self.assertEqual(props["pr_changed_files"], 5)
+        self.assertEqual(props["pr_commits"], 3)
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])

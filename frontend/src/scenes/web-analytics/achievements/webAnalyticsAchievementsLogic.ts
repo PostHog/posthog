@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,21 +17,47 @@ import type {
     PendingCelebrationApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import type { webAnalyticsAchievementsLogicType } from './webAnalyticsAchievementsLogicType'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
+
+function sortByCloseness(
+    tracks: AchievementDefinitionApi[],
+    progressByTrack: Record<string, AchievementProgressApi>
+): AchievementDefinitionApi[] {
+    return [...tracks]
+        .map((track) => ({ track, derived: deriveTrackProgress(track, progressByTrack[track.key]) }))
+        .sort((a, b) => {
+            if (a.derived.maxed !== b.derived.maxed) {
+                return a.derived.maxed ? 1 : -1
+            }
+            return a.derived.fractionRemaining - b.derived.fractionRemaining
+        })
+        .map(({ track }) => track)
+}
 
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsAchievementsPreferencesLogic,
+            ['achievementsOptOut', 'preferences'],
+        ],
     })),
     actions({
         openModal: true,
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         markCelebrated: (key: string) => ({ key }),
+        triggerConfetti: true,
+        toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
         achievements: [
@@ -53,6 +81,20 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+            },
+        ],
+        confettiNonce: [
+            0,
+            {
+                triggerConfetti: (state) => state + 1,
+            },
+        ],
+        expandedTracks: [
+            [] as string[],
+            {
+                toggleTrackExpanded: (state, { trackKey }) =>
+                    state.includes(trackKey) ? state.filter((key) => key !== trackKey) : [...state, trackKey],
+                closeModal: () => [],
             },
         ],
     }),
@@ -88,20 +130,87 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 return byTrack
             },
         ],
+        sortedUserTracks: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): AchievementDefinitionApi[] =>
+                sortByCloseness(
+                    definitions.filter((track) => track.scope === 'user'),
+                    progressByTrack
+                ),
+        ],
+        sortedTeamTracks: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): AchievementDefinitionApi[] =>
+                sortByCloseness(
+                    definitions.filter((track) => track.scope === 'team'),
+                    progressByTrack
+                ),
+        ],
+        pendingTrackKeys: [
+            (s) => [s.uncelebratedPending],
+            (pending): Set<string> => new Set(pending.map((entry) => entry.track_key)),
+        ],
+        unlockedStages: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): number =>
+                definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0),
+        ],
+        totalStages: [
+            (s) => [s.definitions],
+            (definitions): number => definitions.reduce((sum, track) => sum + track.stages.length, 0),
+        ],
     }),
     listeners(({ values, actions }) => ({
+        openModal: () => {
+            posthog.capture('web_analytics_achievements_opened')
+            actions.loadAchievements()
+        },
+        loadAchievementsSuccess: () => {
+            const pending = values.uncelebratedPending
+            if (pending.length === 0) {
+                return
+            }
+            pending.forEach((entry) => {
+                const track = values.definitions.find((t) => t.key === entry.track_key)
+                lemonToast.success(
+                    `Achievement unlocked — ${track?.display_name ?? entry.track_key}: ${entry.stage_name}`,
+                    {
+                        button: {
+                            label: 'View',
+                            action: () => actions.openModal(),
+                        },
+                    }
+                )
+                actions.acknowledgeCelebration(entry.track_key, entry.stage)
+            })
+            actions.triggerConfetti()
+        },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
+            const track = values.definitions.find((t) => t.key === trackKey)
+            posthog.capture('web_analytics_achievement_unlocked', {
+                track_key: trackKey,
+                stage,
+                stage_name: track?.stages[stage - 1]?.name,
+                scope: track?.scope,
+            })
             actions.markCelebrated(celebrationKey(trackKey, stage))
             try {
                 await webAnalyticsAchievementsAcknowledgeCelebration(String(values.currentProjectId), {
                     track_key: trackKey,
                     stage,
                 })
-            } catch {}
+            } catch (error) {
+                posthog.captureException(error)
+            }
+        },
+        [webAnalyticsAchievementsPreferencesLogic.actionTypes.loadPreferencesSuccess]: () => {
+            if (isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                actions.loadAchievements()
+            }
         },
     })),
     afterMount(({ actions, values }) => {
-        if (isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+        if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()
         }
     }),

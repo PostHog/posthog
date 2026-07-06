@@ -57,22 +57,41 @@ export interface FunnelStepsBarRow {
     fromPrevious: number
 }
 
-export interface FunnelStepsBarsModel {
-    /** Single grouped series whose `data[stepIndex]` is the step's conversion from the first step, as
-     *  a percent (0–100). The `track: true` bar config draws the drop-off remainder up to 100%. */
-    series: Series[]
-    /** X-axis category labels — the step names. */
+/** A grouped-bar series already resolved to per-step conversion percentages. Each surface produces these
+ *  its own way — the MCP app from raw counts, the web container from per-breakdown conversion rates — and
+ *  hands them to `buildFunnelStepsBars`, which owns the shared band labels, rows, and overall stats. */
+export interface FunnelStepsBarVariant<TMeta = unknown> {
+    key: string
+    label: string
+    color?: string
+    meta?: TMeta
+    /** `data[stepIndex]` is the conversion from the first step, as a percent (0–100). The `track: true`
+     *  bar config draws the drop-off remainder up to 100%. */
+    data: number[]
+    /** Compare only: per-step track ceiling (percent) — caps the drop-off track at this period's entry
+     *  level so the volume gap above it is left blank. Omit for the default full-height track. */
+    trackData?: number[]
+}
+
+export interface FunnelStepsBarsModel<TMeta = unknown> {
+    /** One grouped series per variant (a single series without a breakdown). */
+    series: Series<TMeta>[]
+    /** X-axis band labels — 1-based step indices as strings. Always unique, so steps that share an event
+     *  name (e.g. two `$pageview` steps) don't collapse onto one band slot; surfaces map the index back to
+     *  the step name for display (web's StepLegend row, the MCP app's `xTickFormatter`). */
     labels: string[]
     rows: FunnelStepsBarRow[]
     overall: { rate: number; firstCount: number; lastCount: number }
 }
 
-/** Builds the grouped vertical-bar data for the simple (non-breakdown) MCP funnel. Mirrors the web
- *  FunnelStepsBarChart's single-variant path: one series valued by conversion rate from the basis step. */
-export function buildFunnelStepsBars(
+/** Assembles the grouped vertical-bar model shared by the web FunnelStepsBarChart and the MCP funnel app.
+ *  Callers resolve their own per-variant series (single for MCP, one-per-breakdown for web); this owns the
+ *  pieces that must stay identical across surfaces: the index-keyed band labels, the per-step conversion
+ *  rows, and the overall first→last rate. */
+export function buildFunnelStepsBars<TMeta = unknown>(
     steps: { name: string; count: number }[],
-    opts: { color: string }
-): FunnelStepsBarsModel {
+    variants: FunnelStepsBarVariant<TMeta>[]
+): FunnelStepsBarsModel<TMeta> {
     const firstCount = steps[0]?.count ?? 0
     const lastCount = steps[steps.length - 1]?.count ?? 0
     const rows: FunnelStepsBarRow[] = steps.map((step, stepIndex) => ({
@@ -82,18 +101,32 @@ export function buildFunnelStepsBars(
         fractionOfBasis: funnelConversionRate(step.count, firstCount),
         fromPrevious: funnelConversionRate(step.count, steps[stepIndex - 1]?.count ?? 0),
     }))
-    const series: Series[] = [
-        {
-            key: FUNNEL_STEPS_BAR_SERIES_KEY,
-            label: 'Conversion',
-            data: rows.map((row) => row.fractionOfBasis * RATE_TO_PERCENT),
-            color: opts.color,
-        },
-    ]
+    const series: Series<TMeta>[] = variants.map((variant) => ({
+        key: variant.key,
+        label: variant.label,
+        data: variant.data,
+        color: variant.color,
+        meta: variant.meta,
+        trackData: variant.trackData,
+    }))
     return {
         series,
-        labels: steps.map((step) => step.name),
+        labels: steps.map((_, stepIndex) => `${stepIndex + 1}`),
         rows,
         overall: { rate: funnelConversionRate(lastCount, firstCount), firstCount, lastCount },
     }
+}
+
+/** Convenience for the single-series (non-breakdown) funnel — the MCP app and the web no-breakdown path.
+ *  Derives the lone "conversion from the first step" series from raw counts, then defers to
+ *  `buildFunnelStepsBars` for the shared labels, rows, and overall stats. */
+export function buildSingleSeriesFunnelStepsBars(
+    steps: { name: string; count: number }[],
+    opts: { color: string }
+): FunnelStepsBarsModel {
+    const firstCount = steps[0]?.count ?? 0
+    const data = steps.map((step) => funnelConversionRate(step.count, firstCount) * RATE_TO_PERCENT)
+    return buildFunnelStepsBars(steps, [
+        { key: FUNNEL_STEPS_BAR_SERIES_KEY, label: 'Conversion', color: opts.color, data },
+    ])
 }

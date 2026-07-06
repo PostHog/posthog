@@ -11,16 +11,15 @@ from posthog.hogql.database.schema.test.base import RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.temporal.data_imports.sources.stripe.constants import (
+from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
+from products.revenue_analytics.backend.views.sources.stripe.customer import build
+from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
-
-from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
-from products.revenue_analytics.backend.views.sources.stripe.customer import build
-from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
 
 
 class TestCustomerStripeBuilder(StripeSourceBaseTest):

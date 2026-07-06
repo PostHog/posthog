@@ -2,145 +2,247 @@
 # name: TestPerson.test_filter_person_email
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_filter_person_email_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], "pmat_email")
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_list
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'distinct_id')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
+                                                                                                                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
+               and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_list.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'another_one')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
+                                                                                                                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
+               and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_list.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_list.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_list.4
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'inexistent')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT person.id AS id,
+            toTimeZone(person.created_at, 'UTC') AS created_at
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  WHERE 0
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_filter_person_prop
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_person_property_values
@@ -184,503 +286,476 @@
   LIMIT 20
   '''
 # ---
-# name: TestPerson.test_person_property_values_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         uniq(id) - uniqIf(id, is_deleted != 0) as c
-  FROM
-    (SELECT "pmat_random_prop" as value,
-            is_deleted,
-            id
-     FROM person
-     WHERE team_id = 99999
-       AND value IS NOT NULL
-       AND value != ''
-     ORDER BY id DESC
-     LIMIT 100000)
-  GROUP BY value
-  HAVING c > 0
-  ORDER BY c DESC
-  LIMIT 20
-  '''
-# ---
-# name: TestPerson.test_person_property_values_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         uniq(id) - uniqIf(id, is_deleted != 0) as c
-  FROM
-    (SELECT "pmat_random_prop" as value,
-            is_deleted,
-            id
-     FROM person
-     WHERE team_id = 99999
-       AND value ILIKE '%qw%'
-     ORDER BY id DESC
-     LIMIT 100000)
-  GROUP BY value
-  HAVING c > 0
-  ORDER BY c DESC
-  LIMIT 20
-  '''
-# ---
 # name: TestPerson.test_properties
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (JSONHas(properties, 'email')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (JSONHas(argMax(person.properties, version), 'email'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE isNotNull(persons.properties___email)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_properties.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_properties_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (notEmpty("pmat_email")))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (notEmpty(argMax(person."pmat_email", version)))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_properties_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ("pmat_email" ILIKE '%another@gm%'))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_search
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ilike(toString(where_optimization.id), '%another@gm%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0), ifNull(ilike(toString(persons.properties___name), '%another@gm%'), 0), ilike(toString(persons.id), '%another@gm%'), in(persons.id,
+                                                                                                                                                                                                            (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                               (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                FROM person_distinct_id2
+                                                                                                                                                                                                                WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                             WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_search.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_search_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%another@gm%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%another@gm%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_search_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%distinct_id_3%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%distinct_id_3%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ilike(toString(where_optimization.id), '%distinct_id_3%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%distinct_id_3%'), 0), ifNull(ilike(toString(persons.properties___name), '%distinct_id_3%'), 0), ilike(toString(persons.id), '%distinct_id_3%'), in(persons.id,
+                                                                                                                                                                                                                     (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                      FROM
+                                                                                                                                                                                                                        (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                         FROM person_distinct_id2
+                                                                                                                                                                                                                         WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                         GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                      WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPerson.test_search_person_id
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
-                  OR id IN
-                    (SELECT person_id
-                     FROM
-                       (SELECT distinct_id,
-                               argMax(person_id, version) as person_id
-                        FROM person_distinct_id2
-                        WHERE team_id = 99999
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-       OR (id = '00000000-0000-4000-8000-000000000000'
-           OR id IN
-             (SELECT person_id
-              FROM
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 99999
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPerson.test_search_person_id_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
-                  OR id IN
-                    (SELECT person_id
-                     FROM
-                       (SELECT distinct_id,
-                               argMax(person_id, version) as person_id
-                        FROM person_distinct_id2
-                        WHERE team_id = 99999
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%00000000-0000-4000-8000-000000000000%')
-       OR (id = '00000000-0000-4000-8000-000000000000'
-           OR id IN
-             (SELECT person_id
-              FROM
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 99999
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(where_optimization.id), '%00000000-0000-4000-8000-000000000000%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(persons.properties___name), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(persons.id), '%00000000-0000-4000-8000-000000000000%'), in(persons.id,
+                                                                                                                                                                                                                                                                                          (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                           FROM
+                                                                                                                                                                                                                                                                                             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                              FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                              WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                              GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                              HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                           WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_email
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_filter_person_email_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], "pmat_email")
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_list
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'distinct_id')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
+                                                                                                                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
+               and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_list.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'another_one')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(where_optimization.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(where_optimization.id)
+                                                                                                                and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.id, accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')), isNull(persons.id)
+               and isNull(accurateCastOrNull('00000000-0000-4000-8000-000000000000', 'UUID')))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_list.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'another@gmail.com'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'another@gmail.com'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_list.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''), 'inexistent'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___email, 'inexistent'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_list.4
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND id IN
-    (SELECT person_id
-     FROM
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0)
-     where distinct_id = 'inexistent')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT person.id AS id,
+            toTimeZone(person.created_at, 'UTC') AS created_at
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  WHERE 0
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_prop
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', ''))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___some_prop,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'some_value'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(equals(persons.properties___some_prop, 'some_value'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_person_property_values
@@ -724,358 +799,229 @@
   LIMIT 20
   '''
 # ---
-# name: TestPersonFromClickhouse.test_person_property_values_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         uniq(id) - uniqIf(id, is_deleted != 0) as c
-  FROM
-    (SELECT "pmat_random_prop" as value,
-            is_deleted,
-            id
-     FROM person
-     WHERE team_id = 99999
-       AND value IS NOT NULL
-       AND value != ''
-     ORDER BY id DESC
-     LIMIT 100000)
-  GROUP BY value
-  HAVING c > 0
-  ORDER BY c DESC
-  LIMIT 20
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_person_property_values_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         uniq(id) - uniqIf(id, is_deleted != 0) as c
-  FROM
-    (SELECT "pmat_random_prop" as value,
-            is_deleted,
-            id
-     FROM person
-     WHERE team_id = 99999
-       AND value ILIKE '%qw%'
-     ORDER BY id DESC
-     LIMIT 100000)
-  GROUP BY value
-  HAVING c > 0
-  ORDER BY c DESC
-  LIMIT 20
-  '''
-# ---
 # name: TestPersonFromClickhouse.test_properties
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (JSONHas(properties, 'email')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (JSONHas(argMax(person.properties, version), 'email'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', ''))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE isNotNull(persons.properties___email)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_properties.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%'))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_properties_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (notEmpty("pmat_email")))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (notEmpty(argMax(person."pmat_email", version)))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_properties_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ("pmat_email" ILIKE '%another@gm%'))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0)))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0)
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_search
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%another@gm%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%another@gm%'), 0), ilike(toString(where_optimization.id), '%another@gm%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%another@gm%'), 0), ifNull(ilike(toString(persons.properties___name), '%another@gm%'), 0), ilike(toString(persons.id), '%another@gm%'), in(persons.id,
+                                                                                                                                                                                                            (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                             FROM
+                                                                                                                                                                                                               (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                FROM person_distinct_id2
+                                                                                                                                                                                                                WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                             WHERE ilike(person_distinct_ids.distinct_id, '%another@gm%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_search.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%distinct_id_3%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_search_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%another@gm%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'another@gm')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%another@gm%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'another@gm'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_search_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%distinct_id_3%')
-              OR id IN
-                (SELECT person_id
-                 FROM
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0)
-                 WHERE distinct_id = 'distinct_id_3')))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%distinct_id_3%')
-       OR id IN
-         (SELECT person_id
-          FROM
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id
-             FROM person_distinct_id2
-             WHERE team_id = 99999
-             GROUP BY distinct_id
-             HAVING argMax(is_deleted, version) = 0)
-          WHERE distinct_id = 'distinct_id_3'))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%distinct_id_3%'), 0), ilike(toString(where_optimization.id), '%distinct_id_3%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%distinct_id_3%'), 0), ifNull(ilike(toString(persons.properties___name), '%distinct_id_3%'), 0), ilike(toString(persons.id), '%distinct_id_3%'), in(persons.id,
+                                                                                                                                                                                                                     (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                      FROM
+                                                                                                                                                                                                                        (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                         FROM person_distinct_id2
+                                                                                                                                                                                                                         WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                         GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                         HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                      WHERE ilike(person_distinct_ids.distinct_id, '%distinct_id_3%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestPersonFromClickhouse.test_search_person_id
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
-                  OR id IN
-                    (SELECT person_id
-                     FROM
-                       (SELECT distinct_id,
-                               argMax(person_id, version) as person_id
-                        FROM person_distinct_id2
-                        WHERE team_id = 99999
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%00000000-0000-4000-8000-000000000000%')
-       OR (id = '00000000-0000-4000-8000-000000000000'
-           OR id IN
-             (SELECT person_id
-              FROM
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 99999
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_search_person_id_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (("pmat_email" ILIKE '%00000000-0000-4000-8000-000000000000%')
-              OR (id = '00000000-0000-4000-8000-000000000000'
-                  OR id IN
-                    (SELECT person_id
-                     FROM
-                       (SELECT distinct_id,
-                               argMax(person_id, version) as person_id
-                        FROM person_distinct_id2
-                        WHERE team_id = 99999
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0)
-                     WHERE distinct_id = '00000000-0000-4000-8000-000000000000'))))
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND ((argMax(person."pmat_email", version) ILIKE '%00000000-0000-4000-8000-000000000000%')
-       OR (id = '00000000-0000-4000-8000-000000000000'
-           OR id IN
-             (SELECT person_id
-              FROM
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 99999
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0)
-              WHERE distinct_id = '00000000-0000-4000-8000-000000000000')))
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+  SELECT persons.id AS id
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'email'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', '')), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(where_optimization.id), '%00000000-0000-4000-8000-000000000000%'), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE or(ifNull(ilike(toString(persons.properties___email), '%00000000-0000-4000-8000-000000000000%'), 0), ifNull(ilike(toString(persons.properties___name), '%00000000-0000-4000-8000-000000000000%'), 0), ilike(toString(persons.id), '%00000000-0000-4000-8000-000000000000%'), in(persons.id,
+                                                                                                                                                                                                                                                                                          (SELECT person_distinct_ids.person_id AS person_id
+                                                                                                                                                                                                                                                                                           FROM
+                                                                                                                                                                                                                                                                                             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                              FROM person_distinct_id2
+                                                                                                                                                                                                                                                                                              WHERE equals(person_distinct_id2.team_id, 99999)
+                                                                                                                                                                                                                                                                                              GROUP BY person_distinct_id2.distinct_id
+                                                                                                                                                                                                                                                                                              HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                                                                                                                                                                                                                                                                                           WHERE ilike(person_distinct_ids.distinct_id, '%00000000-0000-4000-8000-000000000000%'))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---

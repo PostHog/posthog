@@ -9,7 +9,7 @@
  * One alternated pattern with a replace callback (vs three global passes) for fewer full-string scans. Uses
  * `createTrackedRE2` for linear-time matching; ASCII-explicit classes for stable behavior under node-re2 Unicode mode.
  */
-import { createTrackedRE2 } from '~/utils/tracked-re2'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import type { LogRecord } from './log-record-avro'
 

@@ -118,7 +118,7 @@ export const PlatformConfigSchema = z.object({
         .url()
         .default('postgres://posthog:posthog@localhost:5432/posthog')
         .describe(
-            'Main PostHog DB — read for cross-product data only (posthog_integration, users, org membership). No agent tables.'
+            'Main PostHog DB — read for cross-product data only (users, teams, org membership). No agent tables.'
         ),
     agentDbUrl: z
         .string()

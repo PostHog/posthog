@@ -19,6 +19,7 @@ were dropped pending a rethink — see the commented-out routes in `routes.py`.
 
 from __future__ import annotations
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce, Now
@@ -126,6 +127,15 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     spec = models.JSONField(default=dict)
 
+    # Draft references to versioned skills in the llma-skill store. Each entry
+    # is {from_template, alias, version?}. Freeze resolves them against the
+    # store at the pinned version, materializes the skill (SKILL.md + any
+    # companion files) into the bundle under skills/<alias>/, and stamps
+    # provenance onto the frozen spec — so a frozen revision never re-resolves a
+    # possibly-changed skill at runtime. Authoring-time only; carried forward
+    # when a new draft is forked from a parent.
+    skill_refs = models.JSONField(default=list, db_default=Value("[]"))
+
     # Encrypted JSON env block — the secret values this revision runs with.
     # Decrypted at runtime by the worker via `EncryptedFields` (see
     # services/agent-shared/src/runtime/encryption.ts). Lives on the revision
@@ -182,6 +192,11 @@ class AgentSession(ProductTeamModel, UUIDModel):
             '{"tokens_in": 0, "tokens_out": 0, "cache_read": 0, "cache_write": 0, "cost_input": 0, "cost_output": 0, "cost_cache_read": 0, "cost_cache_write": 0, "cost_total": 0}'
         ),
     )
+    # Derived on every conversation write by the node SessionQueue so the list
+    # view + search never read the full `conversation` JSONB. search_text is a
+    # truncated user+assistant text digest; turn_count is len(conversation).
+    search_text = models.TextField(null=True, blank=True)
+    turn_count = models.IntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 
@@ -212,7 +227,6 @@ class AgentUser(ProductTeamModel, UUIDModel):
     principal_kind = models.TextField()
     principal_id = models.TextField()
     metadata = models.JSONField(default=dict, db_default=Value("{}"))
-    posthog_user_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
 
     class Meta:
@@ -323,4 +337,76 @@ class AgentSessionCredential(ProductTeamModel):
         db_table = "agent_session_credential"
         indexes = [
             models.Index(fields=["expires_at"], name="asc_expires_idx"),
+        ]
+
+
+class AgentIdentityCredential(ProductTeamModel, UUIDModel):
+    """Persistent, per-principal, encrypted-at-rest linked credential.
+
+    The "stored auth" an agent_user has consented to — e.g. a Slack user who
+    OAuth-linked their PostHog (or GitHub, …) account. Keyed by (agent_user,
+    provider). Read at turn start and copied into the ephemeral per-session
+    AgentSessionCredential broker; never read directly by tools.
+    """
+
+    application_id = models.UUIDField()
+    # The principal this credential belongs to (agent_user.id). Plain id, not a
+    # FK — consistent with the loose coupling the runtime tables use elsewhere.
+    agent_user_id = models.UUIDField()
+    provider = models.TextField()  # "posthog" | "github" | "dogs" | ...
+    # Fernet JSON: {access_token, refresh_token?, token_type?, expires_at?}.
+    encrypted_credentials = models.TextField()
+    # Granted scopes — not secret, kept plaintext for debugging without decrypt.
+    scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
+    state = models.TextField(default="active", db_default="active")  # active | revoked
+    access_expires_at = models.DateTimeField(null=True, blank=True)
+    # The proven external identity this link established (e.g. the PostHog user
+    # uuid from /oauth/userinfo). Set only by an identity-establishing provider;
+    # null for capability-only links. Replaces the old AgentUser.posthog_user_id —
+    # per-asker auth reads it to resolve the PostHog user behind a principal.
+    subject = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+    updated_at = models.DateTimeField(auto_now=True, db_default=Now())
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "agent_identity_credential"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["agent_user_id", "provider"],
+                name="agent_identity_credential_unique_user_provider",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["application_id"], name="aic_application_idx"),
+        ]
+
+
+class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
+    """Single-use, short-TTL state row for an in-flight OAuth link.
+
+    Binds one authorize round-trip to (agent_user, provider) so the callback
+    can't be replayed or retargeted at a different principal. `used_at` enforces
+    single use; `expires_at` bounds the window (≤10m). `code_verifier` is the
+    PKCE verifier, server-side only.
+    """
+
+    application_id = models.UUIDField()
+    agent_user_id = models.UUIDField()
+    provider = models.TextField()
+    scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
+    # Stored plaintext, unlike the Fernet-encrypted agent_identity_credential.
+    # Intentional: a PKCE verifier is single-use, ≤10m TTL, and worthless without
+    # the matching authorization code — its secrecy rests on DB access control,
+    # which is sufficient for a short-lived link-handshake secret.
+    code_verifier = models.TextField()
+    redirect_uri = models.TextField()
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+
+    class Meta:
+        db_table = "agent_identity_link_state"
+        indexes = [
+            models.Index(fields=["expires_at"], name="ails_expires_idx"),
         ]

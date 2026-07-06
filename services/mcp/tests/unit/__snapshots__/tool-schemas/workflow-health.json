@@ -1,8 +1,12 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "branch": {
+            "description": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+            "type": "string"
+        },
         "date_from": {
-            "description": "Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+            "description": "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.",
             "type": "string"
         },
         "date_to": {

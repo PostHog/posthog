@@ -9,9 +9,51 @@ import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import {
+    identityProviderConfigsCreate,
+    identityProviderConfigsDestroy,
+    identityProviderConfigsPartialUpdate,
+    identityProviderConfigsScimTokenCreate,
+} from '~/generated/core/api'
 import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs } from '~/types'
 
 import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
+
+/**
+ * Resolve the `IdentityProviderConfig` id that backs a domain, creating and linking an empty
+ * config first if the domain doesn't have one yet. The config is the source of truth for
+ * SAML/SCIM/ID-JAG settings, so all IdP-config CRUD targets it rather than the domain.
+ *
+ * We link the (still empty) config to the domain *before* populating any fields, so the
+ * domain→config mirror that runs on the link's domain save sees no divergence to clobber.
+ * If linking fails, the freshly created config is deleted so we don't leave an orphan behind.
+ */
+async function ensureIdpConfigId(organizationId: string, domain: OrganizationDomainType): Promise<string> {
+    if (domain.identity_provider_config) {
+        return domain.identity_provider_config
+    }
+    const config = await identityProviderConfigsCreate(organizationId, { name: domain.domain })
+    try {
+        await api.update(`api/organizations/${organizationId}/domains/${domain.id}`, {
+            identity_provider_config: config.id,
+        })
+    } catch (error) {
+        await identityProviderConfigsDestroy(organizationId, config.id).catch(() => undefined)
+        throw error
+    }
+    return config.id
+}
+
+/** Re-fetch a single domain and replace it in local state, reflecting reverse-synced IdP columns. */
+async function refreshDomain(
+    organizationId: string,
+    domainId: string,
+    replaceDomain: (domain: OrganizationDomainType) => void
+): Promise<OrganizationDomainType> {
+    const domain = await api.get<OrganizationDomainType>(`api/organizations/${organizationId}/domains/${domainId}`)
+    replaceDomain(domain)
+    return domain
+}
 
 export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'jit_provisioning_enabled' | 'sso_enforcement'>
@@ -195,38 +237,56 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     }
                 },
                 enableScim: async (domainId: string) => {
-                    const domain = await api.update<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}`,
-                        { scim_enabled: true }
-                    )
-                    actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
+                    const orgId = values.currentOrganizationId as string
+                    const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    if (!domain) {
+                        return values.scimConfig
+                    }
+                    const configId = await ensureIdpConfigId(orgId, domain)
+                    const config = await identityProviderConfigsPartialUpdate(orgId, configId, { scim_enabled: true })
+                    // Refresh the domain so its SCIM base URL (per-domain, reverse-synced) is current.
+                    const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM enabled successfully!')
                     return {
                         id: domainId,
-                        scim_enabled: domain.scim_enabled,
-                        scim_base_url: domain.scim_base_url,
-                        scim_bearer_token: domain.scim_bearer_token,
+                        scim_enabled: config.scim_enabled,
+                        scim_base_url: refreshed.scim_base_url,
+                        scim_bearer_token: config.scim_bearer_token ?? undefined,
                     }
                 },
                 disableScim: async (domainId: string) => {
-                    const domain = await api.update<OrganizationDomainType>(
-                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}`,
-                        { scim_enabled: false }
-                    )
-                    actions.replaceDomain({ ...domain, scim_bearer_token: undefined })
+                    const orgId = values.currentOrganizationId as string
+                    const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    if (!domain) {
+                        return values.scimConfig
+                    }
+                    const configId = await ensureIdpConfigId(orgId, domain)
+                    const config = await identityProviderConfigsPartialUpdate(orgId, configId, { scim_enabled: false })
+                    const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM disabled successfully!')
                     return {
                         id: domainId,
-                        scim_enabled: domain.scim_enabled,
-                        scim_base_url: domain.scim_base_url,
+                        scim_enabled: config.scim_enabled,
+                        scim_base_url: refreshed.scim_base_url,
                     }
                 },
                 regenerateScimToken: async (domainId: string) => {
-                    const response = await api.create<SCIMConfigType>(
-                        `api/organizations/${values.currentOrganizationId}/domains/${domainId}/scim/token`
+                    const orgId = values.currentOrganizationId as string
+                    const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    if (!domain?.identity_provider_config) {
+                        return values.scimConfig
+                    }
+                    const response = await identityProviderConfigsScimTokenCreate(
+                        orgId,
+                        domain.identity_provider_config
                     )
                     lemonToast.success('SCIM token regenerated successfully!')
-                    return { ...response, id: domainId }
+                    return {
+                        id: domainId,
+                        scim_enabled: response.scim_enabled,
+                        scim_base_url: domain.scim_base_url,
+                        scim_bearer_token: response.scim_bearer_token,
+                    }
                 },
             },
         ],
@@ -352,21 +412,26 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                         : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                const { id, ...updateParams } = payload
+                const { id, saml_acs_url, saml_entity_id, saml_x509_cert } = payload
                 if (!id) {
                     return
                 }
-                const response = await api.update<OrganizationDomainType>(
-                    `api/organizations/${values.currentOrganizationId}/domains/${payload.id}`,
-                    {
-                        ...updateParams,
-                    }
-                )
+                const orgId = values.currentOrganizationId as string
+                const domain = values.verifiedDomains.find(({ id: _id }) => _id === id)
+                if (!domain) {
+                    return
+                }
+                const configId = await ensureIdpConfigId(orgId, domain)
+                await identityProviderConfigsPartialUpdate(orgId, configId, {
+                    saml_acs_url,
+                    saml_entity_id,
+                    saml_x509_cert,
+                })
                 breakpoint()
-                actions.replaceDomain(response)
+                const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureSAMLModalId(null)
                 actions.setSamlConfigValues({})
-                lemonToast.success(`SAML configuration for ${response.domain} updated successfully.`)
+                lemonToast.success(`SAML configuration for ${refreshed.domain} updated successfully.`)
             },
         },
         idJagConfig: {
@@ -386,19 +451,22 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!id) {
                     return
                 }
-                const response = await api.update<OrganizationDomainType>(
-                    `api/organizations/${values.currentOrganizationId}/domains/${id}`,
-                    {
-                        id_jag_issuer_url: id_jag_issuer_url?.trim() || null,
-                        id_jag_jwks_url: id_jag_jwks_url?.trim() || null,
-                        id_jag_allowed_clients: id_jag_allowed_clients ?? [],
-                    }
-                )
+                const orgId = values.currentOrganizationId as string
+                const domain = values.verifiedDomains.find(({ id: _id }) => _id === id)
+                if (!domain) {
+                    return
+                }
+                const configId = await ensureIdpConfigId(orgId, domain)
+                await identityProviderConfigsPartialUpdate(orgId, configId, {
+                    id_jag_issuer_url: id_jag_issuer_url?.trim() || null,
+                    id_jag_jwks_url: id_jag_jwks_url?.trim() || null,
+                    id_jag_allowed_clients: id_jag_allowed_clients ?? [],
+                })
                 breakpoint()
-                actions.replaceDomain(response)
+                const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureIdJagModalId(null)
                 actions.setIdJagConfigValues({})
-                lemonToast.success(`XAA configuration for ${response.domain} updated successfully.`)
+                lemonToast.success(`XAA configuration for ${refreshed.domain} updated successfully.`)
             },
         },
     })),

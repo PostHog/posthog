@@ -19,8 +19,8 @@ from products.slack_app.backend.api import (
     _extract_explicit_repo,
     _get_full_repo_names,
     _invalidate_user_repo_list_cache,
-    _parse_rules_command,
     _user_repo_list_cache_key,
+    parse_rules_command,
 )
 
 
@@ -514,7 +514,7 @@ class TestParseRulesCommand:
         ]
     )
     def test_parses_command(self, _name, text, expected):
-        assert _parse_rules_command(text) == expected
+        assert parse_rules_command(text) == expected
 
     @parameterized.expand(
         [
@@ -528,7 +528,7 @@ class TestParseRulesCommand:
         ]
     )
     def test_returns_none_for_non_commands(self, _name, text):
-        assert _parse_rules_command(text) is None
+        assert parse_rules_command(text) is None
 
 
 class TestHandleRulesCommandActivity:

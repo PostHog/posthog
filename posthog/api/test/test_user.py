@@ -5,13 +5,15 @@ from typing import cast
 from urllib.parse import quote, unquote
 
 from freezegun.api import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -30,6 +32,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -130,6 +133,44 @@ class TestUserAPI(APIBaseTest):
                 },
             ],
         )
+
+    def test_me_membership_queries_do_not_scale_with_org_count(self):
+        def me_membership_queries(user: User) -> tuple[int, dict]:
+            self.client.force_login(user)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            count = sum(
+                1
+                for q in ctx.captured_queries
+                if "posthog_organizationmembership" in q["sql"] and q["sql"].lstrip()[:6].upper() == "SELECT"
+            )
+            return count, response.json()
+
+        user_in_one_org = create_user(
+            "one-org@example.com", self.CONFIG_PASSWORD, Organization.objects.create(name="Solo Org")
+        )
+
+        owner_org = Organization.objects.create(name="Owner Org")
+        user_in_many_orgs = create_user("many-orgs@example.com", self.CONFIG_PASSWORD, owner_org)
+        OrganizationMembership.objects.filter(organization=owner_org, user=user_in_many_orgs).update(
+            level=OrganizationMembership.Level.OWNER
+        )
+        member_orgs = [Organization.objects.create(name=f"Member Org {i}") for i in range(5)]
+        for org in member_orgs:
+            OrganizationMembership.objects.create(
+                organization=org, user=user_in_many_orgs, level=OrganizationMembership.Level.MEMBER
+            )
+
+        few, _ = me_membership_queries(user_in_one_org)
+        many, many_body = me_membership_queries(user_in_many_orgs)
+
+        assert few > 0, "membership query predicate matched nothing; the table/SELECT filter is wrong"
+        assert many == few, f"membership_level is N+1: {many} membership queries for 6 orgs vs {few} for 1 org"
+
+        levels_by_org = {org["id"]: org["membership_level"] for org in many_body["organizations"]}
+        assert levels_by_org[str(owner_org.id)] == OrganizationMembership.Level.OWNER
+        assert levels_by_org[str(member_orgs[0].id)] == OrganizationMembership.Level.MEMBER
 
     def test_current_user_includes_pending_invites(self):
         from posthog.models import OrganizationInvite
@@ -1493,42 +1534,6 @@ class TestUserAPI(APIBaseTest):
             event="user account deleted",
             properties=mock.ANY,
         )
-
-    @patch("posthoganalytics.capture")
-    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
-        org = Organization.objects.create(name="Solo Org")
-        user = User.objects.create(email="solo@posthog.com", password="testpassword")
-        OrganizationMembership.objects.create(
-            user=user,
-            organization=org,
-            level=OrganizationMembership.Level.OWNER,
-        )
-        self.client.force_login(user)
-
-        # User belongs to exactly one organization
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["organizations"]) == 1
-
-        # Cannot delete account while still a member of an organization
-        response = self.client.delete("/api/users/@me/")
-        assert response.status_code == status.HTTP_409_CONFLICT
-
-        # Delete the organization
-        response = self.client.delete(f"/api/organizations/{org.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-        # Membership is removed synchronously so the user immediately
-        # sees zero organizations, even before the async Celery task runs
-        assert not OrganizationMembership.objects.filter(user=user).exists()
-        response = self.client.get("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["organizations"]) == 0
-
-        # Now the user can delete their account
-        response = self.client.delete("/api/users/@me/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not User.objects.filter(pk=user.pk).exists()
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
@@ -2920,3 +2925,49 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
+
+
+class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
+    """Deleting a user's only organization (which runs on Temporal) must let them delete their account.
+
+    The org-deletion workflow runs inline so the membership cascade actually completes; that requires a
+    non-atomic test case, since the workflow's activities run on their own database connections.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("posthoganalytics.capture")
+    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
+        org = Organization.objects.create(name="Solo Org")
+        user = User.objects.create(email="solo@posthog.com", password="testpassword")
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=org,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        self.client.force_login(user)
+
+        # User belongs to exactly one organization
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 1
+
+        # Cannot delete account while still a member of an organization
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        # Delete the organization (runs the deletion workflow to completion)
+        with execute_deletion_workflows_inline():
+            response = self.client.delete(f"/api/organizations/{org.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # The membership cascade removed the user's memberships, so they now see zero organizations
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 0
+
+        # Now the user can delete their account
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=user.pk).exists()

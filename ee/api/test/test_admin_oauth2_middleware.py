@@ -8,7 +8,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.contrib.sessions.backends.db import SessionStore
 from django.http import HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, override_settings
 
@@ -18,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.session.backend import SessionStore
 
 from ee.middleware import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
 

@@ -18,7 +18,9 @@ import {
 
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -45,6 +47,7 @@ import {
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
+import { columnAnnotationsLogic } from './columnAnnotationsLogic'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -82,9 +85,10 @@ export function ConfigurationTab({
     onViewSyncHistory,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     switch (section) {
         case 'details':
@@ -122,12 +126,20 @@ export function ConfigurationTab({
                     setIsProjectTime={setIsProjectTime}
                 />
             )
+        case 'descriptions':
+            // Deep-link guard: the section nav already hides this when the flag is off.
+            return featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT] ? (
+                <DescriptionsSection schema={schema} />
+            ) : (
+                <></>
+            )
         case 'danger-zone':
             return (
                 <DangerZoneSection
                     source={source}
                     schema={schema}
                     resyncSchema={resyncSchema}
+                    resyncingSchema={resyncingSchema}
                     deleteTable={deleteTable}
                 />
             )
@@ -740,10 +752,7 @@ function ScheduleSection({
                     </span>
                     <LemonSelect
                         fullWidth
-                        disabledReason={
-                            accessDisabledReason ??
-                            (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
-                        }
+                        disabledReason={accessDisabledReason}
                         value={draftFrequency}
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
                         options={frequencyOptions}
@@ -882,11 +891,13 @@ function DangerZoneSection({
     source,
     schema,
     resyncSchema,
+    resyncingSchema,
     deleteTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    resyncingSchema: boolean
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
@@ -953,6 +964,7 @@ function DangerZoneSection({
                                                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
                                             })
                                         }}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Full resync
@@ -965,6 +977,7 @@ function DangerZoneSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => resyncSchema(schema)}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Delete table and resync
@@ -1005,6 +1018,144 @@ function DangerZoneSection({
                         </>
                     )}
                 </SourceEditorAction>
+            </div>
+        </div>
+    )
+}
+
+const DESCRIPTION_SOURCE_LABELS: Record<string, string> = {
+    native_comment: 'From source',
+    ai_generated: 'AI generated',
+    user_edited: 'Edited',
+}
+
+function DescriptionSourceTag({ source }: { source?: string }): JSX.Element | null {
+    if (!source) {
+        return null
+    }
+    return (
+        <LemonTag type={source === 'user_edited' ? 'success' : 'muted'} size="small">
+            {DESCRIPTION_SOURCE_LABELS[source] ?? source}
+        </LemonTag>
+    )
+}
+
+function DescriptionRow({
+    columnName,
+    label,
+    dataType,
+    description,
+    source,
+    saving,
+    onSave,
+}: {
+    columnName: string
+    label: string
+    dataType?: string
+    description: string
+    source?: string
+    saving: boolean
+    onSave: (columnName: string, description: string) => void
+}): JSX.Element {
+    const [value, setValue] = useState(description)
+    // Keep local state in sync when the annotation reloads (e.g. after a save or AI enrichment).
+    useEffect(() => setValue(description), [description])
+    const dirty = value !== description
+
+    return (
+        <div className="flex items-center gap-2 py-1.5 border-b border-border last:border-b-0">
+            <div className="w-1/4 min-w-0">
+                <code className="text-xs">{label}</code>
+                {dataType && <span className="text-muted text-xs ml-2">{dataType}</span>}
+            </div>
+            <LemonInput
+                className="flex-1"
+                size="small"
+                value={value}
+                onChange={setValue}
+                placeholder="Describe what this means…"
+                onPressEnter={() => dirty && onSave(columnName, value)}
+            />
+            <DescriptionSourceTag source={source} />
+            <LemonButton
+                size="small"
+                type="secondary"
+                onClick={() => onSave(columnName, value)}
+                loading={saving}
+                disabledReason={!dirty ? 'No changes to save' : undefined}
+            >
+                Save
+            </LemonButton>
+        </div>
+    )
+}
+
+function DescriptionsSection({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element {
+    const tableId = schema.table?.id
+
+    if (!tableId) {
+        return (
+            <div>
+                <SectionHeader title="Descriptions" />
+                <div className="border border-dashed rounded p-4 bg-surface-primary text-muted">
+                    Sync this table at least once to add descriptions for its columns.
+                </div>
+            </div>
+        )
+    }
+
+    return <DescriptionsSectionContent tableId={tableId} columns={schema.available_columns ?? []} />
+}
+
+function DescriptionsSectionContent({
+    tableId,
+    columns,
+}: {
+    tableId: string
+    columns: { name: string; data_type?: string; is_nullable?: boolean }[]
+}): JSX.Element {
+    const logic = columnAnnotationsLogic({ tableId })
+    const { annotationByColumn, annotationsLoading, savingColumn } = useValues(logic)
+    const { saveDescription } = useActions(logic)
+
+    const tableAnnotation = annotationByColumn['']
+
+    return (
+        <div>
+            <SectionHeader
+                title="Descriptions"
+                description="Describe what this table and its columns mean. These descriptions help PostHog AI write correct queries against your data. Descriptions are generated automatically (from the source's documentation or AI) and anything you edit here is preserved."
+            />
+            <div className="border rounded p-4 bg-surface-primary">
+                <DescriptionRow
+                    columnName=""
+                    label="(whole table)"
+                    description={tableAnnotation?.description ?? ''}
+                    source={tableAnnotation?.description_source}
+                    saving={savingColumn === ''}
+                    onSave={saveDescription}
+                />
+                {annotationsLoading && columns.length === 0 ? (
+                    <LemonSkeleton className="w-full h-8 mt-2" />
+                ) : columns.length === 0 ? (
+                    <div className="text-muted text-sm mt-2">No columns discovered yet for this schema.</div>
+                ) : (
+                    columns.map((column) => {
+                        const annotation = annotationByColumn[column.name]
+                        return (
+                            <DescriptionRow
+                                key={column.name}
+                                columnName={column.name}
+                                label={column.name}
+                                dataType={column.data_type}
+                                description={annotation?.description ?? ''}
+                                source={annotation?.description_source}
+                                saving={savingColumn === column.name}
+                                onSave={saveDescription}
+                            />
+                        )
+                    })
+                )}
             </div>
         </div>
     )

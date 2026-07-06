@@ -16,6 +16,8 @@ export interface SliceLabelsProps {
     showLabelOnSlice?: boolean
     /** Hide labels for slices with `fraction < threshold`. Default 0.05. */
     minSlicePercentForLabel?: number
+    /** Where labels sit along the radius: 0 = center, 1 = outer edge. Default 0.5 (mid-slice). */
+    labelRadiusRatio?: number
     isPercent?: boolean
 }
 
@@ -52,13 +54,15 @@ export function SliceLabels({
     showValueOnSlice = true,
     showLabelOnSlice = false,
     minSlicePercentForLabel = 0.05,
+    labelRadiusRatio = 0.5,
     isPercent = false,
 }: SliceLabelsProps): React.ReactElement | null {
     const { layout } = useRadialLayout()
     if (!showValueOnSlice && !showLabelOnSlice) {
         return null
     }
-    const midR = layout.innerRadius + (layout.outerRadius - layout.innerRadius) / 2
+    const ratio = Math.min(1, Math.max(0, labelRadiusRatio))
+    const midR = layout.innerRadius + (layout.outerRadius - layout.innerRadius) * ratio
 
     const boxes: LabelBox[] = []
     for (let i = 0; i < layout.slices.length; i++) {

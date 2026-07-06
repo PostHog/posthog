@@ -45,14 +45,14 @@ from posthog.hogql_queries.insights.retention.test.retention_base_query_variant 
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.group.util import create_group
-from posthog.models.person import Person
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.persons import create_person, update_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
 
@@ -3665,13 +3665,91 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
-        # The variant wraps a UNION ALL in a JoinExpr; SAMPLE on that wrapper never reaches the inner
-        # events scans, so it must be pushed into each FROM events arm where ClickHouse can apply it.
+    def test_dwh_variant_events_only_is_single_events_scan(self):
+        # Events-only series read the same `events` source on both arms, so the variant must
+        # collapse to one FROM events scan rather than a two-arm UNION ALL.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        self.assertNotIsInstance(base_query.select_from.table, ast.SelectSetQuery)
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+
+    def test_dwh_variant_events_only_sampling_lands_on_single_scan(self):
+        # No UNION wrapper to push into: sampling must land directly on the single FROM events scan,
+        # exactly as the legacy path samples it.
         query = RetentionQuery(
             dateRange={"date_to": _date(10, hour=6)},
             samplingFactor=0.5,
             retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+        sample = base_query.select_from.sample
+        assert isinstance(sample, ast.SampleExpr)
+        self.assertEqual(sample.sample_value.left.value, 0.5)
+
+    def test_dwh_variant_multi_source_stays_union(self):
+        # Two different data-warehouse tables are genuinely separate sources and cannot collapse to a
+        # single scan, so the variant must keep the two-pass UNION ALL.
+        def dwh_entity(table: str, ts: str) -> dict:
+            return {
+                "id": table,
+                "name": table,
+                "type": "data_warehouse",
+                "table_name": table,
+                "aggregation_target_field": "person_id",
+                "timestamp_field": ts,
+            }
+
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": dwh_entity("warehouse_signups", "signed_up_at"),
+                "returningEntity": dwh_entity("warehouse_renewals", "renewed_at"),
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.SelectSetQuery)
+
+    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
+        # Multi-source (events start, data-warehouse return) keeps the two-pass UNION ALL. SAMPLE on the
+        # wrapper never reaches the inner scans, so it must be pushed into the events arm — and only that
+        # arm, since the data-warehouse table is skipped by apply_sampling.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            samplingFactor=0.5,
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                "returningEntity": {
+                    "id": "warehouse_renewals",
+                    "name": "warehouse_renewals",
+                    "type": "data_warehouse",
+                    "table_name": "warehouse_renewals",
+                    "aggregation_target_field": "person_id",
+                    "timestamp_field": "renewed_at",
+                },
+            },
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
@@ -3691,12 +3769,24 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             and isinstance(arm.select_from.table, ast.Field)
             and arm.select_from.table.chain == ["events"]
         ]
-        self.assertEqual(len(event_arms), 2)
-        for arm in event_arms:
-            assert arm.select_from is not None
-            sample = arm.select_from.sample
-            assert isinstance(sample, ast.SampleExpr)
-            self.assertEqual(sample.sample_value.left.value, 0.5)
+        self.assertEqual(len(event_arms), 1)
+        arm = event_arms[0]
+        assert arm.select_from is not None
+        sample = arm.select_from.sample
+        assert isinstance(sample, ast.SampleExpr)
+        self.assertEqual(sample.sample_value.left.value, 0.5)
+
+        dwh_arms = [
+            arm
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+            and arm.select_from is not None
+            and isinstance(arm.select_from.table, ast.Field)
+            and arm.select_from.table.chain == ["warehouse_renewals"]
+        ]
+        self.assertEqual(len(dwh_arms), 1)
+        assert dwh_arms[0].select_from is not None
+        self.assertIsNone(dwh_arms[0].select_from.sample)
 
     def _create_sampling_parity_fixtures(self):
         for i in range(20):
@@ -3906,8 +3996,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertNotIn("control", {c.get("breakdown_value") for c in result})
 
     def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
-        # Cohort breakdown composes as a UNION ALL of per-cohort base queries, each
-        # itself a UNION ALL inside the variant. Both paths must agree on that shape.
+        # Cohort breakdown composes as a UNION ALL of per-cohort base queries. Each per-cohort base
+        # query is events-only, so under the variant it collapses to a single events scan (not a
+        # nested UNION). Both paths must agree on the result.
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         cohort1 = Cohort.objects.create(
@@ -5123,8 +5214,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
     @snapshot_clickhouse_queries
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
-        Person.objects.create(team=self.team, distinct_ids=["user2"])
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
 
         # User 1:
         # Day 0: $pageview with revenue=10
@@ -5195,8 +5286,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_avg(self):
         """Test retention with AVG aggregation on a property"""
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
-        Person.objects.create(team=self.team, distinct_ids=["user2"])
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
 
         # User 1:
         # Day 0: $pageview with revenue=10
@@ -5260,8 +5351,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_multiple_events_same_day(self):
         """Test that multiple events on the same day are correctly summed"""
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
-        Person.objects.create(team=self.team, distinct_ids=["user2"])
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
 
         # User 1: Multiple events on Day 1 and Day 2
         _create_events(
@@ -5473,8 +5564,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # When start and return events are different, return events that happen after the
         # start event within interval 0 should be included in the interval 0 aggregation.
         # This is the primary use case: e.g. "signed_up" (no revenue) → "purchased" (revenue).
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
-        Person.objects.create(team=self.team, distinct_ids=["user2"])
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
 
         # user1: signed_up at hour 10, then purchased at hour 12 (after signup) → should be counted
         # user1: purchased at hour 14 on day 1
@@ -5519,7 +5610,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     @snapshot_clickhouse_queries
     def test_retention_aggregation_different_events_ignores_start_event_property_value(self):
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user1"])
 
         _create_events(self.team, [("user1", _date(0, hour=10), {"revenue": 999})], event="signed_up")
         _create_events(self.team, [("user1", _date(0, hour=12), {"revenue": 50})], event="purchased")
@@ -5546,7 +5637,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be
         # counted in interval 0, even when start and return events are different event types.
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user1"])
 
         # user1: purchased at hour 8 (before signup) → should NOT count for interval 0
         # user1: signed_up at hour 10
@@ -5583,7 +5674,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
     def test_retention_aggregation_same_events_interval_0_unchanged(self):
         # When start and return events are the same, the interval 0 behavior is unchanged:
         # only the start event itself contributes to interval 0 (no double-counting).
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user1"])
 
         _create_events(
             self.team,
@@ -5614,8 +5705,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_different_events_avg_interval_0(self):
         # AVG aggregation with different start/return events includes return events in interval 0.
-        Person.objects.create(team=self.team, distinct_ids=["user1"])
-        Person.objects.create(team=self.team, distinct_ids=["user2"])
+        create_person(team=self.team, distinct_ids=["user1"])
+        create_person(team=self.team, distinct_ids=["user2"])
 
         _create_events(
             self.team,
@@ -5652,8 +5743,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_person_property_sum(self):
         """Aggregating on a person property reads person.properties, not event.properties."""
-        Person.objects.create(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
-        Person.objects.create(team=self.team, distinct_ids=["low_value"], properties={"account_value": 10})
+        create_person(team=self.team, distinct_ids=["high_value"], properties={"account_value": 100})
+        create_person(team=self.team, distinct_ids=["low_value"], properties={"account_value": 10})
 
         # Both users perform $pageview on Day 0 and Day 1.
         # The event itself has no revenue property — value comes solely from person properties.
@@ -5691,8 +5782,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     def test_retention_aggregation_person_property_avg(self):
         """AVG over a person property divides the sum by the number of distinct actors."""
-        Person.objects.create(team=self.team, distinct_ids=["user_a"], properties={"score": 80})
-        Person.objects.create(team=self.team, distinct_ids=["user_b"], properties={"score": 60})
+        create_person(team=self.team, distinct_ids=["user_a"], properties={"score": 80})
+        create_person(team=self.team, distinct_ids=["user_b"], properties={"score": 60})
 
         _create_events(
             self.team,
@@ -5863,9 +5954,9 @@ class TestClickhouseRetentionGroupAggregation(
             properties={},
         )
 
-        Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
-        Person.objects.create(team=self.team, distinct_ids=["person2"])
-        Person.objects.create(team=self.team, distinct_ids=["person3"])
+        create_person(team=self.team, distinct_ids=["person1", "alias1"])
+        create_person(team=self.team, distinct_ids=["person2"])
+        create_person(team=self.team, distinct_ids=["person3"])
 
         _create_events(
             self.team,
@@ -6555,11 +6646,11 @@ class TestClickhouseRetentionGroupAggregation(
         # empty string and actual value, causing major countries to drop from top breakdown list
 
         # Create person who will have country property added later
-        person_no_country = Person.objects.create(team=self.team, distinct_ids=["person_no_country"], properties={})
+        person_no_country = create_person(team=self.team, distinct_ids=["person_no_country"], properties={})
 
         # Create person who always has country
         # person_with_country
-        Person.objects.create(team=self.team, distinct_ids=["person_with_country"], properties={"country": "Taiwan"})
+        create_person(team=self.team, distinct_ids=["person_with_country"], properties={"country": "Taiwan"})
 
         # Create events for both people
         _create_events(
@@ -6574,7 +6665,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Now update the person to have a country (simulating property being set later)
         person_no_country.properties = {"country": "Taiwan"}
-        person_no_country.save()
+        person_no_country.version = (person_no_country.version or 0) + 1
+        update_person(person_no_country)
 
         # Create more events after the property is set
         _create_events(
@@ -6588,8 +6680,10 @@ class TestClickhouseRetentionGroupAggregation(
         # Create many other people with unique countries to fill up breakdown slots
         # This simulates the real scenario where major countries get pushed out
         for i in range(20):
-            Person.objects.create(team=self.team, distinct_ids=[f"person_{i}"], properties={"country": f"Country_{i}"})
+            create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"country": f"Country_{i}"})
             _create_events(self.team, [(f"person_{i}", _date(0)), (f"person_{i}", _date(1))])
+
+        flush_persons_and_events()
 
         query = {
             "dateRange": {"date_from": _date(0), "date_to": _date(10)},
@@ -6635,7 +6729,7 @@ class TestClickhouseRetentionGroupAggregation(
         # they are counted using their most recent property value for ranking purposes.
 
         # Create a user whose country changes from '' -> 'Canada' -> 'USA' over time
-        person_changing = Person.objects.create(
+        person_changing = create_person(
             team=self.team,
             distinct_ids=["person_changing"],
             properties={},  # Initially no country
@@ -6646,26 +6740,30 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Update person to have Canada as country
         person_changing.properties = {"country": "Canada"}
-        person_changing.save()
+        person_changing.version = (person_changing.version or 0) + 1
+        update_person(person_changing)
 
         # Day 1: Event with Canada
         _create_events(self.team, [("person_changing", _date(1))])
 
         # Update person to have USA as country (most recent)
         person_changing.properties = {"country": "USA"}
-        person_changing.save()
+        person_changing.version = (person_changing.version or 0) + 1
+        update_person(person_changing)
 
         # Day 2: Event with USA (this should be the canonical value)
         _create_events(self.team, [("person_changing", _date(2))])
 
         # Create a baseline USA user to ensure USA gets ranked properly
-        Person.objects.create(team=self.team, distinct_ids=["usa_baseline"], properties={"country": "USA"})
+        create_person(team=self.team, distinct_ids=["usa_baseline"], properties={"country": "USA"})
         _create_events(self.team, [("usa_baseline", _date(0))])
 
         # Create some other countries to fill up breakdown slots
         for i in range(15):
-            Person.objects.create(team=self.team, distinct_ids=[f"other_{i}"], properties={"country": f"Other_{i}"})
+            create_person(team=self.team, distinct_ids=[f"other_{i}"], properties={"country": f"Other_{i}"})
             _create_events(self.team, [(f"other_{i}", _date(0))])
+
+        flush_persons_and_events()
 
         query = {
             "dateRange": {"date_from": _date(0), "date_to": _date(10)},
@@ -6710,25 +6808,25 @@ class TestClickhouseRetentionGroupAggregation(
         # Create countries with different user counts to test ranking
         # USA: 5 users (should be #1)
         for i in range(5):
-            Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+            create_person(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
             _create_events(self.team, [(f"usa_user_{i}", _date(0))])
 
         # Canada: 3 users (should be #2)
         for i in range(3):
-            Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+            create_person(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
             _create_events(self.team, [(f"can_user_{i}", _date(0))])
 
         # Germany: 2 users (should be #3)
         for i in range(2):
-            Person.objects.create(team=self.team, distinct_ids=[f"ger_user_{i}"], properties={"country": "Germany"})
+            create_person(team=self.team, distinct_ids=[f"ger_user_{i}"], properties={"country": "Germany"})
             _create_events(self.team, [(f"ger_user_{i}", _date(0))])
 
         # France: 1 user (should be grouped into "Other" with breakdown_limit=3)
-        Person.objects.create(team=self.team, distinct_ids=["fra_user"], properties={"country": "France"})
+        create_person(team=self.team, distinct_ids=["fra_user"], properties={"country": "France"})
         _create_events(self.team, [("fra_user", _date(0))])
 
         # Spain: 1 user (should be grouped into "Other" with breakdown_limit=3)
-        Person.objects.create(team=self.team, distinct_ids=["spa_user"], properties={"country": "Spain"})
+        create_person(team=self.team, distinct_ids=["spa_user"], properties={"country": "Spain"})
         _create_events(self.team, [("spa_user", _date(0))])
 
         query = {
@@ -6785,7 +6883,7 @@ class TestClickhouseRetentionGroupAggregation(
         # - Does first event at 11 PM on Day 0
         # - Does return event at 1 AM on Day 1 (only 2 hours later, same 24h window)
         # - Does return event at 11 PM on Day 1 (24 hours later, next 24h window)
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
         _create_events(
             self.team,
             [
@@ -6842,7 +6940,7 @@ class TestClickhouseRetentionGroupAggregation(
         # - Does first event at 1 AM on Day 1
         # - Does return event at 11 PM on Day 1 (22 hours later, same 24h window)
         # - Does return event at 2 AM on Day 2 (25 hours later, next 24h window)
-        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        _person2 = create_person(team=self.team, distinct_ids=["person2"])
         _create_events(
             self.team,
             [
@@ -6891,8 +6989,8 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_with_person_breakdown(self):
         # Test 24-hour windows with person property breakdown
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
-        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+        _person1 = create_person(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person2 = create_person(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
 
         _create_events(
             self.team,
@@ -6930,7 +7028,7 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_with_event_breakdown(self):
         # Test 24-hour windows with event property breakdown
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -6966,8 +7064,8 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_first_time_ever(self):
         # Test 24-hour windows with first-ever retention
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
-        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
+        _person2 = create_person(team=self.team, distinct_ids=["person2"])
 
         _create_events(
             self.team,
@@ -7002,7 +7100,7 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_first_time_matching_filters(self):
         # Test 24-hour windows with first time matching filters
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7043,9 +7141,9 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_with_minimum_occurrences(self):
         # Test 24-hour windows with minimum occurrences
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
-        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
-        _person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
+        _person2 = create_person(team=self.team, distinct_ids=["person2"])
+        _person3 = create_person(team=self.team, distinct_ids=["person3"])
 
         _create_events(
             self.team,
@@ -7084,7 +7182,7 @@ class TestClickhouseRetentionGroupAggregation(
     def test_retention_24h_window_with_week_interval(self):
         # Test 24-hour windows with weekly intervals
         # With week period and 24h windows, it uses 7-day (168 hour) rolling windows
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7119,7 +7217,7 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_with_properties_on_events(self):
         # Test 24-hour windows with properties on start and return events
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7166,7 +7264,7 @@ class TestClickhouseRetentionGroupAggregation(
             name="USA Cohort",
         )
 
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person1 = create_person(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
 
         _create_events(
             self.team,
@@ -7789,7 +7887,7 @@ class TestClickhouseRetentionGroupAggregation(
     def test_retention_24h_window_weekly_cohorts(self):
         # Test 24-hour windows with weekly retention cohorts
         # Week period with 24h windows uses 7-day (168 hour) rolling windows
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7823,7 +7921,7 @@ class TestClickhouseRetentionGroupAggregation(
     def test_retention_24h_window_monthly_cohorts(self):
         # Test 24-hour windows with monthly retention cohorts
         # Month period with 24h windows uses 30-day (720 hour) rolling windows
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7859,8 +7957,8 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_weekly_with_breakdown(self):
         # Test 24-hour windows with weekly cohorts and breakdown
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
-        _person2 = Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
+        _person1 = create_person(team=self.team, distinct_ids=["person1"], properties={"country": "USA"})
+        _person2 = create_person(team=self.team, distinct_ids=["person2"], properties={"country": "Canada"})
 
         _create_events(
             self.team,
@@ -7898,7 +7996,7 @@ class TestClickhouseRetentionGroupAggregation(
 
     def test_retention_24h_window_monthly_first_time_ever(self):
         # Test 24-hour windows with monthly cohorts and first-ever retention
-        _person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        _person1 = create_person(team=self.team, distinct_ids=["person1"])
 
         _create_events(
             self.team,
@@ -7943,12 +8041,12 @@ class TestClickhouseRetentionGroupAggregation(
 
     #     # USA: 10 unique users, each starting a cohort once on Day 0
     #     for i in range(10):
-    #         Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+    #         create_person(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
     #         _create_events(self.team, [(f"usa_user_{i}", _date(0))])
 
     #     # Canada: 3 unique users, but they are very active and start cohorts on 5 different days
     #     for i in range(3):
-    #         Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+    #         create_person(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
     #         for day in range(5):
     #             _create_events(self.team, [(f"can_user_{i}", _date(day))])
 

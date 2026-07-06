@@ -1,9 +1,9 @@
 """Apply persons SQL migrations.
 
-Reads SQL migration files from rust/persons_migrations/ and executes them
-against the specified database. Supports both hobby deploys (default DB,
-skipping partitioning migrations) and local dev / production (separate
-persons DB with all migrations applied).
+Reads SQL migration files from rust/persons_migrations/ and executes them against the
+persons database identified by PERSONS_DB_WRITER_URL. Hobby deploys keep persons in the
+main database and skip the partitioning migrations (via --hobby); local dev and
+production apply all migrations.
 
 Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
@@ -17,10 +17,12 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connections, transaction
 
 import psycopg
 from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict
+
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 # Migrations that must be skipped on hobby deploys.
 # These partition the posthog_person table, which is only needed in production
@@ -72,36 +74,34 @@ def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
 
 
-def _ensure_database_exists(db_alias: str) -> None:
-    """Create the database for db_alias if it doesn't already exist.
+def _ensure_database_exists(persons_url: str) -> None:
+    """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
-    Connects to the 'postgres' maintenance database using the credentials
-    from settings.DATABASES[db_alias] and issues CREATE DATABASE.
+    Connects to the 'postgres' maintenance database on the same host (reusing the
+    credentials from the URL, only overriding the database name) and issues CREATE
+    DATABASE. Used for local dev bootstrap.
     """
-    db_settings = settings.DATABASES[db_alias]
-    target_db = db_settings["NAME"]
+    params = conninfo_to_dict(persons_url)
+    dbname = params.get("dbname")
+    if not dbname:
+        raise RuntimeError("Persons database URL has no database name; cannot ensure it exists.")
+    # conninfo_to_dict types values as ``str | int``; identifiers must be ``str``.
+    target_db = str(dbname)
 
     try:
-        with psycopg.connect(
-            dbname="postgres",
-            host=db_settings.get("HOST") or "localhost",
-            port=int(db_settings.get("PORT") or 5432),
-            user=db_settings.get("USER") or "posthog",
-            password=db_settings.get("PASSWORD") or "posthog",
-            autocommit=True,
-        ) as conn:
+        with psycopg.connect(persons_url, dbname="postgres", autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (target_db,))
                 if cur.fetchone():
                     return
 
                 cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db)))
-                owner = db_settings.get("USER")
+                owner = params.get("user")
                 if owner:
                     cur.execute(
                         sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
                             sql.Identifier(target_db),
-                            sql.Identifier(owner),
+                            sql.Identifier(str(owner)),
                         )
                     )
     except psycopg.OperationalError as exc:
@@ -126,12 +126,6 @@ class Command(BaseCommand):
             help="Print which migrations would be applied without executing them.",
         )
         parser.add_argument(
-            "--database",
-            type=str,
-            default="default",
-            help="Django database alias to run migrations against (default: 'default').",
-        )
-        parser.add_argument(
             "--hobby",
             action="store_true",
             help="Skip partitioning migrations (for hobby deploys where posthog_person is not partitioned).",
@@ -143,12 +137,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        db_alias = options["database"]
         hobby = options["hobby"]
         dry_run = options["dry_run"]
+        persons_url = persons_db_url(writer=True)
 
         if options["ensure_database"] and not dry_run:
-            _ensure_database_exists(db_alias)
+            _ensure_database_exists(persons_url)
 
         migrations_path = self._resolve_migrations_dir(options["migrations_dir"])
         sql_files = sorted(f for f in migrations_path.iterdir() if f.suffix == ".sql")
@@ -160,8 +154,7 @@ class Command(BaseCommand):
         skipped_count = 0
         already_applied_count = 0
 
-        conn = connections[db_alias]
-        with conn.cursor() as cursor:
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
             if not dry_run:
                 _ensure_tracking_table(cursor)
             already_applied = _get_applied_migrations(cursor) if not dry_run else set()
@@ -197,7 +190,7 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with transaction.atomic(using=db_alias):
+                with conn.transaction():
                     cursor.execute(sql_content)
                     _record_migration(cursor, sql_file.name)
                 applied_count += 1

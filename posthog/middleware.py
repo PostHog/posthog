@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import time
@@ -14,10 +15,12 @@ from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
-from django.db import connection
+from django.db import (
+    connection,
+    connections as db_connections,
+)
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.http.response import HttpResponseRedirectBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
@@ -63,6 +66,40 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
 from .auth import PersonalAPIKeyAuthentication
+
+logger = structlog.get_logger(__name__)
+
+# A finished request that grew the worker's RSS by at least this many MiB is logged as
+# `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
+# prod without a worker restart / code change. Set to 0 to log every request's growth
+# (noisy — debugging only). Parsed defensively: a malformed value must never crash the
+# module at import (which would take the worker down before it serves a request) — fall
+# back to the default instead.
+try:
+    REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+except ValueError:
+    REQUEST_RSS_GROWTH_LOG_MB = 100.0
+
+# Page size is invariant for the lifetime of the process — hoist it so current_rss_mb()
+# doesn't pay the sysconf syscall on every call. Fall back to 4096 (the common default)
+# if sysconf is unavailable on the host (e.g. an exotic OS).
+try:
+    _PAGE_SIZE_BYTES: int = os.sysconf("SC_PAGE_SIZE")
+except (OSError, ValueError):
+    _PAGE_SIZE_BYTES = 4096
+
+
+def current_rss_mb() -> float | None:
+    """Resident set size of the current worker process in MiB, read from
+    /proc/self/statm (field 2 = resident pages). Returns None when unavailable,
+    e.g. on non-Linux dev machines where /proc is absent."""
+    try:
+        with open("/proc/self/statm") as statm:
+            resident_pages = int(statm.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return resident_pages * _PAGE_SIZE_BYTES / (1024 * 1024)
+
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
@@ -528,7 +565,9 @@ class QueryTimeCountingMiddleware:
         if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
             return True
         try:
-            return resolve(path).func.__name__ == "home"
+            # Frontend page loads resolve to either the `home` view (unauthenticated routes)
+            # or its `home_with_region_redirect` wrapper (the authenticated catch-all).
+            return resolve(path).func.__name__ in ("home", "home_with_region_redirect")
         except Exception:
             return False
 
@@ -552,30 +591,31 @@ class ShortCircuitMiddleware:
         return response
 
 
-class HttpResponseTemporaryRedirectPreserveMethod(HttpResponseRedirectBase):
-    status_code = 307
-
-
-class EnvironmentsRedirectMiddleware:
-    """Redirects /api/environments/* to the equivalent /api/projects/* path.
+class EnvironmentsRewriteMiddleware:
+    """Serves /api/environments/* through the canonical /api/projects/* viewsets.
 
     /api/projects/ is a backwards-compatible superset of /api/environments/ (a Project
     and its primary Team share the same numeric id, so the id segment — including
-    @current — carries over unchanged). Uses 307 so clients re-send the original method
-    and body; a 301/302 would let clients downgrade writes to GET and drop the body.
+    @current — carries over unchanged). When enabled for a team, the request path is
+    rewritten in place to /api/projects/* and re-routed to the projects viewset, so the
+    client gets a normal 200 on the original URL. This is deliberately NOT a 307/308:
+    many API clients (httpx, Guzzle, …) don't follow redirects by default, so a redirect
+    silently breaks them — an in-process rewrite is transparent to every client and keeps
+    method, body, query string, and auth on the same request.
 
     Only paths whose rewritten /api/projects/* form resolves to a registered route are
-    redirected — the few environment-only routes with no projects counterpart yet (see
-    test_environments_redirect.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched,
-    so a redirect can never land on a 404.
+    rewritten — the few environment-only routes with no projects counterpart yet (see
+    test_environments_rewrite.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched.
 
     Gated by the `api-environments-redirect` feature flag, evaluated locally per request
-    (no network call, no flag events) — turning the flag off disables the redirect
-    instantly without a deploy or restart. If the flag can't be evaluated (missing,
-    local evaluation unavailable, SDK disabled) the redirect stays OFF. Whether or not
-    the redirect is enabled, redirectable /api/environments/* responses carry
-    `Deprecation`, `Sunset`, and `Link` headers announcing the successor path to
-    integrators.
+    (no network call, no flag events) — turning the flag off serves the request via the
+    legacy /api/environments route instead, instantly and without a deploy. The flag is
+    bucketed on the team/project id from the path (see _flag_distinct_id), so a percentage
+    rollout rewrites that fraction of teams (0% off, 100% on) rather than flipping the
+    whole instance at once. If the flag can't be evaluated (missing, local evaluation
+    unavailable, SDK disabled) the rewrite stays OFF. Either way, rewritable
+    /api/environments/* responses carry `Deprecation`, `Sunset`, and `Link` headers
+    announcing the successor path to integrators.
     """
 
     ENVIRONMENTS_PREFIX = "/api/environments"
@@ -596,29 +636,47 @@ class EnvironmentsRedirectMiddleware:
             return self.get_response(request)
 
         query_string = request.META.get("QUERY_STRING", "")
-        location = f"{target_path}?{query_string}" if query_string else target_path
+        successor = f"{target_path}?{query_string}" if query_string else target_path
 
-        response: HttpResponse
-        if self._redirect_enabled():
-            response = HttpResponseTemporaryRedirectPreserveMethod(location)
-        else:
-            response = self.get_response(request)
+        if self._rewrite_enabled(self._flag_distinct_id(path)):
+            # Re-route URL resolution to the projects viewset with no client-visible
+            # redirect; method, body, query string, and auth stay on the same request.
+            request.path = target_path
+            request.path_info = target_path
+            request.META["PATH_INFO"] = target_path
+
+        response = self.get_response(request)
 
         response["Deprecation"] = "true"
-        response["Link"] = f'<{location}>; rel="successor-version"'
+        response["Link"] = f'<{successor}>; rel="successor-version"'
         sunset = self._sunset_http_date()
         if sunset:
             response["Sunset"] = sunset
         return response
 
     @classmethod
-    def _redirect_enabled(cls) -> bool:
-        # only_evaluate_locally keeps this off the network on every request; a constant
-        # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
+    def _flag_distinct_id(cls, path: str) -> str:
+        # Bucket the flag on the team/project id already present in the path so the
+        # redirect can roll out incrementally per team (0% off, 100% on, anything
+        # between = that fraction of teams, stable per team). Paths without a numeric
+        # id here (@current, keyless) can't name a team without resolving auth — this
+        # middleware runs pre-auth — so they fall back to the constant id and ride the
+        # global switch. Purely string work: no DB query, no session read, no lookups.
+        remainder = path[len(cls.ENVIRONMENTS_PREFIX) :].strip("/")
+        team_id = remainder.split("/", 1)[0] if remainder else ""
+        if team_id.isdigit():
+            return f"{cls.FEATURE_FLAG_DISTINCT_ID}:team:{team_id}"
+        return cls.FEATURE_FLAG_DISTINCT_ID
+
+    @classmethod
+    def _rewrite_enabled(cls, distinct_id: Optional[str] = None) -> bool:
+        # only_evaluate_locally keeps this off the network on every request; a per-team
+        # distinct id lets a percentage rollout bucket by team instead of flipping the
+        # whole instance at once (see _flag_distinct_id).
         return bool(
             posthoganalytics.feature_enabled(
                 cls.FEATURE_FLAG_KEY,
-                cls.FEATURE_FLAG_DISTINCT_ID,
+                distinct_id or cls.FEATURE_FLAG_DISTINCT_ID,
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -668,10 +726,19 @@ def per_request_logging_context_middleware(
         # roll out CloudFront in front of app.posthog.com. We can get the host
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
+        # Capture the worker's RSS at the start of the request and bind it to the
+        # logging context, so it rides along on `request_started`/`request_finished`.
+        # A worker OOM-killed mid-request (SIGKILL, uncatchable) never logs
+        # `request_finished` — but its `request_started` line carries `rss_mb` and the
+        # `worker_pid`, so the request in flight when a worker died is identifiable
+        # after the fact. See `request_memory_growth` below for the finished-request view.
+        rss_mb_start = current_rss_mb()
         structlog.contextvars.bind_contextvars(
             host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+            worker_pid=os.getpid(),
+            rss_mb=round(rss_mb_start, 1) if rss_mb_start is not None else None,
         )
 
         # Forwarded by the PostHog MCP server (services/mcp) on every API call.
@@ -706,7 +773,58 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        return get_response(request)
+        response: HttpResponse | None = None
+        try:
+            response = get_response(request)
+        finally:
+            # Flag requests that materially grew this worker's footprint. Steady
+            # accumulation of these on a pod is the in-app fingerprint of the request
+            # mix that walks RSS up to the cgroup limit and triggers the OOM kill.
+            # This runs even when get_response raises — exception paths (large error
+            # payloads, failed serialisation) are exactly the requests most likely to
+            # spike RSS. worker_pid is added explicitly because django_structlog's
+            # RequestMiddleware clears contextvars before this finally block fires.
+            rss_mb_end = current_rss_mb()
+            if (
+                rss_mb_start is not None
+                and rss_mb_end is not None
+                and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
+            ):
+                logger.warning(
+                    "request_memory_growth",
+                    rss_mb_start=round(rss_mb_start, 1),
+                    rss_mb_end=round(rss_mb_end, 1),
+                    rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
+                    request_path=request.path,
+                    method=request.method,
+                    worker_pid=os.getpid(),
+                )
+            # Detect streaming responses that are holding DB connections open.
+            # Under ASGI, a StreamingHttpResponse keeps the request alive until
+            # the stream ends — any connection still open at this point stays
+            # pinned to a pgbouncer slot for the entire stream duration, which
+            # can be minutes for SSE endpoints (AI chat, dashboard tiles, etc.).
+            # Endpoints that use sse_streaming_response() release connections
+            # before returning, so this only fires for ones that don't.
+            if response is not None and getattr(response, "streaming", False):
+                held = [
+                    conn.alias
+                    for conn in db_connections.all(initialized_only=True)
+                    if conn.connection is not None and not conn.in_atomic_block
+                ]
+                if held:
+                    _user = getattr(request, "user", None)
+                    logger.warning(
+                        "stream_with_held_connections",
+                        held_connections=len(held),
+                        aliases=held,
+                        request_path=request.path,
+                        method=request.method,
+                        worker_pid=os.getpid(),
+                        team_id=_user.current_team_id if _user is not None and _user.is_authenticated else None,
+                    )
+
+        return response
 
     return middleware
 

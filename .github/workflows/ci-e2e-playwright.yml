@@ -31,8 +31,6 @@ permissions:
     contents: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -66,13 +64,10 @@ env:
     PGPORT: 5432
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
-    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
-    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
+    # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
+    # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -243,6 +238,15 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+            INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -250,8 +254,8 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
                   # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
-                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
-                  # below receives the token explicitly via its `github-token:` input instead.
+                  # GITHUB_TOKEN in .git/config where that code could read it — the report step
+                  # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
@@ -259,40 +263,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-
-                  (
-                    max_attempts=3
-                    attempt=1
-                    delay=5
-
-                    while [ $attempt -le $max_attempts ]; do
-                        echo "Attempt $attempt of $max_attempts to start stack..."
-
-                        if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                            echo "Stack started successfully"
-                            exit 0
-                        fi
-
-                        echo "Failed to start stack on attempt $attempt"
-
-                        if [ $attempt -lt $max_attempts ]; then
-                            sleep_time=$((delay * 2 ** (attempt - 1)))
-                            echo "Waiting ${sleep_time} seconds before retry..."
-                            sleep $sleep_time
-                        fi
-
-                        attempt=$((attempt + 1))
-                    done
-
-                    echo "Failed to start stack after $max_attempts attempts"
-                    exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -329,6 +305,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -418,7 +397,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -473,13 +452,6 @@ jobs:
                   run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
                   run_clickhouse_query 'CREATE DATABASE posthog_test'
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -529,6 +501,11 @@ jobs:
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
+
+                  # Person/group reads go through personhog (no ORM fallback), so the replica
+                  # and router must be running before setup_dev creates demo persons.
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+
                   python manage.py setup_dev
 
             - name: Source celery queues
@@ -703,6 +680,18 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            - name: Upload test results to Trunk
+              # Flaky-test detection. Trusted non-pull_request events only, so the secret token
+              # never runs in a PR-controlled context; continue-on-error so an upload hiccup
+              # never fails the job.
+              if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: playwright/junit-results.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
               id: cf-deploy
@@ -733,104 +722,19 @@ jobs:
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
-            - name: Upsert report URL comment on PR
+            - name: Post Playwright section to CI report comment
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = process.env.DEPLOYMENT_URL;
-                      const jobPassed = '${{ job.status }}' === 'success';
-
-                      // Collect failed and flaky tests from JSON report — only populated when
-                      // results.json exists (i.e. tests actually ran). If the file is missing
-                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
-                      // it the same as "no failures found", so we don't delete an existing
-                      // comment that may have relevant info from a previous run.
-                      let extraLines = '';
-                      let resultsRead = false;
-                      let failed = [];
-                      try {
-                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
-                          resultsRead = true;
-                          const flaky = [];
-                          function collect(suites) {
-                              for (const suite of suites || []) {
-                                  for (const spec of suite.specs || []) {
-                                      for (const test of spec.tests || []) {
-                                          if (test.status === 'unexpected') {
-                                              failed.push(`- ${spec.title} (${test.projectName})`);
-                                          } else if (test.status === 'flaky') {
-                                              flaky.push(`- ${spec.title} (${test.projectName})`);
-                                          }
-                                      }
-                                  }
-                                  collect(suite.suites);
-                              }
-                          }
-                          collect(results.suites);
-                          if (failed.length > 0) {
-                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
-                          }
-                          if (flaky.length > 0) {
-                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
-                          }
-                      } catch {}
-
-                      // Flake verification results for changed test files
-                      try {
-                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
-                          if (flakeResults.status === 'failed') {
-                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
-                              const flakeReportLink = reportUrl ? ` [View report →](${reportUrl})` : '';
-                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nThe report only shows the tests under verification.${flakeReportLink} Fix these before merging.`;
-                          }
-                      } catch {}
-
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      // No failures or flakies — nothing to comment about
-                      if (!extraLines) {
-                          // Clean up any existing comment, but only when we know tests actually ran and passed
-                          if (resultsRead && existing) {
-                              await github.rest.issues.deleteComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                              });
-                          }
-                          return;
-                      }
-
-                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
-
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ -f .github/scripts/post-playwright-section.mjs ]; then
+                      node .github/scripts/post-playwright-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping Playwright section — script not present on this checkout"
+                  fi
 
     capture-run-time:
         name: Capture run time

@@ -73,6 +73,7 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
             ): DataTableNode => {
                 const tracesQuery: TracesQuery = {
                     kind: NodeKind.TracesQuery,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? {
                               date_from: dateRange.dateFrom,

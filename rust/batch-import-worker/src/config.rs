@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::job::backoff::BackoffPolicy;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
@@ -88,6 +90,18 @@ pub struct Config {
     // Internal capture service URL for the CaptureEmitter
     #[envconfig(from = "CAPTURE_URL", default = "http://localhost:3307")]
     pub capture_url: String,
+
+    // Dedicated root for temp files created during job processing. Swept on
+    // every startup to reclaim space leaked by non-graceful pod terminations.
+    #[envconfig(from = "STAGING_DIR", default = "/tmp/batch-import-worker")]
+    pub staging_dir: String,
+
+    // Fail-fast guard: if the staging directory grows past this many bytes while
+    // downloading a part, the job is paused (surfaced to the user) instead of the
+    // pod being evicted under disk pressure. 0 disables the guard. Size this below
+    // the staging volume capacity in deployment.
+    #[envconfig(from = "STAGING_DIR_MAX_BYTES", default = "0")]
+    pub staging_dir_max_bytes: u64,
 }
 
 impl Config {
@@ -100,6 +114,10 @@ impl Config {
                 "Unknown kafka topic: {logical_topic}"
             ))),
         }
+    }
+
+    pub fn staging_dir(&self) -> PathBuf {
+        PathBuf::from(&self.staging_dir)
     }
 
     pub fn backoff_policy(&self) -> BackoffPolicy {

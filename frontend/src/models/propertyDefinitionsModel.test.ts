@@ -242,6 +242,12 @@ describe('the property definitions model', () => {
                         'event_metadata/timestamp': partial({
                             name: 'timestamp',
                         }),
+                        'person_metadata/created_at': {
+                            id: 'created_at',
+                            name: 'created_at',
+                            property_type: 'DateTime',
+                            type: 'person_metadata',
+                        },
                         'resource/assignee': partial({ name: 'assignee' }),
                         'resource/first_seen': partial({ name: 'first_seen' }),
                     },

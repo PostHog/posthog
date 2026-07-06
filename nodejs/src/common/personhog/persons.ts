@@ -1,15 +1,15 @@
 import { create } from '@bufbuild/protobuf'
 import { Client } from '@connectrpc/connect'
 
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { TeamDistinctIdSchema } from '~/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GetDistinctIdsForPersonsRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
-} from '~/generated/personhog/personhog/types/v1/person_pb'
-import type { Person as ProtoPerson } from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import type { Person as ProtoPerson } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { InternalPerson } from '~/types'
 
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'

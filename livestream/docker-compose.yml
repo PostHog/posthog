@@ -46,7 +46,7 @@ services:
             - 127.0.0.1:29092:29092
 
     console:
-        image: docker.redpanda.com/redpandadata/console:v2.3.8
+        image: docker.io/redpandadata/console:v2.3.8
         restart: on-failure
         entrypoint: /bin/sh
         command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"

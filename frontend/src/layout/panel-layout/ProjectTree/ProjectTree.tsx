@@ -242,7 +242,7 @@ export function ProjectTree({
         }
 
         if (root === 'custom-products://') {
-            const hasRecommendedProducts = customProducts.some(
+            const hasRecommendedTools = customProducts.some(
                 (item) =>
                     item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
@@ -259,10 +259,10 @@ export function ProjectTree({
                     type: 'category',
                     displayName: (
                         <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                            You can display your preferred apps here. You can configure what items show up in here by
+                            You can display your preferred tools here. You can configure what items show up in here by
                             clicking on the{' '}
                             <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                            above. We'll automatically suggest new apps to this list as you use them.{' '}
+                            above. We'll automatically suggest new tools to this list as you use them.{' '}
                             {fullFileSystemFiltered.length > 0 && (
                                 <span
                                     className="cursor-pointer underline"
@@ -271,12 +271,12 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
-                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
+                            {!hasRecommendedTools && fullFileSystemFiltered.length <= 3 && (
                                 <>
                                     <br />
                                     <br />
                                     <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                        {customProductsLoading ? 'Adding...' : 'Add recommended tools?'}
                                     </span>
                                 </>
                             )}
@@ -290,7 +290,7 @@ export function ProjectTree({
                     type: 'category',
                     displayName: (
                         <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
-                            Want to browse all apps or jump back into something recent? Press{' '}
+                            Want to browse all tools or jump back into something recent? Press{' '}
                             <span
                                 className="cursor-pointer inline-flex items-center gap-1"
                                 onClick={() => toggleCommand()}
@@ -577,7 +577,8 @@ export function ProjectTree({
                         <>
                             {suggestedProductBaseTooltipText}
                             <br />
-                            Right-click to remove from sidebar.
+                            <br />
+                            Open the three-dot menu to remove from the sidebar.
                             <br />
                             <br />
                         </>

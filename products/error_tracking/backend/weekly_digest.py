@@ -14,6 +14,9 @@ from posthog.schema_enums import ProductKey
 
 logger = structlog.get_logger(__name__)
 
+# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
 
 def get_org_ids_with_exceptions() -> list[str]:
     """Return distinct organization IDs that have teams with exceptions in the last 7 days"""
@@ -366,6 +369,47 @@ def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
         return []
     max_val = max(daily_counts)
     return [{"height_percent": int((v / max_val) * 100) if max_val > 0 else 0} for v in daily_counts]
+
+
+def _source_maps_wizard_command() -> str:
+    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend.
+
+    Appends ``--region eu`` on EU Cloud so the wizard uploads to the right region.
+    """
+    region_flag = " --region eu" if (settings.CLOUD_DEPLOYMENT or "").upper() == "EU" else ""
+    return f"npx -y @posthog/wizard@latest upload-source-maps{region_flag}"
+
+
+def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
+    """Return wizard prompt data when the team has an active 'missing source maps' recommendation.
+
+    Mirrors the in-app banner: only surface it once the recommendation has been computed, while
+    there's still a problem (not completed), and the user hasn't dismissed it. Returns ``None``
+    otherwise so the digest can omit the section entirely.
+    """
+    from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
+    from products.error_tracking.backend.models import ErrorTrackingRecommendation
+
+    rec = RECOMMENDATIONS_BY_TYPE.get("source_maps")
+    if rec is None:
+        return None
+
+    recommendation = ErrorTrackingRecommendation.objects.filter(
+        team=team, type="source_maps", dismissed_at__isnull=True
+    ).first()
+    if recommendation is None or recommendation.computed_at is None:
+        return None
+
+    meta = recommendation.meta or {}
+    if rec.is_completed(meta):
+        return None
+
+    return {
+        "unresolved_percent": round((meta.get("unresolved_pct") or 0.0) * 100),
+        "lookback_hours": meta.get("lookback_hours"),
+        "wizard_command": _source_maps_wizard_command(),
+        "docs_url": f"{SOURCE_MAPS_DOCS_URL}?utm_source=error_tracking_weekly_digest",
+    }
 
 
 def build_ingestion_failures_url(team_id: int) -> str:

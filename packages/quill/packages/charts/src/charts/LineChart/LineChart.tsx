@@ -2,7 +2,14 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
+import {
+    LINE_STROKE_WIDTH,
+    drawAxes,
+    drawGrid,
+    drawLineHoverPoints,
+    drawLineSeriesLayer,
+    resolveAxisLineColor,
+} from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -31,6 +38,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { closestHoverSeriesKey } from './closest-hover-series'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
@@ -81,7 +89,9 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
         floatBaseline = false,
         yAxes,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
@@ -176,10 +186,10 @@ function LineChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
+            // doesn't paint over the baseline where it meets the axis.
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, gridDash: theme.gridDashPattern, frame: !showAxisLines })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -195,20 +205,45 @@ function LineChartInner<Meta = unknown>({
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
                 shouldFill: (s) => !!s.fill,
                 zOrder: 'per-series',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+            }
         },
-        [showGrid, showAxisLines, stackedData]
+        [showGrid, showAxisLines, stackedData, smooth]
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs): boolean => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition, theme }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
                 return false
             }
+            // Find the series whose y-pixel at the hovered index is closest to the cursor so only
+            // that series gets a dot — avoids a column of rings on dense multi-series charts.
+            const closestKey =
+                hoverPosition != null
+                    ? closestHoverSeriesKey(
+                          coloredSeries,
+                          (s) => {
+                              const data = stackedData?.get(s.key)?.top ?? s.data
+                              return resolveYScaleForSeries(scales, s)(data[hoverIndex])
+                          },
+                          hoverPosition.y
+                      )
+                    : null
             // Overlays (moving averages, trend lines) and fill-between lower bounds opt out — in
             // percent-stack mode the y-domain is [0, 1], so their raw values would ring far off-plot.
             // `drawLineHoverPoints` handles those skips; we supply the stacked-top y per series.
-            return drawLineHoverPoints(ctx, coloredSeries, theme.backgroundColor ?? '#ffffff', (s) => {
+            const dotSeries = closestKey != null ? coloredSeries.filter((s) => s.key === closestKey) : coloredSeries
+            return drawLineHoverPoints(ctx, dotSeries, theme.backgroundColor ?? '#ffffff', (s) => {
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
                 if (x == null) {

@@ -45,8 +45,10 @@ from products.logs.backend.count_ranges_query_runner import (
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
@@ -320,6 +322,65 @@ class _LogsCountRequestSerializer(serializers.Serializer):
     query = _LogsCountBodySerializer(help_text="The count query to execute.")
 
 
+class _LogFacetValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The facet value (e.g. a severity level or service name).")
+    count = serializers.IntegerField(
+        help_text="Number of matching log records, with all active filters applied except this facet's own selection."
+    )
+
+
+class _LogsFacetValuesResponseSerializer(serializers.Serializer):
+    results = _LogFacetValueSerializer(
+        many=True, help_text="Facet values with cross-filtered counts, ordered by count descending."
+    )
+
+
+class _LogsFacetValuesBodySerializer(serializers.Serializer):
+    facetField = serializers.ChoiceField(
+        choices=["severity_text", "service_name"],
+        required=False,
+        allow_null=True,
+        help_text="Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. "
+        "Its own filter is excluded so counts reflect the other active filters.",
+    )
+    facetResourceAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
+        "facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts "
+        "reflect the other active filters.",
+    )
+    dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels (ignored when faceting on severity_text).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names (ignored when faceting on service_name).",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    facetSearch = serializers.CharField(
+        required=False,
+        help_text="Type-ahead filter over the faceted field's own values (case-insensitive substring match). "
+        "Distinct from searchTerm, which searches log bodies.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query.",
+    )
+
+
+class _LogsFacetValuesRequestSerializer(serializers.Serializer):
+    query = _LogsFacetValuesBodySerializer(help_text="The facet values query to execute.")
+
+
 class _LogsCountRangesBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -568,6 +629,138 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsPatternsBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to mine patterns from. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels before mining.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Restrict mining to these service names.",
+    )
+    searchTerm = serializers.CharField(
+        required=False, help_text="Full-text search term to filter log bodies before mining."
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters applied before mining. Same shape as the query-logs endpoint.",
+    )
+
+
+class _LogsPatternsRequestSerializer(serializers.Serializer):
+    query = _LogsPatternsBodySerializer(help_text="The patterns query to execute.")
+
+
+class _LogPatternSerializer(serializers.Serializer):
+    pattern = serializers.CharField(
+        help_text=(
+            'Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
+            "Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "Occurrences of this pattern within the sample. When `sampled` is true this is a sample "
+            "count, not the full-window total — prefer `estimated_count` for display."
+        ),
+    )
+    estimated_count = serializers.IntegerField(
+        help_text=(
+            "Estimated occurrences across the full window, extrapolated from the sample "
+            "(`count / scanned_count * total_count`). Equals `count` when the window was not sampled."
+        ),
+    )
+    volume_share_pct = serializers.FloatField(
+        help_text="Share of the sampled log volume this pattern represents (0–100).",
+    )
+    error_count = serializers.IntegerField(
+        help_text='Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display.',
+    )
+    estimated_error_count = serializers.IntegerField(
+        help_text=(
+            "Estimated error/fatal occurrences across the full window, extrapolated from the sample. "
+            "Equals `error_count` when the window was not sampled."
+        ),
+    )
+    first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
+    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
+    examples = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to 3 distinct raw log bodies (truncated) that produced this pattern.",
+    )
+    services = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to 4 distinct service names this pattern was observed in.",
+    )
+    sparkline = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
+            "the volume shape over the window, not exact per-bucket tallies."
+        ),
+    )
+    severity_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
+            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+        ),
+    )
+
+
+class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
+    start = serializers.CharField(help_text="Bucket start (ISO 8601, inclusive).")
+    end = serializers.CharField(help_text="Bucket end (ISO 8601, exclusive).")
+
+
+class _LogsPatternsResponseSerializer(serializers.Serializer):
+    patterns = _LogPatternSerializer(
+        many=True,
+        help_text="Mined patterns ordered by `count` descending.",
+    )
+    scanned_count = serializers.IntegerField(
+        help_text="Number of log rows fed to the miner (the sample size, capped at the sample limit).",
+    )
+    total_count = serializers.IntegerField(
+        help_text=(
+            "Total log rows matching the filters in the window, before sampling. Use with "
+            "`scanned_count` to scale per-pattern counts when `sampled` is true."
+        ),
+    )
+    sampled = serializers.BooleanField(
+        help_text=(
+            "True when the window held more rows than the sample cap, so patterns were mined from "
+            "a deterministic, evenly-distributed sample rather than every matching row."
+        ),
+    )
+    sample_coverage_pct = serializers.FloatField(
+        help_text=(
+            "Share of the window's log rows that were eligible for sampling (0–100). Below 100, "
+            "the scan was bounded to evenly-spaced time slices across the window to keep the "
+            "query within its execution budget; rows outside the slices could not appear in the sample."
+        ),
+    )
+    sparkline_buckets = _LogsPatternsSparklineBucketSerializer(
+        many=True,
+        help_text=(
+            "Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to "
+            "time slices, the buckets are the slices themselves (evenly spaced, gaps between them "
+            "were never eligible for sampling); otherwise they divide the window uniformly."
+        ),
+    )
+
+
 class _LogAttributeEntrySerializer(serializers.Serializer):
     name = serializers.CharField()
     propertyFilterType = serializers.CharField(
@@ -780,6 +973,44 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response(response.results, status=status.HTTP_200_OK)
 
+    @extend_schema(request=_LogsFacetValuesRequestSerializer, responses={200: _LogsFacetValuesResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_values(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        facet_field = query_data.get("facetField")
+        facet_resource_attribute = query_data.get("facetResourceAttribute")
+        if bool(facet_field) == bool(facet_resource_attribute):
+            raise ParseError("Provide exactly one of facetField or facetResourceAttribute")
+        if facet_field and facet_field not in FACET_FIELDS:
+            raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = LogFacetValuesQueryRunner(
+            team=self.team,
+            query=query,
+            facet_field=facet_field or None,
+            facet_resource_attribute=facet_resource_attribute or None,
+            facet_search=query_data.get("facetSearch"),
+        )
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
@@ -896,6 +1127,45 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "services_count": len(response.results.get("services", []))
                 if isinstance(response.results, dict)
                 else 0,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsPatternsRequestSerializer, responses={200: _LogsPatternsResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def patterns(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        query = LogsQuery(
+            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = PatternsQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+
+        report_user_action(
+            request.user,
+            "logs patterns queried",
+            {
+                "patterns_count": len(response.results.get("patterns", []))
+                if isinstance(response.results, dict)
+                else 0,
+                "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "severity_levels_count": len(query_data.get("severityLevels", [])),
                 "service_names_count": len(query_data.get("serviceNames", [])),

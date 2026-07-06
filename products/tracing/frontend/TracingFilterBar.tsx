@@ -1,11 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconList, IconListTree, IconRefresh } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { DateRangePickerWithZoom } from 'lib/components/DateFilter/DateRangePicker'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -14,21 +21,22 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
-    DateMappingOption,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
+import { SavedViewsButton } from './savedViews/SavedViewsButton'
+import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
 const taxonomicFilterLogicKey = 'tracing'
@@ -38,58 +46,33 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.SpanResourceAttributes,
 ]
 
-const dateMapping: DateMappingOption[] = [
-    { key: CUSTOM_OPTION_KEY, values: [] },
-    {
-        key: 'Last 5 minutes',
-        values: ['-5M'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(5, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 30 minutes',
-        values: ['-30M'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(30, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 1 hour',
-        values: ['-1h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date.endOf('d')),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 4 hours',
-        values: ['-4h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(4, 'h'), date.endOf('d')),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 24 hours',
-        values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 7 days',
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-]
-
 export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic())
     const { runQuery } = useActions(tracingDataLogic())
-    const { filters, utcDateRange } = useValues(tracingFiltersLogic())
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic())
-    const { dateRange, serviceNames, filterGroup, compareMode } = filters
+    const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic())
+    const { setDateRange, setTimezone, setServiceNames, setFilterGroup, setViewMode, setCompareMode } =
+        useActions(tracingFiltersLogic())
+    const { dateRange, serviceNames, filterGroup, viewMode, compareMode } = filters
+    const showFacetRail = useFeatureFlag('TRACING_FACET_RAIL')
+    const { facetRailCollapsed } = useValues(tracingConfigLogic)
+    const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
+                        {showFacetRail && !compareMode && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
+                                onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
+                                aria-label={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
+                                tooltip={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
+                                data-attr="tracing-facet-rail-toggle"
+                            />
+                        )}
                         <TracingServiceFilter
                             value={serviceNames}
                             onChange={setServiceNames}
@@ -100,51 +83,36 @@ export function TracingFilterBar(): JSX.Element {
                         </div>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                        <div className="flex">
-                            <LemonButton
+                        <DateRangePickerWithZoom
+                            logicKey="tracing"
+                            dateRange={dateRange}
+                            setDateRange={setDateRange}
+                            timezone={timezone}
+                            onTimezoneChange={setTimezone}
+                        />
+                        {!compareMode && (
+                            <LemonSegmentedButton<TracingViewMode>
                                 size="small"
-                                icon={<IconMinusSquare />}
-                                type="secondary"
-                                tooltip="Zoom out"
-                                onClick={() => {
-                                    const from = dayjs(dateRange.date_from)
-                                    const to = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
-                                    const diff = to.diff(from, 'millisecond')
-                                    setDateRange({
-                                        date_from: from.subtract(diff / 2, 'millisecond').toISOString(),
-                                        date_to: to.add(diff / 2, 'millisecond').toISOString(),
-                                    })
-                                }}
+                                value={viewMode}
+                                onChange={setViewMode}
+                                options={[
+                                    {
+                                        value: 'traces',
+                                        label: 'Traces',
+                                        icon: <IconListTree />,
+                                        tooltip: 'Group matching spans by trace — one row per trace (its root span)',
+                                        'data-attr': 'tracing-view-mode-traces',
+                                    },
+                                    {
+                                        value: 'spans',
+                                        label: 'Spans',
+                                        icon: <IconList />,
+                                        tooltip: 'Show every matching span individually, including child spans',
+                                        'data-attr': 'tracing-view-mode-spans',
+                                    },
+                                ]}
                             />
-                            <DateFilter
-                                size="small"
-                                dateFrom={dateRange.date_from}
-                                dateTo={dateRange.date_to}
-                                dateOptions={dateMapping}
-                                onChange={(changedDateFrom, changedDateTo) => {
-                                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                                }}
-                                allowTimePrecision
-                                allowFixedRangeWithTime
-                                allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
-                                use24HourFormat
-                            />
-                            <LemonButton
-                                size="small"
-                                icon={<IconPlusSquare />}
-                                type="secondary"
-                                tooltip="Zoom in"
-                                onClick={() => {
-                                    const from = dayjs(dateRange.date_from)
-                                    const to = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
-                                    const diff = to.diff(from, 'millisecond')
-                                    setDateRange({
-                                        date_from: from.add(diff / 4, 'millisecond').toISOString(),
-                                        date_to: to.subtract(diff / 4, 'millisecond').toISOString(),
-                                    })
-                                }}
-                            />
-                        </div>
+                        )}
                         <LemonSwitch
                             label="Compare"
                             checked={compareMode}
@@ -159,6 +127,7 @@ export function TracingFilterBar(): JSX.Element {
                             onClick={() => runQuery()}
                             loading={spansLoading}
                         />
+                        <SavedViewsButton />
                     </div>
                 </div>
                 <TracingAppliedFilters />

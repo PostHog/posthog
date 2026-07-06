@@ -14,6 +14,8 @@ from posthog.temporal.backfill_group_type_created_at.types import (
 )
 from posthog.temporal.backfill_group_type_created_at.workflows import BackfillGroupTypeCreatedAtWorkflow
 
+pytestmark = pytest.mark.persons_db_direct
+
 TEST_TEAM_ID = 12345
 TEST_PROJECT_ID = 12345
 SAMPLE_UPDATES = [

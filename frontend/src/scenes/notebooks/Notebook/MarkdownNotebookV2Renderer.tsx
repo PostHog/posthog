@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGraph } from '@posthog/icons'
+import { IconFlask, IconGraph } from '@posthog/icons'
 
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type {
@@ -22,6 +22,7 @@ import { uuid } from 'lib/utils/dom'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import {
@@ -394,11 +395,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     )
 
     const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
-    // Insert API + target node captured when "Saved insight" is picked, so the modal's async selection
-    // can insert into the right node once an insight is chosen.
+    const [experimentPickerTargetNodeId, setExperimentPickerTargetNodeId] = useState<string | null>(null)
+    // Insert API + target node captured when "Saved insight" / "Experiment" is picked, so the modal's
+    // async selection can insert into the right node once an entity is chosen.
     const savedInsightInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
+    const experimentInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
 
-    const buildSavedInsightInsertCommands = useCallback(
+    const buildExtraInsertCommands = useCallback(
         (api: MarkdownNotebookInsertMenuApi): InsertCommand[] => [
             {
                 key: 'query-saved-insight',
@@ -410,6 +413,16 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     setSavedInsightPickerTargetNodeId(targetNodeId)
                 },
             },
+            {
+                key: 'experiment',
+                label: 'Experiment',
+                category: 'Experiment',
+                icon: <IconFlask />,
+                run: (targetNodeId) => {
+                    experimentInsertRef.current = { api, targetNodeId }
+                    setExperimentPickerTargetNodeId(targetNodeId)
+                },
+            },
         ],
         []
     )
@@ -417,6 +430,11 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const closeSavedInsightPicker = useCallback((): void => {
         savedInsightInsertRef.current = null
         setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const closeExperimentPicker = useCallback((): void => {
+        experimentInsertRef.current = null
+        setExperimentPickerTargetNodeId(null)
     }, [])
 
     const handleSavedInsightPicked = useCallback((shortId: string, title: string): void => {
@@ -433,6 +451,15 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         }
         savedInsightInsertRef.current = null
         setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const handleExperimentPicked = useCallback((experimentId: number): void => {
+        const pending = experimentInsertRef.current
+        if (pending) {
+            pending.api.insertComponent(pending.targetNodeId, 'Experiment', { id: experimentId })
+        }
+        experimentInsertRef.current = null
+        setExperimentPickerTargetNodeId(null)
     }, [])
 
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
@@ -550,7 +577,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
+                extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                 onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
@@ -583,6 +610,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     isOpen={savedInsightPickerTargetNodeId !== null}
                     onClose={closeSavedInsightPicker}
                     onSelect={handleSavedInsightPicked}
+                />
+            )}
+            {isEditable && (
+                <MarkdownNotebookExperimentPicker
+                    isOpen={experimentPickerTargetNodeId !== null}
+                    onClose={closeExperimentPicker}
+                    onSelect={handleExperimentPicked}
                 />
             )}
         </MarkdownNotebookRuntimeContext.Provider>

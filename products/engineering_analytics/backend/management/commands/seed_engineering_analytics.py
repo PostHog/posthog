@@ -40,17 +40,24 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.engineering_analytics.backend.logic.sources import PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import validate_source_prefix
+from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    get_or_create_datawarehouse_credential,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 FIXTURE_DIR = Path(__file__).parents[3] / "fixtures"
 
@@ -59,6 +66,9 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
+# Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
+# placeholders (a real source stores the repo in job_inputs at connect time).
+SEED_REPOSITORY = "PostHog/posthog"
 # Default prefix is non-trivial on purpose: it proves the product resolves the real
 # per-team table name rather than assuming the bare ``github_*`` names.
 DEFAULT_PREFIX = "eng_analytics_seed"
@@ -83,6 +93,229 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "repository": json.dumps(run["repository"]),
         "pull_requests": json.dumps(run.get("pull_requests", [])),
     }
+
+
+# Synthesize a few jobs per run so the expandable job breakdown and cost cards are demoable in local
+# dev. Tiers vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
+_JOB_NAMES = ("build", "test", "lint", "e2e")
+_RUNNER_LABELS = (
+    '["depot-ubuntu-22.04-16"]',
+    '["depot-ubuntu-22.04-8"]',
+    '["depot-ubuntu-22.04-4"]',
+    '["ubuntu-latest"]',
+)
+
+
+_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for run in runs:
+        completed = run.get("status") == "completed"
+        run_conclusion = run.get("conclusion")
+        count = (run["id"] % 3) + 2  # 2–4 jobs, deterministic per run
+
+        # Stagger jobs sequentially across the run's window so the job Gantt reads as a real timeline
+        # (build → test → …) instead of identical full-width bars.
+        run_start: datetime | None = None
+        run_end: datetime | None = None
+        try:
+            run_start = datetime.strptime(run["run_started_at"], _TS_FMT)
+            run_end = datetime.strptime(run["updated_at"], _TS_FMT)
+        except (KeyError, TypeError, ValueError):
+            pass
+        window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
+        segment = window / count if window else 0.0
+
+        for idx in range(count):
+            is_last = idx == count - 1
+            # Healthy jobs pass; a failing run's failure surfaces on its last job.
+            conclusion = run_conclusion if (is_last and run_conclusion in ("failure", "timed_out")) else None
+            if completed and conclusion is None:
+                conclusion = "success"
+
+            job_start = run_start + timedelta(seconds=idx * segment) if run_start else None
+            job_end = run_start + timedelta(seconds=(idx + 1) * segment) if (run_start and completed) else None
+            started_at = job_start.strftime(_TS_FMT) if job_start else None
+            completed_at = job_end.strftime(_TS_FMT) if job_end else None
+
+            jobs.append(
+                {
+                    "id": run["id"] * 10 + idx,
+                    "run_id": run["id"],
+                    "run_attempt": run.get("run_attempt", 1),
+                    "name": _JOB_NAMES[idx % len(_JOB_NAMES)],
+                    "workflow_name": run.get("name"),
+                    "status": run.get("status"),
+                    "conclusion": conclusion,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": run.get("head_branch"),
+                    "labels": _RUNNER_LABELS[idx % len(_RUNNER_LABELS)],
+                    "runner_name": f"runner-{idx + 1}",
+                    "runner_group_name": "depot",
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": completed_at,
+                    "steps": "[]",
+                }
+            )
+    return jobs
+
+
+# A synthetic multi-push PR so the per-push sparkline and multi-run expansion are demoable — captured
+# real PRs rarely re-run many workflows across pushes, so nothing in the fixture shows the progression.
+# Local-seed only; clearly numbered 99001 and labelled "demo".
+_DEMO_PR_NUMBER = 99001
+# Per-workflow conclusion across the 4 pushes (oldest → newest) — a mix of red→green progressions,
+# steady-green, a late blip, and one still running on the latest push.
+_DEMO_MATRIX: dict[str, list[str | None]] = {
+    "Backend CI": ["failure", "failure", "success", "success"],
+    "Frontend CI": ["failure", "success", "success", "success"],
+    "Rust CI": ["success", "failure", "success", "success"],
+    "E2E Tests": ["failure", "failure", "failure", "success"],
+    "Storybook": ["success", "success", "success", "success"],
+    "Lint": ["success", "success", "success", "success"],
+    "Migrations": ["success", "success", "failure", "success"],
+    "MCP CI": ["success", "success", "success", None],  # None → still running on the latest push
+    "Docs": ["success", "success", "success", "success"],
+    "Security": ["timed_out", "failure", "success", "success"],
+}
+
+
+def _fixture_anchor(prs: list[dict[str, Any]], runs: list[dict[str, Any]]) -> datetime:
+    # Just after the fixture's newest row, so the rebase lands synthesized data at "now".
+    newest = max(
+        datetime.fromisoformat(row[field])
+        for row, fields in [*((pr, PR_DATE_FIELDS) for pr in prs), *((run, RUN_DATE_FIELDS) for run in runs)]
+        for field in fields
+        if row[field] is not None
+    )
+    return newest + timedelta(hours=1)
+
+
+# Synthetic default-branch commit stream: the captured snapshot holds only ~a dozen master SHAs, which
+# draws the master-health scatter as a near-empty chart. Deterministic (index arithmetic, no random),
+# local-seed only; SHAs are prefixed "aa57e2" so they read as seeded in the UI.
+_MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint", "Storybook")
+_MASTER_DAYS = 7
+_MASTER_COMMITS_PER_DAY = 18
+
+
+def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
+    def iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    total = _MASTER_DAYS * _MASTER_COMMITS_PER_DAY
+    spacing_minutes = _MASTER_DAYS * 24 * 60 // total
+    demo_runs: list[dict[str, Any]] = []
+    for commit_index in range(total):
+        # Even spacing with a per-commit wobble so the X axis doesn't read as a metronome.
+        age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
+        commit_time = anchor - timedelta(minutes=age_minutes)
+        sha = f"aa57e2{commit_index:04d}" + "e" * 30
+        red_commit = commit_index % 9 == 4  # an occasional broken master push
+        cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
+        for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
+            # Newest two commits keep one workflow running so the in-flight band has live data.
+            running = commit_index >= total - 2 and wf_index == len(_MASTER_WORKFLOWS) - 1
+            if running:
+                conclusion = None
+            elif cancelled_commit:
+                conclusion = "cancelled"
+            elif red_commit and wf_index == 2:
+                conclusion = "failure"
+            else:
+                conclusion = "success"
+            start = commit_time + timedelta(minutes=wf_index)
+            duration = timedelta(minutes=4 + (commit_index * 7 + wf_index * 11) % 48)
+            demo_runs.append(
+                {
+                    "id": 9_800_000_000 + commit_index * 10 + wf_index,
+                    "name": workflow,
+                    "head_sha": sha,
+                    "head_branch": "master",
+                    "status": "in_progress" if running else "completed",
+                    "conclusion": conclusion,
+                    "created_at": iso(start),
+                    "run_started_at": iso(start),
+                    "updated_at": iso(start) if running else iso(start + duration),
+                    "run_attempt": 1,
+                    "repository": {"full_name": "PostHog/posthog"},
+                    "pull_requests": [],
+                }
+            )
+    return demo_runs
+
+
+def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
+    # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day —
+    # the cost-per-merge trend then collapses into a single bucket. Re-spread merged PRs evenly across
+    # the seeded window (deterministic, index arithmetic) so the trend has a divisor in every bucket.
+    span_hours = _MASTER_DAYS * 24
+    merged = [pr for pr in prs if pr.get("merged_at")]
+    for index, pr in enumerate(merged):
+        merged_at = anchor - timedelta(hours=(index * 11) % span_hours, minutes=(index * 13) % 60)
+        created_raw = pr.get("created_at")
+        if created_raw:
+            created = datetime.fromisoformat(created_raw)
+            if merged_at < created:
+                merged_at = created + timedelta(hours=1)
+        pr["merged_at"] = merged_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _demo_multi_push(
+    prs: list[dict[str, Any]], runs: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    # Anchor the demo just after the fixture's newest row so the rebase lands its last push at "now".
+    anchor = _fixture_anchor(prs, runs)
+    push_shas = [f"demo00{k + 1}" + "f" * 33 for k in range(4)]  # 40 chars, distinct first 7 (demo001…demo004)
+    workflows = list(_DEMO_MATRIX.keys())
+
+    def iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    demo_runs: list[dict[str, Any]] = []
+    for push_index in range(4):
+        push_time = anchor - timedelta(days=3 - push_index)
+        for wf_index, workflow in enumerate(workflows):
+            conclusion = _DEMO_MATRIX[workflow][push_index]
+            running = conclusion is None
+            start = push_time + timedelta(minutes=2 * wf_index)
+            end = start + timedelta(minutes=5 + (wf_index % 6) * 4)  # 5–25 min spread for p50/p95
+            demo_runs.append(
+                {
+                    "id": 9_900_000_000 + push_index * 100 + wf_index,
+                    "name": workflow,
+                    "head_sha": push_shas[push_index],
+                    "head_branch": "demo/multi-push-progression",
+                    "status": "in_progress" if running else "completed",
+                    "conclusion": None if running else conclusion,
+                    "created_at": iso(start),
+                    "run_started_at": iso(start),
+                    "updated_at": iso(start) if running else iso(end),
+                    "run_attempt": 1,
+                    "repository": {"full_name": "PostHog/posthog"},
+                    "pull_requests": [{"number": _DEMO_PR_NUMBER}],
+                }
+            )
+
+    demo_pr = {
+        "id": 9_900_100_001,
+        "number": _DEMO_PR_NUMBER,
+        "title": "demo: multi-push CI progression (seeded)",
+        "state": "open",
+        "draft": False,
+        "created_at": iso(anchor - timedelta(days=3)),
+        "updated_at": iso(anchor),
+        "merged_at": None,
+        "closed_at": None,
+        "user": {"login": "webjunkie", "avatar_url": ""},
+        "head": {"sha": push_shas[3]},
+        "base": {"repo": {"full_name": "PostHog/posthog"}},
+        "labels": ["demo"],
+    }
+    return demo_pr, demo_runs
 
 
 def _warehouse_endpoint() -> str:
@@ -133,6 +366,18 @@ class Command(BaseCommand):
         prs = self._load_fixture(options["fixture_dir"], "github_pull_requests.json")
         runs = self._load_fixture(options["fixture_dir"], "github_workflow_runs.json")
 
+        # Append a synthetic multi-push PR (the fixture has none rich enough to show the progression).
+        demo_pr, demo_runs = _demo_multi_push(prs, runs)
+        prs.append(demo_pr)
+        runs.extend(demo_runs)
+        # Spread merge times across the window so the cost-per-merge trend has a divisor per bucket.
+        _spread_merges(prs, _fixture_anchor(prs, runs))
+        # The synthetic stream owns master: the snapshot's own master rows are a dozen SHAs whose
+        # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
+        # every real duration to the baseline. PR-branch rows stay untouched.
+        runs = [run for run in runs if run.get("head_branch") != "master"]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs)))
+
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
@@ -153,12 +398,20 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_RUNS_SCHEMA, WORKFLOW_RUNS_COLUMNS, map(_flatten_run, runs)
             )
+            # Synthesized demo jobs for the job-level breakdown (see _synthesize_jobs).
+            jobs = _synthesize_jobs(runs)
+            self._upsert_schema_table(
+                team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
+            )
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Seeded {len(prs)} pull requests and {len(runs)} workflow runs into team {team.pk} "
-                f"under GitHub source prefix '{prefix}'."
+                f"Seeded {len(prs)} pull requests, {len(runs)} workflow runs, and {len(jobs)} jobs into "
+                f"team {team.pk} under GitHub source prefix '{prefix}'."
             )
+        )
+        self.stdout.write(
+            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/PostHog/posthog/pull/{_DEMO_PR_NUMBER}"
         )
 
     def _load_fixture(self, fixture_dir: Path, filename: str) -> list[dict[str, Any]]:
@@ -198,10 +451,17 @@ class Command(BaseCommand):
                 status=ExternalDataSource.Status.COMPLETED,
                 source_type=ExternalDataSourceType.GITHUB,
                 prefix=prefix,
+                job_inputs={"repository": SEED_REPOSITORY},
             )
+        update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
-            source.save(update_fields=["prefix", "updated_at"])
+            update_fields.append("prefix")
+        if (source.job_inputs or {}).get("repository") != SEED_REPOSITORY:
+            source.job_inputs = {**(source.job_inputs or {}), "repository": SEED_REPOSITORY}
+            update_fields.append("job_inputs")
+        if update_fields:
+            source.save(update_fields=[*update_fields, "updated_at"])
         return source
 
     def _upsert_schema_table(

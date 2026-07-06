@@ -42,6 +42,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         bulkDismiss: (reason: DismissalReasonValue, note: string) => ({ reason, note }),
         bulkDismissSuccess: true,
         bulkDismissFailure: true,
+        /** Broadcast that a single report was archived elsewhere (e.g. the detail pane), so every
+         * mounted list reconciles itself. Persisting the change is the caller's responsibility. */
+        reportArchived: true,
     }),
 
     reducers({

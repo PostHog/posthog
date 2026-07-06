@@ -167,10 +167,10 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
         span_filter.key = "duration_nano"
         if isinstance(span_filter.value, list):
             span_filter.value = [
-                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+                str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value if _is_number(str(v))
             ]
         elif _is_number(str(span_filter.value)):
-            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+            span_filter.value = str(int(decimal.Decimal(str(span_filter.value)) * 1000000))
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
@@ -1071,8 +1071,7 @@ def run_aggregation_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
-    # noqa-justified: the runners import `translate_span_filter` from this module, so a
-    # module-level import here is circular and only resolves when this module loads first.
+    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
     from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
 
     query = TraceSpansAggregationQuery(
@@ -1098,7 +1097,7 @@ def run_tree_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
     """Facade-friendly entry point for running a span call-tree aggregation query."""
-    # noqa-justified: same circular import as run_aggregation_query above.
+    # Same circular import as run_aggregation_query above.
     from .aggregation_query_runner import TraceSpansTreeQueryRunner  # noqa: PLC0415
 
     query = TraceSpansTreeQuery(

@@ -251,6 +251,18 @@ BEDROCK_PARAM_STRIPPED = Counter(
     labelnames=["param", "product"],
 )
 
+BEDROCK_COUNT_TOKENS_ERRORS = Counter(
+    "llm_gateway_bedrock_count_tokens_errors_total",
+    "Bedrock CountTokens provider-call failures before fallback handling",
+    labelnames=["transport", "error_type", "product"],
+)
+
+BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES = Counter(
+    "llm_gateway_bedrock_count_tokens_dropped_properties_total",
+    "Properties dropped while adapting an Anthropic CountTokens request for Bedrock",
+    labelnames=["transport", "property", "product"],
+)
+
 ANTHROPIC_CIRCUIT_BREAKER_BYPASSED = Counter(
     "llm_gateway_anthropic_circuit_breaker_bypassed_total",
     "Anthropic requests routed straight to Bedrock because the breaker was open",

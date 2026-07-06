@@ -1,22 +1,18 @@
-use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{
-    Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
+    FingerprintBuilder, FingerprintComponent, FingerprintRecordPart, FingerprintVersion,
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
-use crate::issue_resolution::Issue;
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
-use crate::tokenizer::CL100K_BPE;
 
 pub mod batch;
 pub mod event;
@@ -134,15 +130,20 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone)]
-pub struct FingerprintedErrProps {
-    pub exception_list: ExceptionList,
-    pub fingerprint: Fingerprint,
-    pub proposed_issue_name: Option<String>,
-    pub proposed_issue_description: Option<String>,
-    pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
-    pub handled: Option<bool>,
-    pub other: HashMap<String, Value>,
+impl RawErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
 }
 
 // We emit this
@@ -152,8 +153,11 @@ pub struct OutputErrProps {
     pub exception_list: ExceptionList,
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
-    #[serde(rename = "$exception_proposed_fingerprint")]
-    pub proposed_fingerprint: String,
+    #[serde(
+        rename = "$exception_fingerprint_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint_version: Option<FingerprintVersion>,
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
@@ -180,20 +184,6 @@ pub struct OutputErrProps {
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
 }
-
-const RESERVED_PROPERTIES: [&str; 11] = [
-    "$exception_list",
-    "$exception_fingerprint",
-    "$exception_issue_id",
-    "$exception_fingerprint_record",
-    "$exception_proposed_fingerprint",
-    "$exception_handled",
-    "$exception_releases",
-    "$exception_types",
-    "$exception_values",
-    "$exception_sources",
-    "$exception_functions",
-];
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -239,86 +229,6 @@ impl Exception {
     }
 }
 
-impl RawErrProps {
-    pub fn add_error_message(&mut self, msg: impl ToString) {
-        let mut errors = match self.other.remove("$cymbal_errors") {
-            Some(serde_json::Value::Array(errors)) => errors,
-            _ => Vec::new(),
-        };
-
-        errors.push(serde_json::Value::String(msg.to_string()));
-
-        self.other.insert(
-            "$cymbal_errors".to_string(),
-            serde_json::Value::Array(errors),
-        );
-    }
-
-    pub fn to_fingerprinted(self, mut fingerprint: Fingerprint) -> FingerprintedErrProps {
-        // We always track the fingerprint we'd have proposed if none was set
-        let proposed_fingerprint = fingerprint.value.clone();
-
-        // But if one was set, we use that and modify our fingerprint to reflect that
-        if let Some(existing) = self.fingerprint {
-            fingerprint.record.clear();
-            fingerprint.record.push(FingerprintRecordPart::Manual);
-            fingerprint.value = existing;
-            if fingerprint.value.len() > 64 {
-                let mut hasher = Sha512::default();
-                hasher.update(fingerprint.value);
-                fingerprint.value = format!("{:x}", hasher.finalize());
-            }
-            fingerprint.assignment = None;
-        }
-
-        FingerprintedErrProps {
-            exception_list: self.exception_list,
-            fingerprint,
-            proposed_issue_name: self.issue_name,
-            proposed_issue_description: self.issue_description,
-            proposed_fingerprint,
-            handled: self.handled,
-            other: self.other,
-        }
-    }
-}
-
-impl FingerprintedErrProps {
-    pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
-        let sources = self.exception_list.get_unique_sources();
-        let functions = self.exception_list.get_unique_functions();
-        let releases = self.exception_list.get_release_map();
-        let types = self.exception_list.get_unique_types();
-        let values = self.exception_list.get_unique_messages();
-        let handled: bool = self
-            .handled
-            .unwrap_or_else(|| self.exception_list.get_is_handled());
-
-        // If users send properties that are reserved, it will results in property keys being duplicated
-        let sanitized_others = self
-            .other
-            .into_iter()
-            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
-            .collect();
-
-        OutputErrProps {
-            exception_list: self.exception_list,
-            fingerprint: self.fingerprint.value,
-            issue_id,
-            proposed_fingerprint: self.proposed_fingerprint,
-            fingerprint_record: self.fingerprint.record,
-            other: sanitized_others,
-
-            types,
-            values,
-            sources,
-            functions,
-            handled,
-            releases,
-        }
-    }
-}
-
 // Deduplicates while preserving first-seen order, so derived properties
 // ($exception_types, $exception_values, ...) follow the $exception_list order.
 fn unique_by<T, I, F, K>(items: I, key_extractor: F) -> Vec<K>
@@ -355,128 +265,6 @@ impl OutputErrProps {
                 frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
             }
         });
-    }
-
-    /// Render exception types, messages, and stack frames as a human-readable string.
-    ///
-    /// If `max_tokens` is `Some(limit)`, the output is measured against `limit`
-    /// tokens (using the cl100k_base tiktoken encoding). When the full output
-    /// would exceed the limit, only the first and last frame of each exception
-    /// are kept with a `...` marker between them. If the truncated output is
-    /// still over the limit, the string is hard-truncated to exactly `limit`
-    /// tokens.
-    pub fn print_stacktrace(&self, max_tokens: Option<usize>) -> String {
-        let full = self.render_stacktrace(false);
-
-        let Some(limit) = max_tokens else {
-            return full;
-        };
-
-        let bpe = &*CL100K_BPE;
-        let tokens = bpe.encode_with_special_tokens(&full);
-
-        if tokens.len() <= limit {
-            return full;
-        }
-
-        let truncated = self.render_stacktrace(true);
-        let tokens = bpe.encode_with_special_tokens(&truncated);
-
-        if tokens.len() <= limit {
-            return truncated;
-        }
-
-        // Hard-truncate to `limit` tokens. Truncation can split a multi-byte
-        // character's token sequence, producing bytes that aren't valid UTF-8
-        // on decode. Drop trailing tokens until we land on a clean boundary.
-        let mut tokens: Vec<_> = tokens.into_iter().take(limit).collect();
-        loop {
-            match bpe.decode(tokens.clone()) {
-                Ok(text) => break text,
-                Err(_) => {
-                    tokens.pop();
-                }
-            }
-        }
-    }
-
-    fn render_stacktrace(&self, truncate: bool) -> String {
-        let mut content = String::with_capacity(2048);
-
-        for exception in &self.exception_list.0 {
-            // Add exception type and value
-            let type_and_value = format!(
-                "{}: {}\n",
-                exception.exception_type,
-                exception
-                    .exception_message
-                    .chars()
-                    .take(300)
-                    .collect::<String>()
-            );
-
-            content.push_str(&type_and_value);
-
-            let Some(stack) = &exception.stack else {
-                continue;
-            };
-
-            let frames = stack.get_frames();
-
-            if truncate && frames.len() > 2 {
-                content.push_str(&Self::render_frame(&frames[0]));
-                content.push_str("...\n");
-                content.push_str(&Self::render_frame(frames.last().unwrap()));
-            } else {
-                for frame in frames {
-                    content.push_str(&Self::render_frame(frame));
-                }
-            }
-        }
-
-        content
-    }
-
-    fn render_frame(frame: &Frame) -> String {
-        let mut output = String::new();
-
-        if let Some(resolved_name) = &frame.resolved_name {
-            output.push_str(resolved_name);
-        } else {
-            output.push_str(&frame.mangled_name);
-        }
-
-        if let Some(source) = &frame.source {
-            output.push_str(&format!(" in {source}"));
-        }
-
-        if let Some(line) = frame.line {
-            output.push_str(&format!(" line {line}"));
-        }
-
-        if let Some(column) = frame.column {
-            output.push_str(&format!(" column {column}"));
-        }
-
-        output.push('\n');
-        output
-    }
-
-    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
-        EmbeddingRequest {
-            team_id: issue.team_id,
-            product: "error_tracking".to_string(),
-            document_type: "fingerprint".to_string(),
-            rendering: "type_message_and_stack".to_string(),
-            document_id: self.fingerprint.clone(),
-            timestamp: issue.created_at,
-            content: self.print_stacktrace(Some(7000)),
-            models: vec![
-                EmbeddingModel::OpenAITextEmbeddingLarge,
-                EmbeddingModel::OpenAITextEmbeddingSmall,
-            ],
-            metadata: Default::default(),
-        }
     }
 }
 

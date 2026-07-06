@@ -21,6 +21,7 @@ import type { Request, Response } from 'express'
 import type { z } from 'zod'
 
 import type {
+    ApprovalStore,
     AuthConfig,
     CredentialBroker,
     CredentialMap,
@@ -45,6 +46,13 @@ export interface TriggerDeps {
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SecretResolver
     identities?: IdentityStore
+    /**
+     * Approval store — the Slack interactivity handler drives `principal`-type
+     * tool-approval decisions through it (markApproving/markRejected + wake) via
+     * the shared `applyApprovalDecision` helper. Optional: triggers that never
+     * decide approvals ignore it.
+     */
+    approvals?: ApprovalStore
     /**
      * Per-session credential broker. Chat trigger consumes it on /run + /send;
      * other triggers ignore it. Required — prod wires `PgCredentialBroker`,

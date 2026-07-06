@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 import unittest
@@ -14,10 +15,13 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -31,12 +35,20 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS
+from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+
+def _make(cls, **attrs):
+    """Build an auth instance without running __init__, setting only the attributes the test needs."""
+    instance = cls.__new__(cls)
+    for key, value in attrs.items():
+        setattr(instance, key, value)
+    return instance
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -576,8 +588,9 @@ class TestExperimentCRUD(APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_creating_experiment_reports_user_action(self, mock_report_user_action):
+    def test_creating_experiment_reports_user_action(self, mock_report_user_action, _mock_on_commit):
         ff_key = "tracked-experiment"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -609,6 +622,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": "draft",
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -2178,6 +2192,124 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
 
+    def test_parameters_feature_flag_config_is_sourced_from_the_flag(self):
+        """The `parameters` projection sources feature-flag config (variants, rollout percentage,
+        aggregation group type) from the linked flag, not the stored `parameters` column. This is
+        what lets us stop persisting the mirror — a stale column must never surface in the response.
+        """
+        ff_key = "ff-config-from-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Source of truth",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Make the flag (the source of truth) diverge from the stored mirror: new rollouts,
+        # an aggregation group type, and a 20% overall rollout.
+        flag = FeatureFlag.objects.get(key=ff_key, team_id=self.team.id)
+        flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 20}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 60},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 40},
+                ]
+            },
+            "aggregation_group_type_index": 1,
+        }
+        flag.save()
+
+        # Leave a deliberately stale mirror in the column — what the reverse-sync used to keep
+        # fresh. The projection must ignore it entirely and read from the flag.
+        experiment = Experiment.objects.get(id=experiment_id)
+        experiment.parameters = {
+            **(experiment.parameters or {}),
+            "feature_flag_variants": [{"key": "stale", "rollout_percentage": 99}],
+            "rollout_percentage": 100,
+            "aggregation_group_type_index": None,
+        }
+        experiment.save()
+
+        expected_variants = [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 60, "split_percent": 60},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 40, "split_percent": 40},
+        ]
+
+        # Detail endpoint (ExperimentSerializer)
+        detail_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "parameters"
+        ]
+        self.assertEqual(detail_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(detail_parameters["rollout_percentage"], 20)
+        self.assertEqual(detail_parameters["aggregation_group_type_index"], 1)
+
+        # List endpoint (ExperimentBasicSerializer shares the same projection)
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments/").json()["results"]
+        list_parameters = next(e["parameters"] for e in results if e["id"] == experiment_id)
+        self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
+
+    def test_feature_flag_config_is_not_persisted_into_parameters(self):
+        """Create and update consume feature-flag config to build/sync the flag, but never store it
+        in the deprecated `parameters` column. Non-flag keys (e.g. variant_notes) are preserved.
+        """
+        ff_key = "ff-config-not-stored"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "No mirror",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 100,
+                    "variant_notes": {"control": "baseline"},
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        assert experiment.parameters is not None
+        self.assertNotIn("feature_flag_variants", experiment.parameters)
+        self.assertNotIn("rollout_percentage", experiment.parameters)
+        self.assertEqual(experiment.parameters["variant_notes"], {"control": "baseline"})
+        flag = FeatureFlag.objects.get(key=ff_key, team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+
+        # A draft update that re-sends the full parameters blob also strips the flag config and
+        # keeps the non-flag keys.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "variant_notes": {"control": "still baseline"},
+                },
+            },
+        )
+        experiment.refresh_from_db()
+        assert experiment.parameters is not None
+        self.assertNotIn("feature_flag_variants", experiment.parameters)
+        self.assertEqual(experiment.parameters["variant_notes"], {"control": "still baseline"})
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(
@@ -3116,13 +3248,15 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        # Verify that Experiment.parameters.feature_flag_variants reflects the updated FeatureFlag.filters.multivariate.variants
-        experiment = Experiment.objects.get(id=experiment_id)
-        assert experiment.parameters is not None
-        parameters = cast(dict[str, Any], experiment.parameters)
+        # The flag is the source of truth; the experiment API projects variants and aggregation
+        # group type from it (no `parameters` mirror is persisted).
+        parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()["parameters"]
         self.assertEqual(
             parameters["feature_flag_variants"],
-            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+            [
+                {"key": "control", "rollout_percentage": 10, "split_percent": 10},
+                {"key": "test", "rollout_percentage": 90, "split_percent": 90},
+            ],
         )
         self.assertEqual(parameters["aggregation_group_type_index"], 1)
 
@@ -3166,10 +3300,9 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        # Verify that aggregation_group_type_index is removed from experiment parameters
-        experiment = Experiment.objects.get(id=experiment_id)
-        assert experiment.parameters is not None
-        self.assertNotIn("aggregation_group_type_index", cast(dict[str, Any], experiment.parameters))
+        # With no aggregation_group_type_index on the flag, it is absent from the projection too.
+        parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()["parameters"]
+        self.assertNotIn("aggregation_group_type_index", parameters)
 
     def test_update_experiment_exposure_config_valid(self):
         feature_flag = FeatureFlag.objects.create(
@@ -3796,9 +3929,15 @@ class TestExperimentCRUD(APILicensedTest):
             ("copy_to_project", "copy_to_project", True),
         ]
     )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_clone_experiment_reports_creation_mode(
-        self, _name: str, expected_mode: str, needs_target_team: bool, mock_report_user_action: MagicMock
+        self,
+        _name: str,
+        expected_mode: str,
+        needs_target_team: bool,
+        mock_report_user_action: MagicMock,
+        _mock_on_commit: MagicMock,
     ) -> None:
         target_team = (
             Team.objects.create(organization=self.organization, name="Target Team") if needs_target_team else None
@@ -3836,6 +3975,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": result["status"],
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -4460,6 +4600,161 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.json()["archived"])
+
+    def test_archive_experiment_endpoint_disables_feature_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Archive And Disable Flag",
+                "feature_flag_key": "archive-disable-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertFalse(feature_flag.active)
+        self.assertTrue(feature_flag.archived)
+
+    def test_archive_endpoint_disable_requires_feature_flag_write_scope(self):
+        def _make_experiment(name: str, key: str) -> tuple[int, int]:
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "allow_unknown_events": True,
+                    "name": name,
+                    "feature_flag_key": key,
+                    "start_date": "2024-01-01T10:00",
+                    "end_date": "2024-01-15T10:00",
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "EventsNode", "event": "$pageview"},
+                        }
+                    ],
+                },
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+            return resp.json()["id"], resp.json()["feature_flag"]["id"]
+
+        def _pat(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        exp_deny, _ = _make_experiment("Scope Deny", "scope-deny-flag")
+        exp_no_disable, _ = _make_experiment("Scope No Disable", "scope-no-disable-flag")
+        exp_allow, flag_allow = _make_experiment("Scope Allow", "scope-allow-flag")
+
+        self.client.logout()
+
+        # experiment:write alone can't disable the linked flag — that needs feature_flag:write.
+        token = _pat(["experiment:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_deny}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+        # experiment:write alone still archives when not disabling the flag.
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_no_disable}/archive/",
+            {"disable_feature_flag": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With feature_flag:write, disabling the linked flag is allowed.
+        token = _pat(["experiment:write", "feature_flag:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_allow}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        flag = FeatureFlag.objects.get(id=flag_allow)
+        self.assertFalse(flag.active)
+        self.assertTrue(flag.archived)
+
+    @parameterized.expand(
+        [
+            # Personal API key: scopes come off the key.
+            (
+                "pak_denied",
+                _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["experiment:write"])),
+                False,
+            ),
+            (
+                "pak_allowed",
+                _make(
+                    PersonalAPIKeyAuthentication,
+                    personal_api_key=SimpleNamespace(scopes=["experiment:write", "feature_flag:write"]),
+                ),
+                True,
+            ),
+            ("pak_wildcard", _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["*"])), True),
+            # OAuth: scope is a space-separated string that must be split.
+            (
+                "oauth_denied",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="experiment:write")),
+                False,
+            ),
+            (
+                "oauth_allowed",
+                _make(
+                    OAuthAccessTokenAuthentication,
+                    access_token=SimpleNamespace(scope="experiment:write feature_flag:write"),
+                ),
+                True,
+            ),
+            ("oauth_wildcard", _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="*")), True),
+            (
+                "oauth_empty_scope",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope=None)),
+                False,
+            ),
+            # ID-JAG: scopes are already a list.
+            ("id_jag_denied", _make(IDJagAccessTokenAuthentication, scopes=["experiment:write"]), False),
+            (
+                "id_jag_allowed",
+                _make(IDJagAccessTokenAuthentication, scopes=["experiment:write", "feature_flag:write"]),
+                True,
+            ),
+            ("id_jag_wildcard", _make(IDJagAccessTokenAuthentication, scopes=["*"]), True),
+            # Session and other non-token auth aren't scope-limited.
+            ("session_auth", None, True),
+            ("other_auth", object(), True),
+        ]
+    )
+    def test_token_can_write_feature_flag_per_token_type(self, _name, authenticator, expected):
+        request = cast(Any, SimpleNamespace(successful_authenticator=authenticator))
+        viewset = EnterpriseExperimentsViewSet()
+        self.assertEqual(viewset._token_can_write_feature_flag(request), expected)
 
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(
@@ -6943,7 +7238,7 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         return response.json()
 
-    def test_create_with_legacy_parameters_populates_running_time_calculation(self):
+    def test_create_with_legacy_parameters_does_not_populate_running_time_calculation(self):
         created = self._create_experiment(
             parameters={
                 "minimum_detectable_effect": 25,
@@ -6953,19 +7248,13 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             }
         )
 
-        expected = {
-            "minimum_detectable_effect": 25,
-            "recommended_running_time": 14,
-            "recommended_sample_size": 5000,
-            "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
-        }
-        self.assertEqual(created["running_time_calculation"], expected)
-        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 25)
+        # Legacy calculator keys in `parameters` are no longer mirrored into the canonical field.
+        self.assertEqual(created["running_time_calculation"], {})
 
         experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(experiment.running_time_calculation, expected)
+        self.assertEqual(experiment.running_time_calculation, {})
 
-    def test_create_with_running_time_calculation_mirrors_into_parameters(self):
+    def test_create_with_running_time_calculation_does_not_touch_parameters(self):
         created = self._create_experiment(
             running_time_calculation={
                 "minimum_detectable_effect": 20,
@@ -6977,22 +7266,23 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             created["running_time_calculation"],
             {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
         )
-        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 20)
-        self.assertEqual(created["parameters"]["exposure_estimate_config"], self.EXPOSURE_ESTIMATE_CONFIG)
+        self.assertNotIn("minimum_detectable_effect", created["parameters"] or {})
+        self.assertNotIn("exposure_estimate_config", created["parameters"] or {})
 
         experiment = Experiment.objects.get(pk=created["id"])
-        assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 20)
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
+        )
+        self.assertNotIn("minimum_detectable_effect", experiment.parameters or {})
 
-    def test_update_running_time_calculation_merges_into_parameters(self):
+    def test_update_running_time_calculation_does_not_touch_parameters(self):
         created = self._create_experiment(
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
                     {"key": "test", "rollout_percentage": 50},
                 ],
-                "minimum_detectable_effect": 25,
-                "recommended_sample_size": 5000,
             }
         )
 
@@ -7007,12 +7297,11 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             experiment.running_time_calculation,
             {"minimum_detectable_effect": 10, "recommended_running_time": 7},
         )
-        # Other parameters keys survive; calculator keys are replaced wholesale
-        assert experiment.parameters is not None
-        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 10)
-        self.assertEqual(experiment.parameters["recommended_running_time"], 7)
-        self.assertNotIn("recommended_sample_size", experiment.parameters)
+        # Calculator keys never leak into `parameters`, and the variants on the flag are untouched.
+        self.assertNotIn("minimum_detectable_effect", experiment.parameters or {})
+        self.assertNotIn("recommended_running_time", experiment.parameters or {})
+        flag = FeatureFlag.objects.get(key="running-time-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 2)
 
     def test_update_running_time_calculation_does_not_touch_feature_flag(self):
         variants = [
@@ -7033,8 +7322,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
 
-    def test_update_parameters_derives_running_time_calculation(self):
-        created = self._create_experiment()
+    def test_update_parameters_does_not_touch_running_time_calculation(self):
+        created = self._create_experiment(
+            running_time_calculation={"minimum_detectable_effect": 15},
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{created['id']}/",
@@ -7043,21 +7334,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(
-            experiment.running_time_calculation,
-            {"minimum_detectable_effect": 30, "recommended_sample_size": 1000},
-        )
+        # The canonical field is independent of legacy `parameters` calculator keys.
+        self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 15})
 
-        # parameters replaces wholesale, so dropping the keys clears the canonical field too
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
-            {"parameters": {}},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        experiment.refresh_from_db()
-        self.assertEqual(experiment.running_time_calculation, {})
-
-    def test_running_time_calculation_wins_when_both_sent(self):
+    def test_running_time_calculation_and_parameters_are_independent(self):
         created = self._create_experiment()
 
         response = self.client.patch(
@@ -7070,9 +7350,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         experiment = Experiment.objects.get(pk=created["id"])
+        # Each side is stored exactly as sent — no cross-write between them.
         self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 11})
         assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 11)
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 99)
 
     @parameterized.expand(
         [
@@ -7089,6 +7370,104 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
                 "name": "Invalid running time",
                 "feature_flag_key": "invalid-running-time-flag",
                 "running_time_calculation": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestExperimentExcludedVariants(APILicensedTest):
+    THREE_VARIANTS = [
+        {"key": "control", "rollout_percentage": 34},
+        {"key": "test-1", "rollout_percentage": 33},
+        {"key": "test-2", "rollout_percentage": 33},
+    ]
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Excluded variants experiment",
+            "feature_flag_key": "excluded-variants-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_excluded_variants_writes_only_column(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS},
+            excluded_variants=["test-2"],
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # No longer mirrored into the deprecated parameters blob
+        assert experiment.parameters is not None
+        self.assertNotIn("excluded_variants", experiment.parameters)
+
+    def test_update_excluded_variants_does_not_require_feature_flag_variants(self):
+        """The headline of the parameters split: excluding a variant no longer requires
+        re-sending feature_flag_variants, because validation resolves against the flag."""
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # Only the column is written; the deprecated parameters blob is untouched
+        self.assertNotIn("excluded_variants", experiment.parameters or {})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    def test_update_excluded_variants_does_not_touch_feature_flag(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", ["does-not-exist"]),
+            ("baseline_excluded", ["control"]),
+            ("all_test_variants_excluded", ["test-1", "test-2"]),
+        ]
+    )
+    def test_update_excluded_variants_validates_against_flag_variants(self, _name: str, excluded_variants: list):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": excluded_variants},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("non_list", "test-2"),
+            ("non_string_element", [123]),
+        ]
+    )
+    def test_invalid_excluded_variants_rejected(self, _name: str, value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid excluded variants",
+                "feature_flag_key": "invalid-excluded-variants-flag",
+                "excluded_variants": value,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -7238,4 +7617,29 @@ class TestExperimentSerializerSuperset(unittest.TestCase):
         self.assertFalse(
             mismatches,
             "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
+        )
+
+
+class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
+    """Structural guard: the slim API exposure-criteria schema must expose every writable field.
+
+    ``exposure_criteria`` is stored as a plain JSONField, so the backend accepts any field at
+    runtime. ``ExperimentApiExposureCriteria`` is the slim type that drives the OpenAPI spec and,
+    downstream, the MCP tool / frontend write schema. A field honored at runtime (read from
+    ``ExperimentExposureCriteria``) but missing from the slim type is silently stripped by the
+    generated client before it ever reaches the API — which is how ``multiple_variant_handling``
+    looked settable via ``experiment-get`` yet never saved via ``experiment-update``.
+    """
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        from posthog.schema import ExperimentApiExposureCriteria, ExperimentExposureCriteria
+
+        runtime_fields = set(ExperimentExposureCriteria.model_fields)
+        api_fields = set(ExperimentApiExposureCriteria.model_fields)
+        dropped = runtime_fields - api_fields
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiExposureCriteria omits exposure_criteria fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )

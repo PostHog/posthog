@@ -24,7 +24,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 

@@ -17,6 +17,10 @@ from posthog.temporal.ai.slack_app.activities.messaging import (
     post_posthog_code_repo_picker_activity,
     resolve_posthog_code_authorship_activity,
 )
+from posthog.temporal.ai.slack_app.activities.onboarding import (
+    run_posthog_slack_inbox_onboarding,
+    run_posthog_slack_inbox_onboarding_activity,
+)
 from posthog.temporal.ai.slack_app.activities.repo_selection import (
     cascade_posthog_code_repository_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -64,4 +68,6 @@ __all__ = [
     "resolve_posthog_code_authorship_activity",
     "resolve_posthog_code_slack_command_user_activity",
     "resolve_posthog_code_slack_user_activity",
+    "run_posthog_slack_inbox_onboarding",
+    "run_posthog_slack_inbox_onboarding_activity",
 ]

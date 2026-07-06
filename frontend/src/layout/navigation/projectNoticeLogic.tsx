@@ -385,7 +385,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                     </Link>{' '}
                                     or grab your project API key/HTML snippet from{' '}
                                     <Link
-                                        to={urls.settings('environment-details', 'variables')}
+                                        to={urls.settings('project-details', 'variables')}
                                         data-attr="real_project_with_no_events-settings"
                                     >
                                         Project Settings

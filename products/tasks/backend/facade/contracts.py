@@ -10,8 +10,9 @@ with runtime validation on construction) so a malformed mapper surfaces a
 
 Behavioral/wiring surfaces (sandbox classes, the multi-turn agent machinery, temporal
 workflows, max tools, webhook handlers) are NOT data and are not modelled here — they
-are re-exported as objects through the sibling facade submodules (``sandbox``,
-``agents``, ``temporal``, ``max_tools``, ``webhooks``, …).
+cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
+``agents``, ``temporal``, ``max_tools``, ``webhooks``, …), with DTOs here only for
+their data results.
 """
 
 from datetime import datetime
@@ -74,6 +75,16 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class WarmRunDTO:
+    """Outcome of ensuring a warm sandbox run exists for a task."""
+
+    task_id: UUID
+    run_id: UUID
+    run_status: str
+    just_created: bool
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -81,7 +92,9 @@ class TaskDetailDTO:
     ``github_user_integration`` are the integration primary keys (or ``None``), matching the
     original ``PrimaryKeyRelatedField`` output. ``signal_report`` is the linked report id (or
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
-    ``created_by`` mirrors core ``UserBasicSerializer`` output.
+    ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
+    to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
+    mirrors core ``UserBasicSerializer`` output.
     """
 
     id: UUID
@@ -104,6 +117,32 @@ class TaskDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
+    latest_run_id: UUID | None = None
+    channel: UUID | None = None
+
+
+@dataclass(frozen=True)
+class ChannelDTO:
+    """The HTTP representation of a task channel."""
+
+    id: UUID
+    name: str
+    channel_type: str
+    created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskThreadMessageDTO:
+    """The HTTP representation of one message in a task's thread."""
+
+    id: UUID
+    task: UUID
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+    forwarded_to_agent_at: datetime | None = None
+    forwarded_by: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +212,7 @@ class StagedArtifactPreparedDTO:
     storage_path: str
     expires_in: int
     presigned_post: dict
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -567,6 +607,14 @@ class SignalReportPrUrlDTO:
 
     report_id: str
     pr_url: str
+
+
+@dataclass(frozen=True)
+class WarmTaskDTO:
+    """The draft Task + warm Run birthed by a Code-app warm request."""
+
+    task_id: UUID
+    run_id: UUID
 
 
 @dataclass(frozen=True)

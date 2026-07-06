@@ -12,6 +12,7 @@ use crate::core::symbolication::symbol_store::{
     chunk_id::ChunkIdFetcher,
     concurrency,
     hermesmap::HermesMapProvider,
+    native::NativeProvider,
     proguard::ProguardProvider,
     saving::Saving,
     sourcemap::SourcemapProvider,
@@ -105,13 +106,23 @@ pub fn build_catalog(
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
     );
-    let apple_caching = Caching::new(apple_chunk, ss_cache);
+    let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
     let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
+
+    let native_chunk = ChunkIdFetcher::new(
+        NativeProvider {},
+        s3_client.clone(),
+        posthog_pool.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    let native_caching = Caching::new(native_chunk, ss_cache);
+    let native_atmostonce = concurrency::AtMostOne::new(native_caching);
 
     Arc::new(Catalog::new(
         smp_atmostonce,
         hmp_atmostonce,
         pgp_atmostonce,
         apple_atmostonce,
+        native_atmostonce,
     ))
 }

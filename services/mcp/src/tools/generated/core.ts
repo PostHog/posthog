@@ -19,7 +19,7 @@ import {
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { omitResponseFields } from '@/tools/tool-utils'
+import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
@@ -200,12 +200,14 @@ const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveS
 })
 
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z.preprocess(
-        castStringToInt,
-        OrganizationsProjectsRetrieveParams.shape['id'].describe(
-            "Project ID, or `@current` to fetch the caller's active project."
+    id: z
+        .preprocess(
+            castStringToInt,
+            OrganizationsProjectsRetrieveParams.shape['id']
+                .describe("Project ID. If omitted, returns the caller's active project.")
+                .optional()
         )
-    ),
+        .optional(),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -213,9 +215,13 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     schema: ProjectGetSchema,
     handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'secret_api_token',
@@ -468,11 +474,41 @@ const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
             method: 'GET',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
         })
-        const filtered = omitResponseFields(result, [
-            'is_impersonated',
-            'is_impersonated_until',
-            'is_impersonated_read_only',
-            'sensitive_session_expires_at',
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'distinct_id',
+            'email',
+            'pending_email',
+            'is_email_verified',
+            'first_name',
+            'last_name',
+            'date_joined',
+            'is_staff',
+            'has_password',
+            'is_2fa_enabled',
+            'has_social_auth',
+            'has_sso_enforcement',
+            'passkeys_enabled_for_2fa',
+            'allow_impersonation',
+            'notification_settings',
+            'anonymize_data',
+            'toolbar_mode',
+            'events_column_config',
+            'theme_mode',
+            'hedgehog_config',
+            'allow_sidebar_suggestions',
+            'shortcut_position',
+            'role_at_organization',
+            'hide_mcp_hints',
+            'scene_personalisation',
+            'pending_invites',
+            'organization.id',
+            'organization.name',
+            'team.id',
+            'team.name',
+            'organizations.*.id',
+            'organizations.*.name',
         ]) as typeof result
         return filtered
     },

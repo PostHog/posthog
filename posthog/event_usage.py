@@ -329,7 +329,7 @@ def get_event_source(request) -> EventSource:
         return EventSource.WIZARD
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
-    if user_agent == "posthog-cli" or user_agent.startswith("posthog-cli/"):
+    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return EventSource.MCP

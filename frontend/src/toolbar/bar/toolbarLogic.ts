@@ -138,7 +138,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
-        windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
+        windowWidth: (window: Window) =>
+            Math.min(window.innerWidth, window.document.body?.clientWidth ?? window.innerWidth),
     })),
     reducers(() => ({
         element: [
@@ -740,17 +741,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     }
 
                     switch (type) {
-                        case PostHogAppToolbarEvent.PH_APP_INIT:
+                        case PostHogAppToolbarEvent.PH_APP_INIT: {
+                            const payload = e.data.payload
                             actions.setIsEmbeddedInApp(true)
-                            actions.patchHeatmapFilters(e.data.payload.filters)
-                            actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                            actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                            actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            if (payload?.filters != null) {
+                                actions.patchHeatmapFilters(payload.filters)
+                            }
+                            if (payload?.colorPalette != null) {
+                                actions.setHeatmapColorPalette(payload.colorPalette)
+                            }
+                            if (payload?.fixedPositionMode != null) {
+                                actions.setHeatmapFixedPositionMode(payload.fixedPositionMode)
+                            }
+                            if (payload?.commonFilters != null) {
+                                actions.setCommonFilters(payload.commonFilters)
+                            }
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive
                             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
+                        }
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                             if (e.data.payload.enabled) {
                                 actions.enableInspect()

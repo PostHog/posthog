@@ -1,6 +1,7 @@
 export { createApplyCookielessProcessingStep } from './apply-cookieless-processing'
 export { createApplyEventRestrictionsStep } from './apply-event-restrictions'
 export { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
+export { createDedupeFeatureFlagCalledStep } from './dedupe-feature-flag-called'
 export { createEnrichSurveyPersonPropertiesStep } from './enrich-survey-person-properties'
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep } from './parse-kafka-message'

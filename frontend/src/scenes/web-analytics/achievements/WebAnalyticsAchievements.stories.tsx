@@ -7,7 +7,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { AchievementsListResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AchievementProgressApi,
+    AchievementsListResponseApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 import { WebAnalyticsAchievementsModal } from './WebAnalyticsAchievementsModal'
@@ -16,6 +19,27 @@ const STREAK_STAGE_NAMES = ['Getting started', 'Warming up', 'On a roll', 'Commi
 
 const stages = (names: string[], thresholds: number[]): { stage: number; name: string; threshold: number }[] =>
     names.map((name, index) => ({ stage: index + 1, name, threshold: thresholds[index] }))
+
+const unlockDates = (count: number): Record<string, string> => {
+    const map: Record<string, string> = {}
+    for (let stage = 1; stage <= count; stage++) {
+        map[String(stage)] = `2026-06-${String(9 + stage).padStart(2, '0')}T00:00:00Z`
+    }
+    return map
+}
+
+const progress = (
+    track_key: string,
+    current_stage: number,
+    progress_value: number,
+    last_computed_at: string | null
+): AchievementProgressApi => ({
+    track_key,
+    current_stage,
+    progress_value,
+    last_computed_at,
+    unlocked_at: unlockDates(current_stage),
+})
 
 function buildOverview(streakThresholds: number[]): AchievementsListResponseApi {
     return {
@@ -76,26 +100,30 @@ function buildOverview(streakThresholds: number[]): AchievementsListResponseApi 
             },
         ],
         user_progress: [
-            {
-                track_key: 'streak',
-                current_stage: 2,
-                progress_value: streakThresholds[2] - 1,
-                last_computed_at: '2026-06-16T00:00:00Z',
-            },
-            { track_key: 'loyalty', current_stage: 1, progress_value: 9, last_computed_at: '2026-06-16T00:00:00Z' },
-            { track_key: 'explorer', current_stage: 3, progress_value: 62, last_computed_at: '2026-06-16T00:00:00Z' },
-            { track_key: 'detective', current_stage: 0, progress_value: 0, last_computed_at: null },
+            progress('streak', 2, streakThresholds[2] - 1, '2026-06-16T00:00:00Z'),
+            progress('loyalty', 1, 9, '2026-06-16T00:00:00Z'),
+            progress('explorer', 3, 62, '2026-06-16T00:00:00Z'),
+            progress('detective', 0, 0, null),
         ],
         team_progress: [
-            { track_key: 'conversions', current_stage: 2, progress_value: 4, last_computed_at: '2026-06-16T00:00:00Z' },
-            {
-                track_key: 'traffic',
-                current_stage: 2,
-                progress_value: 250000,
-                last_computed_at: '2026-06-16T00:00:00Z',
-            },
+            progress('conversions', 2, 4, '2026-06-16T00:00:00Z'),
+            progress('traffic', 2, 250000, '2026-06-16T00:00:00Z'),
         ],
         pending_celebrations: [],
+    }
+}
+
+function buildTierShowcase(): AchievementsListResponseApi {
+    const base = buildOverview([2, 4, 7, 14, 30])
+    return {
+        ...base,
+        user_progress: [
+            progress('streak', 1, 3, '2026-06-16T00:00:00Z'),
+            progress('loyalty', 2, 20, '2026-06-16T00:00:00Z'),
+            progress('explorer', 3, 60, '2026-06-16T00:00:00Z'),
+            progress('detective', 4, 200, '2026-06-16T00:00:00Z'),
+        ],
+        team_progress: [progress('traffic', 5, 200000000, '2026-06-16T00:00:00Z'), progress('conversions', 0, 0, null)],
     }
 }
 
@@ -107,11 +135,14 @@ const overviewDecorator = (streakThresholds: number[]): ReturnType<typeof mswDec
         },
     })
 
-function OpenAchievementsModal(): JSX.Element | null {
-    const { openModal } = useActions(webAnalyticsAchievementsLogic)
+function OpenAchievementsModal({ expandTrack }: { expandTrack?: string }): JSX.Element {
+    const { openModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
     useEffect(() => {
         openModal()
-    }, [openModal])
+        if (expandTrack) {
+            toggleTrackExpanded(expandTrack)
+        }
+    }, [openModal, toggleTrackExpanded, expandTrack])
     return <WebAnalyticsAchievementsModal />
 }
 
@@ -158,4 +189,33 @@ export const WeeklyOnlyArm: Story = {
         },
     },
     render: () => <OpenAchievementsModal />,
+}
+
+export const TierColors: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/web_analytics_achievements/overview/': () =>
+                    HttpResponse.json(buildTierShowcase()),
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.WEB_ANALYTICS_ACHIEVEMENTS]: true,
+            [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'hybrid',
+        },
+    },
+    render: () => <OpenAchievementsModal />,
+}
+
+export const ExpandedLadder: Story = {
+    decorators: [overviewDecorator([2, 4, 7, 14, 30])],
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.WEB_ANALYTICS_ACHIEVEMENTS]: true,
+            [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'hybrid',
+        },
+    },
+    render: () => <OpenAchievementsModal expandTrack="explorer" />,
 }

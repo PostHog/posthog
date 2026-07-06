@@ -29,6 +29,55 @@ def simplify_redundant_type_operations(
     return TypeAwareSimplifier(context=context, dialect=dialect).visit(node)
 
 
+def simplify_argmax_over_non_nullable(node: _T_AST, context: HogQLContext) -> _T_AST:
+    """Rewrite ``tupleElement(argMax(tuple(X), V), 1)`` to ``argMax(X, V)`` when X can't be NULL.
+
+    ``argmax_select`` wraps every argMax in ``tuple()``/``tupleElement()`` so a NULL value in the
+    latest (max-version) row still wins — plain ClickHouse ``argMax`` skips NULLs and would return a
+    stale earlier value instead. A non-nullable column has no NULL to skip, so the wrap is pure
+    overhead and plain ``argMax`` is exactly equivalent. Runs after lazy-table expansion and property
+    swapping, so the inner expression is in its final form (column or JSON extract) with a resolved,
+    trustworthy nullability.
+    """
+    return _ArgMaxTupleSimplifier(context).visit(node)
+
+
+class _ArgMaxTupleSimplifier(CloningVisitor):
+    def __init__(self, context: HogQLContext):
+        super().__init__(clear_types=False)
+        self.context = context
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        node = cast(ast.Call, super().visit_call(node))
+        if node.name != "tupleElement" or len(node.args) != 2:
+            return node
+        if not (isinstance(node.args[1], ast.Constant) and node.args[1].value == 1):
+            return node
+        argmax = node.args[0]
+        if not (isinstance(argmax, ast.Call) and argmax.name == "argMax" and len(argmax.args) == 2):
+            return node
+        tuple_call = argmax.args[0]
+        if not (isinstance(tuple_call, ast.Call) and tuple_call.name == "tuple" and len(tuple_call.args) == 1):
+            return node
+        inner = tuple_call.args[0]
+        inner_type = _constant_type(inner, self.context)
+        if inner_type is None or isinstance(inner_type, ast.UnknownType) or inner_type.nullable:
+            return node
+        # Carry every field off the original argMax (params, distinct, FILTER, etc.) so a future caller's clause is not silently dropped; argmax_select sets none today.
+        return ast.Call(
+            name="argMax",
+            args=[inner, argmax.args[1]],
+            params=argmax.params,
+            distinct=argmax.distinct,
+            within_group=argmax.within_group,
+            order_by=argmax.order_by,
+            filter_expr=argmax.filter_expr,
+            type=node.type,
+            start=node.start,
+            end=node.end,
+        )
+
+
 class TypeAwareSimplifier(CloningVisitor):
     def __init__(self, context: HogQLContext, dialect: HogQLDialect):
         super().__init__(clear_types=False)

@@ -31,6 +31,7 @@ from posthog.temporal.ai.slack_app.activities import (
     resolve_posthog_code_authorship_activity,
     resolve_posthog_code_slack_command_user_activity,
     resolve_posthog_code_slack_user_activity,
+    run_posthog_slack_inbox_onboarding_activity,
 )
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -38,6 +39,7 @@ from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionCommandResult,
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
+    PostHogSlackInboxOnboardingInputs,
     SlackRepoSelectionOutcome,
 )
 
@@ -62,6 +64,7 @@ SLACK_APP_ACTIVITIES = [
     handle_posthog_code_rules_command_activity,
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
+    run_posthog_slack_inbox_onboarding_activity,
 ]
 
 __all__ = [
@@ -73,6 +76,7 @@ __all__ = [
     "PostHogCodeSlackMentionCommandResult",
     "PostHogCodeSlackMentionCommandWorkflowInputs",
     "PostHogCodeSlackMentionWorkflowInputs",
+    "PostHogSlackInboxOnboardingInputs",
     "SLACK_APP_ACTIVITIES",
     "SlackRepoSelectionOutcome",
     "block_posthog_code_task_if_no_personal_github_activity",
@@ -97,4 +101,5 @@ __all__ = [
     "resolve_posthog_code_authorship_activity",
     "resolve_posthog_code_slack_command_user_activity",
     "resolve_posthog_code_slack_user_activity",
+    "run_posthog_slack_inbox_onboarding_activity",
 ]

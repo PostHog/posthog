@@ -92,7 +92,8 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { push } = useActions(router)
 
     const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })
+    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
 
     return (
         <>
@@ -104,6 +105,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     insightId={insight.id as number}
                     insightShortId={insight.short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                 />
             )}
 

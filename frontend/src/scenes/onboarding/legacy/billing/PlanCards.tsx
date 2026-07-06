@@ -9,6 +9,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -63,8 +65,16 @@ export function formatDataRetentionFeature(feature?: BillingFeatureType): string
 
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { billing } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
+
+    // When platform packages are surfaced after subscribing (experiment on), there are more features
+    // to unlock beyond pay-as-you-go, so soften the paid CTA from "Unlock all features".
+    const ctaText =
+        planData.plan === Plan.RIDICULOUSLY_CHEAP && featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test'
+            ? 'Unlock more features'
+            : planData.ctaText
 
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
@@ -203,7 +213,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             fullWidth
                             tabIndex={-1}
                         >
-                            {planData.ctaText}
+                            {ctaText}
                         </BillingUpgradeCTA>
                     )}
                     {planData.ctaAction === 'next' && (

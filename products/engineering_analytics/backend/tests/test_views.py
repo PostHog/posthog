@@ -10,8 +10,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -22,9 +20,9 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
@@ -139,11 +137,13 @@ def _run_row(
     full_name: str = "PostHog/posthog",
     run_attempt: int = 1,
     pr_number: int | None = None,
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
         "head_sha": head_sha,
+        "head_branch": head_branch,
         "status": status,
         "conclusion": conclusion,
         "created_at": run_started_at,
@@ -281,7 +281,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         # skip without it.
         repo_json = '{"full_name": "PostHog/posthog"}'
         raw = (
-            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'completed' AS status, "
+            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
             "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
             f"'{repo_json}' AS repository, "
             "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "

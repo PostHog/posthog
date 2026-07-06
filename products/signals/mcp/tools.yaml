@@ -18,6 +18,93 @@ tools:
     inbox-processing-pause-update:
         operation: signals_processing_pause_update
         enabled: false
+    inbox-report-artefacts-create:
+        operation: signals_report_artefacts_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{report_id}'
+        title: Append an artefact to a report
+        description: >
+            Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types
+            accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line,
+            end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that
+            has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
+            automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
+            by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
+            always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report
+            association: content.task_id defaults to your own task, product/type label the run and default to
+            tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry),
+            `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one
+            as the report's canonical status: `priority_judgment` (explanation, priority P0–P4),
+            `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice),
+            `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments
+            are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up
+            next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object
+            matching the chosen type and is validated against its schema. Writes are attributed to your task
+            automatically. Returns the created artefact including its id.
+    inbox-report-artefacts-delete:
+        operation: signals_report_artefacts_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete an artefact
+        description: >
+            Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status
+            type (e.g. priority_judgment) reverts the report's canonical status to the previous version.
+    inbox-report-artefacts-list:
+        operation: signals_report_artefacts_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a report's artefacts
+        description: >
+            List every artefact on a signal report — the full picture of why it exists and what has been done about it:
+            `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
+            priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
+            and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
+            adding to the log.
+    inbox-report-artefacts-retrieve:
+        operation: signals_report_artefacts_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single artefact
+        description: >
+            Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same
+            way as inbox-report-artefacts-list.
+    inbox-report-artefacts-update:
+        operation: signals_report_artefacts_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Replace an artefact's content
+        description: >
+            Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
+            new content is validated against the artefact type's schema. Editing the latest row of a status type changes
+            the report's canonical status; to re-assess while keeping history, append a new artefact instead.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -53,9 +140,22 @@ tools:
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
-            search across title and summary, source_product (e.g. error_tracking, session_replay), and
-            suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by
+            search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers
+            (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see
+            which reports you are already working against). For picking up work, filter to `ready` — earlier statuses
+            are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
+            full work log — signal findings (evidence), judgments, and log entries — is readable via
+            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
             '-is_suggested_reviewer,status,-updated_at' by default.
+        agent_note:
+            "If you do ANY work connected to one of these reports — even pure research or investigation — always first
+            associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {}
+            (your own task id is filled in automatically). That task_run artefact IS the task↔report association —
+            commits you push are recorded on the report through it, and without it your work is invisible to the report.
+            If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's
+            expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only
+            session) ignore the association step entirely — artefact persistence is handled for you. Read the report's
+            work log via inbox-report-artefacts-list before acting."
         response:
             include:
                 - id
@@ -88,8 +188,25 @@ tools:
         description: >
             Get a single signal report by ID. Returns the full report including title, summary, status, priority and
             actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
-            if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
-            query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
+            if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries
+            — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying
+            signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even
+            research — first associate your task with it by appending a `task_run` artefact via
+            inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready`
+            reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than
+            acting on it yourself.
+        agent_note:
+            "If you do ANY work connected to this report — even pure research or investigation — always first associate
+            your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own
+            task id is filled in automatically). That task_run artefact IS the task↔report association — commits you
+            push via git_signed_commit are recorded on the report through it, and without it your work is invisible to
+            the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your
+            own — that's expected, not an error to fix; skip the association and continue. Then log the work as
+            artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch
+            outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a
+            remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version
+            to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for
+            you."
     inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true
@@ -112,6 +229,24 @@ tools:
             survives later transitions. Returns 409 if the transition is not allowed from the report's current status.
             To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per
             report.
+    inbox-reports-update:
+        operation: signals_reports_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Edit a signal report's title or summary
+        description: >
+            Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields
+            are optional — pass only the ones you want to change, but supply at least one. Use this to clarify a
+            report's title or rewrite its summary when you understand the underlying issue better than the
+            auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed
+            by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and
+            its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
@@ -126,13 +261,15 @@ tools:
             Create a signal source config for the current project, switching an inbox signal source on. A source ties a
             `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay,
             llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid
-            `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened,
-            issue_spiking, cross_source_issue, alert_state_change. To turn the Signals scout source on for a project,
-            create `source_product=signals_scout`, `source_type=cross_source_issue`, `enabled=true` — this is the
-            team-level source gate that scout emit also requires (the per-scout `emit` flag is set separately via
-            `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project;
-            if one already exists, update it instead. Enabling the session_analysis_cluster source requires the
-            organization to have approved AI data processing.
+            `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created,
+            issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability
+            evaluation report findings in the inbox, create `source_product=llm_analytics`,
+            `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox
+            with no config row needed. The only reason to create a `source_product=signals_scout`,
+            `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit`
+            flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product,
+            source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster
+            source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -204,6 +341,9 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-report-artefacts-diff:
+        operation: signals_report_artefacts_diff
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -216,10 +356,27 @@ tools:
         title: Create a scout config
         description: >
             Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the
-            coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200),
+            coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200),
             `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
             (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
             fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
+    signals-scout-config-delete:
+        operation: signals_scout_config_destroy
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout config
+        description: >
+            Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up
+            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in
+            `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed.
+            Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule
+            config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via
+            `signals-scout-config-update` to make it inert) rather than deleting the config.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -267,9 +424,51 @@ tools:
         enrich_url: '{id}'
         title: Update a scout config
         description: >
-            Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or
+            Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or
             `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+    signals-scout-edit-report:
+        operation: signals_scout_edit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit an existing report for a run
+        description: >
+            The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its
+            `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the
+            edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no
+            one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open
+            a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the
+            linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and
+            audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
+            them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that
+            list `edit_report` in their skill's `allowed_tools`.
+    signals-scout-emit-report:
+        operation: signals_scout_emit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Author a full report for a run
+        description: >
+            The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've
+            already done the research and want 1:1 control over the report rather than letting the pipeline cluster it.
+            The report passes the safety judge, then surfaces at the status your `actionability` call implies
+            (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
+            an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
+            behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
+            to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the
+            primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved
+            server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
+            opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.
+            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -285,6 +484,25 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    signals-scout-members-list:
+        operation: signals_scout_members_list
+        enabled: true
+        scopes:
+            - signal_scout_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List project members for reviewer routing
+        description: >
+            Return the people who can review work on this project — one row per member with access to it, each with
+            their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no
+            linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
+            fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
+            members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on
+            `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be
+            routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
     signals-scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false
@@ -307,6 +525,25 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-run-now:
+        operation: signals_scout_config_run
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a scout now
+        description: >
+            Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a
+            scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and
+            inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its
+            daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against
+            the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
+            in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
+            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
+            Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true
@@ -327,6 +564,12 @@ tools:
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
             surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
             it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-emission-reports-batch:
+        operation: signals_scout_runs_emission_reports_batch
+        enabled: false
+    signals-scout-runs-emissions-batch:
+        operation: signals_scout_runs_emissions_batch
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
@@ -344,6 +587,9 @@ tools:
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
             Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
             (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-findings-summary:
+        operation: signals_scout_runs_findings_summary
+        enabled: false
     signals-scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
@@ -358,14 +604,36 @@ tools:
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error`
-            (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with
-            `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary
-            scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs
-            that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
-            case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
-            findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
-            to scope to a window. Results capped at 100.
+            run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored
+            directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the
+            report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus
+            `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope
+            the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist
+            dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
+            (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
+            the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
+            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
+            capped at 100.
+    signals-scout-runs-recent-emissions:
+        operation: signals_scout_runs_recent_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent emitted findings across all scout runs
+        description: >
+            Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
+            cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries
+            its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and
+            the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
+            surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
+            `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
+            upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
+            walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -406,7 +674,11 @@ tools:
         title: Remember a scratchpad entry
         description: >
             Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so
-            this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.
+            this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking,
+            not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and
+            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as
+            Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for
+            ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.
     signals-scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
@@ -420,9 +692,11 @@ tools:
         title: Search the scout scratchpad
         description: >
             Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive
-            substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist
+            substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower
+            / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the
+            oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist
             without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
-            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

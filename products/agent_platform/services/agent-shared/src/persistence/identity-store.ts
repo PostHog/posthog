@@ -19,14 +19,6 @@ export interface AgentUser {
     /** Provider-issued stable id (e.g. "T01ABC:U12345" for Slack). */
     principal_id: string
     metadata?: Record<string, unknown>
-    /**
-     * Link to a PostHog `User` row. The email-match bridge that used to set
-     * this was removed (an unverified Slack email is not a safe authz signal);
-     * it is now set only by an explicit, consented identity link, and is null
-     * until then. The dispatcher's per-asker auth check reads this to resolve
-     * "is the current asker a team admin?".
-     */
-    posthog_user_id?: number | null
     created_at: string
 }
 
@@ -46,12 +38,6 @@ export interface IdentityStore {
     find(input: { application_id: string; principal_kind: string; principal_id: string }): Promise<AgentUser | null>
     /** Lookup by AgentUser uuid. Returns null when the row doesn't exist. */
     getById(agentUserId: string): Promise<AgentUser | null>
-    /**
-     * Set (or clear, with `null`) the PostHog user this identity is linked to.
-     * Should only be called by an explicit consented identity link; `null`
-     * clears the link (e.g. on unlink/revoke).
-     */
-    setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void>
 }
 
 export class PgIdentityStore implements IdentityStore {
@@ -103,11 +89,9 @@ export class PgIdentityStore implements IdentityStore {
             principal_kind: string
             principal_id: string
             metadata: unknown
-            posthog_user_id: number | null
             created_at: Date
         }>(
-            `SELECT id, team_id, application_id, principal_kind, principal_id, metadata,
-                    posthog_user_id, created_at
+            `SELECT id, team_id, application_id, principal_kind, principal_id, metadata, created_at
              FROM agent_user
              WHERE application_id = $1 AND principal_kind = $2 AND principal_id = $3`,
             [input.application_id, input.principal_kind, input.principal_id]
@@ -123,13 +107,8 @@ export class PgIdentityStore implements IdentityStore {
             principal_kind: row.principal_kind,
             principal_id: row.principal_id,
             metadata: (row.metadata as Record<string, unknown>) ?? undefined,
-            posthog_user_id: row.posthog_user_id,
             created_at: row.created_at.toISOString(),
         }
-    }
-
-    async setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void> {
-        await this.pool.query(`UPDATE agent_user SET posthog_user_id = $2 WHERE id = $1`, [agentUserId, posthogUserId])
     }
 
     async getById(agentUserId: string): Promise<AgentUser | null> {
@@ -140,11 +119,9 @@ export class PgIdentityStore implements IdentityStore {
             principal_kind: string
             principal_id: string
             metadata: unknown
-            posthog_user_id: number | null
             created_at: Date
         }>(
-            `SELECT id, team_id, application_id, principal_kind, principal_id, metadata,
-                    posthog_user_id, created_at
+            `SELECT id, team_id, application_id, principal_kind, principal_id, metadata, created_at
              FROM agent_user
              WHERE id = $1`,
             [agentUserId]
@@ -160,7 +137,6 @@ export class PgIdentityStore implements IdentityStore {
             principal_kind: row.principal_kind,
             principal_id: row.principal_id,
             metadata: (row.metadata as Record<string, unknown>) ?? undefined,
-            posthog_user_id: row.posthog_user_id,
             created_at: row.created_at.toISOString(),
         }
     }

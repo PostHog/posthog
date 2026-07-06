@@ -6,8 +6,12 @@ from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
+from temporalio.client import ScheduleActionStartWorkflow
+
+from posthog.models.integration import Integration
 
 from products.batch_exports.backend.models.batch_export import S3_CREATABLE_TYPES
+from products.batch_exports.backend.tests.api.conftest import describe_schedule
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
@@ -301,3 +305,94 @@ def test_creating_s3_family_batch_export_fails_if_using_invalid_endpoint_url(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
+
+
+@pytest.fixture
+def aws_s3_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws",
+        config={"name": "prod-aws", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def s3_compatible_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id="my-r2",
+        config={"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
+
+
+@pytest.mark.parametrize(
+    "destination_type,integration_fixture",
+    [
+        ("AwsS3", "aws_s3_integration"),
+        ("S3Compatible", "s3_compatible_integration"),
+    ],
+)
+def test_create_s3_family_batch_export_using_integration(
+    client: HttpClient, temporal, organization, team, user, destination_type, integration_fixture, request
+):
+    """An S3-family export authenticates via a matching integration, with no inline credentials in config."""
+    integration = request.getfixturevalue(integration_fixture)
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {
+                "type": destination_type,
+                # No credentials (nor endpoint_url) inline — they come from the integration.
+                "config": {"bucket_name": "my-bucket", "region": "us-east-1", "prefix": "events/"},
+                "integration": integration.id,
+            },
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    data = response.json()
+    assert data["destination"]["type"] == destination_type
+    assert "aws_access_key_id" not in data["destination"]["config"]
+    assert "aws_secret_access_key" not in data["destination"]["config"]
+
+    schedule = describe_schedule(temporal, data["id"])
+    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.schedule.action.workflow == "s3-export"
+
+
+@pytest.mark.parametrize(
+    "destination_type,integration_fixture",
+    [
+        ("AwsS3", "s3_compatible_integration"),
+        ("S3Compatible", "aws_s3_integration"),
+    ],
+)
+def test_create_s3_family_batch_export_rejects_mismatched_integration_kind(
+    client: HttpClient, temporal, organization, team, user, destination_type, integration_fixture, request
+):
+    """An S3-family export rejects an integration whose kind doesn't match the destination type."""
+    integration = request.getfixturevalue(integration_fixture)
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {
+                "type": destination_type,
+                "config": {"bucket_name": "my-bucket", "region": "us-east-1", "prefix": "events/"},
+                "integration": integration.id,
+            },
+        },
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

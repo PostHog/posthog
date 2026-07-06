@@ -1,9 +1,9 @@
 import { LRUCache } from 'lru-cache'
 
+import { logger } from '~/common/utils/logger'
+import { Limiter } from '~/common/utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RedisPool } from '~/types'
-import { logger } from '~/utils/logger'
-import { Limiter } from '~/utils/token-bucket'
 
 import { SessionBatchMetrics } from './metrics'
 
@@ -75,6 +75,7 @@ export class SessionFilter {
         this.localCache.set(key, true)
         SessionBatchMetrics.incrementSessionsBlocked()
 
+        const startTime = performance.now()
         let client
         try {
             client = await this.redisPool.acquire()
@@ -97,6 +98,7 @@ export class SessionFilter {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionFilterRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
@@ -126,6 +128,7 @@ export class SessionFilter {
 
         SessionBatchMetrics.incrementSessionFilterCacheMiss()
 
+        const startTime = performance.now()
         let client
         try {
             client = await this.redisPool.acquire()
@@ -150,6 +153,7 @@ export class SessionFilter {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionFilterRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 

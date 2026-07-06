@@ -1,6 +1,8 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -8,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
@@ -22,11 +25,12 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
+import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
-import { INSTALL_DEDUP_KEYS, type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
+import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
 
 /** Interface kept for callers that import it (legacy step components). */
 export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
@@ -66,6 +70,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
+            onboardingEventUsageLogic,
+            ['reportContextOnboardingCompleted'],
         ],
     })),
     actions({
@@ -78,6 +84,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
+        // Completion for the context-first flow, which has no selected product. Marks onboarding done
+        // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
+        completeContextOnboarding: true,
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -185,12 +194,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (billing, productKey) => billing?.products?.find((p) => p.type === productKey) ?? null,
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
-            (_product, subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct): boolean => {
+            (s) => [s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct, s.stepId],
+            (subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct, stepId): boolean => {
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                return !billingProduct?.subscribed || subscribedDuringOnboarding
+                // Keep the plans step in the flow whenever the URL explicitly targets it — otherwise an
+                // already-subscribed user landing here (e.g. after a trial cancel reloads without
+                // `?success=true`) would drop the step from the flow and get stuck on a spinner.
+                const onPlansStep =
+                    stepId === OnboardingStepKey.PLANS || stepId.startsWith(`${OnboardingStepKey.PLANS}:`)
+                return !billingProduct?.subscribed || subscribedDuringOnboarding || onPlansStep
             },
         ],
         flow: [
@@ -305,19 +319,20 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         })
                     )
                 }
-                // Reorder: all install steps to the front, with the SDK install (the
-                // posthog-js-deduped survivor) first among them. Stable sort preserves
-                // each provider's intra-group order — non-install steps (configure,
+                // Reorder: all install steps to the front, with the primary product's
+                // install first among them — so the "Start with" choice (which product is
+                // primary) decides which SDK instructions the user sees first. Stable sort
+                // preserves each provider's intra-group order — non-install steps (configure,
                 // link_data, plans, invite) keep their relative positions, just appear
                 // after the installs. Buckets:
-                //   0 — Install + posthog-js dedup survivor (the canonical "SDK install")
-                //   1 — Install (any other dedupKey or none — Logs/OTel, Workflows, etc.)
+                //   0 — Install for the primary product (the SDK the user chose to start with)
+                //   1 — Install for any secondary product (Logs/OTel, Workflows, etc.)
                 //   2 — everything else (configure, plans, invite, link_data, …)
                 const sortBucket = (step: OnboardingStepDescriptor): number => {
                     if (step.stepKey !== OnboardingStepKey.INSTALL) {
                         return 2
                     }
-                    return step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS ? 0 : 1
+                    return step.role === 'primary' ? 0 : 1
                 }
                 return result.slice().sort((a, b) => sortBucket(a) - sortBucket(b))
             },
@@ -562,6 +577,52 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 completedMap[productKey] = true
             }
             teamLogic.actions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+        },
+        completeContextOnboarding: async () => {
+            // Idempotency guard — Finish can fire twice on a double-click.
+            if (values.isCompleting) {
+                return
+            }
+            actions.setIsCompleting(true)
+            const team = values.currentTeam
+            // The posthog-js install always backs product analytics; credit the extra context sources
+            // the user turned on so their products are marked onboarded (and intents recorded).
+            const products: ProductKey[] = [ProductKey.PRODUCT_ANALYTICS]
+            if (team?.session_recording_opt_in) {
+                products.push(ProductKey.SESSION_REPLAY)
+            }
+            if (team?.autocapture_exceptions_opt_in) {
+                products.push(ProductKey.ERROR_TRACKING)
+            }
+            if (team?.surveys_opt_in) {
+                products.push(ProductKey.SURVEYS)
+            }
+            for (const productKey of products) {
+                // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
+                // so dashboards can split the flows without a rename (GROW-89).
+                actions.reportContextOnboardingCompleted(productKey)
+                actions.recordProductIntentOnboardingComplete({ product_type: productKey })
+            }
+            // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
+            // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
+            // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
+            // and sceneLogic could bounce a not-yet-ingested team straight back here.
+            const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
+            for (const productKey of products) {
+                completedMap[productKey] = true
+            }
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                router.actions.push(
+                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
+                )
+            } catch {
+                lemonToast.error("Couldn't finish onboarding. Please try again.")
+            } finally {
+                // Always reset: the context flow has no productKey, so the updateCurrentTeam
+                // success/failure listeners below (gated on productKey) never clear it for us.
+                actions.setIsCompleting(false)
+            }
         },
         skipOnboarding: () => {
             // Quick Start does not auto-open here. The button remains in the scene title

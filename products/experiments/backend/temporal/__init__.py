@@ -11,21 +11,30 @@ from products.experiments.backend.temporal.recalculation_activities import (
 )
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
-WORKFLOWS = [
-    ExperimentMetricsRecalculationWorkflow,
+EXPERIMENT_CANARY_WORKFLOWS = [
     ExperimentPrecomputeCanaryWorkflow,
 ]
-ACTIVITIES = [
-    discover_experiment_metrics,
-    calculate_experiment_metric_for_recalculation,
-    update_recalculation_progress,
+EXPERIMENT_CANARY_ACTIVITIES = [
     sample_experiment_canary_targets,
     run_experiment_metric_canary,
     report_experiment_canary_results,
 ]
 
+WORKFLOWS = [
+    ExperimentMetricsRecalculationWorkflow,
+    *EXPERIMENT_CANARY_WORKFLOWS,
+]
+ACTIVITIES = [
+    discover_experiment_metrics,
+    calculate_experiment_metric_for_recalculation,
+    update_recalculation_progress,
+    *EXPERIMENT_CANARY_ACTIVITIES,
+]
+
 __all__ = [
     "ACTIVITIES",
+    "EXPERIMENT_CANARY_ACTIVITIES",
+    "EXPERIMENT_CANARY_WORKFLOWS",
     "WORKFLOWS",
     "ExperimentMetricsRecalculationWorkflow",
     "ExperimentPrecomputeCanaryWorkflow",

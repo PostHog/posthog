@@ -73,6 +73,14 @@ _CONTROL_CHARS[0x7F] = " "
 # Characters that let one command string spawn or chain into another.
 _SHELL_OPERATORS = frozenset(";|&$`<>\n")
 
+_VOLUME_SUPPRESSION_RULES: dict[str, Callable[[list[str]], bool]] = {
+    "uname": lambda tail: all(a.startswith("-") for a in tail),
+    "lsb_release": lambda tail: all(a.startswith("-") for a in tail),
+    "ldd": lambda tail: tail == ["--version"],
+    "file": lambda tail: bool(tail) and tail[0] == "-b",
+    "ldconfig": lambda tail: tail == ["-p"],
+}
+
 # Context fields pulled from the query-tag ContextVar (set by middleware / Celery / Temporal).
 # Identifiers only — deliberately no PII (e.g. user_email) and nothing that can leak secrets
 # (http_referer / http_user_agent can carry tokens in query strings). Resolve a user/org from
@@ -120,6 +128,14 @@ def _redact_value(text: str) -> str:
     # base64 payloads.
     text = _URL_USERINFO_RE.sub(_URL_USERINFO_REPL, text)
     return _BLOB_RE.sub(_REDACTED, text)
+
+
+def _is_volume_suppressed(command: Any, shell: bool) -> bool:
+    if shell or not isinstance(command, (list, tuple)) or not command:
+        return False
+    argv = [_to_text(token) for token in command]
+    predicate = _VOLUME_SUPPRESSION_RULES.get(os.path.basename(argv[0].strip()))
+    return predicate is not None and predicate(argv[1:])
 
 
 def _scrub_args(tokens: Any) -> list[str]:
@@ -222,6 +238,8 @@ def _emit(
     extra: Optional[dict[str, Any]] = None,
 ) -> None:
     if _in_audit.get():
+        return
+    if _is_volume_suppressed(command, shell):
         return
     token = _in_audit.set(True)
     try:

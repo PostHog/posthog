@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from django.conf import settings
 
 import structlog
+from opentelemetry import trace
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
@@ -19,6 +20,27 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.common.logger import get_write_only_logger
+
+BATCH_EXPORT_ACTIVITY_TYPES = {
+    "copy_into_redshift_activity_from_stage",
+    "export_to_file_download_bucket_with_temporary_credentials",
+    "insert_into_bigquery_activity_from_stage",
+    "insert_into_databricks_activity_from_stage",
+    "insert_into_internal_stage_activity",
+    "insert_into_postgres_activity_from_stage",
+    "insert_into_redshift_activity",
+    "insert_into_redshift_activity_from_stage",
+    "insert_into_s3_activity_from_stage",
+    "insert_into_snowflake_activity_from_stage",
+}
+BATCH_EXPORT_WORKFLOW_TYPES = {
+    "s3-export",
+    "bigquery-export",
+    "snowflake-export",
+    "redshift-export",
+    "postgres-export",
+    "databricks-export",
+}
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -57,30 +79,67 @@ def get_export_finished_metric(status: str, model: str) -> MetricCounter:
     )
 
 
-BATCH_EXPORT_ACTIVITY_TYPES = {
-    "insert_into_internal_stage_activity",
-    "insert_into_s3_activity_from_stage",
-    "insert_into_snowflake_activity_from_stage",
-    "insert_into_redshift_activity",
-    "insert_into_redshift_activity_from_stage",
-    "copy_into_redshift_activity_from_stage",
-    "insert_into_postgres_activity_from_stage",
-    "insert_into_databricks_activity_from_stage",
-}
-BATCH_EXPORT_WORKFLOW_TYPES = {
-    "s3-export",
-    "bigquery-export",
-    "snowflake-export",
-    "redshift-export",
-    "postgres-export",
-    "databricks-export",
-}
-
 Attributes = dict[str, str | int | float | bool]
 
 
+def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
+    """Return a meter depending on in which context we are."""
+    basic_attributes: Attributes = {}
+
+    if activity.in_activity():
+        meter = activity.metric_meter()
+
+        activity_info = activity.info()
+        if (workflow_type := activity_info.workflow_type) is not None:
+            basic_attributes["workflow_type"] = workflow_type
+        basic_attributes["activity_type"] = activity_info.activity_type
+
+    elif workflow.in_workflow():
+        meter = workflow.metric_meter()
+        basic_attributes["workflow_type"] = workflow.info().workflow_type
+
+    else:
+        if settings.DEBUG or settings.TEST:
+            return MetricMeter.noop
+
+        raise RuntimeError("Not within workflow or activity context")
+
+    if additional_attributes:
+        attributes: Attributes = {**basic_attributes, **additional_attributes}
+    else:
+        attributes = basic_attributes
+
+    meter = meter.with_additional_attributes(attributes)
+
+    return meter
+
+
+def _tag_span_with_batch_export_context(attributes: dict[str, str | int | float | bool | None]) -> None:
+    """Enrich the active OTel span (the RunActivity/RunWorkflow span emitted by the OTel plugin)
+    with batch export metadata.
+
+    This annotates traces, not the Prometheus meters above. Best-effort: span bookkeeping must
+    never break execution, and set_attribute is a no-op when the span isn't recording (e.g. tracing
+    disabled, or during workflow replay). None-valued attributes are skipped.
+    """
+    try:
+        span = trace.get_current_span()
+        if not span.is_recording():
+            return
+        for key, value in attributes.items():
+            if value is not None:
+                span.set_attribute(key, value)
+    except Exception:
+        pass
+
+
 class BatchExportsMetricsInterceptor(Interceptor):
-    """Interceptor to emit Prometheus metrics for batch exports."""
+    """Interceptor for batch export observability.
+
+    Emits Prometheus metrics (execution latency, attempt counters) and enriches the active OTel
+    trace span with batch export metadata (id, destination, interval, model) via
+    _tag_span_with_batch_export_context.
+    """
 
     task_queue = (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE)
 
@@ -95,8 +154,7 @@ class BatchExportsMetricsInterceptor(Interceptor):
 
 class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
-        activity_info = activity.info()
-        activity_type = activity_info.activity_type
+        activity_type = activity.info().activity_type
 
         if activity_type not in BATCH_EXPORT_ACTIVITY_TYPES:
             return await super().execute_activity(input)
@@ -115,6 +173,21 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
                 data_interval_end = None
                 interval = None
 
+        # Enrich the trace span with batch export identity, mirroring the metric attributes below.
+        details = getattr(input.args[0], "batch_export", input.args[0])
+        workflow_type = activity.info().workflow_type
+        model = getattr(details, "batch_export_model", None)
+        _tag_span_with_batch_export_context(
+            {
+                "batch_export.id": getattr(details, "batch_export_id", None),
+                "batch_export.destination": workflow_type.removesuffix("-export") if workflow_type else None,
+                "batch_export.interval": interval,
+                "batch_export.model": getattr(model, "name", None),
+                "batch_export.run_id": getattr(details, "run_id", None),
+                "attempt": activity.info().attempt,
+            }
+        )
+
         if not interval:
             LOGGER.error(
                 "Failed to parse interval bounds ('%s', '%s'), will not record latency for '%s'",
@@ -127,8 +200,6 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         histogram_attributes: Attributes = {
             "interval": interval,
         }
-        if activity_info.workflow_type is not None:
-            histogram_attributes["workflow_type"] = activity_info.workflow_type
 
         meter = get_metric_meter(histogram_attributes)
 
@@ -151,7 +222,7 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             name="batch_exports_activity_success_attempts",
             description="Counter tracking the attempts it took to complete activities",
         )
-        attempts_success_counter.add(activity_info.attempt)
+        attempts_success_counter.add(activity.info().attempt)
 
         return result
 
@@ -168,6 +239,16 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         # This only affects "every 5 minutes" which becomes "every_5_minutes".
         interval = input.args[0].interval.replace(" ", "_")
         histogram_attributes: Attributes = {"interval": interval}
+
+        model = getattr(input.args[0], "batch_export_model", None)
+        _tag_span_with_batch_export_context(
+            {
+                "batch_export.id": getattr(input.args[0], "batch_export_id", None),
+                "batch_export.destination": workflow_type.removesuffix("-export"),
+                "batch_export.interval": interval,
+                "batch_export.model": getattr(model, "name", None),
+            }
+        )
 
         async with SLAWaiter(batch_export_id=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
             with ExecutionTimeRecorder(
@@ -282,21 +363,6 @@ class ExecutionTimeRecorder:
         """Reset counter and bytes processed."""
         self._start_counter = None
         self.bytes_processed = None
-
-
-def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
-    """Return a meter depending on in which context we are."""
-    if activity.in_activity():
-        meter = activity.metric_meter()
-    elif workflow.in_workflow():
-        meter = workflow.metric_meter()
-    else:
-        raise RuntimeError("Not within workflow or activity context")
-
-    if additional_attributes:
-        meter = meter.with_additional_attributes(additional_attributes)
-
-    return meter
 
 
 def log_execution_time(

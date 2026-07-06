@@ -1,6 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { extractToolCallNames } from '~/ingestion/pipelines/ai/tools/extract-tool-calls'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'

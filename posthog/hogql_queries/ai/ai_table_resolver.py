@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import posthoganalytics
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
@@ -11,16 +10,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
+from posthog.ph_client import feature_enabled_or_false
 
 AI_EVENTS_QUERY_TOTAL = Counter(
     "posthog_ai_events_query_total",
-    "AI observability queries routed by execute_with_ai_events_fallback, by read-path source.",
+    "AI observability queries routed by query_ai_events, by read-path outcome.",
     labelnames=["source"],
 )
 
 AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
     "posthog_ai_events_query_duration_seconds",
-    "Wall-clock duration of AI observability query executions, by read-path source. Used to compare dedicated_table vs shared_table latency.",
+    "Wall-clock duration of AI observability query executions, by read-path source.",
     labelnames=["source"],
     buckets=(0.025, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )
@@ -34,13 +34,18 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+class AIEventsUnavailableError(Exception):
+    """The requested AI events could not be served from the dedicated ai_events table
+    and the caller opted out of the events fallback (``fall_back_to_events=False``)."""
+
+
 def is_ai_events_enabled(team: Team) -> bool:
     """Kill switch for ai_events table reads.
 
     When disabled, all single-trace runners skip the ai_events attempt
     and query the events table directly.
     """
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "ai-events-table-rollout",
         str(team.id),
         groups={"organization": str(team.organization_id)},
@@ -49,24 +54,43 @@ def is_ai_events_enabled(team: Team) -> bool:
     )
 
 
-def execute_with_ai_events_fallback(
+class AIEventsExpiredError(AIEventsUnavailableError):
+    """The requested AI events exist in the shared events table but have aged out of
+    ai_events (past its retention TTL)."""
+
+
+class AIEventsNotFoundError(AIEventsUnavailableError):
+    """The requested AI events were not found in either ai_events or the shared events table."""
+
+
+def query_ai_events(
     query: ast.SelectQuery | ast.SelectSetQuery,
     placeholders: dict[str, ast.Expr],
     team: Team,
     query_type: str,
+    *,
+    fall_back_to_events: bool = False,
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     limit_context: LimitContext | None = None,
     settings: HogQLGlobalSettings | None = None,
     workload: Workload | None = None,
 ) -> Any:
-    """Execute a query written against ai_events, falling back to events if no results.
+    """Execute a query written against the dedicated ai_events table.
 
-    Queries should be written against the ai_events table with native column names.
-    Placeholders may contain properties.$ai_* references (e.g. from property filters)
-    which are rewritten to native columns for ai_events and back for the events fallback.
+    Queries should be written against ai_events using native column names. Placeholders
+    may contain properties.$ai_* references (e.g. from property filters); they are
+    rewritten to native columns for ai_events and back to properties.$ai_* when the query
+    runs against the shared events table.
 
-    When the kill switch (is_ai_events_enabled) is off, skips the ai_events attempt entirely.
+    ai_events has a 30-day retention TTL; the shared events table is long-lived but has the
+    heavy AI columns stripped. When ai_events returns no rows:
+
+    - ``fall_back_to_events=True``: re-run against events and return that result. Use this
+      for paths that stay useful without the heavy columns (trace shape, costs, navigation).
+    - ``fall_back_to_events=False`` (default): an events row would be useless to the caller,
+      so events is probed only to classify the miss — raising :class:`AIEventsExpiredError`
+      (the data aged past the TTL) or :class:`AIEventsNotFoundError` (it never existed).
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
@@ -87,32 +111,34 @@ def execute_with_ai_events_fallback(
         kwargs["workload"] = workload
 
     with tags_context(product=Product.LLM_ANALYTICS):
-        if is_ai_events_enabled(team):
-            tag_queries(ai_query_source="dedicated_table")
-            ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
-            with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
-                result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
-            # Fallback: if ai_events returned no rows, re-run on the shared events table.
-            # This handles the rollout window where older data may only exist in the shared
-            # table. Only ~4% of queries fall outside the dedicated table's 30-day TTL
-            # (https://us.posthog.com/project/2/insights/39oE9bLO), so for populated teams
-            # the fallback fires rarely. Legitimately-empty queries do incur a redundant
-            # second round-trip — acceptable during rollout, removed when the flag is retired.
-            if result.results:
-                AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
-                return result
-            tag_queries(ai_query_source="shared_table_fallback")
-            AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
-            fallback_source = "shared_table_fallback"
-        else:
-            tag_queries(ai_query_source="shared_table")
-            AI_EVENTS_QUERY_TOTAL.labels(source="shared_table").inc()
-            fallback_source = "shared_table"
+        tag_queries(ai_query_source="dedicated_table")
+        ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
+        with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
+            result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+        if result.results:
+            AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
+            return result
 
         events_query = rewrite_query_for_events_table(query)
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
-        with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source=fallback_source).time():
-            return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+
+        if fall_back_to_events:
+            tag_queries(ai_query_source="shared_table_fallback")
+            AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
+            with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
+                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+
+        # The caller can't use heavy-column-stripped events rows, so probe events solely to
+        # tell "aged past the TTL" apart from "never existed" and raise the matching error.
+        with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="retention_probe").time():
+            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+        if probe.results:
+            tag_queries(ai_query_source="expired")
+            AI_EVENTS_QUERY_TOTAL.labels(source="expired").inc()
+            raise AIEventsExpiredError(f"AI events for {query_type} have aged past the ai_events retention window")
+        tag_queries(ai_query_source="not_found")
+        AI_EVENTS_QUERY_TOTAL.labels(source="not_found").inc()
+        raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
 
 
 # Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts

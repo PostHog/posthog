@@ -54,6 +54,7 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    signals_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None

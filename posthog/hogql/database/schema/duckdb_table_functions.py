@@ -63,8 +63,12 @@ def is_dangerous_table_function(name: str) -> bool:
 class RangeTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     """DuckDB/Postgres range(start, stop, step) table function. Returns a single column of integers."""
 
+    description: str = (
+        "DuckDB/Postgres range(start, stop, step) table function. Generates a single column of integers; "
+        "the stop value is exclusive. Not supported in the ClickHouse dialect."
+    )
     fields: dict[str, FieldOrTable] = {
-        "range": IntegerDatabaseField(name="range", nullable=False),
+        "range": IntegerDatabaseField(name="range", nullable=False, description="The generated integer value."),
     }
 
     name: str = "range"
@@ -84,8 +88,14 @@ class RangeTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
 class GenerateSeriesTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     """DuckDB/Postgres generate_series(start, stop, step) table function. Returns a single column of integers."""
 
+    description: str = (
+        "DuckDB/Postgres generate_series(start, stop, step) table function. Generates a single column of integers; "
+        "the stop value is inclusive. Not supported in the ClickHouse dialect."
+    )
     fields: dict[str, FieldOrTable] = {
-        "generate_series": IntegerDatabaseField(name="generate_series", nullable=False),
+        "generate_series": IntegerDatabaseField(
+            name="generate_series", nullable=False, description="The generated integer value."
+        ),
     }
 
     name: str = "generate_series"
@@ -122,6 +132,10 @@ class OpaqueFunctionCallTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     but the function name appears in the connection's available_table_functions.
     """
 
+    description: str = (
+        "Generic fallback for a Postgres/DuckDB table-valued function discovered via connection introspection. "
+        "Exposes a single column named after the function with an unknown type. Not supported in the ClickHouse dialect."
+    )
     fields: dict[str, FieldOrTable]
     name: str
     requires_args: bool = True

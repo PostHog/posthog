@@ -46,6 +46,8 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'
@@ -89,6 +91,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
               id: build

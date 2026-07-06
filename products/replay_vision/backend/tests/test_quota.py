@@ -15,6 +15,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import MONTHLY_OBSERVATION_QUOTA, compute_quota_snapshot
@@ -60,7 +61,20 @@ class _VisionQuotaTestCase(APIBaseTest):
         if created_at is not None:
             ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
             observation.refresh_from_db()
+        if status == ObservationStatus.SUCCEEDED:
+            # Mirror production: a succeeded observation has a usage receipt, which is what quota counts.
+            self._make_receipt(observation)
         return observation
+
+    @staticmethod
+    def _make_receipt(observation: ReplayObservation) -> None:
+        ReplayObservationUsage.objects.get_or_create(
+            observation_id=observation.id,
+            defaults={
+                "organization_id": observation.team.organization_id,
+                "observation_created_at": observation.created_at,
+            },
+        )
 
 
 class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
@@ -125,7 +139,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_FLASH,
         )
-        ReplayObservation.objects.create(
+        other_obs = ReplayObservation.objects.create(
             scanner=other_scanner,
             team=other_team,
             session_id="other-sess",
@@ -134,6 +148,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             triggered_by=ObservationTrigger.ON_DEMAND,
             completed_at=timezone.now(),
         )
+        self._make_receipt(other_obs)
 
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.usage_this_month == 0
@@ -148,6 +163,36 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             assert snapshot.usage_this_month == 2
             assert snapshot.exhausted is True
             assert snapshot.remaining == 0
+
+    def test_deleting_scanner_does_not_refund_spent_usage(self) -> None:
+        # Deleting a scanner cascade-deletes its observations, but the usage they spent must not be refunded.
+        for _ in range(3):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 3
+
+        self.scanner.delete()
+
+        assert ReplayObservation.objects.filter(team=self.team).count() == 0  # observations cascade-deleted
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 3  # receipts survive
+
+    def test_deleting_observation_does_not_refund_spent_usage(self) -> None:
+        observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1
+
+        observation.delete()  # e.g. the admin recording-delete flow
+
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1
+
+    def test_no_double_count_across_pending_to_succeeded(self) -> None:
+        observation = self._make_observation(status=ObservationStatus.PENDING)
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1  # counted in-flight
+
+        # The success transition flips status and writes the receipt, so the total stays 1.
+        ReplayObservation.objects.filter(pk=observation.pk).update(
+            status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+        )
+        self._make_receipt(observation)
+        assert compute_quota_snapshot(organization_id=self.organization.id).usage_this_month == 1
 
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
@@ -327,8 +372,8 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         assert resp.status_code == 404
 
 
-@patch("products.replay_vision.backend.api.scanners.async_to_sync")
-@patch("products.replay_vision.backend.api.scanners.sync_connect")
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
     @property
     def observe_url(self) -> str:

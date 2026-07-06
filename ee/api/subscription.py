@@ -32,7 +32,7 @@ from posthog.constants import (
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -43,7 +43,12 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
+from products.exports.backend.models.subscription import (
+    Subscription,
+    SubscriptionDelivery,
+    attribute_subscription_saves,
+    unsubscribe_using_token,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -122,6 +127,15 @@ class DashboardExportInsightsField(serializers.Field):
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
+
+    FIELDS_THAT_TRIGGER_REDELIVERY: ClassVar[tuple[str, ...]] = (
+        "target_value",
+        "target_type",
+        "integration_id",
+        "prompt",
+        "insight_id",
+        "dashboard_id",
+    )
 
     created_by = UserBasicSerializer(read_only=True)
     summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
@@ -510,6 +524,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
+    def _capture_update_delivery_decision(
+        self, instance: Subscription, *, delivery_triggered: bool, re_enabled: bool
+    ) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=self._caller_distinct_id(),
+                event="subscription_update_delivery_decision",
+                properties={
+                    "subscription_id": instance.id,
+                    "team_id": instance.team_id,
+                    "resource_type": instance.resource_type,
+                    "target_type": instance.target_type,
+                    "delivery_triggered": delivery_triggered,
+                    "reason": "re_enabled"
+                    if re_enabled
+                    else ("delivery_field_changed" if delivery_triggered else "no_delivery_relevant_change"),
+                },
+                groups=groups(None, instance.team),
+            )
+        except Exception as e:
+            # Telemetry must never block the update.
+            capture_exception(e)
+
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
 
@@ -605,7 +642,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
-        instance: Subscription = super().create(validated_data)
+        with attribute_subscription_saves(get_request_analytics_properties(request)):
+            instance: Subscription = super().create(validated_data)
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -674,7 +712,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
+        # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
+        # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
+        export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        analytics_props = get_request_analytics_properties(request)
+
+        # Snapshot delivery-relevant scalar values before the write so we can tell, after,
+        # whether the edit actually changed what gets delivered. Only snapshot the
+        # dashboard_export_insights M2M when the payload carries it — that's the only case
+        # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
+        old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
+        old_export_insight_ids = (
+            set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
+        )
 
         if is_delete:
             with slo_operation(
@@ -692,29 +743,52 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "resource_type": instance.resource_type,
                 },
             ):
-                instance = super().update(instance, validated_data)
+                with attribute_subscription_saves(analytics_props):
+                    instance = super().update(instance, validated_data)
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
-        instance = super().update(instance, validated_data)
+        with attribute_subscription_saves(analytics_props):
+            instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
-        if dashboard_export_insight_ids:
+        # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
+        if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        is_re_enabling = was_disabled and instance.enabled
 
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
         # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
-        if was_disabled and instance.enabled:
+        if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
         # Skip the workflow trigger when the resulting state is disabled. No delivery
         # should fire for a disabled subscription regardless of whether it was just
-        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
-        # trigger the workflow so the user gets immediate confirmation delivery.
+        # disabled or already disabled.
         if not instance.enabled:
+            return instance
+
+        # Only fire the immediate confirmation delivery when the edit changed *what*
+        # gets delivered, or when re-enabling (`enabled: false → true`) — the user
+        # expects a confirmation delivery in both cases. A schedule/meta-only edit
+        # (frequency, interval, title, summary_*, …) re-saves next_delivery_date via
+        # the model's save() but must not push a fresh delivery.
+        delivery_target_changed = any(
+            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
+        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+
+        # The "<kind> subscription updated" event fires from the post_save signal before this decision is
+        # made, so it can't tell an edit that fired a confirmation from one that intentionally skipped.
+        # Emit the decision explicitly so a regression that silently suppressed deliveries stays observable.
+        delivery_triggered = is_re_enabling or delivery_target_changed
+        self._capture_update_delivery_decision(
+            instance, delivery_triggered=delivery_triggered, re_enabled=is_re_enabling
+        )
+        if not delivery_triggered:
             return instance
 
         temporal = sync_connect()
@@ -1001,6 +1075,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             distinct_id=str(request.user.distinct_id),
             event="subscription_test_delivery_scheduled",
             properties={
+                **get_request_analytics_properties(request),
                 "subscription_id": subscription.id,
                 "team_id": subscription.team_id,
                 "target_type": subscription.target_type,

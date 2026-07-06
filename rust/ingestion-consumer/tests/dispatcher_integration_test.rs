@@ -99,6 +99,7 @@ fn fast_config() -> WorkerRegistryConfig {
         degraded_hold: Duration::from_millis(30),
         min_state_duration: Duration::ZERO,
         probe_failure_threshold: 2,
+        drain_timeout: Duration::from_secs(5),
     }
 }
 
@@ -181,7 +182,7 @@ async fn test_new_keys_skip_unhealthy_worker() {
     let keys: Vec<_> = (0..10)
         .map(|i| make_msg("t", &format!("user-{i}")))
         .collect();
-    let sub_batches = dispatcher.assign(keys);
+    let sub_batches = dispatcher.assign("b", keys);
 
     assert!(
         sub_batches.iter().all(|b| b.worker.as_ref() == w0.url),
@@ -211,7 +212,7 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
 
     // Pin "t:user-1" to whichever worker gets it first. Hold the sub-batch
     // open (don't call on_sub_batch_resolved) so the pin stays alive.
-    let b1 = dispatcher.assign(vec![make_msg("t", "user-1")]);
+    let b1 = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
     assert_eq!(b1.len(), 1);
     let pinned_to = b1[0].worker.clone();
     let other = if pinned_to.as_ref() == w0.url {
@@ -231,8 +232,13 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
     wait_for_state(&registry, &pinned_to, WorkerState::Unhealthy).await;
     wait_for_dead(&registry, &pinned_to).await;
 
-    // Next assign: the stale pin is evicted and the key re-routes to the live worker.
-    let b2 = dispatcher.assign(vec![make_msg("t", "user-1")]);
+    // Resolve b1: with max_in_flight=1 the previous batch completes before the
+    // next assigns, so the dead worker has no in-flight and its zero-ref pin is
+    // evicted (an unresolved pin would instead defer to preserve order).
+    dispatcher.on_sub_batch_resolved(&pinned_to, b1[0].messages.len(), &b1[0].routing_keys, false);
+
+    // Next assign: the evicted pin means the key re-routes to the live worker.
+    let b2 = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
     assert_eq!(b2.len(), 1, "expected exactly one sub-batch");
     assert_eq!(
         b2[0].worker.as_ref(),
@@ -274,7 +280,7 @@ async fn test_worker_recovery_detected_by_probe() {
     let keys: Vec<_> = (0..40)
         .map(|i| make_msg("t", &format!("user-{i}")))
         .collect();
-    let sub_batches = dispatcher.assign(keys);
+    let sub_batches = dispatcher.assign("b", keys);
 
     let workers_used: std::collections::HashSet<String> =
         sub_batches.iter().map(|b| b.worker.to_string()).collect();
@@ -305,11 +311,14 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
 
     // 3 distinct keys of equal size: bin-packing spreads exactly one key per
     // worker (provisional load increases by 1 for each pick, breaking all ties).
-    let first = dispatcher.assign(vec![
-        make_msg("t", "key-a"),
-        make_msg("t", "key-b"),
-        make_msg("t", "key-c"),
-    ]);
+    let first = dispatcher.assign(
+        "b",
+        vec![
+            make_msg("t", "key-a"),
+            make_msg("t", "key-b"),
+            make_msg("t", "key-c"),
+        ],
+    );
     assert_eq!(
         first.len(),
         3,
@@ -334,11 +343,14 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     wait_for_dead(&registry, &w1.url).await;
 
     // Fresh keys must only land on w0 or w2.
-    let fresh = dispatcher.assign(vec![
-        make_msg("t", "new-1"),
-        make_msg("t", "new-2"),
-        make_msg("t", "new-3"),
-    ]);
+    let fresh = dispatcher.assign(
+        "b",
+        vec![
+            make_msg("t", "new-1"),
+            make_msg("t", "new-2"),
+            make_msg("t", "new-3"),
+        ],
+    );
     assert!(
         fresh.iter().all(|b| b.worker.as_ref() != w1.url),
         "fresh keys must not route to dead w1; workers used: {:?}",
@@ -348,10 +360,19 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
             .collect::<Vec<_>>()
     );
 
+    // Resolve w1's in-flight sub-batch (max_in_flight=1: the prior batch
+    // completes before the next assigns), evicting its now zero-ref pin.
+    let w1_sub = first.iter().find(|b| b.worker.as_ref() == w1.url).unwrap();
+    dispatcher.on_sub_batch_resolved(
+        &w1_sub.worker,
+        w1_sub.messages.len(),
+        &w1_sub.routing_keys,
+        false,
+    );
+
     // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
-    // The pin was evicted by drop_dead_pins during the fresh-keys assign above.
     let (_, distinct_id) = w1_key.split_once(':').unwrap();
-    let rerouted = dispatcher.assign(vec![make_msg("t", distinct_id)]);
+    let rerouted = dispatcher.assign("b", vec![make_msg("t", distinct_id)]);
     assert_eq!(
         rerouted.len(),
         1,
@@ -386,11 +407,72 @@ async fn test_all_workers_unhealthy_returns_empty() {
     wait_for_state(&registry, &w0.url, WorkerState::Unhealthy).await;
     wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
-    let sub_batches = dispatcher.assign(vec![make_msg("t", "user-1")]);
+    let sub_batches = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
     assert!(
         sub_batches.is_empty(),
         "expected empty assignment when all workers are unhealthy"
     );
+
+    token.cancel();
+}
+
+/// Graceful drain end-to-end at the dispatcher level: a draining worker keeps
+/// its in-flight pin (new messages defer rather than reroute or pile onto it),
+/// the liveness probe does not evict it while draining, and once its in-flight
+/// resolves it becomes reapable and the deferred key reroutes to a survivor.
+#[tokio::test]
+async fn test_draining_worker_defers_then_flushes_to_survivor() {
+    let w0 = FakeWorker::start().await;
+    let w1 = FakeWorker::start().await;
+
+    let urls = vec![w0.url.clone(), w1.url.clone()];
+    let registry = Arc::new(WorkerRegistry::new(&urls, fast_config()));
+    let dispatcher = Dispatcher::new(Arc::clone(&registry));
+
+    let token = CancellationToken::new();
+    Arc::clone(&registry).start_probing(token.clone());
+
+    // Pin user-1 to whichever worker gets it; hold the sub-batch open.
+    let b1 = dispatcher.assign("batch-1", vec![make_msg("t", "user-1")]);
+    let pinned = b1[0].worker.clone();
+    let other = if pinned.as_ref() == w0.url {
+        w1.url.clone()
+    } else {
+        w0.url.clone()
+    };
+
+    // Begin draining (as an EndpointSlice removal would).
+    registry.start_draining(&pinned);
+
+    // New messages for user-1 defer — not sent to the drainer, not yet rerouted.
+    let b2 = dispatcher.assign("batch-2", vec![make_msg("t", "user-1")]);
+    assert!(
+        b2.is_empty(),
+        "must defer while the pinned worker is draining"
+    );
+    assert!(dispatcher.has_deferred("batch-2"));
+
+    // The drainer is still alive and healthy — the probe must not evict it while
+    // it finishes in-flight work (its /_ready still returns 200 here).
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(
+        !registry.is_dead(&pinned),
+        "drainer must not be probed to death"
+    );
+    assert!(
+        registry.reapable_workers().is_empty(),
+        "not reapable while in-flight remains"
+    );
+
+    // Resolve batch-1: the drainer finishes and becomes reapable.
+    dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys, false);
+    assert_eq!(registry.reapable_workers(), vec![pinned.clone()]);
+
+    // Flushing batch-2 reroutes the deferred key onto the surviving worker.
+    let flushed = dispatcher.flush_deferred("batch-2");
+    assert_eq!(flushed.len(), 1);
+    assert_eq!(flushed[0].worker.as_ref(), other);
+    assert!(!dispatcher.has_deferred("batch-2"));
 
     token.cancel();
 }

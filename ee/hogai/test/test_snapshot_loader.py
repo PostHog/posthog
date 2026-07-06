@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,9 +20,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.models import Organization, PropertyDefinition, Team
+from posthog.persons_db import persons_db_connection
 
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 from ee.hogai.eval.offline.query_patches import (
     ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
@@ -42,21 +44,37 @@ from ee.hogai.eval.schema import (
     TeamTaxonomyItemSnapshot,
 )
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 class TestSnapshotLoader(BaseTest):
+    # Team ids this class loads snapshots for. Keep in sync with the ids passed to _extras() (asserted there).
+    LOADED_TEAM_IDS = (9990, 99990)
+
+    def _clear_loaded_group_type_mappings(self):
+        # _load_group_type_mappings commits GTM rows through the off-ORM persons connection (outside the
+        # test transaction), so they don't roll back. Clear them scoped to this class's teams — in setUp
+        # to recover from a prior run that left rows, and in tearDown so they can't bleed into later tests
+        # sharing the persons DB.
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_grouptypemapping WHERE team_id = ANY(%s)", [list(self.LOADED_TEAM_IDS)])
+
     def setUp(self):
         super().setUp()
+        self._clear_loaded_group_type_mappings()
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
 
     def tearDown(self):
+        self._clear_loaded_group_type_mappings()
         TEAM_TAXONOMY_QUERY_DATA_SOURCE.clear()
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()
         super().tearDown()
 
     def _extras(self, team_id: int) -> dict[str, Any]:
+        assert team_id in self.LOADED_TEAM_IDS, "Add new test team ids to LOADED_TEAM_IDS so cleanup stays scoped"
         return {
             "aws_endpoint_url": "http://localhost:9000",
             "aws_bucket_name": "evals",
@@ -208,7 +226,11 @@ class TestSnapshotLoader(BaseTest):
     def test_restores_models_counts(self):
         _org, _user, _dataset, team = self._load_with_mocks()
         self.assertEqual(PropertyDefinition.objects.filter(team_id=team.id).count(), 2)
-        self.assertEqual(GroupTypeMapping.objects.filter(team_id=team.id).count(), 2)
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM posthog_grouptypemapping WHERE team_id = %s", (team.id,))
+            row = cursor.fetchone()
+            group_type_mapping_count = row[0] if row else 0
+        self.assertEqual(group_type_mapping_count, 2)
         self.assertEqual(DataWarehouseTable.objects.filter(team_id=team.id).count(), 2)
 
     def test_loads_team_taxonomy_data_source(self):

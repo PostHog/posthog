@@ -1,4 +1,5 @@
 // sync with ee/hogai/tools/read_billing_tool/tool.py
+// Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
 export const USAGE_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified events', value: 'enhanced_persons_event_count_in_period' },
@@ -15,6 +16,7 @@ export const USAGE_TYPES = [
     { label: 'Destinations trigger events', value: 'cdp_billable_invocations_in_period' },
     { label: 'Rows exported', value: 'rows_exported_in_period' },
     { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
+    { label: 'Inbox credits', value: 'signals_credits_used_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },

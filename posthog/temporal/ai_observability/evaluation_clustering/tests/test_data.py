@@ -74,6 +74,34 @@ class TestFetchEvaluationEmbeddings:
             assert eval_ids == []
             assert embeddings == {}
 
+    def test_strips_job_suffix_from_document_id(self, mock_team):
+        # Stage A writes document_id as `{event_uuid}::{job_id}`; the read must recover the bare
+        # event uuid so the downstream metadata join keys on the real $ai_evaluation uuid.
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [
+                ["event-uuid-1::job-abc", [0.1, 0.2]],
+                ["event-uuid-2::job-abc", [0.3, 0.4]],
+            ]
+
+            eval_ids, embeddings = fetch_evaluation_embeddings(team=mock_team, job_id="job-abc", max_samples=100)
+
+            assert eval_ids == ["event-uuid-1", "event-uuid-2"]
+            assert embeddings == {"event-uuid-1": [0.1, 0.2], "event-uuid-2": [0.3, 0.4]}
+
+    def test_dedupes_bare_and_suffixed_rows_for_same_event(self, mock_team):
+        # During the transition a bare-uuid (pre-fix) row and a suffixed row can both match; they
+        # strip to the same event uuid and must collapse to one entry.
+        with patch("posthog.temporal.ai_observability.evaluation_clustering.data.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [
+                ["event-uuid-1", [0.1, 0.2]],
+                ["event-uuid-1::job-abc", [0.1, 0.2]],
+            ]
+
+            eval_ids, embeddings = fetch_evaluation_embeddings(team=mock_team, job_id="job-abc", max_samples=100)
+
+            assert eval_ids == ["event-uuid-1"]
+            assert embeddings == {"event-uuid-1": [0.1, 0.2]}
+
 
 class TestFetchEvaluationMetadata:
     def test_empty_input_returns_empty(self, mock_team):

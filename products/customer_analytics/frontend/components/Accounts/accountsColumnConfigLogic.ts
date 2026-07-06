@@ -1,13 +1,17 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import type { DataWarehouseViewLink } from '~/types'
 
+import { customPropertyDefinitionsList } from 'products/customer_analytics/frontend/generated/api'
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
@@ -56,7 +60,14 @@ export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
 // of which name the backend hands us.
 const ACCOUNTS_JOIN_SOURCE_TABLE_NAMES = new Set(['accounts', ACCOUNTS_ACCOUNTS_TABLE_NAME])
 
-export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
+export type AccountColumnGroupKey = 'account_properties' | 'custom_properties' | 'sql_expression' | `accounts.${string}`
+
+// Custom property definition ids are UUIDs, which aren't valid HogQL identifiers (hyphens).
+// Strip them so the column alias is a clean identifier, and so the renderer can map a visible
+// column name back to its definition.
+export function customPropertyAlias(id: string): string {
+    return `cp_${id.replace(/-/g, '')}`
+}
 
 export type AccountColumnOption = {
     name: string
@@ -110,9 +121,20 @@ function joinOptionsFromSchema(
     return buildJoinOptions(field.name, names, joinedTable)
 }
 
+function customPropertyOptions(definitions: CustomPropertyDefinitionApi[]): AccountColumnOption[] {
+    return definitions.map((definition) => ({
+        name: definition.name,
+        type: definition.display_type,
+        // JSON dot-access through the lazy join (`events.person.properties.foo` analog), aliased to a
+        // clean identifier so the alias round-trips through `visibleColumnNames` / `aliasToDefinition`.
+        expression: `accounts.custom_properties.values.\`${definition.id}\` AS ${customPropertyAlias(definition.id)}`,
+    }))
+}
+
 export function buildAccountColumnGroups(
     allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
-    warehouseJoins: DataWarehouseViewLink[]
+    warehouseJoins: DataWarehouseViewLink[],
+    customPropertyDefinitions: CustomPropertyDefinitionApi[] = []
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
@@ -169,8 +191,22 @@ export function buildAccountColumnGroups(
         addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
+    // Omit the group entirely when the team has no definitions, so the category dropdown
+    // doesn't show an empty "Custom properties" entry.
+    const customPropertyGroups: AccountColumnGroup[] =
+        customPropertyDefinitions.length > 0
+            ? [
+                  {
+                      key: 'custom_properties',
+                      label: 'Custom properties',
+                      options: customPropertyOptions(customPropertyDefinitions),
+                  },
+              ]
+            : []
+
     return [
         { key: 'account_properties', label: 'Account properties', options: directOptions },
+        ...customPropertyGroups,
         ...joinGroups,
         { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
     ]
@@ -182,6 +218,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             databaseTableListLogic,
             ['allTablesMap', 'databaseLoading'],
             joinsLogic,
@@ -226,17 +264,37 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        customPropertyDefinitions: [
+            [] as CustomPropertyDefinitionApi[],
+            {
+                loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
+                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
+                    return response.results
+                },
+            },
+        ],
+    })),
     selectors({
         visibleColumnNames: [
             (s) => [s.selectColumns],
             (selectColumns: string[]): string[] => selectColumns.map((c) => extractDisplayLabel(c)),
         ],
         accountsColumnGroups: [
-            (s) => [s.allTablesMap, s.warehouseJoins],
+            (s) => [s.allTablesMap, s.warehouseJoins, s.customPropertyDefinitions],
             (
                 allTablesMap: Record<string, DatabaseSchemaTable>,
-                warehouseJoins: DataWarehouseViewLink[]
-            ): AccountColumnGroup[] => buildAccountColumnGroups(allTablesMap, warehouseJoins),
+                warehouseJoins: DataWarehouseViewLink[],
+                customPropertyDefinitions: CustomPropertyDefinitionApi[]
+            ): AccountColumnGroup[] =>
+                buildAccountColumnGroups(allTablesMap, warehouseJoins, customPropertyDefinitions),
+        ],
+        aliasToDefinition: [
+            (s) => [s.customPropertyDefinitions],
+            (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
+                Object.fromEntries(
+                    customPropertyDefinitions.map((definition) => [customPropertyAlias(definition.id), definition])
+                ),
         ],
     }),
     afterMount(({ actions, values }) => {
@@ -245,5 +303,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         if (!values.allTablesMap || Object.keys(values.allTablesMap).length === 0) {
             actions.loadDatabase()
         }
+        actions.loadCustomPropertyDefinitions()
     }),
 ])

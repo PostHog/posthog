@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPeople, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPeople, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -10,7 +10,9 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
-import { RightColumnSection } from './DetailSection'
+
+const MAX_VISIBLE_REVIEWERS = 5
+import { DetailSection } from './DetailSection'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -43,6 +45,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
 
     const [addOpen, setAddOpen] = useState(false)
     const [query, setQuery] = useState('')
+    const [showAllReviewers, setShowAllReviewers] = useState(false)
 
     const reviewers = displayReviewers
     const baseReviewers = reviewers ?? []
@@ -102,9 +105,16 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     }
 
     return (
-        <RightColumnSection
+        <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            afterTitle={
+                <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
+                    <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
+                        <IconInfo />
+                    </span>
+                </Tooltip>
+            }
             rightSlot={
                 <div className="flex items-center gap-2">
                     {isUpdatingReviewers && <Spinner className="size-3" />}
@@ -190,17 +200,30 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                 <span className="text-xs text-tertiary">No reviewers assigned. Use "Add" to suggest one.</span>
             ) : (
                 <div className="flex flex-col gap-1.5">
-                    {baseReviewers.map((reviewer: EnrichedReviewer) => (
-                        <ReviewerRow
-                            key={reviewer.user?.uuid ?? reviewer.github_login}
-                            reviewer={reviewer}
-                            disabled={isUpdatingReviewers}
-                            onRemove={() => removeReviewer(reviewer)}
-                        />
-                    ))}
+                    {(showAllReviewers ? baseReviewers : baseReviewers.slice(0, MAX_VISIBLE_REVIEWERS)).map(
+                        (reviewer: EnrichedReviewer) => (
+                            <ReviewerRow
+                                key={reviewer.user?.uuid ?? reviewer.github_login}
+                                reviewer={reviewer}
+                                disabled={isUpdatingReviewers}
+                                onRemove={() => removeReviewer(reviewer)}
+                            />
+                        )
+                    )}
+                    {baseReviewers.length > MAX_VISIBLE_REVIEWERS && (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            fullWidth
+                            onClick={() => setShowAllReviewers((show) => !show)}
+                            className="text-tertiary"
+                        >
+                            {showAllReviewers ? 'Show less' : `Show all (${baseReviewers.length})`}
+                        </LemonButton>
+                    )}
                 </div>
             )}
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 
@@ -265,15 +288,13 @@ function ReviewerRow({
                         {reviewer.relevant_commits.map((commit, i) => (
                             <span key={commit.sha}>
                                 {i > 0 && ', '}
-                                <Tooltip title={commit.reason || undefined}>
-                                    <Link
-                                        to={commit.url}
-                                        target="_blank"
-                                        className="font-mono text-tertiary hover:text-primary"
-                                    >
-                                        {commit.sha.slice(0, 7)}
-                                    </Link>
-                                </Tooltip>
+                                <Link
+                                    to={commit.url}
+                                    target="_blank"
+                                    className="font-mono text-tertiary hover:text-primary"
+                                >
+                                    {commit.sha.slice(0, 7)}
+                                </Link>
                             </span>
                         ))}
                     </span>
