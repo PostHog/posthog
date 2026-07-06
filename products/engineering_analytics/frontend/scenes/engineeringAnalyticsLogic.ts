@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -475,6 +476,29 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
+    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    confirm?: boolean
+}
+
+/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+ *  cause is unknown until someone investigates, which is the tracking issue's job. */
+export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
+    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
+    const parts: string[] = []
+    if (row.rerunPassedCount > 0) {
+        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    }
+    if (row.failedCount > 0) {
+        parts.push(
+            row.failedPrCount > 0
+                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
+                : `failed ${row.failedCount}x`
+        )
+    }
+    if (row.xfailedCount > 0) {
+        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    }
+    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /**

@@ -33,6 +33,7 @@ import {
     QuarantineLifecycleFilter,
     QuarantineModeFilter,
     engineeringAnalyticsLogic,
+    flakyEvidenceReason,
     pytestSelectorFromNodeid,
 } from './engineeringAnalyticsLogic'
 
@@ -170,10 +171,12 @@ function FlakyTestLeaderboard(): JSX.Element {
                         openQuarantineModal({
                             action: 'quarantine',
                             selector: pytestSelectorFromNodeid(row.nodeid),
-                            reason: '',
+                            // The evidence is the reason; the cause is the tracking issue's job to find.
+                            reason: flakyEvidenceReason(row, flakyTestWindow),
                             owner: '',
                             issue: '',
                             mode: 'run',
+                            confirm: true,
                         })
                     }
                     data-attr="eng-analytics-flaky-quarantine"
