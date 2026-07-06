@@ -76,6 +76,11 @@ class ReportWindow:
 
     start: datetime
     end: datetime
+    # Cutoff for the "events with no data" dormancy check, decoupled from `start`. A gap-free re-fire
+    # makes `start` recent (minutes ago), which would flag every recently-active event as dormant;
+    # `compute_report_window` floors this to a full cadence back so "dormant" stays a long-horizon
+    # signal. `None` (direct construction) falls back to `start` via `dormancy_cutoff`.
+    no_data_cutoff: Optional[datetime] = None
 
     @property
     def start_literal(self) -> str:
@@ -84,6 +89,10 @@ class ReportWindow:
     @property
     def end_literal(self) -> str:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def dormancy_cutoff(self) -> datetime:
+        return self.no_data_cutoff if self.no_data_cutoff is not None else self.start
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -104,6 +113,9 @@ def compute_report_window(
     "since last send"), falling back to `end - window_days` when there's no prior successful
     delivery. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
     it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
+
+    `no_data_cutoff` (for the dormant-events hint) is floored to `min(start, end - window_days)` so a
+    short gap-free re-fire doesn't reclassify a cadence's worth of recently-active events as dormant.
     """
     tz = team.timezone_info
     end = _in_tz(now, tz)
@@ -120,7 +132,7 @@ def compute_report_window(
     else:
         start = end - timedelta(days=window_days)
 
-    return ReportWindow(start=start, end=end)
+    return ReportWindow(start=start, end=end, no_data_cutoff=min(start, end - timedelta(days=window_days)))
 
 
 def sanitize_prompt(raw: str | None) -> str:
@@ -325,7 +337,7 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, window.start, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = _no_data_event_names(team, window.dormancy_cutoff, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
         lines.append("- Events defined but with no data since the window start: " + ", ".join(no_data_events))
 

@@ -280,6 +280,33 @@ class TestComputeReportWindow:
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
+    def test_dormancy_cutoff_floored_to_cadence_on_short_refire(self) -> None:
+        # A gap-free re-fire 10 min after a successful send: window.start is recent, but the dormancy
+        # cutoff must stay a full cadence back so recently-active events aren't flagged "no data".
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 29, 15, 50, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
+
+        assert window.start == last
+        assert window.dormancy_cutoff == now - timedelta(days=1)
+
+    def test_dormancy_cutoff_follows_start_on_long_gap(self) -> None:
+        # Prior delivery 10 days ago, weekly cadence: cutoff is the earlier of start and end-7d, i.e.
+        # start — so an event that fired 8 days ago (inside the window) is not misclassified as dormant.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
+
+        assert window.dormancy_cutoff == last
+
+    def test_dormancy_cutoff_falls_back_to_start_for_direct_construction(self) -> None:
+        # Direct construction (no factory) leaves no_data_cutoff unset; dormancy_cutoff falls back to start.
+        window = ReportWindow(start=datetime(2026, 6, 22, tzinfo=UTC), end=datetime(2026, 6, 29, tzinfo=UTC))
+
+        assert window.dormancy_cutoff == window.start
+
 
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
