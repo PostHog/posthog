@@ -72,7 +72,7 @@ function SummaryCard(): JSX.Element {
                 <div className="flex items-center gap-4 min-w-0">
                     <ExplorerHog className="h-20 w-20 shrink-0 hidden sm:block" />
                     <div className="min-w-0">
-                        <h3 className="text-lg font-semibold m-0">
+                        <h3 className="text-xl font-semibold m-0">
                             {summary}
                             {/* Omitted on day one — "since today" is noise. */}
                             {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
@@ -82,7 +82,7 @@ function SummaryCard(): JSX.Element {
                                 </span>
                             ) : null}
                         </h3>
-                        <p className="text-muted text-sm m-0 mt-1">
+                        <p className="text-muted text-base m-0 mt-1">
                             This view fills in live as agents use your server. Metrics and trends unlock as usage grows
                             (~{formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
                         </p>
@@ -127,7 +127,7 @@ function LiveActivityCard(): JSX.Element {
                             title: 'Tool',
                             key: 'tool',
                             render: (_, row) => (
-                                <span className="flex items-center gap-1 font-mono text-xs">
+                                <span className="flex items-center gap-1 font-mono text-sm">
                                     {row.tool}
                                     {row.isError ? <LemonTag type="danger">error</LemonTag> : null}
                                 </span>
@@ -139,13 +139,13 @@ function LiveActivityCard(): JSX.Element {
                             render: (_, row) => (
                                 <div>
                                     {row.intent ? (
-                                        <span className="text-sm">{row.intent}</span>
+                                        <span className="text-base">{row.intent}</span>
                                     ) : (
-                                        <span className="text-muted text-sm">—</span>
+                                        <span className="text-muted text-base">—</span>
                                     )}
                                     {row.errorMessage ? (
                                         <div
-                                            className="text-danger text-xs mt-0.5 line-clamp-2"
+                                            className="text-danger text-sm mt-0.5 line-clamp-2"
                                             title={row.errorMessage}
                                         >
                                             {row.errorMessage}
@@ -195,8 +195,8 @@ function IntentsCard(): JSX.Element {
         <Card title="What agents are trying to do">
             {intentDigest?.digest ? (
                 <div className="flex flex-col gap-2">
-                    <p className="text-sm m-0">{intentDigest.digest}</p>
-                    <span className="text-muted text-xs">
+                    <p className="text-base m-0">{intentDigest.digest}</p>
+                    <span className="text-muted text-sm">
                         AI summary of the last {formatNumber(intentDigest.intentCount)} agent intents
                     </span>
                 </div>
@@ -205,23 +205,23 @@ function IntentsCard(): JSX.Element {
                     <LemonSkeleton className="h-4 w-full" />
                     <LemonSkeleton className="h-4 w-5/6" />
                     <LemonSkeleton className="h-4 w-2/3" />
-                    <span className="text-muted text-xs">Summarizing recent agent intents…</span>
+                    <span className="text-muted text-sm">Summarizing recent agent intents…</span>
                 </div>
             ) : intentThemes.length === 0 ? (
-                <span className="text-muted text-sm">
+                <span className="text-muted text-base">
                     No agent intents captured yet — they show up here as agents explain what they're doing.
                 </span>
             ) : (
                 <div className="flex flex-col gap-2">
                     <ul className="flex flex-col gap-2 m-0 pl-4">
                         {intentThemes.map(({ intent, count }) => (
-                            <li key={intent} className="text-sm">
+                            <li key={intent} className="text-base">
                                 {intent}
-                                {count > 1 ? <span className="text-muted text-xs"> ×{count}</span> : null}
+                                {count > 1 ? <span className="text-muted text-sm"> ×{count}</span> : null}
                             </li>
                         ))}
                     </ul>
-                    <span className="text-muted text-xs">
+                    <span className="text-muted text-sm">
                         AI summary unavailable — showing the most recent intents verbatim.
                     </span>
                 </div>
@@ -237,12 +237,12 @@ function ClientsCard(): JSX.Element {
     return (
         <Card title="Clients calling your server">
             {clients.length === 0 ? (
-                <span className="text-muted text-sm">No client info captured yet</span>
+                <span className="text-muted text-base">No client info captured yet</span>
             ) : (
                 <div className="flex flex-col gap-2">
                     {clients.map((row) => (
                         <div key={row.client}>
-                            <div className="flex justify-between text-sm">
+                            <div className="flex justify-between text-base">
                                 <span className="flex items-center gap-1.5">
                                     <HarnessLogo category={guessHarnessLabel(row.client)} className="h-3.5 w-3.5" />
                                     {row.client}
@@ -274,8 +274,8 @@ function ChecklistCard(): JSX.Element {
                     <div key={item.key} className="flex gap-2">
                         {CHECKLIST_ICONS[item.status]}
                         <div>
-                            <div className="text-sm font-medium">{item.title}</div>
-                            <div className="text-muted text-xs">
+                            <div className="text-base font-medium">{item.title}</div>
+                            <div className="text-muted text-sm">
                                 {item.detail} {item.status !== 'ok' ? <Link to={item.docsUrl}>Learn more</Link> : null}
                             </div>
                         </div>
