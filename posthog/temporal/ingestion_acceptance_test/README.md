@@ -4,14 +4,14 @@ End-to-end tests that verify the PostHog ingestion pipeline is functioning corre
 
 ## Goal
 
-Detect ingestion pipeline issues in production before users notice them. The tests run every 10 minutes via a Temporal scheduled workflow and send Slack notifications when failures occur.
+Detect ingestion pipeline issues in production before users notice them. The tests run every 15 minutes via Temporal scheduled workflows and send Slack notifications when failures occur.
 
 ## Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Temporal Workflow                                 │
-│  (ingestion-acceptance-test, runs every 10 min)                             │
+│  (ingestion-acceptance-test, runs every 15 min per lane)                    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -94,6 +94,28 @@ All configuration is loaded from environment variables with the `INGESTION_ACCEP
 | `POLL_INTERVAL_SECONDS` | No       | 10.0    | Interval between query attempts                   |
 | `SLACK_WEBHOOK_URL`     | No       | -       | Slack incoming webhook for failure notifications  |
 
+### Lane Configuration
+
+To test multiple ingestion routings, configure lanes using per-lane environment variables. Each lane requires its own `API_HOST`, `PROJECT_API_KEY`, and `TEAM_ID`:
+
+| Variable                      | Format          | Description                                         |
+| ----------------------------- | --------------- | --------------------------------------------------- |
+| `LANES`                       | Comma-separated | List of lane names to schedule (e.g., `main,turbo`) |
+| `LANE_<LANE>_API_HOST`        | Per-lane        | API host for the lane                               |
+| `LANE_<LANE>_PROJECT_API_KEY` | Per-lane        | Project token for the lane                          |
+| `LANE_<LANE>_TEAM_ID`         | Per-lane        | Team ID for the lane                                |
+
+**Example for a "turbo" lane:**
+
+```bash
+export INGESTION_ACCEPTANCE_TEST_LANES="main,turbo"
+export INGESTION_ACCEPTANCE_TEST_LANE_TURBO_API_HOST="https://us.posthog.com"
+export INGESTION_ACCEPTANCE_TEST_LANE_TURBO_PROJECT_API_KEY="phc_xxx"
+export INGESTION_ACCEPTANCE_TEST_LANE_TURBO_TEAM_ID="67890"
+```
+
+When `LANES` is set, one schedule is created per declared lane and the legacy single schedule is retired. Shared settings (timeouts, Slack webhook) still come from the flat env vars regardless of lane. When `LANES` is unset, the flat configuration variables (`API_HOST`, `PROJECT_API_KEY`, `TEAM_ID`) are used with a single schedule (the pre-lane behavior).
+
 ## Running Locally
 
 ```bash
@@ -114,10 +136,10 @@ ingestion_acceptance_test/
 ├── __main__.py              # CLI entry point for local runs
 ├── activities.py            # Temporal activity definition
 ├── client.py                # PostHog SDK wrapper with retry and direct ClickHouse queries
-├── config.py                # Pydantic settings for environment config
+├── config.py                # Pydantic settings for environment and lane config
 ├── results.py               # Test result dataclasses
 ├── runner.py                # Test execution engine
-├── schedule.py              # Temporal schedule (every 10 min)
+├── schedule.py              # Temporal schedule (every 15 min per lane)
 ├── slack.py                 # Slack notification on failures
 ├── terminal_report.py       # Terminal output formatting
 ├── test_cases_discovery.py  # Auto-discovery of test files
@@ -149,4 +171,5 @@ Slack notifications are sent only when tests fail or error. Successful runs are 
 
 - Pass/fail/error counts
 - Failed test names with error messages
+- Lane name (when running with lanes)
 - Environment info (API host, project ID, duration)
