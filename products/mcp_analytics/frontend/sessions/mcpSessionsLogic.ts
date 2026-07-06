@@ -344,12 +344,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        // urlToAction owns the initial load when the sessions URL carries date params; this is the
-        // fallback for a param-less mount (and off-route mounts in tests, where urlToAction never
-        // fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
+        // urlToAction owns the initial load when the sessions URL carries date or search params; this
+        // is the fallback for a param-less mount (and off-route mounts in tests, where urlToAction
+        // never fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
         const { searchParams } = router.values
-        const hasUrlDates = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
-        if (!hasUrlDates && !cache.hasLoaded) {
+        const hasUrlParams =
+            typeof searchParams.date_from === 'string' ||
+            typeof searchParams.date_to === 'string' ||
+            typeof searchParams.search === 'string'
+        if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.loadSessions()
         }
