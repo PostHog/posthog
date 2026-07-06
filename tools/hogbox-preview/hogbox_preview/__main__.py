@@ -114,7 +114,7 @@ def _pr_state(repo: str, pr: str, token: str) -> str | None:
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed GitHub host
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed GitHub host  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             return json.load(r).get("state")
     except Exception:  # noqa: BLE001 — a flaky check shouldn't reap a live preview
         return None

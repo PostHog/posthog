@@ -143,9 +143,10 @@ class SSHBackend(PreviewBackend):
     every ssh-based provider gets them for free."""
 
     # ssh options: non-interactive, don't pollute known_hosts, fail fast.
+    # nosemgrep: trailofbits.generic.ssh-disable-host-key-checking.ssh-disable-host-key-checking
     _SSH_OPTS = [
         "-o",
-        "StrictHostKeyChecking=no",
+        "StrictHostKeyChecking=no",  # ephemeral throwaway boxes with rotating IPs, no stable host key to pin
         "-o",
         "UserKnownHostsFile=/dev/null",
         "-o",

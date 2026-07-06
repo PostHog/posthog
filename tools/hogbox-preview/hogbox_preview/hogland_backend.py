@@ -352,7 +352,7 @@ class HoglandBackend(PreviewBackend):
             f"{url}&audience={self._oidc_audience}",
             headers={"Authorization": f"bearer {rtok}"},
         )
-        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed GitHub host
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed GitHub host  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             return json.load(r).get("value")
 
     def _refresh_auth(self) -> bool:
