@@ -1,6 +1,34 @@
 from django.test import SimpleTestCase
 
-from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_references import (
+    SQLV2ReferenceError,
+    resolve_python_node_inputs,
+    resolve_sql_v2_references,
+)
+
+
+class TestResolvePythonNodeInputs(SimpleTestCase):
+    def test_only_referenced_frames_are_materialized(self):
+        # A python node reads frames as variables; materialize only the ones its code uses.
+        inputs = resolve_python_node_inputs("df1.head()", {"df1": "select id from events", "df2": "select 1"})
+        self.assertEqual(len(inputs), 1)
+        self.assertEqual(inputs[0]["name"], "df1")
+        self.assertEqual(inputs[0]["kind"], "hogql")
+        self.assertEqual(inputs[0]["query"], "select id from events")
+        self.assertTrue(inputs[0]["query_hash"])
+
+    def test_unused_refs_are_ignored(self):
+        self.assertEqual(resolve_python_node_inputs("import pandas as pd\npd.DataFrame()", {"df1": "select 1"}), [])
+
+    def test_query_hash_is_stable_for_the_same_query(self):
+        # The executor reuses a frame file keyed by hash, so identical queries must hash identically.
+        a = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
+        b = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
+        self.assertEqual(a, b)
+
+    def test_referencing_a_never_run_node_raises(self):
+        with self.assertRaises(SQLV2ReferenceError):
+            resolve_python_node_inputs("df1.head()", {"df1": None})
 
 
 class TestResolveSQLV2References(SimpleTestCase):

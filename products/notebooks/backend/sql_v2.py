@@ -244,27 +244,42 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
     return runtime
 
 
-def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
+def dispatch_sql_v2_run(
+    notebook: Notebook,
+    user: User | None,
+    run: NotebookNodeRun,
+    code: str,
+    node_type: str = "hogql",
+    output_name: str = "",
+    inputs: list[dict] | None = None,
+) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
-    Returns as soon as the server accepts (202); the result arrives via the callback.
+    Returns as soon as the server accepts (202); the result arrives via the callback. A
+    python node carries the `node`/`inputs` shape the executor consumes; a hogql node keeps
+    the flat `code` the capped-fetch path reads — the two paths stay additive.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
+    payload: dict = {
+        "run_id": str(run.id),
+        "callback_url": build_callback_url(str(run.id)),
+        "callback_token": mint_callback_token(str(run.id), notebook.team_id),
+        "data_plane_url": build_data_plane_url(),
+        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+        "page_limit": DISPLAY_PAGE_LIMIT,
+        "cache_limit": RESULT_CACHE_ROWS,
+    }
+    if node_type == "python":
+        payload["node"] = {"type": "python", "code": code, "output_name": output_name}
+        payload["inputs"] = inputs or []
+    else:
+        payload["code"] = code
     response = requests.post(
         _with_connect_token(f"{runtime.server_url.rstrip('/')}/run", runtime.server_connect_token),
-        json={
-            "run_id": str(run.id),
-            "code": code,
-            "callback_url": build_callback_url(str(run.id)),
-            "callback_token": mint_callback_token(str(run.id), notebook.team_id),
-            "data_plane_url": build_data_plane_url(),
-            "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
-            "page_limit": DISPLAY_PAGE_LIMIT,
-            "cache_limit": RESULT_CACHE_ROWS,
-        },
+        json=payload,
         headers={"Authorization": f"Bearer {command_token}"},
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )

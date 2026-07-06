@@ -13,12 +13,17 @@ own ``WITH`` is left alone. Broken definitions that nothing references are never
 so an unrelated malformed node can't fail a run.
 """
 
+import hashlib
+from typing import Any
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.visitor import TraversingVisitor
+
+from products.notebooks.backend.python_analysis import analyze_python_globals
 
 
 class SQLV2ReferenceError(Exception):
@@ -121,3 +126,32 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     root.ctes = ctes
 
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
+
+
+def resolve_python_node_inputs(code: str, refs: dict[str, str | None]) -> list[dict[str, Any]]:
+    """Return the materialization specs for the upstream frames a Python node reads.
+
+    `refs` maps each named upstream node's dataframe name to its **last-run** HogQL (or None
+    if it has never completed a run). A Python node references frames as plain variables, so
+    we materialize only the names its code actually reads — each becomes a HogQL input the
+    executor fetches to a local Arrow file, keyed by `query_hash` so an unchanged upstream
+    query reuses its frame.
+
+    Raises SQLV2ReferenceError if the code reads a known node that has not been run yet.
+    """
+    used = set(analyze_python_globals(code).used)
+    inputs: list[dict[str, Any]] = []
+    for name, last_run_code in refs.items():
+        if not name or name not in used:
+            continue
+        if last_run_code is None or not last_run_code.strip():
+            raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
+        inputs.append(
+            {
+                "name": name,
+                "kind": "hogql",
+                "query": last_run_code,
+                "query_hash": hashlib.sha256(last_run_code.encode()).hexdigest(),
+            }
+        )
+    return inputs

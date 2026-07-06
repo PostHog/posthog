@@ -220,6 +220,42 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="c").count(), 0)
         mock_start.assert_not_called()
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_dispatches_with_materialization_inputs(self, _mock_enabled, mock_start):
+        # A python node keeps its code verbatim and ships the frames it reads as materialization inputs.
+        self._record_done_run("node-df1", "select id from events")
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "py",
+                "node_type": "python",
+                "code": "df1.head()",
+                "output_name": "result",
+                "refs": {"df1": "node-df1"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.code, "df1.head()")  # python code stored as-is, not CTE-resolved
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual(dispatched.node_type, "python")
+        self.assertEqual(dispatched.output_name, "result")
+        self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
+        self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_python_node_referencing_a_never_run_node_is_rejected(self, _mock_enabled, mock_start):
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "df1.head()", "refs": {"df1": "node-df1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        mock_start.assert_not_called()
+
     @patch(
         "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
         side_effect=RuntimeError("temporal unavailable"),

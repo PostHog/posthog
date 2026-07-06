@@ -3,8 +3,23 @@ from rest_framework import serializers
 
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
+    node_type = serializers.ChoiceField(
+        choices=["hogql", "python"],
+        required=False,
+        default="hogql",
+        help_text=(
+            "Execution kind. 'hogql' pushes the query to ClickHouse; 'python' runs the code in the "
+            "sandbox kernel, materializing referenced upstream nodes as pandas frames first."
+        ),
+    )
     code = serializers.CharField(
-        help_text="The HogQL the node contains; the sandbox runs it through the data plane. Must not be blank.",
+        help_text="The node's source — HogQL for a hogql node, Python for a python node. Must not be blank.",
+    )
+    output_name = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Python node only: the dataframe variable to preview as the result (falls back to the last expression).",
     )
     refs = serializers.DictField(
         child=serializers.CharField(),
@@ -12,8 +27,8 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
         default=dict,
         help_text=(
             "Available upstream nodes, mapping each named node's dataframe name to its ProseMirror "
-            "node id. The backend inlines the ones this node references as CTEs using each node's "
-            "last-run query (not its live editor text); unreferenced entries are ignored."
+            "node id, resolved to each node's last-run query. A hogql node inlines the referenced ones "
+            "as CTEs; a python node materializes the ones its code reads as pandas frames."
         ),
     )
 
@@ -51,8 +66,31 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
     )
 
 
+class NotebookSQLV2MediaSerializer(serializers.Serializer):
+    mime_type = serializers.CharField(help_text="MIME type of the media, e.g. 'image/png' for a matplotlib figure.")
+    data = serializers.CharField(help_text="Base64-encoded media bytes.")
+
+
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
+    stdout = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Captured stdout from a Python node run.",
+    )
+    stderr = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Captured stderr (including tracebacks) from a Python node run.",
+    )
+    media = NotebookSQLV2MediaSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Rich outputs from a Python node run, e.g. matplotlib figures as PNGs.",
+    )
     columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,

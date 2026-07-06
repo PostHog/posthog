@@ -57,7 +57,11 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     is_sql_v2_enabled,
 )
-from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_references import (
+    SQLV2ReferenceError,
+    resolve_python_node_inputs,
+    resolve_sql_v2_references,
+)
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -904,8 +908,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
             for name, node_id in ref_node_ids.items()
         }
+        node_type = serializer.validated_data["node_type"]
+        code = serializer.validated_data["code"]
+        output_name = serializer.validated_data["output_name"]
         try:
-            resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
+            if node_type == "python":
+                # A python node stores its code as-is; referenced frames become materialization inputs.
+                run_code, inputs = code, resolve_python_node_inputs(code, last_run_code)
+            else:
+                run_code, inputs = resolve_sql_v2_references(code, last_run_code), []
         except SQLV2ReferenceError as e:
             return Response({"detail": str(e)}, status=400)
 
@@ -913,7 +924,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             team_id=self.team_id,
             notebook=notebook,
             node_id=serializer.validated_data["node_id"],
-            code=resolved_code,
+            code=run_code,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -924,7 +935,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook_short_id=notebook.short_id,
                     team_id=self.team_id,
                     user_id=user.id if isinstance(user, User) else None,
-                    code=resolved_code,
+                    code=run_code,
+                    node_type=node_type,
+                    output_name=output_name,
+                    inputs=inputs,
                 )
             )
         except Exception:
