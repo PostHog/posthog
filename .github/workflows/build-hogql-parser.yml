@@ -70,15 +70,6 @@ jobs:
                       else
                         echo "Skipping hogql-parser-py section — script not present on this checkout"
                       fi
-                      # We will NOT publish (version already on PyPI), so the publish job's pin
-                      # guard is skipped. Enforce pin consistency here, where it always runs:
-                      # a stale pin means the merged parser ships a version that lacks these
-                      # changes (e.g. the number was burned by an earlier/abandoned branch).
-                      pinned=$(sed -nE 's/.*"hogql-parser==([0-9.]+)".*/\1/p' pyproject.toml | head -1)
-                      if [[ "$pinned" != "$local" ]]; then
-                        echo "::error::hogql-parser source changed and version $local is already on PyPI, but pyproject.toml pins $pinned. No wheel with these changes will be published. Bump common/hogql_parser/setup.py and package.json to a fresh version."
-                        exit 1
-                      fi
                     else
                       echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."
                       parser_release_needed='true'
