@@ -47,6 +47,12 @@ pub struct TupleKey {
     pub property_value: String,
 }
 
+impl TupleKey {
+    pub fn approx_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.property_key.len() + self.property_value.len()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum PropertyType {
     Event,

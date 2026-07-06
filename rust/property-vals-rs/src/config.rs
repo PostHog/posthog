@@ -44,8 +44,8 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub flush_interval_secs: u64,
 
-    #[envconfig(default = "500000")]
-    pub max_buffered_tuples: usize,
+    #[envconfig(default = "268435456")]
+    pub max_buffered_bytes: usize,
 
     #[envconfig(default = "0")]
     pub max_values_per_key: usize,
@@ -54,7 +54,7 @@ pub struct Config {
     pub length_caps: LengthCaps,
 
     #[envconfig(default = "0")]
-    pub merger_seen_cache_capacity: usize,
+    pub merger_seen_cache_max_bytes: u64,
 
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,

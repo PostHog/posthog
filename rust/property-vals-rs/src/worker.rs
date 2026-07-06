@@ -15,7 +15,7 @@ use crate::types::{IngestableEvent, PropertyType, TupleKey};
 #[derive(Clone, Copy, Default)]
 pub struct ReductionConfig {
     pub max_values_per_key: usize,
-    pub seen_cache_capacity: usize,
+    pub seen_cache_max_bytes: u64,
 }
 
 /// One worker loop. Each pod runs one worker per input topic.
@@ -41,8 +41,8 @@ pub async fn worker_loop<E, P, F>(
     let _guard = handle.process_scope();
 
     let mut aggregator = Aggregator::new();
-    let seen_cache = (reduction.seen_cache_capacity > 0)
-        .then(|| SeenCache::new(reduction.seen_cache_capacity, worker));
+    let seen_cache = (reduction.seen_cache_max_bytes > 0)
+        .then(|| SeenCache::new(reduction.seen_cache_max_bytes, worker));
     // One Offset handle per partition: the latest message we've consumed.
     // On successful flush we call .store() on each, which advances the
     // consumer's stored offset; auto-commit ships it to the broker.
@@ -84,7 +84,7 @@ pub async fn worker_loop<E, P, F>(
 
                         pending_offsets.insert(offset.partition(), offset);
 
-                        if aggregator.len() >= config.max_buffered_tuples {
+                        if aggregator.approx_bytes() >= config.max_buffered_bytes {
                             flush(
                                 &mut aggregator,
                                 &mut pending_offsets,
@@ -506,7 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn seen_cache_suppresses_already_emitted_tuples() {
-        let cache = SeenCache::new(1000, "test");
+        let cache = SeenCache::new(100 << 20, "test");
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
 
@@ -548,7 +548,7 @@ mod tests {
 
     #[tokio::test]
     async fn seen_cache_reemits_after_produce_failure() {
-        let cache = SeenCache::new(1000, "test");
+        let cache = SeenCache::new(100 << 20, "test");
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
 
@@ -586,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn seen_cache_emits_new_values_and_suppresses_repeats() {
-        let cache = SeenCache::new(1000, "test");
+        let cache = SeenCache::new(100 << 20, "test");
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
 

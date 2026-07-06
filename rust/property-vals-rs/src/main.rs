@@ -182,7 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "merger",
         ReductionConfig {
             max_values_per_key: shared_config.max_values_per_key,
-            seen_cache_capacity: shared_config.merger_seen_cache_capacity,
+            seen_cache_max_bytes: shared_config.merger_seen_cache_max_bytes,
         },
     ));
     drop(events_handle);
