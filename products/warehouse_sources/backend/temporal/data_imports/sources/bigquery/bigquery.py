@@ -25,7 +25,8 @@ from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
@@ -142,6 +143,21 @@ def _query_job_should_retry(exc: Exception) -> bool:
 
 
 BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+
+
+# The Storage Read API can drop a ReadRows stream mid-flight with a transient gRPC INTERNAL error
+# ("Received RST_STREAM with error code 2"). The client's default ReadRows retry only reconnects on
+# ServiceUnavailable, so the INTERNAL escapes as an unhandled InternalServerError and fails the whole
+# read — and with it the import activity, which then re-runs the (potentially large) temp-table copy
+# from scratch. Reconnecting resumes the stream from the last-read offset, so widen the default
+# predicate to also retry INTERNAL. Parameters mirror the library's default ReadRows retry.
+BIGQUERY_READ_ROWS_RETRY = Retry(
+    predicate=if_exception_type(ServiceUnavailable, InternalServerError),
+    initial=0.1,
+    maximum=60.0,
+    multiplier=1.3,
+    deadline=86400.0,
+)
 
 
 class BigQueryDatasetNotFoundError(Exception):
@@ -1357,7 +1373,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         return
 
                     stream_name = read_session.streams[0].name
-                    read_rows_stream = bq_storage.read_rows(stream_name)
+                    read_rows_stream = bq_storage.read_rows(stream_name, retry=BIGQUERY_READ_ROWS_RETRY)
                     rows_iterator = read_rows_stream.rows()
 
                     record_batches = []
