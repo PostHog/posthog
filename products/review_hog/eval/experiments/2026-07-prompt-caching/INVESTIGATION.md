@@ -1,141 +1,63 @@
-# Prompt caching investigation: cross-sandbox cache reuse
+# Prompt caching: cross-sandbox cache reuse — mechanics and program state
 
-**Status: investigation only (2026-07-03) — nothing here is built, and nothing should be built without the spikes and gates below.**
-Decisions locked with the user 2026-07-03: report-only deliverable (spikes specified, not run); cost-first framing (a wall-clock regression of a few minutes is acceptable if $/run drops meaningfully, quality still gated by the yardstick eval); ReviewHog-scope — the three harness changes ship as well-specified Tasks-team tickets, not as work in this product.
+**Status (2026-07-06 EOD): investigation complete, measurement instrument shipped, and the warm-up+fork build is the active next experiment** (locked constraints and candidate #8 in `CANDIDATES.md`; practical how-to in `HARNESS.md`).
+This doc is the consolidated reference for the caching mechanics, what is measured as true, and what must be fixed for forking to work.
+Originally written 2026-07-03 as an investigation report; consolidated 2026-07-06 (the layered update history lives in git and in `PLAN.md`'s run log).
 
-> **Update 2026-07-06 — moved + candidate roster added.** This doc moved from `products/review_hog/PROMPT_CACHING_INVESTIGATION.md` to this experiment folder. Three facts changed since it was written:
->
-> 1. **The model gate cleared.** `REVIEW_MODEL` flipped to `claude-sonnet-5 @ xhigh` on 2026-07-03 (see `../2026-07-reviewer-model-sonnet5/FINAL_REPORT.md`), so "sequence caching work after the model decision" is satisfied. All caching baselines now key on sonnet-5; the opus-era $ figures below stand as the historical record but must not gate new arms. T1's magnitude likely collapsed with the flip (writes are ~5x cheaper; a crude post-flip probe found ~$0.005/run vs the $0.75 opus-era figure): re-quantify before pressing that ticket.
-> 2. **One-shot chunking + dedup shipped (2026-07-03)**, proving the size-gated one-shot pattern AND giving ReviewHog a request-bytes-owning path (`reviewer/sandbox/direct_llm.py`) where IT places `cache_control`. That path is exempt from V1/V2, which reorders this doc's priorities: cross-CALL context sharing on the direct path works today with zero harness dependency, and the strongest new candidates exploit exactly that.
-> 3. **A candidates round ran 2026-07-06** (18 raw ideas from 4 lenses -> 13 merged -> 2 adversarial audits each): see **`CANDIDATES.md`** (same folder) for the survivors, the graveyard, corrected economics (naive sonnet $/run overstates true cost ~4.8x; cache reads are now the largest true-cost bucket), and the sequencing (measurement Gate 0 first).
-> 4. **User veto, 2026-07-06 (locked):** one-shot LLM calls for code investigation are permanently out of scope — a single call cannot do detective work, and quality is the moat. Only chunking + dedup stay one-shot; every review unit remains a full sandbox agent. The roster's direct-call candidates are recorded as killed in `CANDIDATES.md`; **this doc's Phase 3 warm-up+fork is the program flagship**, spike-gated exactly as specified below (Spike 3 threshold raised to s >= ~0.55), with T2/T3 on the critical path. Large PRs (1000+ additions) are the explicit priority — per-chunk savings scale with chunk count, so the fork benefits large PRs most.
-> 5. **2026-07-06 smoke run (see `HARNESS.md`) — two claims below are now stale.** (a) "Cross-sandbox sharing is exactly zero — measured (turn-1 `cache_read` median = 0)": on the current agent/SDK, PARTIAL sharing is live — 2 of 3 fresh wave sandboxes read the jitter-elected leader's identical 27.6K [tools + system-preset] segment; V1's `Task-Id` poisons only the append onward (T2 remains the fork's hard prerequisite; the preset share is worth cents). (b) Spike 1's existential cross-client question has a production PASS (two sandboxes shared one cache through Modal -> ngrok -> local gateway); the probe is confirmatory now. Also observed live: a 10-min wave->blind-spot gap on a single-chunk PR busted the 5-min TTL, so the fork needs per-chunk sequencing (exactly Spike 3's gate (b)). The two-repo local harness loop (patch `packages/agent` locally, overlay into sandboxes, verify via `agentVersion`) is PROVEN and documented in `HARNESS.md`.
-> 6. **Gate-0 session 1 executed 2026-07-06 (scope-narrowed to metrology + one publish run) — see `PLAN.md`'s status block.** The cache-aware `dump_result.py` split shipped and validated live (Δ +0.0% vs gateway LiteLLM costs on every bucket; naive = 4.8× true confirmed on the PR #68749 run; the probe-era "+28% sonnet discrepancy" was a measurement artifact, not a gateway mispricing). The same-day local-DB nuke deleted all archived `$ai_generation` events and ACP logs — every corrected baseline and fork-sizing input now accumulates from fresh runs. The publish run reproduced the partial cross-sandbox sharing (2/3 wave units read the leader's 27.6K [tools+preset] prefix) and the wave→blind-spot TTL bust (12.5 min gap, full rewrite).
-> 7. **Reframe + TTL resolution, 2026-07-06 late session (user, locked — see `CANDIDATES.md` locked constraints 6-9).** The warm-up+fork flagship is reframed: the warm-up is DESIGNED as the per-chunk investigation stage (understand chunk + related codespace, no judgments) and perspectives fork from it; value scales with unbounded perspective count (custom perspectives, could be 20), so **Spike 3's s >= 0.55 gate is dropped — nothing gates the build on measured overlap**; measurement moves post-build (follower turns/cost + quality parity + the anchoring guard). Fixture: frozen PR #62096. TTL: our sandbox path defaults to 5m (proven by billing + behavior + the CLI's auth-gated logic; interactive/first-party Claude Code does default to 1h), and 1h is enforceable per sandbox with `ENABLE_PROMPT_CACHING_1H=1` — see `HARNESS.md` "1h cache TTL". This makes this doc's Phase 3 the active program with Spike 3 removed and Spike 1 optional; Spike 2 (stripped-form fork fidelity) survives as the build's first milestone.
+## The idea
 
-## The idea under investigation
-
-ReviewHog's pipeline stages each re-learn the same PR: every LLM unit (chunking, 3 perspectives + blind-spot per chunk, dedup, validation) is a fresh Task → fresh Modal/Docker sandbox → fresh agent-server → fresh Claude Code conversation (see `ARCHITECTURE.md`).
-The idea: one "read and understand this PR" warm-up step whose processed context lands in Anthropic's server-side prompt cache, with the parallel review units starting from that cached state instead of re-exploring — saving tokens and money.
-Investigated across `products/review_hog` + `products/tasks` (this repo), `packages/agent` in the PostHog Code repo (the agent harness), and Anthropic's prompt-caching documentation.
-
-## Verdict (TL;DR)
-
-**The idea is technically sound and every primitive it needs already exists in the stack — but it fails today for three specific, fixable reasons, and the honest economics are smaller than the 11–21M-input-tokens headline suggests.**
-
-1. **Mental-model correction:** there is no per-sandbox cache and no "cache duplication" API.
-   Anthropic's cache is server-side, scoped per **workspace** (docs, Feb 2026), keyed by a cumulative hash of the exact request bytes (`tools` → `system` → `messages`) + model.
-   All ReviewHog sandboxes already share ONE cache namespace (everything routes through the PostHog LLM gateway → one Anthropic workspace).
-   "N sandboxes from the same cache" = N sandboxes sending byte-identical prompt prefixes within TTL. That's the only mechanism — and it's sufficient.
-2. **Caching already works heavily _within_ each sandbox conversation.**
-   Measured (`eval/POTENTIAL_EXPERIMENTS.md`): the 11–21M input tokens/run are ~90% cache reads at 0.1×; the real cost split is 42% cache writes / 36% cache reads / 18% output / 4% fresh input; ~$24–28/run, review + blind-spot ≈ 80% of it.
-3. **Cross-sandbox sharing is exactly zero today — measured** (turn-1 `cache_read` median = 0) — and fully explained: the harness embeds a unique `Task-Id` into every unit's system prompt, so prefixes diverge before the messages even start.
-4. **Guaranteed wins come first:** a known agent-server cache bug (~$0.75/run) + a cache-stable system prompt (~$1.5–2.5/run for ReviewHog, plus **every** PostHog Code cloud task fleet-wide).
-   The full warm-up/fork topology adds an estimated **$2–5/run optimistic, ~$0 pessimistic** — the deciding unknown (how much exploration the 4 units per chunk actually duplicate) is measurable from existing telemetry before anyone builds anything.
+ReviewHog's review units each re-learn the same PR: every unit (N perspectives + blind-spot per chunk, validation) is a fresh Task → fresh Modal/Docker sandbox → fresh agent-server → fresh Claude Code conversation (see `ARCHITECTURE.md`).
+The fix (locked 2026-07-06): after chunking, ONE neutral warm-up agent per chunk reads and understands the chunk and its related codespace (no judgments, no code).
+Its session transcript is persisted, and every perspective forks from it, inheriting the investigation from Anthropic's server-side cache at 0.1× — so perspectives should not need to re-investigate, while keeping full tools and freedom (quality is the moat).
+Value scales with perspective count, which is user-extensible and unbounded (could be 20), so nothing gates the build on measured overlap; measurement happens post-build (follower turns/cost vs control + quality parity).
 
 ## How Anthropic caching works (documented facts that matter here)
 
 - **Prefix match:** cache key = exact bytes of `tools` → `system` → `messages` up to a `cache_control` breakpoint. "Cache hits require 100% identical prompt segments." Model is part of the key.
-- **Scope:** "Caches are isolated between organizations… As of February 5, 2026, caches are also isolated per workspace within an organization on the Claude API." Within one workspace, all requests share — sandboxes are irrelevant to scoping.
-- **TTL:** 5 min default, **refreshed free on every read** (sliding window); optional 1h TTL at 2× write cost. Writes 1.25× (5m), reads 0.1× of input price. Cache hits don't count against rate limits.
-- **Concurrency:** an entry becomes readable only after the first response _begins_ — a warm-up must complete before fan-out (a pipeline stage boundary satisfies this; followers can then fire in parallel, all reading).
-- **Placement:** breakpoints are set by whoever builds the request — here that's the Claude Code CLI (spawned by the agent SDK inside agent-server), not ReviewHog. It auto-places breakpoints (system, recent messages).
+- **Scope:** caches are isolated per organization and (since Feb 2026) per workspace. All ReviewHog sandboxes route through the PostHog LLM gateway into ONE Anthropic workspace, so they already share a namespace: "N sandboxes from one cache" just means byte-identical prefixes within TTL. Confirmed live twice (smoke run 2 and the PR #68749 publish run: 2 of 3 wave units read the leader's identical 27,618-token [tools+preset] segment at turn 1).
+- **TTL:** 5 min default, refreshed free on every read (sliding); 1h costs 2× on writes. **Our sandbox path runs on 5m** (proven by billing, by observed >5m expiries, and by the CLI's auth-gated TTL logic); `ENABLE_PROMPT_CACHING_1H=1` in a sandbox's env enforces 1h unconditionally — full detail in `HARNESS.md` "1h cache TTL". Writes 1.25× (5m), reads 0.1×.
+- **Concurrency:** an entry becomes readable only after the writer's response begins — the warm-up must complete before fan-out (a stage boundary satisfies this; followers then read in parallel, and their reads keep the entry alive continuously while any of them is active).
+- **Placement:** breakpoints are set by whoever builds the request — here the Claude Code CLI (spawned by the agent SDK inside agent-server), not ReviewHog. It auto-places breakpoints (system, recent messages).
 
-## Today's reality (measured, from the eval work)
+## What is measured as true (sonnet-5 era, cache-aware)
 
-Per-stage cost (17-run topology experiment, `eval/POTENTIAL_EXPERIMENTS.md`):
+Instrument: `eval/scripts/dump_result.py` (cache-aware split, validated Δ +0.0% against the gateway's LiteLLM costs on every bucket and side — `runs/gate0-run1-pr68749-publish.md`).
 
-| stage                                                    | share of ~$24–28/run |
-| -------------------------------------------------------- | -------------------- |
-| review wave (3 perspectives, isolated sandboxes)         | ~$14.3               |
-| blind-spot check                                         | ~$5.3                |
-| validation (already a warm multi-turn session per chunk) | ~$2.8                |
-| chunking + dedup                                         | ~$1.5                |
+- **Naive token math overstates true cost ~4.8×** (PR #68749 run: naive $47.52 vs true $9.90) — never gate a decision on undifferentiated `$ai_input_tokens`.
+- **Bucket split of a real run:** ~43% cache reads / 33% cache writes / 19% output / 5% fresh input. Cache reads are the largest true-cost bucket.
+- **Cost is turn-dominated, not payload-dominated** (median ~15 turns/unit; each turn re-reads the whole growing prefix and emits output). The fork's saving mechanism is turn elimination: followers skip the investigation turns.
+- **Cross-sandbox sharing is partially live already:** the [tools+preset] prefix (27.6K tokens) shares across units when timing allows; the per-task `Task-Id` append poisons everything after it (V1 below), so the share is worth cents until T2 lands.
+- **TTL busts are real:** wave→blind-spot gaps of 5m52s–12.5min caused full prefix rewrites in both observed runs. Fresh sandbox setup alone (provision+boot+clone+checkout) measured ~4–6 min, so follower scheduling must overlap provisioning with the warm-up run, or selectively use the 1h TTL.
+- Historical (opus-era, provenance only): ~$24–28/run with review+blind-spot ≈ 80% of it; the archived per-arm events died in the 2026-07-06 DB nuke, so sonnet-era baselines accumulate from fresh runs.
 
-Cost is **turn-dominated** (median 15 turns/unit, ~$0.10/turn flat from turn 4), not payload-dominated: fresh input is ~16K tokens at turn 1, ~0 after.
-Intra-session caching demonstrably works through the gateway.
-Two prior experiments are directly relevant precedent:
+## What must be fixed for forking — the violations
 
-- **C5 warm per-perspective sessions** (chunks as sequential turns): built, evaluated, **rejected** — anchoring made later turns near-silent; ~half the "saving" was the anchoring itself; wall-clock +3–4 min.
-- **"Shared repo-orientation pre-pass artefact"**: **rejected** — measured turn-1 `cache_read` = 0 meant no cross-sandbox cache existed, so a shared pre-pass was pure added payload per unit, plus an anchoring device.
-  _The fork idea investigated here is that idea with the cache economics actually attached — which is why it deserves the re-look, gated on eval._
+| #   | Violation                                                                                                                                                                                                                                                                                      | Where                                                                                     | Fix                                                                                                                                                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| V1  | `Task-Id: ${taskId}` interpolated into the system-prompt append of every task → prefixes diverge before messages start.                                                                                                                                                                        | code repo, `packages/agent/src/server/agent-server.ts:2638` (`buildCloudSystemPrompt`)    | De-interpolate — safe: the git tool injects the trailer deterministically from config (`packages/git/src/trailers.ts`), the prompt line is informational. See `HARNESS.md` T2. |
+| V2  | Claude Code preset injects dynamic sections (cwd, git status, date) into the system prompt; the SDK's `excludeDynamicSections: true` fix is unused.                                                                                                                                            | code repo, `packages/agent/src/adapters/claude/session/options.ts:93–123`; SDK `sdk.d.ts` | One option flag; must also cover the cloud `params.systemPrompt` shape. See `HARNESS.md` T2.                                                                                   |
+| V3  | The raw session JSONL (`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`) is never uploaded; the existing ACP-log reconstruction is lossy at every step (fresh UUIDs, flattened tool results, truncation, turn-dropping) → replayed bytes ≠ original → guaranteed miss. Never seed from it. | code repo, `packages/agent/src/adapters/claude/session/jsonl-hydration.ts`                | Upload raw JSONL at task end; followers download to the identical deterministic cwd path and fork (`resumeSession({resume, forkSession: true})`). See `HARNESS.md` T3.         |
+| V0  | No warm-up stage exists in ReviewHog's workflow — nothing runs before the per-chunk fan-out.                                                                                                                                                                                                   | this repo, `products/review_hog/backend/temporal/workflow.py`                             | The build itself.                                                                                                                                                              |
 
-## Why cross-sandbox sharing fails today — three violations
+**Already satisfied:** one cache namespace via the gateway; model pinning (`REVIEW_MODEL`); fork/resume/replay primitives; deterministic sandbox cwd.
 
-| #   | Violation                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Where                                                                                          | Fixable                                                                                                                                                                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V1  | `Task-Id: ${taskId}` interpolated into the system-prompt append of **every** task (signed-commit attribution). Each ReviewHog unit is its own Task → unique system segment → cache diverges before messages.                                                                                                                                                                                                                                                       | code repo, `packages/agent/src/server/agent-server.ts:2638` (`buildCloudSystemPrompt`)         | Yes — de-interpolate. Verify first whether the signed-commit tool injects the trailer server-side from config (then the prompt line can be static text); otherwise move the ID into the first user message.    |
-| V2  | Claude Code preset injects dynamic sections (cwd, git status, date, auto-memory) into the system prompt. The SDK ships the exact fix — `systemPrompt: {preset: "claude_code", excludeDynamicSections: true}` (strips them and re-injects as first user message) and `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` — **the harness uses neither**.                                                                                                                               | code repo, `packages/agent/src/adapters/claude/session/options.ts:93–123`; SDK `sdk.d.ts:1934` | Yes — one option flag, but fleet-wide behavioral blast radius → flagged rollout.                                                                                                                               |
-| V3  | Transcript seeding exists (`hydrateSessionJsonl()` + `resumeSession`/`forkSession:true` + `--replay-user-messages`) but reconstruction from the S3 ACP log is **lossy** (fresh random UUIDs, `JSON.stringify`-flattened tool results, 10K-char truncation, zeroed usage, turn-dropping over ~150K est. tokens) → replayed bytes ≠ original → guaranteed miss. The **raw** JSONL (`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`) is never uploaded anywhere. | code repo, `packages/agent/src/adapters/claude/session/jsonl-hydration.ts:54,243,589`          | Yes — upload the raw JSONL at task end; seed followers by downloading it to the identical path (cwd is deterministic: `/tmp/workspace/repos/{org}/{repo}`) and forking. Must NOT use the lossy hydration path. |
+**Design caveats:** a follower's appended user message strips prior thinking blocks server-side, so the warm-up must end with a settling user turn that writes the stripped-form cache once (fidelity checks must compare against the stripped form — `CANDIDATES.md` #8); the gateway silently maps non-allowlisted models to a default; the unconditional Bedrock-fallback header can reroute individual requests to Bedrock's separate cache namespace on Anthropic 5xx (occasional miss, gate it off for experiment runs); the sandbox checkout uses the PR branch ref, not the pinned `head_sha` — SHA-pinning is a correctness fix the fork also wants (byte-identical git state across warm-up and followers).
 
-Plus V0 (trivial, ReviewHog-side): no warm-up stage exists in `backend/temporal/workflow.py` — nothing runs before the 4-unit fan-out.
+## Precedents and risks
 
-**Conditions already satisfied:** one cache namespace via the gateway (`ANTHROPIC_BASE_URL` → `gateway.{us|eu}.posthog.com/background_agents`); model pinning exists (`REVIEW_MODEL`, `backend/reviewer/constants.py:5-7`); fork/resume/replay primitives exist; deterministic sandbox cwd; same base repo snapshot per run.
+- **C5 warm per-perspective sessions (built, rejected):** sequential chunks in one session anchored later turns near-silent — half the "saving" was suppressed findings. The fork differs: the shared prefix contains no findings or judgments, only neutral reads, and each perspective branches into its own isolated session. The residual risk is curation bias (the warm-up's reading choices framing all followers), so the per-perspective finding-count distribution + yardstick parity on frozen PR #62096 is the standing quality gate.
+- **TTL expiry** on stragglers (semaphore batching at N>10, retries, the post-wave blind-spot): design fan-out for the 5m sliding window (immediate scheduling, overlapped provisioning), with per-unit `ENABLE_PROMPT_CACHING_1H` as cheap insurance (~+$0.2/chunk on the warm-up unit).
+- **Validators keep fresh sessions** — never seeded from review or warm-up transcripts.
 
-**Caveats to design around:** the gateway silently maps non-allowlisted models to a default; an unconditional Bedrock-fallback header (`options.ts:161`) can reroute individual requests to Bedrock's separate cache namespace on Anthropic 5xx (occasional miss, not fatal); the sandbox checkout uses the PR **branch ref, not the pinned `head_sha`** — a latent mixed-version race across today's parallel units regardless of caching.
+## Program state (2026-07-06 EOD)
 
-## What it would actually save (cost-first)
-
-ReviewHog's prompt layout is already accidentally cache-friendly: the composed prompt goes into `Task.description` → the **first user message** (not the Anthropic system prompt), and the 4 units of a chunk differ only in the last ~10 lines (perspective skill name/version).
-But without V1/V2 fixed, none of that shares; and even with them fixed, only the tools+system segment shares — the exploration (each unit re-reading the same chunk files via tools) is what the warm-up/fork targets.
-
-- **Fix known bug (T1):** ~$0.75/run, zero risk.
-- **Cache-stable system prompt (T2):** converts each unit's turn-1 system+tools cache write (~10–20K tokens at 1.25×) into a 0.1× read → ~$1.5–2.5/run across ~16–20 sandbox requests, **plus the same effect on every PostHog Code cloud task fleet-wide**. Prerequisite for everything below.
-- **Warm-up + fork (the idea, T3 + ReviewHog work):** addressable pool = the perspective-invariant share _s_ of early exploration duplicated across 4 units/chunk.
-  At *s*≈0.6: ~$2–2.5/chunk (turn elimination + write→read conversion) → **~$2–5/run net optimistic on a 3-chunk run (8–20%), ~$0 pessimistic**; wall-clock +2–4 min (serial warm-up + 55s sandbox provisioning) unless follower provisioning overlaps warm-up execution — acceptable under the cost-first framing.
-  _s_ is unmeasured; Spike 3 settles it from existing data.
-- **Reference point:** the in-flight Sonnet-5 model round (`eval/experiments/2026-07-reviewer-model-sonnet5/`, arm B pending) would cut ~40% of review-stage cost on its own if it hits parity — and model is part of the cache key, so it resets all caching baselines. **Sequence caching work after the model decision.** _(Resolved 2026-07-06: the round completed and prod flipped to sonnet-5 @ xhigh on 2026-07-03 — the gate is cleared and sonnet-5 is the baseline model for all caching arms.)_
-
-## Recommended path
-
-### Phase 0 — Tasks-team tickets (harness/code repo; can be written now, no ReviewHog dependency)
-
-1. **T1 — mid-task full-prefix cache-rewrite bug** (already flagged in `eval/POTENTIAL_EXPERIMENTS.md`: 24 gens, ~2.2M tokens rewritten with cache_read=0 seconds after a write, ~$0.75/run). Pure waste; no eval gate.
-2. **T2 — cache-stable system prompt for sandbox tasks:** de-interpolate `Task-Id` from `buildCloudSystemPrompt` (verify the signed-commit tool injects the trailer itself from server config; else move to first user message) + enable `excludeDynamicSections: true` for cloud sessions.
-   Roll out behind a flag per gateway product, `background_agents` first; gate on the harness smoke suite + ReviewHog yardstick + turn-1 cache_read median > 0.
-3. **T3 — raw-JSONL session persistence + seed-on-start:** upload the raw `~/.claude/projects/<cwd>/<sessionId>.jsonl` at task end (same storage/ACL class as the existing ACP log); on task start with a seed reference, download to the identical path and `resumeSession({resume: sessionId, forkSession: true})`, delivering the task description as the new turn.
-   Explicitly not the lossy `hydrateSessionJsonl` path.
-
-### Phase 1 — ReviewHog-side, independent of the tickets
-
-- **SHA-pin the sandbox checkout** via the existing `head_sha` (correctness fix regardless of caching; also required for byte-identical git state across warm-up/followers).
-- **Spike 3 (offline, zero risk):** from existing runs' logs/`$ai_generation` events, compute per-chunk token-weighted overlap of pre-first-finding tool activity across the 4 units.
-  **Go/no-go for the fork topology: ≥40% overlap** (below that, expected net < $2/run — stop after T2).
-
-### Phase 2 — decisive spikes (cheap, before any build; after the Sonnet-5 round fixes `REVIEW_MODEL`)
-
-- **Spike 1 — gateway cache probe:** two hand-built byte-identical `/v1/messages` requests (≥8K-token cached block) from two sandboxes through the gateway, 2 min apart.
-  Success: second request's `cache_read_input_tokens ≥ 0.95×` the first's `cache_creation_input_tokens` (cross-check in `$ai_generation`).
-  Variants: `REVIEW_MODEL` vs default (allowlist mapping), >6 min apart (TTL sanity).
-  Failure = escalate to the Tasks team ("workspace cache not shared through gateway") and stop.
-- **Spike 2 — raw-JSONL fork fidelity:** 5-turn session in sandbox A (tools + thinking + file reads); copy the raw JSONL to sandbox B at the identical encoded-cwd path (same checkout SHA, same CLI version); fork + one new turn.
-  Success: the fork's first request reads ≥90% of A's final prompt size from cache, no 400s (thinking-block signatures accepted).
-  This one experiment retires the replay-fidelity, thinking-block, session-id, and version-skew unknowns.
-
-### Phase 3 — build only if the gates pass
-
-Per-chunk **warm-up + fork** behind a constant: a neutral warm-up unit ("read the diff and touched files; do not analyze or judge") → raw JSONL persisted → 4 followers fork it → perspective/blind-spot ask as the new turn.
-Chunk-local scheduling (warm-up + its followers as one unit, follower provisioning overlapped with warm-up execution) to stay inside the 5-min sliding TTL under `Semaphore(10)` saturation.
-**Eval gate per team culture:** 2 arm runs vs 2 fresh controls on frozen PR #62096 — valid-count and old-coverage parity, per-perspective finding-count distribution (anchoring shows up as depressed follower counts), measured net saving ≥ $2/run, wall ≤ +3–4 min.
-Validators keep their own fresh sessions — never seeded from review/warm-up transcripts.
-
-## Risks
-
-- **Anchoring (the big one):** the C5 precedent is real, but the fork differs — the shared prefix contains _no findings, no judgments_, only neutral reads of the same chunk; each perspective branches fresh.
-  Residual risk is curation bias (the warm-up's choice of what to read frames follower attention) — exactly why the eval gate includes per-perspective count distributions.
-- **TTL expiry** on slow multi-chunk runs → chunk-local scheduling; monitor the follower turn-1 cache_read distribution.
-- **Bedrock fallback variance** (per-request cache misses on Anthropic 5xx) → accept; alert if the run-level cache-read share drops.
-- **Model-round interference:** model is part of the cache key; run all caching work on the post-round pinned model.
-- **Org:** T1–T3 are Tasks-team owned; T2 is fleet-wide → flagged, product-by-product rollout.
+- **Shipped:** the cache-aware metrology (`dump_result.py`), validated live; the probe-era "+28% gateway-vs-list discrepancy" resolved as a measurement artifact.
+- **Dropped/demoted:** the pre-build overlap gate (Spike 3) and the standalone gateway probe (Spike 1) — the fork build's own mechanics gate (follower turn-1 cache reads ≈ warm-up transcript size) subsumes the substrate check. The T1 rewrite-bug ticket is pending re-quantification on fresh runs (expected: demote; crude post-flip probe found ~$0.005/run).
+- **Next experiment:** the warm-up+fork build — T2+T3 patched locally in the PostHog Code checkout (approved working mode, `HARNESS.md`), Spike 2 (stripped-form fork fidelity) as first milestone, then the ReviewHog warm-up stage behind an on/off constant, then 2 arm vs 2 control runs on frozen PR #62096. Harness fixes ship upstream only after the experiment proves value.
 
 ## Key files
 
-- this repo: `products/review_hog/backend/temporal/workflow.py` (fan-out; where the warm-up would slot in), `backend/reviewer/sandbox/executor.py:82` (prompt→description; `MultiTurnSession` start/continue/end), `backend/reviewer/constants.py` (`REVIEW_MODEL`), `products/tasks/backend/temporal/process_task/activities/get_sandbox_for_repository.py:295` (branch-ref checkout to SHA-pin), `products/review_hog/eval/POTENTIAL_EXPERIMENTS.md` (all economics)
-- code repo (PostHog Code): `packages/agent/src/server/agent-server.ts:2638` (Task-Id append), `:2457` (`buildSessionSystemPrompt`), `packages/agent/src/adapters/claude/session/options.ts:93–123` (systemPrompt build; `:161` Bedrock header; `:439` replay-user-messages), `packages/agent/src/adapters/claude/session/jsonl-hydration.ts` (lossy hydration; JSONL path)
+- this repo: `products/review_hog/backend/temporal/workflow.py` (fan-out; where the warm-up slots in), `backend/reviewer/sandbox/executor.py` (prompt→description; `MultiTurnSession`), `backend/reviewer/constants.py` (`REVIEW_MODEL`, on/off knobs), `products/tasks/backend/temporal/process_task/activities/provision_sandbox.py` (sandbox env injection, incl. `ENABLE_PROMPT_CACHING_1H`), `get_sandbox_for_repository.py` (branch-ref checkout to SHA-pin), `eval/scripts/dump_result.py` (validated cost instrument)
+- code repo (PostHog Code): `packages/agent/src/server/agent-server.ts` (`buildCloudSystemPrompt`, Task-Id append), `packages/agent/src/adapters/claude/session/options.ts` (systemPrompt build; Bedrock header), `packages/agent/src/adapters/claude/session/jsonl-hydration.ts` (raw JSONL path; lossy hydration to avoid)
 
-Line references are as of 2026-07-03 and will drift; the function names are the stable anchors.
-
-## Verification (when work starts — nothing runs now)
-
-Spikes 1–3 with the success metrics above; T2 gated on the yardstick eval + turn-1 cache_read > 0; Phase 3 gated on the #62096 eval.
-Ongoing telemetry: the per-unit turn-1 `cache_read_input_tokens` distribution and the `$ai_cache_read_input_tokens` share per run from `$ai_generation` events (the gateway already records both).
+Line references drift; function names are the stable anchors. Exact patch surfaces with line numbers: `HARNESS.md`.

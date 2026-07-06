@@ -19,8 +19,9 @@ Source of truth: `docs/internal/sandboxes-setup-guide.md:190-256`.
 
 1. `.env` already has `SANDBOX_PROVIDER=MODAL_DOCKER` (DEBUG-only Modal subclass, app names `posthog-sandbox-modal-docker-*`)
    and `SANDBOX_LLM_GATEWAY_URL=https://alexl-llmg.ngrok.dev` (ngrok tunnel to the local llm-gateway on :3308).
-   **Missing piece: `LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/Users/woutut/Documents/Code/code`** (documented in `.env.example:11-12`).
-   With it set, sandboxes get the LOCAL agent build overlaid instead of the published package
+   **`LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/Users/woutut/Documents/Code/code` is SET (added 2026-07-06, `.env` line 212;
+   documented in `.env.example:11-12`)** — the flox hook sources `.env` at activation, so changing it needs a full
+   stack restart. With it set, sandboxes get the LOCAL agent build overlaid instead of the published package
    (Modal path: runtime overlay via `products/tasks/backend/logic/services/local_packages.py:42-77`, DEBUG-only,
    requires built `dist/` dirs; plain-Docker path: `Dockerfile.sandbox-local` builds `posthog-sandbox-base-local`
    by pnpm-packing the local packages, rebuilt every provision).
@@ -32,7 +33,8 @@ Source of truth: `docs/internal/sandboxes-setup-guide.md:190-256`.
 4. Verify with the tripwire SQL below.
 
 Housekeeping: while `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, EVERY local sandbox run uses the local build
-(which drifts from npm `@latest`) — set it for experiment sessions, remove it after, per the isolation working mode.
+(which drifts from npm `@latest`) — keep the code repo checkout clean/known during experiments and record the
+`agentVersion` fingerprint on every run.
 
 ## T2 patch surface (cache-stable system prompt) — small, both sites verified
 

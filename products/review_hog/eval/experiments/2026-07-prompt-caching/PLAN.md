@@ -1,31 +1,30 @@
-# Gate 0 — cache-aware metrology + gateway cache probe + fork sizing (run-ready plan, 2026-07-06)
+# Gate 0 — cache-aware metrology + gateway cache probe + fork sizing (CLOSED 2026-07-06)
 
-> This is the FIRST round of the prompt-caching program and the only round greenlit so far (decision locked with the user 2026-07-06).
-> It is prepared for a fresh agent to execute in isolation: read `INVESTIGATION.md`, `CANDIDATES.md`, and `HARNESS.md`
-> (same folder, in that order) first — this plan assumes their context and does not repeat it. HARNESS.md carries the
-> PROVEN two-repo loop (local agent build -> sandbox overlay -> agentVersion fingerprint) and the 2026-07-06 smoke-run
-> findings that revise this plan's baselines. Candidates referenced as #N below are CANDIDATES.md numbering
-> (#1 `cache-aware-metrology`, #2 `gateway-cache-probe`, #3 `fork-sizing-spikes`).
-> **User veto 2026-07-06 (see CANDIDATES.md locked constraints): one-shot LLM calls for code investigation are out of scope;
-> every review unit stays a full sandbox agent. The warm-up+fork family (#8) is the flagship, which promotes #3 into this round.**
-> Later rounds (skill splice, pre-pack, the warm-up+fork ladder) get their own PLAN when greenlit — do NOT start them from here.
+## Status: round closed — this doc is the record
 
-## Status after session 1 (2026-07-06 — user scope-narrowed it to "one PR review + fix the spend calculation"; START HERE next session)
+Gate 0 ran one scope-narrowed session on 2026-07-06 and was then closed by the user's reframe of the program
+(locked constraints 5-9 in `CANDIDATES.md`). Outcome by part:
 
-Branch `signals/reviewhog-exp-caching-gate0`, commits `1ed24313ca0` + doc sync; details in the run log at the bottom.
+- **Part 1 (metrology): SHIPPED and validated live.** `dump_result.py` emits the cache-aware split, `true_usd`/`gw_usd`,
+  per-side cost cross-checks, and the per-unit turn-1 cache-read distribution; it matched the gateway's LiteLLM costs
+  at **Δ +0.0% on every bucket and side** (`runs/gate0-run1-pr68749-publish.md`: true $9.90 vs naive $47.52, 4.8×).
+  The probe-era "+28% sonnet discrepancy" was RESOLVED as a measurement artifact (LiteLLM's `input_cost` field is the
+  whole input side, cache included). The archived-arm recompute is DEAD (the 2026-07-06 DB nuke deleted the events);
+  baselines accumulate from fresh runs. Still open, riding on the next experiment's control runs: the T1 rewrite
+  detector and the candidate-$ re-anchor (see `CANDIDATES.md` #1).
+- **Part 2 (gateway probe): never ran — now optional.** The substrate was proven live twice (2/3 wave units read the
+  leader's identical 27,618-token prefix), and the fork build's mechanics gate subsumes the check.
+- **Part 3 (fork-sizing): never ran — demoted.** The reframe dropped the s-gate (nothing gates the build on measured
+  overlap); the TTL/warmth half folds into the fork build, where `ENABLE_PROMPT_CACHING_1H` is the resolved lever
+  (see `HARNESS.md` "1h cache TTL").
 
-- **Part 1 instrument: DONE, validated live.** `dump_result.py` emits the cache-aware split, `true_usd`/`gw_usd`, the per-side cost cross-check, `>200K` count, and the per-unit turn-1 cache-read distribution. Validation anchor (task 1) passed beyond spec: **every priced bucket and every side matches LiteLLM to the cent (Δ +0.0%)**, opus and sonnet both.
-- **Task 2 (+28% sonnet discrepancy): RESOLVED — it never existed.** Per-gen LiteLLM costs match the list back-calc exactly; the July probe's own back-calc was at fault (hypothesis (e): per-path token-accounting — it summed `$ai_input_tokens`, which is the WHOLE prompt, as if fresh). Trap recorded for future readers: LiteLLM's `input_cost` breakdown field is the whole input side (fresh + cache read + cache write), not fresh-only.
-- **Task 3 (archived-arm recompute): DEAD — the urgency note fired.** The local DB was nuked 2026-07-06; the 07-03 arm events are gone. The corrected sonnet-era baseline accumulates from fresh runs instead. First data point (`runs/gate0-run1-pr68749-publish.md`, single-chunk publish run on PR #68749): true $9.90 vs naive $47.52 (4.8×, matching the probe-era ratio), bucket split 43% cache reads / 33% writes / 19% output / 5% fresh.
-- **Task 4 (T1 detector): NOT RUN** — no archived data; run it over fresh runs as they accumulate. **Task 5 (re-anchor CANDIDATES.md $): NOT RUN** — needs the fresh-run baseline.
-- **Part 2 (gateway probe): NOT STARTED.**
-- **Part 3 (fork-sizing): NOT STARTED**, and its data source changed: archived ACP logs died with the DB, so `s`/warmth compute from fresh runs' events + ACP logs. The PR #68749 run is single-chunk (usable for one chunk's 3-wave-unit overlap, useless for cross-chunk warmth); the large multi-chunk runs the locked priority demands still need to be generated.
-- Bonus live evidence from a real publish run (not a smoke): 2/3 wave units read the leader's identical 27,618-token [tools+preset] prefix at turn 1; the blind-spot fired 12.5 min after the wave and rewrote everything — third independent confirmation of the TTL/per-chunk-sequencing requirement.
-- Ops lessons for anyone running this locally are in `HARNESS.md` → "Smoke-run lessons" (mid-run `products/**/*.py` edits kill the run via nodemon; DB-nuke integration restore; buffered CLI stdout).
+**Next experiment: the warm-up+fork build (#8) on frozen PR #62096, in its own experiment folder with its own plan.**
+Ops lessons for running anything locally: `HARNESS.md` → "Smoke-run lessons".
 
-~~**Next experiment session = the Gate-0 remainder: Part 2 (gateway cache probe) + Part 3 (fork-sizing spikes), which now starts by generating fresh run data on large multi-chunk PRs (2 runs double as the corrected-baseline controls and the T1-detector corpus for tasks 3-5).**~~
+Everything below this line is the original 2026-07-06 spec, kept unchanged for the record — its working-mode section
+and Parts 2-3 are superseded as described above.
 
-**SUPERSEDED — ROUND CLOSED 2026-07-06 late session (user decisions, recorded as locked constraints 6-9 in `CANDIDATES.md`).** The user reframed the flagship: the warm-up is designed as THE per-chunk investigation stage, value scales with unbounded perspective count, so **the s-measurement no longer gates the build** — Part 3 as specified is demoted to an optional post-build diagnostic, and Part 2 is optional (the fork's own mechanics gate subsumes the substrate check). The 1h-TTL question is resolved (default 5m on our path, enforceable per sandbox via `ENABLE_PROMPT_CACHING_1H=1` — see `HARNESS.md` "1h cache TTL"). **The next experiment is the warm-up+fork build (#8) on frozen PR #62096, with its own plan in a new experiment folder; T1 detector and the corrected-baseline accumulation ride along on its control runs.** This Gate-0 plan stays as the record of Part 1 (shipped) and the superseded Parts 2-3 specs.
+---
 
 ## Goal
 

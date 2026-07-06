@@ -5,9 +5,9 @@
 > critics (caching mechanics + economics; quality + precedent). The audit killed 3; a user decision the same day
 > (see the locked constraints below) killed 3 more. 7 survive; kills are recorded in the graveyard so they are not re-proposed.
 > Candidate numbering (#1-#10) is stable across kills — `PLAN.md` and ARCHITECTURE.md reference it.
-> Nothing here is built; every candidate is a spec.
+> Built so far: #1's instrument (2026-07-06, validated). Everything else is a spec; per-candidate status lines carry the truth.
 
-## Locked constraints (2026-07-06, user)
+## Locked constraints (user; 1-5 locked 2026-07-06, 6-9 late the same day, 5 amended 2026-07-07)
 
 1. **Quality is the moat. Not time, not money. ReviewHog must never generate bullshit.**
 2. **One-shot LLM calls for code investigation are permanently out of scope.** A single call cannot do detective work —
@@ -16,15 +16,14 @@
    unrestricted exploration. The program is: **make sandboxes cheaper via cache reuse, not replace them.**
 3. **Large PRs (1000+ additions) are the priority** — that is where review is hardest and the product matters most.
    All experiments run per chunk (the chunker targets ~300-addition chunks), so savings scale with chunk count and large
-   PRs benefit most in absolute $; sizing spikes must include large multi-chunk runs, not just the small frozen PR.
+   PRs benefit most in absolute $.
 4. Scope: review stage only (wave + blind-spot), no validator experiments, no model downgrades; cost-first within the
    quality gate (a few minutes of wall-clock regression is acceptable if $/run drops); every arm passes the standard
    frozen-PR #62096 eval.
-5. Working mode: experiments run **iteratively and in isolation, one after another**, each on its own branch off
-   `signals/reviewhog`; contradictory work is stashed or kept on its branch; only decided winners merge back.
-
-## Locked constraints — added 2026-07-06 late session (user, after Gate-0 session 1)
-
+5. Working mode (amended 2026-07-07): **one branch — everything happens on `signals/reviewhog`, no per-experiment
+   branches.** Experiment code lands behind an on/off constant (the `constants.py` knob pattern); arm-vs-control runs
+   toggle the constant; a losing experiment's commits are reverted, and the experiment folder keeps the record.
+   Experiments still run iteratively, one at a time.
 6. **The fork is reframed from "harvest incidental overlap" to "design the warm-up as THE investigation stage."**
    After chunking, one neutral agent per chunk understands the chunk and the related codespace (reads, no judgments,
    no code); perspectives fork from its cached session and should not NEED to re-investigate. Perspectives keep full
@@ -37,58 +36,50 @@
 8. **Fixture for the fork experiment: frozen PR #62096** (the standard eval fixture, 3 chunks) — comparable with
    every prior round. The large-PR (1000+) bucket stays untested for now, accepted.
 9. **TTL policy:** default on our sandbox path is 5m (proven — see HARNESS.md "1h cache TTL"); 1h is enforceable
-   with `ENABLE_PROMPT_CACHING_1H=1` in the sandbox env (per-unit, 2× write cost). Start with 5m sliding +
-   per-chunk sequencing, or selectively 1h on the warm-up unit; widen only if measured gaps demand it.
+   with `ENABLE_PROMPT_CACHING_1H=1` in the sandbox env (per-unit, 2× write cost). Design fan-out for the 5m sliding
+   window (immediate scheduling, overlapped provisioning), or selectively 1h on the warm-up unit; widen only if
+   measured gaps demand it.
 
 ## Measured facts the program stands on
 
-1. **The naive baseline overstates true cost ~4.8x.**
-   Live ClickHouse probe (10-day window, sonnet-5 review + blind-spot gens): 316.26M input tokens =
-   293.84M cache reads + 20.17M cache writes + 2.25M fresh; 2.26M output. ~$136 true vs ~$655 naive at list price,
-   so the "naive $87-101/run" from the model round maps to **~$18-21/run true**. Bucket split moved vs the opus-era
-   42/36/18/4: sonnet-5 review is ~37% writes / **43% reads** / 17% output / 3% fresh — cache reads are now the largest
-   true-cost bucket. `eval/scripts/dump_result.py` cannot see any of this (it sums `$ai_input_tokens` undifferentiated,
-lines ~50-61), which is why metrology is Gate 0 for every $ gate below.
-**2026-07-06 update (Gate-0 session 1): the metrology SHIPPED** (`dump_result.py`cache-aware split) and validated
-live — naive $47.52 vs true $9.90 on the PR #68749 publish run, reproducing the 4.8× exactly; whole-run split
-43% reads / 33% writes / 19% output / 5% fresh. **The probe's +28% gw-vs-list discrepancy is RESOLVED as a probe
-artifact** (per-gen LiteLLM costs match list to the cent; LiteLLM's`input_cost` field is the whole input side,
-   cache included — the old back-calc misread it). Same day the local DB was nuked: the archived 07-03 arm events are
-   GONE, so corrected baselines accumulate from fresh runs.
-2. **Cross-sandbox cache sharing is PARTIALLY live** (revised 2026-07-06 after the harness smoke run, superseding
-   the July "exactly zero / median = 0" measurement, which is stale on the current agent/SDK): two of three fresh wave
-   sandboxes read an identical 27,618-token [tools + system-preset] segment written by the jitter-elected leader unit —
-   see `HARNESS.md` for the full table. The `Task-Id` append (V1) poisons only the bytes after it, worth ~cents/unit;
-   **the fork flagship still hard-requires T2** (a forked transcript needs byte-identity through the whole prefix,
-   append included) **and T3**. Bonus live evidence: the gateway shares one Anthropic cache across distinct sandbox
-   processes (Spike 1's existential question has a production PASS), and the wave->blind-spot gap measured 10 min on a
-   single-chunk PR (TTL expired), confirming the fork's per-chunk-sequencing requirement.
-   **2026-07-06 update: reproduced on a full publish run** (PR #68749, not a smoke): leader wrote 73.2K, 2/3 wave units
-   read the identical 27,618-token prefix at +1s/+19s, blind-spot at +12.5 min rewrote in full — see
-   `runs/gate0-run1-pr68749-publish.md` (the turn-1 distribution is now a standing section of every dump).
+1. **Naive token math overstates true cost ~4.8× — and the metrology to see it is SHIPPED and validated.**
+   `eval/scripts/dump_result.py` splits every gen into fresh / cache-write (1.25×) / cache-read (0.1×) / output per
+   (model × stage) and matched the gateway's LiteLLM costs at Δ +0.0% on every bucket and side
+   (`runs/gate0-run1-pr68749-publish.md`: naive $47.52 vs true $9.90; whole-run split 43% reads / 33% writes /
+   19% output / 5% fresh — cache reads are the largest true-cost bucket). The probe-era "+28% gw-vs-list discrepancy"
+   was a measurement artifact (LiteLLM's `input_cost` field is the whole input side, cache included).
+   Provenance: the original 10-day probe (316.26M input = 293.84M reads + 20.17M writes + 2.25M fresh; ~$136 true vs
+   ~$655 naive) mapped the model round's "naive $87-101/run" to **~$18-21/run true** on multi-chunk runs. The archived
+   07-03 arm events died in the 2026-07-06 DB nuke; sonnet-era baselines accumulate from fresh runs.
+2. **Cross-sandbox cache sharing is partially live, observed twice** (smoke run 2 and the PR #68749 publish run —
+   the July "exactly zero" measurement is stale): 2 of 3 fresh wave sandboxes read the leader's identical 27,618-token
+   [tools + system-preset] segment at turn 1 (full tables in `HARNESS.md` and the run dump; the turn-1 distribution is
+   a standing section of every dump). The `Task-Id` append (V1) poisons everything after that segment, worth ~cents,
+   so **the fork hard-requires T2 (byte-identical full prefix) and T3 (raw-transcript fork-seed)**. The gateway
+   provably shares one Anthropic cache across sandbox processes. Wave→blind-spot gaps of 5m52s-12.5min busted the 5m
+   TTL both times → fan-out needs immediate scheduling with overlapped provisioning (fresh sandbox setup alone is
+   ~4-6 min), with `ENABLE_PROMPT_CACHING_1H` as per-unit insurance.
 3. For the record (measured, direction vetoed): one-shot direct calls would have removed most of the sandbox-loop cost,
    and the audit scored two such candidates at ~$7-8/run. The veto stands regardless: those calls cannot investigate,
    and quality is the moat. Recorded here so the economics aren't re-derived and the veto isn't re-litigated by a future
    session — see the graveyard.
 
-## The program (all candidates sandbox-preserving)
+## The program (all candidates sandbox-preserving; state as of 2026-07-07)
 
-| round                                                            | what                                                                                                                                               | cost                        | unlocks                                                                                                                                                                     |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 (offline, ~1-2 days) — **GREENLIT, run-ready plan: `PLAN.md`** | #1 metrology + #2 gateway probe (arm 5, the sandbox-origin pair, is the load-bearing arm) + #3 fork-sizing spikes (large multi-chunk PRs included) | ~$0 LLM                     | honest cache-aware $ gates; cross-sandbox substrate go/no-go; fork go/no-go (s + TTL warmth)                                                                                |
-| 1 (cheap builds)                                                 | #4 skill-body splice + #10 pre-pack touched files (after its free pre-gate)                                                                        | 1 eval round each           | ~$4-7/run combined (opus-era figures, re-anchor after Gate 0); units keep full exploration                                                                                  |
-| 2 (**flagship**)                                                 | the warm-up+fork ladder: T2 -> Spike 2 (stripped-form fork fidelity) -> #8 build -> eval                                                           | harness work + 1 eval round | shared exploration arrives as a 0.1x cached prefix while every reviewer stays a full sandbox agent; ~$0.7/chunk at s~0.55, scales with chunk count — large PRs benefit most |
-| hedges (unsequenced)                                             | #5 Arm B (blind-spot as warm continuation turn, C5-guarded); #9 Arm A (prompt turn budget — in tension with constraint 1, run last if at all)      | 1 eval round each           | ~$2.9 and ~$3/run respectively                                                                                                                                              |
+| round                    | what                                                                                                                                                 | state                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 (measurement)          | #1 metrology + #2 gateway probe + #3 fork-sizing spikes                                                                                              | **CLOSED 2026-07-06**: #1 shipped + validated; #2 optional (substrate proven live twice); #3 demoted (constraint 7 dropped the s-gate). `PLAN.md` = record |
+| **NEXT: the fork build** | #8 under constraints 6-9: T2+T3 local harness patches → Spike 2 (stripped-form fork fidelity) → warm-up stage behind a constant → 2v2 eval on #62096 | own experiment folder + plan; gates = mechanics / cost / quality (see #8 status)                                                                           |
+| queued (cheap builds)    | #4 skill-body splice + #10 pre-pack touched files (after its free pre-gate)                                                                          | ~$4-7/run combined at opus-era prices — re-anchor against fresh sonnet-era controls before trusting                                                        |
+| hedges (unsequenced)     | #5 Arm B (blind-spot as warm continuation turn, C5-guarded); #9 Arm A (prompt turn budget — tension with constraint 1, last if at all)               | ~$2.9 and ~$3/run respectively (same re-anchor caveat)                                                                                                     |
 
-**Harness path RESOLVED 2026-07-06 (user):** local two-repo experimentation is approved — the flagship's harness changes
-(T2 cache-stable system prompt, T3 raw-JSONL fork-seed) may be patched directly in the local PostHog Code checkout
-(`/Users/woutut/Documents/Code/code`) to run the fork experiments without waiting on tickets. How the fixes SHIP
-(Tasks-team tickets / PR to the code repo) is decided after the experiment proves value. The local build+test loop for a
-patched harness is being mapped (see PLAN.md notes and #8).
+**Harness path (resolved 2026-07-06):** the fork's harness changes (T2 cache-stable system prompt, T3 raw-JSONL
+fork-seed) are patched directly in the local PostHog Code checkout (`/Users/woutut/Documents/Code/code`); the proven
+build/overlay/verify loop and exact patch surfaces are in `HARNESS.md`. How the fixes ship upstream is decided after
+the experiment proves value.
 
-Sonnet-5 list pricing per the model round's FINAL_REPORT: $2/M in, $10/M out (write 1.25x, read 0.1x).
-Some estimates below were derived at $3/$15 and are therefore conservative; all absolute $ figures must be re-anchored
-cache-aware after Gate 0 rather than trusted as written.
+Sonnet-5 list pricing: $2/M in, $10/M out (write 1.25× at 5m TTL, 2× at 1h, read 0.1×). Candidate $ estimates below
+predate the metrology; treat them as sizing inputs and re-anchor against fresh sonnet-era controls.
 
 ---
 
@@ -99,25 +90,15 @@ cache-aware after Gate 0 rather than trusted as written.
 DEP: none (offline). Direct saving: $0 (decision value only; conditional T1 EV ~$0.1-0.15/run). Verdicts: modify + modify.
 **Status 2026-07-06: instrument SHIPPED and validated (Δ +0.0% vs gateway LiteLLM on every bucket and side);
 discrepancy sub-task RESOLVED (probe artifact); archived-arm recompute DEAD (DB nuke — baseline accumulates from
-fresh runs); T1 re-quantification and the #4-#10 re-anchor remain OPEN pending fresh-run data. See PLAN.md status.**
+fresh runs). Full original spec in git history.**
 
-Extend `eval/scripts/dump_result.py` to split every gen into fresh / cache_write (1.25x) / cache_read (0.1x) / output
-per (model x stage), plus `long_ctx_gens` (>200K prompt, premium tier) and a per-unit **turn-1 cache_read median**
-column (the permanent cross-sandbox-sharing tripwire; expected value today: 0).
-Recompute the archived sonnet-5 arms as an ADDED true-cost column next to the naive numbers (not replacing them,
-cross-round continuity needs both), scoped by task identity rather than raw time windows where possible.
-Re-run the T1 rewrite detector (consecutive gens in one task_run_id: cache_read < 0.05x prev, cache_creation >= 0.8x prev,
-gap <= 120s, threshold swept to 0.5x) over post-flip runs.
-Decision gates: opus back-calc must match gateway `$ai_total_cost_usd` within 1%; the observed +28% sonnet discrepancy must be
-explained against an enumerated hypothesis list (>200K tier split, allowlist model mapping, Bedrock reroute pricing,
-gateway price-table error) with the winning hypothesis published. T1: >= $0.5/run at sonnet prices -> press the ticket
-with fresh evidence; < $0.3/run -> drop it from the priority list and record (the crude probe found ~$0.005/run post-flip,
-vs $0.75 opus-era, so demotion is the likely outcome).
-Critic-required fixes folded in: separate Bedrock-fallback reroutes from harness rewrites (the detector signature is identical;
-correlate with Anthropic 5xx if the gateway lacks routing telemetry), time-order gens within task_run_id,
-classify rewrite-after-write vs session-restart shapes, and confirm local ClickHouse still holds the 07-03 arm events
-before committing to the recompute (retention makes this fragile if delayed).
-**Why first: every other candidate's cost gate is stated cache-aware and is currently unmeasurable.**
+Remaining open work (rides along on the fork experiment's control runs):
+
+- **T1 rewrite detector** over fresh runs (consecutive gens in one task_run_id, time-ordered: cache_read < 0.05x prev,
+  cache_creation >= 0.8x prev, gap <= 120s; sweep the creation threshold to 0.5x; classify rewrite-after-write vs
+  session-restart; note the Bedrock-fallback confound). Decision: >= $0.5/run -> press the Tasks-team ticket;
+  < $0.3/run -> demote and record (crude post-flip probe found ~$0.005/run, so demotion is the likely outcome).
+- **Re-anchor the candidate $ estimates** (#4, #5, #9, #10) against the fresh sonnet-era control runs.
 
 ### 2. `gateway-cache-probe` — cross-client cache-share probe (Spike 1, cheap worker-side variant)
 
@@ -206,7 +187,7 @@ not advisory. Gates: blind-spot-attributed valid findings >= control - 1; overla
 Quality risk is real (anchoring to the host's exploration path is precisely the C5 failure mode, and blind-spot exists to
 find what the wave missed) — which is why this is a hedge, not the flagship.
 
-### 8. `warmup-fork-wave` — per-chunk neutral-read warm-up + fork of the 3 wave units (T3)
+### 8. `warmup-fork-wave` — per-chunk neutral-read warm-up + fork of the N wave units (T3)
 
 DEP: harness (T2 + T3 + SHA-pinned checkout). Corrected saving: ~$0.7/chunk at s in [0.55, 0.6] (~$1.5-2.2/run on the
 3-chunk frozen PR; scales with chunk count, so large PRs benefit most). Verdicts: modify + modify.
@@ -228,17 +209,19 @@ that reads the diff + touched files + immediate callers with a no-analysis instr
 strips prior thinking blocks server-side, so the forked bytes diverge at the first thinking block and the ~70K fork read
 never happens; the warm-up must end with a settling user turn so IT writes the stripped-form cache once (~$0.19/chunk),
 and Spike 2's fidelity gate must be restated against the stripped-form prefix or it false-kills a correct implementation.
-Also folded in: the (1-s) re-read tax is NOT a wash (~$0.9-1.8/run at s=0.4; cap the warm-up transcript ~70K and gate follower
-per-turn cost vs control, not just turn count); stagger the 3 followers or rely on the settling write to avoid a 3-way
+Also folded in: the re-read tax is NOT a wash if the warm-up under-covers (cap the warm-up transcript ~70K and gate
+follower per-turn cost vs control, not just turn count); stagger the followers or rely on the settling write to avoid a
 concurrent re-write race; Spike 2 must measure the full warm-up-completion -> follower-first-request latency against the
-5-min TTL (JSONL upload + Task scheduling + provisioning; the sandbox path cannot buy the 1h TTL);
+5-min TTL (JSONL upload + Task scheduling + provisioning — fresh sandbox setup alone measured ~4-6 min, so overlap
+follower provisioning with the warm-up run; `ENABLE_PROMPT_CACHING_1H=1` on the warm-up sandbox is the per-unit
+fallback, resolved 2026-07-06 — see HARNESS.md "1h cache TTL");
 production follower turn-1 cache_read monitor with an auto-disable kill switch (a silent cache regression flips net negative
 while functionally invisible); contingency B2 (fork a real perspective unit's mid-session transcript) is DEAD — it inherits
 conflicting perspective instructions in-context and reintroduces C5-style shared analytical state.
-Gated ladder before any build: #3's s >= 0.55 (strict, wave-only) -> #2 arm 5 -> Spike 2 (stripped-form fidelity) -> build ->
-standard eval with per-perspective finding-count distribution as the anchoring guard.
-The blind-spot-as-5th-forker kernel from the killed TTL-bridge candidate rides along as a near-free sub-arm here,
-gated on #3's wave->blind-spot warmth result and the blind-spot-unique-findings metric.
+Ladder (collapsed 2026-07-06, constraints 6-9): T2+T3 local patches -> Spike 2 (stripped-form fidelity) -> build behind a
+constant -> standard 2v2 eval on #62096 with per-perspective finding-count distribution as the anchoring guard.
+The blind-spot-as-5th-forker kernel from the killed TTL-bridge candidate rides along as a near-free sub-arm,
+gated on the measured wave->blind-spot warmth and the blind-spot-unique-findings metric.
 Anchoring posture: the shared prefix contains no findings or judgments, only neutral raw tool results; each perspective
 branches into its own isolated forked session and may explore anywhere from there.
 

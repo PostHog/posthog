@@ -179,36 +179,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    dupes are rare — chunks are distinct concerns), and dedup as **plain LLM calls** instead of a sandbox
    agent (it compares finding texts + prior comments, no repo access needed) — faster for sure
    **(BUILT 2026-07-03 for the size-gated case, chunking included — see the section below)**.
-7. **✅ INVESTIGATED 2026-07-03, candidate roster 2026-07-06 — prompt caching / review-stage cost.**
-   Item 6's "per-stage token attribution" clause graduated into a full investigation (cross-sandbox cache
-   reuse: why sharing is measured zero today — harness `Task-Id`/dynamic-section system-prompt violations,
-   Tasks-team ticket territory — and what the fixes are) plus an adversarially audited roster of 10
-   experiment candidates (3 more killed and recorded so they are not re-proposed), archived at
-   `eval/experiments/2026-07-prompt-caching/` (`INVESTIGATION.md` + `CANDIDATES.md`; the former top-level
-   `PROMPT_CACHING_INVESTIGATION.md` moved there). Headlines: naive $/run overstates true sonnet-5 cost
-   ~4.8x (cache reads at 0.1x are now the largest true-cost bucket); **user veto 2026-07-06 (locked):
-   one-shot LLM calls for code investigation are permanently out of scope** — a single call cannot do
-   detective work and quality is the moat, so only chunking + dedup stay one-shot and every review unit
-   remains a full sandbox agent. That killed the direct-call review candidates and made the
-   sandbox-preserving family the program: skill-body splice + pre-pack touched files as cheap builds, then
-   the per-chunk **warm-up+fork ladder as flagship** (T2/T3 harness work + Spike-3 overlap gate at
-   s >= ~0.55) — shared exploration arrives as a 0.1x cached prefix while reviewers keep unrestricted
-   exploration; savings scale per chunk, so large PRs (the stated priority) benefit most. Nothing built;
-   the Gate-0 measurement pack (cache-aware `dump_result.py` split + gateway cache probe + fork-sizing
-   spikes, ~$0) is greenlit with a run-ready `PLAN.md` in the same folder — experiments run iteratively,
-   in isolation, one per branch, per the working mode locked 2026-07-06.
-   **Gate-0 session 1 executed 2026-07-06** (branch `signals/reviewhog-exp-caching-gate0`, scope-narrowed
-   by the user to metrology + one publish run): the cache-aware `dump_result.py` split SHIPPED and
-   validated live — Δ +0.0% vs gateway LiteLLM costs on every bucket, naive = 4.8× true confirmed on a
-   published PR #68749 review ($9.90 true), and the probe-era "+28% sonnet discrepancy" resolved as a
-   measurement artifact. The same-day local-DB nuke deleted the archived arm events, so corrected
-   baselines accumulate from fresh runs. **Gate 0 CLOSED the same day by a user reframe (locked
-   constraints 6-9 in `CANDIDATES.md`): the warm-up is designed as THE per-chunk investigation stage,
-   value scales with unbounded perspective count, so no overlap measurement gates the build — the
-   pre-build spikes are dropped/optional. TTL resolved: sandboxes default to the 5m cache (proven);
-   1h is one env var (`ENABLE_PROMPT_CACHING_1H=1` in the sandbox env, per-unit, 2× write cost) — see
-   the experiment's `HARNESS.md`. Next experiment: the warm-up+fork build (#8) on frozen PR #62096,
-   in its own experiment folder with its own plan; T2/T3 harness patches run locally per `HARNESS.md`.**
+7. **🎯 ACTIVE — prompt caching / review-stage cost (investigated 2026-07-03, program locked 2026-07-06;
+   next experiment: the warm-up+fork build).** Everything lives in `eval/experiments/2026-07-prompt-caching/`:
+   `INVESTIGATION.md` (caching mechanics, what's measured as true, the V1-V3 harness violations forking must
+   fix), `CANDIDATES.md` (locked constraints 1-9, candidate roster + graveyard so kills aren't re-proposed),
+   `HARNESS.md` (the proven local two-repo patch loop, T2/T3 patch surfaces, the 1h-TTL findings, ops
+   lessons), `PLAN.md` (Gate 0, closed — its metrology shipped: the cache-aware `dump_result.py` split,
+   validated at Δ +0.0% vs gateway costs; naive token math overstates true cost ~4.8×).
+   The locked program: **one neutral warm-up agent per chunk does the investigation once; every perspective
+   (user-extensible, could be 20) forks its cached session at 0.1× and skips re-investigating, while keeping
+   full tools — quality is the moat, one-shot code investigation is permanently vetoed.** No overlap
+   measurement gates the build; gates are mechanics (follower turn-1 cache reads), cost (follower turns
+   drop), and quality (yardstick parity + anchoring guard) on frozen PR #62096. TTL: sandboxes run the 5m
+   cache (proven); `ENABLE_PROMPT_CACHING_1H=1` per sandbox enforces 1h when needed. Working mode
+   (amended 2026-07-07): everything on `signals/reviewhog`, experiment code behind on/off constants,
+   losers reverted — no per-experiment branches.
 
 ### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
 
