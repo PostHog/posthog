@@ -35,7 +35,7 @@ describe('StickinessLineChart', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
-            await screen.findByRole('img', { name: /chart with 1 data series/i })
+            await screen.findByLabelText(/chart with 1 data series/i)
         })
     })
 
@@ -43,7 +43,7 @@ describe('StickinessLineChart', () => {
         it('renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
                 const ticks = getHogChart().yTicks()
                 expect(ticks.length).toBeGreaterThan(0)
@@ -85,7 +85,7 @@ describe('StickinessLineChart', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
             })
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
     })
 
@@ -159,7 +159,7 @@ describe('StickinessLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesLine, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)

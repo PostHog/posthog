@@ -62,11 +62,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: new RegExp(`chart with ${expected} data series`, 'i'),
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(new RegExp(`chart with ${expected} data series`, 'i'))).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -74,7 +70,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('shows the series value in the tooltip on hover', async () => {
         renderInsight({ query: trendsBar() })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
@@ -99,7 +95,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
                 ],
             }),
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -110,7 +106,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('shows a date header in the tooltip', async () => {
         renderInsight({ query: trendsBar() })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.title()).toMatch(/Jun/)
@@ -118,7 +114,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar() })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(2)
 
@@ -143,7 +139,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         it('clicking a bar does not open the persons modal', async () => {
             renderInsight({ query: trendsBar(), inSharedMode: true })
-            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+            await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
             await chart.clickAtIndex(2)
 
@@ -171,7 +167,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             },
             { timeout: 5000 }
         )
-        expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
     })
 
     it('shows current and previous period rows in compare mode', async () => {
@@ -181,11 +177,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 2 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -217,7 +209,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
                 },
             }),
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
 
@@ -239,7 +231,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
 
         await waitFor(
             () => {
-                expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -256,7 +248,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             }),
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         expect(getHogChart().xAxisLabel()).toBe('Total events')
         expect(getHogChart().yAxisLabel()).toBe('Series')
         expect(
@@ -284,7 +276,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().yTicks()).toHaveLength(5)
@@ -303,7 +295,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 trendsFilter: { display: ChartDisplayType.ActionsBarValue, showValuesOnSeries: true },
             }),
         })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -324,7 +316,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
             }),
         })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -344,7 +336,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues: true },
             }),
         })
-        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 5 data series/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -388,7 +380,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: manyBreakdowns }],
             },
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {
@@ -408,7 +400,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         renderInsight({
             query: aggregatedBar(),
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(0)
         expect(tooltip.title()).toBe('')
@@ -418,7 +410,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         renderInsight({
             query: aggregatedBar(),
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -436,7 +428,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         renderInsight({
             query: aggregatedBar({ compareFilter: { compare: true } }),
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -457,7 +449,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             query: aggregatedBar(),
             context: { onDataPointClick },
         })
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(0)
 
@@ -480,10 +472,10 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
             }),
         })
-        await screen.findByRole('img', { name: /chart with 1 data series/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
 
         // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
-        const canvas = screen.getByRole('img', { name: /chart with/i })
+        const canvas = screen.getByLabelText(/chart with/i)
         const wrapper = canvas.parentElement!
         fireEvent.mouseMove(wrapper, {
             clientX: dimensions.plotLeft + 10,
@@ -558,7 +550,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
                 additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: compareResults }],
             },
         })
-        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        const canvas = await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         const wrapper = canvas.parentElement!
         // Topmost band is the previous period (largest aggregated_value, sorted DESC). Aim at the
         // band centre — the bar's hittable region sits inside the band's padding.
@@ -621,11 +613,7 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
 
         await waitFor(
             () => {
-                expect(
-                    screen.getByRole('img', {
-                        name: /chart with 2 data series/i,
-                    })
-                ).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -643,7 +631,7 @@ describe('TrendsBarChart overlays', () => {
             }),
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
@@ -673,7 +661,7 @@ describe('TrendsBarChart overlays', () => {
             },
         })
 
-        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
                 expect(getHogChart().annotationBadges().length).toBeGreaterThan(0)
@@ -711,7 +699,7 @@ describe('TrendsBarChart overlays', () => {
                 }),
             })
 
-            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+            await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
             await waitFor(
                 () => {
                     const lines = getHogChart().referenceLines()
@@ -740,7 +728,7 @@ describe('TrendsBarChart overlays', () => {
             const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)

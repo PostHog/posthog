@@ -73,7 +73,7 @@ describe('TrendsLifecycleChart', () => {
         )
         await waitFor(
             () => {
-                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 4 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
