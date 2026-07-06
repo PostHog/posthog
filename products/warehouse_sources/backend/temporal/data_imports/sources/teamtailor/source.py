@@ -27,8 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
     TeamtailorResumeConfig,
-    check_access,
     teamtailor_source,
+    validate_credentials as _validate_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -110,12 +110,7 @@ You can create an API key under **Settings → API keys** in Teamtailor. The key
         self, config: TeamtailorSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Teamtailor API key"
-        return False, message or "Could not validate Teamtailor API key"
+        return _validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TeamtailorResumeConfig]:
         return ResumableSourceManager[TeamtailorResumeConfig](inputs, TeamtailorResumeConfig)
