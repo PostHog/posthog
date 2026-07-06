@@ -152,6 +152,33 @@ class TestExtractRows:
         assert smartreach._extract_rows(data, "prospects") == []
 
 
+class TestNextUrl:
+    @parameterized.expand(
+        [
+            ("cursor", "https://api.smartreach.io/api/v1/prospects?cursor=abc"),
+            ("plain", "https://api.smartreach.io/api/v1/prospects"),
+        ]
+    )
+    def test_same_origin_url_is_returned(self, _name: str, url: str) -> None:
+        assert smartreach._next_url({"links": {"next": url}}) == url
+
+    @parameterized.expand([("missing_links", {}), ("null_next", {"links": {"next": None}}), ("empty", {"links": {}})])
+    def test_absent_next_returns_none(self, _name: str, data: dict[str, Any]) -> None:
+        assert smartreach._next_url(data) is None
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/api/v1/prospects"),
+            ("subdomain_spoof", "https://api.smartreach.io.evil.com/api/v1/prospects"),
+            ("http_downgrade", "http://api.smartreach.io/api/v1/prospects"),
+        ]
+    )
+    def test_off_origin_next_url_raises(self, _name: str, url: str) -> None:
+        # Following an off-origin cursor would send the user's API key to an attacker-named host.
+        with pytest.raises(ValueError):
+            smartreach._next_url({"links": {"next": url}})
+
+
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: dict | None = None) -> MagicMock:
         response = MagicMock()

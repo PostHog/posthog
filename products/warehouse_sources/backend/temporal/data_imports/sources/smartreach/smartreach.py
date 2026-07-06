@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -12,6 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import SMARTREACH_ENDPOINTS
 
 SMARTREACH_BASE_URL = "https://api.smartreach.io/api/v1"
+# `links.next` is echoed back from the API response, so it can't be trusted blindly: a tampered
+# response could point it at an arbitrary host and leak the user's API key there. Only follow next
+# URLs that stay on SmartReach's own origin.
+SMARTREACH_ALLOWED_ORIGIN = ("https", "api.smartreach.io")
 REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. The user key is account-wide, so one probe
 # validates access to every list endpoint.
@@ -46,11 +51,23 @@ def _extract_rows(data: dict[str, Any], data_key: str) -> list[dict[str, Any]]:
     return []
 
 
+def _is_same_origin(url: str) -> bool:
+    parts = urlsplit(url)
+    return (parts.scheme, parts.hostname) == SMARTREACH_ALLOWED_ORIGIN
+
+
 def _next_url(data: dict[str, Any]) -> Optional[str]:
     links = data.get("links")
-    if isinstance(links, dict):
-        return links.get("next")
-    return None
+    if not isinstance(links, dict):
+        return None
+    next_url = links.get("next")
+    if not isinstance(next_url, str) or not next_url:
+        return None
+    if not _is_same_origin(next_url):
+        # Refuse to follow (and to persist) an off-origin cursor: fetching it would send the API key
+        # to whatever host the response named. Fail loudly rather than silently truncating the sync.
+        raise ValueError(f"SmartReach returned an off-origin pagination URL: {next_url}")
+    return next_url
 
 
 @retry(
@@ -81,8 +98,9 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[SmartreachResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = SMARTREACH_ENDPOINTS[endpoint]
-    # `redact_values` masks the user key in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    # `redact_values` masks the user key in logged URLs and captured samples. `allow_redirects=False`
+    # keeps a redirect from bouncing the key off-origin (see `_next_url` for the same concern).
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume and resume.next_url:
@@ -140,7 +158,7 @@ def check_access(api_key: str, endpoint: str = DEFAULT_PROBE_ENDPOINT) -> tuple[
     connection problem, other HTTP status otherwise.
     """
     config = SMARTREACH_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
     try:
         response = session.get(f"{SMARTREACH_BASE_URL}{config.path}", timeout=15)
     except Exception as e:
