@@ -465,8 +465,6 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
 
     Raises on failure so callers (celery autoretry) can retry.
     """
-    # The workflow trigger's "auth_header" input compares the Authorization header verbatim,
-    # so the secret must be the full header value (e.g. "Bearer <token>").
     headers = {}
     if settings.WORKFLOWS_WEBHOOK_SECRET:
         headers["Authorization"] = settings.WORKFLOWS_WEBHOOK_SECRET

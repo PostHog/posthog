@@ -889,9 +889,7 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
-# Sent verbatim as the Authorization header when internal services POST to workflow public webhooks.
-# Must match the workflow trigger's "auth_header" input exactly, including any scheme prefix
-# (e.g. "Bearer <token>").
+# webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
 ####
