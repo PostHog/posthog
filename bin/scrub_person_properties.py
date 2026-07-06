@@ -154,24 +154,24 @@ def scrub_via_events(
 def scrub_via_api(
     session: requests.Session, host: str, project_id: str, affected: list[dict[str, Any]]
 ) -> tuple[int, list[str]]:
-    """Call delete_property per (person, property). Returns (requests_made, failures)."""
+    """Call delete_property per (person, property). Returns (pairs_attempted, failures)."""
     failures: list[str] = []
-    request_count = 0
+    attempted = 0
     total_pairs = sum(len(p["matched_properties"]) for p in affected)
     for person in affected:
         for prop in person["matched_properties"]:
             url = f"{host}/api/projects/{project_id}/persons/{person['uuid']}/delete_property/"
+            attempted += 1
             try:
                 response = request_with_retries(session, "POST", url, json={"$unset": prop})
             except ScrubError as err:
                 failures.append(f"{person['uuid']} / {prop}: {err}")
-                continue
-            if response.status_code >= 400:
-                failures.append(f"{person['uuid']} / {prop}: HTTP {response.status_code} {response.text[:200]}")
-            request_count += 1
-            if request_count % 50 == 0 or request_count == total_pairs:
-                log(f"  {request_count}/{total_pairs} delete_property requests done")
-    return request_count, failures
+            else:
+                if response.status_code >= 400:
+                    failures.append(f"{person['uuid']} / {prop}: HTTP {response.status_code} {response.text[:200]}")
+            if attempted % 50 == 0 or attempted == total_pairs:
+                log(f"  {attempted}/{total_pairs} delete_property requests done")
+    return attempted, failures
 
 
 def parse_args() -> argparse.Namespace:
@@ -278,9 +278,9 @@ def main() -> int:
         log(f"Done: sent {sent} scrub events in {request_count} batch requests.")
         log("Ingestion is asynchronous - properties disappear once the events are processed.")
     else:
-        request_count, failures = scrub_via_api(session, args.host, args.project_id, affected)
+        attempted, failures = scrub_via_api(session, args.host, args.project_id, affected)
         log("")
-        log(f"Done: {request_count} delete_property requests, {len(failures)} failures.")
+        log(f"Done: attempted {attempted} delete_property requests, {len(failures)} failures.")
         for failure in failures[:20]:
             log(f"  FAILED: {failure}")
         if failures:
