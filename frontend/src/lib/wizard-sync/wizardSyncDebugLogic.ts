@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 
 import type { wizardSyncDebugLogicType } from './wizardSyncDebugLogicType'
 
@@ -29,13 +29,18 @@ export interface SyncDebugSourceInfo {
 
 const MAX_ENTRIES = 200
 
+let nextEntryId = 0
+// Gap tracking lives here rather than in a reducer so `gapMs` can travel on the action payload and
+// the reducers stay pure. Module-level is fine: this is a dev-only diagnostic, not app state.
+const lastTickAtBySource = new Map<string, number>()
+
 /**
  * Dev-only in-memory event log for the wizard sync transports (task-run SSE/polling, wizard-session
- * SSE). Fed by `logSyncDebug` below and rendered by `WizardSyncDebugPanel`. Never mounted in
+ * SSE/polling). Fed by `logSyncDebug` below and rendered by `WizardSyncDebugPanel`. Never mounted in
  * production — the helper no-ops there, so this logic holds no state outside development.
  */
 export const wizardSyncDebugLogic = kea<wizardSyncDebugLogicType>([
-    path(['scenes', 'onboarding', 'wizardSyncDebugLogic']),
+    path(['lib', 'wizard-sync', 'wizardSyncDebugLogic']),
     actions({
         recordSyncEvent: (entry: SyncDebugEntry, mode?: 'sse' | 'polling', intervalMs?: number) => ({
             entry,
@@ -76,12 +81,13 @@ export const wizardSyncDebugLogic = kea<wizardSyncDebugLogicType>([
             },
         ],
     }),
+    listeners({
+        // Reset the module-level gap tracker too, or the first tick after a clear reports a stale gap.
+        clearSyncDebugLog: () => {
+            lastTickAtBySource.clear()
+        },
+    }),
 ])
-
-let nextEntryId = 0
-// Gap tracking lives here rather than in a reducer so `gapMs` can travel on the action payload and
-// the reducers stay pure. Module-level is fine: this is a dev-only diagnostic, not app state.
-const lastTickAtBySource = new Map<string, number>()
 
 /**
  * Record a wizard-sync debug event. No-ops outside development and when the debug panel (the only

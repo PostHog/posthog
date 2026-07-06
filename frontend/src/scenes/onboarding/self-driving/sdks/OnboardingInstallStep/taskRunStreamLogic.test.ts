@@ -1,13 +1,17 @@
+import {
+    DEFAULT_POLLING_INTERVAL_SECS,
+    jitteredIntervalMs,
+    MAX_POLLING_INTERVAL_SECS,
+    POLL_JITTER_RATIO,
+    resolvePollingIntervalMs,
+} from 'lib/wizard-sync/pollLoop'
+
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     cloudRunCompletionReport,
-    DEFAULT_POLLING_INTERVAL_SECS,
     mergeProgressStep,
     parseTaskRunStreamMessage,
-    jitteredIntervalMs,
-    POLL_JITTER_RATIO,
-    resolvePollingIntervalMs,
     TaskRunProgressStep,
     taskRunDetailToStreamState,
     taskRunPrUrl,
@@ -167,6 +171,16 @@ describe('taskRunStreamLogic helpers', () => {
             ['a non-numeric interval', { polling_interval_secs: 'fast' }, DEFAULT_POLLING_INTERVAL_SECS * 1000],
             ['a missing payload', null, DEFAULT_POLLING_INTERVAL_SECS * 1000],
             ['a payload without the key', {}, DEFAULT_POLLING_INTERVAL_SECS * 1000],
+            [
+                'an over-maximum interval (clamped so sync cannot silently stall)',
+                { polling_interval_secs: 3600 },
+                MAX_POLLING_INTERVAL_SECS * 1000,
+            ],
+            [
+                'a huge interval that would overflow the int32 setTimeout delay and fire immediately',
+                { polling_interval_secs: 1_700_000_000 },
+                MAX_POLLING_INTERVAL_SECS * 1000,
+            ],
         ])('resolves %s', (_name, payload, expectedMs) => {
             expect(resolvePollingIntervalMs(payload)).toBe(expectedMs)
         })

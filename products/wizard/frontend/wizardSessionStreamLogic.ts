@@ -3,11 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import {
-    jitteredIntervalMs,
+    createPollLoop,
+    isPermanentPollError,
     resolvePollingIntervalMs,
+    resolveWizardSyncMode,
     type WizardSyncMode,
-} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/taskRunStreamLogic'
-import { logSyncDebug } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/WizardSync/wizardSyncDebugLogic'
+} from 'lib/wizard-sync/pollLoop'
+import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { getWizardSessionsStreamRetrieveUrl, wizardSessionsLatestRetrieve } from './generated/api'
@@ -35,10 +37,13 @@ export interface WizardSessionStreamLogicProps {
  * to every skill under the workflow.
  *
  * When the `onboarding-wizard-sync-mode` flag resolves to `polling` (GROW-118), the
- * EventSource is replaced by an interval that re-fetches the latest session via
- * `wizard/sessions/latest/` and feeds it through the same `sessionUpdated` action —
- * mirroring `taskRunStreamLogic`, whose interval/jitter helpers this reuses. Like SSE,
- * polling runs until `disconnect` (sessions have no terminal state to stop on).
+ * EventSource is replaced by a poll loop that re-fetches the latest session via
+ * `wizard/sessions/latest/` and feeds it through the same `sessionUpdated` action.
+ * The loop (shared with `taskRunStreamLogic`) backs off on consecutive errors, stops on
+ * permanent ones (401/403/404), and backs off on consecutive empty responses — so an
+ * endpoint with no session (not started yet, or killswitched to 204) winds down instead
+ * of being polled at full cadence forever. Consumers stop it via `disconnect`;
+ * `installationProgressLogic` does so once a cloud run reaches a terminal state.
  *
  * Usage:
  *
@@ -101,10 +106,13 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
 
             const debugSource = `session ${props.workflowId}::${props.skillId ?? '*'}`
 
-            // Mode is sampled once per connect — a mid-run flag flip applies on the next (re)connect,
-            // not live, which keeps the transport swap trivially safe.
-            const syncMode: WizardSyncMode =
-                values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE] === 'polling' ? 'polling' : 'sse'
+            // Mode is re-sampled on every connect, and the setFeatureFlags listener below reconnects
+            // when the resolved mode changes — so a flag flip (or flags arriving after a cold-cache
+            // connect) swaps the transport live instead of waiting for a remount.
+            const syncMode: WizardSyncMode = resolveWizardSyncMode(
+                values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE]
+            )
+            cache.syncMode = syncMode
 
             if (syncMode === 'polling') {
                 const intervalMs = resolvePollingIntervalMs(
@@ -114,51 +122,45 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                     mode: 'polling',
                     intervalMs,
                 })
-                cache.disposables.add((): (() => void) => {
-                    let cancelled = false
-                    let timer: number | undefined
-                    // Each tick schedules the next one only after its request settles, so a slow
-                    // server can never stack requests, and every gap gets fresh jitter.
-                    const poll = async (): Promise<void> => {
-                        try {
-                            // 204 (no session yet) resolves to undefined — keep polling until one appears.
+                cache.disposables.add(
+                    createPollLoop({
+                        intervalMs,
+                        tick: async () => {
+                            // 204 (no session yet, or killswitched) resolves to null — classify as
+                            // empty so the loop backs off instead of polling at full cadence forever.
                             const session = await wizardSessionsLatestRetrieve(String(projectId), {
                                 workflow_id: props.workflowId,
                                 skill_id: props.skillId,
                             })
-                            if (cancelled) {
-                                return
-                            }
                             logSyncDebug(
                                 debugSource,
                                 'poll',
                                 session
-                                    ? `poll ok — ${session.run_phase} (${session.skill_id})`
-                                    : 'poll ok — no session yet',
+                                    ? `poll ok: ${session.run_phase} (${session.skill_id})`
+                                    : 'poll ok: no session yet',
                                 { mode: 'polling', intervalMs }
                             )
                             // Only on first open / recovery from error — not every tick.
                             if (values.connectionStatus !== 'open') {
                                 actions.connectionOpened()
                             }
-                            if (session) {
-                                actions.sessionUpdated(session)
+                            if (!session) {
+                                return 'empty'
                             }
-                        } catch (err) {
-                            if (cancelled) {
-                                return
-                            }
+                            actions.sessionUpdated(session)
+                            return 'ok'
+                        },
+                        onError: (err) => {
                             logSyncDebug(debugSource, 'error', `poll failed: ${String(err)}`)
                             actions.connectionErrored(`Failed to poll wizard session: ${String(err)}`)
-                        }
-                        timer = window.setTimeout(() => void poll(), jitteredIntervalMs(intervalMs))
-                    }
-                    void poll()
-                    return () => {
-                        cancelled = true
-                        window.clearTimeout(timer)
-                    }
-                }, 'session-sync')
+                            return isPermanentPollError(err) ? 'stop' : 'retry'
+                        },
+                        // Dispose the key so a later tab-visibility resume doesn't restart a loop
+                        // that ended itself.
+                        onLoopEnd: () => cache.disposables.dispose('session-sync'),
+                    }),
+                    'session-sync'
+                )
                 return
             }
 
@@ -209,6 +211,21 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
         disconnect: () => {
             logSyncDebug(`session ${props.workflowId}::${props.skillId ?? '*'}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('session-sync')
+        },
+        // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
+        // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —
+        // the keyed disposable makes the swap idempotent.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (cache.syncMode === undefined) {
+                return
+            }
+            if (values.connectionStatus === 'idle' || values.connectionStatus === 'closed') {
+                return
+            }
+            const mode = resolveWizardSyncMode(values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE])
+            if (mode !== cache.syncMode) {
+                actions.connect()
+            }
         },
     })),
 ])

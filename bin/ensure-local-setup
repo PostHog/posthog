@@ -44,6 +44,14 @@ def ensure_wizard_oauth_app() -> None:
         print("  not a local dev environment - skipping wizard OAuth app")
         return
 
+    # DEBUG=True alone is not a reliable "this is a laptop" signal (misconfigured self-hosted
+    # instances run with it), and this app is a public client with a committed client_id and a
+    # broad scope ceiling - require a localhost SITE_URL too before seeding it.
+    site_url = getattr(settings, "SITE_URL", "") or ""
+    if "//localhost" not in site_url and "//127.0.0.1" not in site_url:
+        print(f"  SITE_URL ({site_url}) is not localhost - skipping wizard OAuth app")
+        return
+
     client_id = settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID
     if not client_id:
         print("  WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID not set - skipping wizard OAuth app")

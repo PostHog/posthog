@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -75,7 +76,8 @@ describe('wizardSessionStreamLogic polling mode', () => {
     })
 
     it('keeps polling through a 204 (no session yet) without clobbering latestSession', async () => {
-        mockLatestRetrieve.mockResolvedValue(undefined)
+        // The generated client resolves an empty 204 body to null (getJSONOrNull), not undefined.
+        mockLatestRetrieve.mockResolvedValue(null)
 
         logic.actions.connect()
         await expectLogic(logic)
@@ -99,5 +101,36 @@ describe('wizardSessionStreamLogic polling mode', () => {
         jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
         await Promise.resolve()
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops polling permanently on a 404', async () => {
+        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionErrored']).toMatchValues({ connectionStatus: 'error' })
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(10 * PAST_MAX_JITTERED_INTERVAL_MS)
+        await Promise.resolve()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+    })
+
+    it('backs off after a transient error instead of retrying at full cadence', async () => {
+        mockLatestRetrieve.mockRejectedValueOnce(new Error('network hiccup')).mockResolvedValue(makeSession())
+
+        logic.actions.connect()
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+        // One failure doubles the 3s base to 6s (±20% jitter → at least 4.8s): the base window
+        // must NOT produce a retry...
+        jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
+        await Promise.resolve()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+        // ...but the backed-off window must.
+        jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
+        await expectLogic(logic).toDispatchActions(['sessionUpdated'])
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
     })
 })

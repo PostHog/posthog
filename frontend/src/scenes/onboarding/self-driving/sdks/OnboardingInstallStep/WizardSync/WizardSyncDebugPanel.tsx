@@ -6,8 +6,8 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-
-import { type SyncDebugKind, wizardSyncDebugLogic } from './wizardSyncDebugLogic'
+import { pluralize } from 'lib/utils/strings'
+import { type SyncDebugKind, wizardSyncDebugLogic } from 'lib/wizard-sync/wizardSyncDebugLogic'
 
 const KIND_COLORS: Record<SyncDebugKind, string> = {
     connect: 'text-muted',
@@ -57,9 +57,10 @@ function WizardSyncDebugPanelContent(): JSX.Element | null {
                     icon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     onClick={() => setCollapsed(!collapsed)}
                     tooltip={collapsed ? 'Expand' : 'Collapse'}
+                    aria-label={collapsed ? 'Expand wizard sync debug panel' : 'Collapse wizard sync debug panel'}
                 />
                 <span className="font-semibold">Wizard sync debug</span>
-                <span className="text-muted">({entries.length} events)</span>
+                <span className="text-muted">({pluralize(entries.length, 'event')})</span>
                 <div className="flex-1" />
                 <LemonButton size="xsmall" onClick={clearSyncDebugLog}>
                     Clear
@@ -80,7 +81,7 @@ function WizardSyncDebugPanelContent(): JSX.Element | null {
                                     <span className="text-muted">~{info.intervalMs / 1000}s ±20%</span>
                                 )}
                                 <span className="text-muted">
-                                    {info.ticks} {info.mode === 'polling' ? 'polls' : 'events'}
+                                    {pluralize(info.ticks, info.mode === 'polling' ? 'poll' : 'event')}
                                 </span>
                                 {info.lastAt !== null && (
                                     <span className="text-muted">
@@ -91,10 +92,10 @@ function WizardSyncDebugPanelContent(): JSX.Element | null {
                             </div>
                         ))}
                     </div>
-                    <div className="max-h-48 overflow-y-auto px-2 py-1 font-mono whitespace-nowrap">
+                    <div className="max-h-48 overflow-y-auto overflow-x-auto px-2 py-1 font-mono whitespace-nowrap">
                         {entries.map((entry) => (
                             <div key={entry.id} className={KIND_COLORS[entry.kind]}>
-                                {formatTs(entry.at)} [{entry.kind}] {entry.source} — {entry.message}
+                                {formatTs(entry.at)} [{entry.kind}] {entry.source}: {entry.message}
                                 {formatGap(entry.gapMs)}
                             </div>
                         ))}
