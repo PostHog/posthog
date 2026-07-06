@@ -197,7 +197,8 @@ class TestPgCDCStreamReaderReadChangesSlotInUse:
 
         assert fake_cursor.__iter__.call_count == 2
         assert reader.last_rows_consumed == len(rows)
-        sleep.assert_called_once()
+        # First backoff is 0.5 * 2**0 — asserting the value locks the multiplier.
+        sleep.assert_called_once_with(0.5)
         reader._conn.rollback.assert_called_once()
 
     def test_read_changes_reraises_when_slot_stays_in_use(self, params):
