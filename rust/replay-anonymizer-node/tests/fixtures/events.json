@@ -1,0 +1,483 @@
+[
+  {
+    "name": "full snapshot scrubs a text node, keeps allow-listed word",
+    "allow": { "text": ["text"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": { "title": "hidden text" },
+              "childNodes": [{ "type": 3, "textContent": "Secret text" }]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": { "title": "****** text" },
+              "childNodes": [{ "type": 3, "textContent": "****** text" }]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "script text is never scrubbed",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "script",
+              "attributes": {},
+              "childNodes": [{ "type": 3, "textContent": "const secret = 42" }]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "script",
+              "attributes": {},
+              "childNodes": [{ "type": 3, "textContent": "const secret = 42" }]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "input event text is scrubbed",
+    "allow": { "text": ["hello"], "url": [] },
+    "event": { "type": 3, "data": { "source": 5, "id": 1, "text": "hello secret", "isChecked": false } },
+    "expected": { "type": 3, "data": { "source": 5, "id": 1, "text": "hello ******", "isChecked": false } }
+  },
+  {
+    "name": "meta href strips authority and redacts the path",
+    "allow": { "text": [], "url": [] },
+    "event": { "type": 4, "data": { "href": "https://user@app.example.com/u/42", "width": 100, "height": 200 } },
+    "expected": { "type": 4, "data": { "href": "https://example.com/[redacted]/$$", "width": 100, "height": 200 } }
+  },
+  {
+    "name": "custom event payload string is scrubbed and email redacted",
+    "allow": { "text": ["call", "me", "at"], "url": [] },
+    "event": { "type": 5, "data": { "tag": "note", "payload": { "msg": "call me at bob@test.com" } } },
+    "expected": { "type": 5, "data": { "tag": "note", "payload": { "msg": "call me at ************" } } }
+  },
+  {
+    "name": "network plugin scrubs request name url and body text",
+    "allow": { "text": [], "url": ["api"] },
+    "event": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/network@1",
+        "payload": { "requests": [{ "name": "https://example.com/api/99", "requestBody": "token=secret" }] }
+      }
+    },
+    "expected": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/network@1",
+        "payload": { "requests": [{ "name": "https://example.com/api/$$", "requestBody": "*****=******" }] }
+      }
+    }
+  },
+  {
+    "name": "console plugin scrubs url-bearing frames",
+    "allow": { "text": [], "url": ["x"] },
+    "event": {
+      "type": 6,
+      "data": { "plugin": "rrweb/console@1", "payload": { "level": "log", "payload": ["https://example.com/x/7"], "trace": [] } }
+    },
+    "expected": {
+      "type": 6,
+      "data": { "plugin": "rrweb/console@1", "payload": { "level": "log", "payload": ["https://example.com/x/$"], "trace": [] } }
+    }
+  },
+  {
+    "name": "mutation scrubs texts, attributes and added nodes",
+    "allow": { "text": ["keep"], "url": ["ok"] },
+    "event": {
+      "type": 3,
+      "data": {
+        "source": 0,
+        "texts": [{ "id": 5, "value": "keep secret" }],
+        "attributes": [{ "id": 6, "attributes": { "title": "hide me", "action": "https://example.com/ok/3" } }],
+        "adds": [{ "parentId": 1, "nextId": null, "node": { "type": 3, "textContent": "another secret" } }],
+        "removes": []
+      }
+    },
+    "expected": {
+      "type": 3,
+      "data": {
+        "source": 0,
+        "texts": [{ "id": 5, "value": "keep ******" }],
+        "attributes": [{ "id": 6, "attributes": { "title": "**** **", "action": "https://example.com/ok/$" } }],
+        "adds": [{ "parentId": 1, "nextId": null, "node": { "type": 3, "textContent": "******* ******" } }],
+        "removes": []
+      }
+    }
+  },
+  {
+    "name": "media element remote src becomes placeholder with scrubbed original stashed",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "img", "attributes": { "src": "https://cdn.example.com/pic.jpg?u=42", "alt": "profile photo" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "img",
+              "attributes": {
+                "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>",
+                "data-anon-original-src": "https://example.com/[redacted]",
+                "alt": "******* *****"
+              },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "canvas fillText args are text-scrubbed",
+    "allow": { "text": ["hello"], "url": [] },
+    "event": {
+      "type": 3,
+      "data": { "source": 9, "id": 1, "type": 0, "commands": [{ "property": "fillText", "args": ["Hello secret", 10, 20] }] }
+    },
+    "expected": {
+      "type": 3,
+      "data": { "source": 9, "id": 1, "type": 0, "commands": [{ "property": "fillText", "args": ["Hello ******", 10, 20] }] }
+    }
+  },
+  {
+    "name": "data-* attributes: free text scrubbed, single token left to email pass",
+    "allow": { "text": ["call"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "data-note": "call bob", "data-id": "x1y2" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "data-note": "call ***", "data-id": "x1y2" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "comment and cdata text nodes are scrubbed",
+    "allow": { "text": ["comment", "cdata"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": {},
+              "childNodes": [
+                { "type": 5, "textContent": "secret comment" },
+                { "type": 4, "textContent": "secret cdata" }
+              ]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": {},
+              "childNodes": [
+                { "type": 5, "textContent": "****** comment" },
+                { "type": 4, "textContent": "****** cdata" }
+              ]
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "user-text attributes and non-media url attributes are scrubbed",
+    "allow": { "text": ["text", "here", "close"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": {
+                "value": "secret text",
+                "placeholder": "type here",
+                "aria-label": "close dialog",
+                "cite": "https://example.com/x/1"
+              },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": {
+                "value": "****** text",
+                "placeholder": "**** here",
+                "aria-label": "close ******",
+                "cite": "https://example.com/[redacted]/$"
+              },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "non-string attribute values are left untouched",
+    "allow": { "text": ["there"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "tabindex": 5, "title": "hi there" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "tabindex": 5, "title": "** there" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "data-anon-original-* attrs are not re-scrubbed",
+    "allow": { "text": ["hello"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": { "data-anon-original-src": "https://example.com/kept", "data-note": "hello world" },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "div",
+              "attributes": { "data-anon-original-src": "https://example.com/kept", "data-note": "hello *****" },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "canvas strokeText in flattened single-command form is scrubbed",
+    "allow": { "text": ["hi"], "url": [] },
+    "event": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi secret", 1, 2] } },
+    "expected": { "type": 3, "data": { "source": 9, "id": 1, "type": 0, "property": "strokeText", "args": ["Hi ******", 1, 2] } }
+  },
+  {
+    "name": "canvas multiple commands (fillText + strokeText) each scrubbed",
+    "allow": { "text": ["a", "b"], "url": [] },
+    "event": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "fillText", "args": ["A secret"] },
+          { "property": "strokeText", "args": ["B secret"] }
+        ]
+      }
+    },
+    "expected": {
+      "type": 3,
+      "data": {
+        "source": 9,
+        "id": 1,
+        "type": 0,
+        "commands": [
+          { "property": "fillText", "args": ["A ******"] },
+          { "property": "strokeText", "args": ["B ******"] }
+        ]
+      }
+    }
+  },
+  {
+    "name": "console plugin scrubs text payload frames and url trace frames",
+    "allow": { "text": ["oops"], "url": ["a"] },
+    "event": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/console@1",
+        "payload": { "level": "error", "payload": ["oops secret"], "trace": ["https://example.com/a/1"] }
+      }
+    },
+    "expected": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/console@1",
+        "payload": { "level": "error", "payload": ["oops ******"], "trace": ["https://example.com/a/$"] }
+      }
+    }
+  },
+  {
+    "name": "network plugin scrubs request and response header values",
+    "allow": { "text": ["here"], "url": ["api"] },
+    "event": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/network@1",
+        "payload": {
+          "requests": [
+            {
+              "name": "https://example.com/api/1",
+              "requestHeaders": { "Authorization": "Bearer secret", "X-Id": "42" },
+              "responseHeaders": { "Server": "nginx here" }
+            }
+          ]
+        }
+      }
+    },
+    "expected": {
+      "type": 6,
+      "data": {
+        "plugin": "rrweb/network@1",
+        "payload": {
+          "requests": [
+            {
+              "name": "https://example.com/api/$",
+              "requestHeaders": { "Authorization": "****** ******", "X-Id": "##" },
+              "responseHeaders": { "Server": "***** here" }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "custom payload scrubs string leaves in deeply nested containers",
+    "allow": { "text": ["hello"], "url": [] },
+    "event": { "type": 5, "data": { "tag": "note", "payload": { "a": { "b": ["hello secret", 42] } } } },
+    "expected": { "type": 5, "data": { "tag": "note", "payload": { "a": { "b": ["hello ******", 42] } } } }
+  },
+  {
+    "name": "unknown event type passes through unchanged",
+    "allow": { "text": [], "url": [] },
+    "event": { "type": 0, "data": { "href": "https://example.com/secret" } },
+    "expected": { "type": 0, "data": { "href": "https://example.com/secret" } }
+  }
+]

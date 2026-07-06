@@ -1,4 +1,5 @@
 import dataclasses
+import collections.abc
 from typing import Any
 
 from django.conf import settings as django_settings
@@ -6,7 +7,7 @@ from django.conf import settings as django_settings
 import temporalio.converter
 import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
-from temporalio.client import Client, TLSConfig
+from temporalio.client import Client, Plugin, TLSConfig
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
 
@@ -24,6 +25,7 @@ async def connect(
     settings: Any | None = django_settings,
     use_pydantic_converter: bool = False,
     add_otel_tracing_interceptor: bool = True,
+    plugins: collections.abc.Sequence[Plugin] = (),
 ) -> Client:
     tls: TLSConfig | bool = False
     if client_cert and client_key:
@@ -46,9 +48,10 @@ async def connect(
     # The classic TracingInterceptor injects trace context into workflow start headers (so a
     # caller's span becomes the parent of the workflow) AND creates spans for activity/workflow
     # execution on any worker built from this client. Worker processes disable it via
-    # `add_otel_tracing_interceptor=False` because they trace execution through the worker's
-    # OpenTelemetryPlugin instead; leaving both on double-instruments every activity and workflow.
-    # Non-worker callers (Django, Celery, the CLI, schedules) keep it for start-context propagation.
+    # `add_otel_tracing_interceptor=False` because they trace execution through the
+    # OpenTelemetryPlugin (passed via `plugins`) instead; leaving both on double-instruments
+    # every activity and workflow. Non-worker callers (Django, Celery, the CLI, schedules) keep
+    # it for start-context propagation.
     interceptors: list[temporalio.client.Interceptor] = []
     if add_otel_tracing_interceptor:
         interceptors.append(temporalio.contrib.opentelemetry.TracingInterceptor())
@@ -60,6 +63,7 @@ async def connect(
         runtime=runtime,
         interceptors=interceptors,
         data_converter=data_converter,
+        plugins=list(plugins),
     )
     return client
 
