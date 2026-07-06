@@ -343,6 +343,41 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("tags=abandoned", prompts[0])
         self.assertIn("user abandoned at the payment step", prompts[0])
 
+    def test_excludes_scanners_the_creator_cannot_read(self) -> None:
+        # The action's bound scanner_ids are user-supplied, so synthesis must filter them through the
+        # creator's RBAC. Without that a creator could bind a same-team scanner they can't read and pull
+        # its recording-derived reasoning/outcome into the summary.
+        hidden = ReplayScanner.objects.create(
+            team=self.team,
+            name="hidden",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "classify"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        self._observation("visible scanner output", session_id="visible")
+        ReplayObservation.objects.create(
+            scanner=hidden,
+            session_id="hidden",
+            scanner_snapshot=snapshot_for(hidden),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": {"scanner_type": ScannerType.CLASSIFIER, "reasoning": "leaked reasoning"}},
+        )
+        action = self._action(selection={"scanner_ids": [str(self.scanner.id), str(hidden.id)]})
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            result = self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertEqual(result.observation_count, 1)
+        self.assertIn("visible scanner output", prompts[0])
+        self.assertNotIn("leaked reasoning", prompts[0])
+
     def test_external_links_are_stripped(self) -> None:
         self._observation("something")
         action = self._action()

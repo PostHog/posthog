@@ -7,7 +7,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 
 import re
 from datetime import UTC, datetime, timedelta, tzinfo
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -17,11 +17,12 @@ from temporalio import activity
 
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data, describe_scanner_outcome
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -33,6 +34,9 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +174,20 @@ class _ObservationBatch(NamedTuple):
     window_total: int
 
 
+def _readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> list[str]:
+    """Restrict an action's bound scanner ids to the ones its creator may actually read.
+
+    A vision action's scanner binding is user-supplied, so without this a creator could point an action
+    at a same-team scanner they lack `replay_scanner` viewer access to and receive its recording-derived
+    reasoning and outcome in the synthesized summary. Filtering through the creator's RBAC — the same gate
+    `max_tools` applies — keeps synthesis from surfacing a scanner the creator can't see.
+    """
+    readable = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+        ReplayScanner.objects.filter(team_id=team.id, id__in=scanner_ids)
+    )
+    return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
+
+
 def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
     """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
 
@@ -177,6 +195,12 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     """
     selection: dict[str, Any] = action.selection or {}
     scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
+    # The bound scanner ids (`scanner`/`selection.scanner_ids`) are user-supplied, so filter them through
+    # the action creator's RBAC before reading any observations — otherwise an action could surface a
+    # same-team scanner's recording-derived reasoning/outcome that its creator can't access. Mirrors the
+    # scanner-access gate `max_tools` applies when reading observations. Upstream guarantees a creator.
+    creator = action.created_by
+    scanner_ids = _readable_scanner_ids(creator, team, scanner_ids) if creator is not None else []
     if not scanner_ids:
         return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0)
 
