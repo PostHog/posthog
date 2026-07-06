@@ -8215,7 +8215,7 @@
         }
     },
     "vision-observations-label-create": {
-        "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the quality-over-time chart and the AI prompt recommendations. Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
+        "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the quality-over-time chart and the AI prompt recommendations (see `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Rate a scanner observation",
@@ -8393,6 +8393,82 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-stats": {
+        "description": "Aggregate statistics over one scanner's observations. Accepts the same filters as `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series. Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram). Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with `vision-scanners-prompt-suggestions-generate`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation stats",
+        "title": "Get scanner observation stats",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-apply": {
+        "description": "Apply a prompt suggestion to its scanner: writes the `suggested_prompt` into the scanner's config (bumping `scanner_version`) and marks the suggestion applied. Only the current (pending or dismissed) suggestion can be applied, and only while the scanner's prompt is unchanged since it was generated. Otherwise the call is rejected and you should generate a fresh one. This is a team-wide change: the scanner scans with the new prompt from its next sweep onward.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Apply prompt suggestion",
+        "title": "Apply prompt suggestion",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-current": {
+        "description": "Get a scanner's newest AI prompt-rewrite suggestion, generated from the team's thumbs up/down ratings. Returns `suggestion` (null when none has been generated yet) with its `suggested_prompt`, the `base_prompt` it rewrote (for diffing), the `rationale`, and `status` (pending/applied/dismissed/superseded). Also returns `stale` (true when ratings changed since it was generated, so regenerating may give a better rewrite) and `rated_count` (rated observations available to generate from).",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get current prompt suggestion",
+        "title": "Get current prompt suggestion",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-dismiss": {
+        "description": "Dismiss a prompt suggestion without applying it. The scanner's prompt is unchanged and the suggestion stays in history. A dismissed suggestion can still be applied later with `vision-scanners-prompt-suggestions-apply` as long as the scanner's prompt hasn't changed since it was generated.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Dismiss prompt suggestion",
+        "title": "Dismiss prompt suggestion",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-prompt-suggestions-generate": {
+        "description": "Generate a fresh AI prompt-rewrite suggestion for a scanner from the team's current thumbs up/down ratings and their written feedback. Requires at least one rated observation (check `rated_count` on `vision-scanners-prompt-suggestions-current`; create ratings with `vision-observations-label-create`). The previous pending suggestion becomes superseded. The LLM call runs inline, so expect the request to take a while. Review the returned suggestion, then apply it with `vision-scanners-prompt-suggestions-apply` or dismiss it with `vision-scanners-prompt-suggestions-dismiss`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Generate prompt suggestion from ratings",
+        "title": "Generate prompt suggestion from ratings",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
         "feature_flag": "replay-vision"
     },
     "vision-scanners-scan-session": {

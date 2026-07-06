@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -396,6 +396,106 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
  */
 export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    scanner_id: zod.string(),
+})
+
+/**
+ * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
+ */
+export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    scanner_id: zod.string(),
+})
+
+export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    labeled: zod
+        .string()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    recent_days: zod
+        .number()
+        .optional()
+        .describe(
+            'Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.'
+        ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+    session_id: zod
+        .string()
+        .optional()
+        .describe('Filter to observations of one or more session recordings. Accepts a comma-separated list.'),
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    triggered_by: zod
+        .string()
+        .optional()
+        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+})
+
+/**
+ * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Requires session recording edit access.
+ */
+export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    scanner_id: zod.string(),
+})
+
+/**
+ * Dismiss this suggestion without applying it. Requires session recording edit access.
+ */
+export const VisionScannersPromptSuggestionsDismissCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    scanner_id: zod.string(),
+})
+
+/**
+ * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
+ */
+export const VisionScannersPromptSuggestionsCurrentRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    scanner_id: zod.string(),
+})
+
+/**
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ */
+export const VisionScannersPromptSuggestionsGenerateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
