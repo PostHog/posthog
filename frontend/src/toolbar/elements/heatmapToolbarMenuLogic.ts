@@ -709,6 +709,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 return
             }
 
+            // a re-render can replace the picked area node between mutation-observer ticks;
+            // re-resolve via the stored selector for this run so the containment check keeps
+            // filtering, and only pass rows through when the area is truly unresolvable
+            // (updateAreaBounds will then clear the filter visibly on its next tick)
+            const areaElement = heatmapAreaFilter
+                ? heatmapAreaFilter.element.isConnected
+                    ? heatmapAreaFilter.element
+                    : findElementBySelector(heatmapAreaFilter.selector)
+                : null
+
             cache.visibilityCache = cache.visibilityCache || new WeakMap<HTMLElement, boolean>()
             const cursorPointerCache = new WeakMap<HTMLElement, boolean>()
             const { pageElements, domIndex, hasShadowRoots, cacheHit } = getCachedPageElements(
@@ -776,8 +786,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         // components), so keep the display honest with a containment check —
                         // composed-tree containment, since matches can live inside shadow roots
                         const withinArea =
-                            !heatmapAreaFilter?.element.isConnected ||
-                            (trimmed !== null && containsInComposedTree(heatmapAreaFilter.element, trimmed))
+                            !areaElement || (trimmed !== null && containsInComposedTree(areaElement, trimmed))
                         if (
                             trimmed &&
                             withinArea &&
