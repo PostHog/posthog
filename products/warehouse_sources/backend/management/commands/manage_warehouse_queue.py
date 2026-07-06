@@ -108,6 +108,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Also request cancellation of each run's Temporal workflow",
         )
+        fail_run.add_argument(
+            "--force",
+            action="store_true",
+            help="Also delete LIVE group leases (skipped by default - a healthy pod may hold them)",
+        )
 
         release = subparsers.add_parser(
             "release-locks",
@@ -294,6 +299,7 @@ class Command(BaseCommand):
         reason: str = options["reason"]
         live_run: bool = options["live_run"]
         cancel_workflow: bool = options["cancel_workflow"]
+        force: bool = options["force"]
 
         targets = self._collect_fail_targets(conn, scope)
         if not targets:
@@ -341,9 +347,11 @@ class Command(BaseCommand):
                         notes.append(f"redis lock held by a different token ({holder!r}) - will not release")
                 lease = leases_by_pair.get((t.team_id, t.schema_id))
                 if lease is not None:
-                    notes.append(
-                        f"lease {'LIVE' if lease.is_live else 'expired ' + self._age(lease.expires_at) + ' ago'} (will delete)"
-                    )
+                    if lease.is_live and not force:
+                        notes.append("lease LIVE - will skip; a healthy pod may hold it (use --force to delete)")
+                    else:
+                        liveness = "LIVE (forced)" if lease.is_live else f"expired {self._age(lease.expires_at)} ago"
+                        notes.append(f"lease {liveness} (will delete)")
                 if notes:
                     self.stdout.write(f"    -> {'; '.join(notes)}")
 
@@ -365,9 +373,30 @@ class Command(BaseCommand):
                 reason=reason,
             )
 
-        pairs = sorted({(t.team_id, t.schema_id) for t in targets if t.schema_id})
-        released = BatchQueue.force_release_leases(conn, pairs=list(pairs))
-        self.stdout.write(self.style.SUCCESS(f"Done. Released {released} group lease(s)."))
+        pair_set = {(t.team_id, t.schema_id) for t in targets if t.schema_id}
+        # Re-read lease state after the fail writes: gate liveness on what holds now,
+        # not on the preview snapshot, so a lease acquired mid-operation counts as live.
+        leases_to_delete: list[tuple[int, str]] = []
+        skipped_live = 0
+        for lease in BatchQueue.get_leases(conn, schema_ids=sorted({schema_id for _, schema_id in pair_set})):
+            if (lease.team_id, lease.schema_id) not in pair_set:
+                continue
+            if lease.is_live and not force:
+                skipped_live += 1
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  lease team={lease.team_id} schema={lease.schema_id} is LIVE "
+                        f"(expires {lease.expires_at.isoformat()}, owner {lease.owner_token}) - "
+                        "skipped; a healthy pod may hold it. Use --force to release anyway."
+                    )
+                )
+                continue
+            leases_to_delete.append((lease.team_id, lease.schema_id))
+        released = BatchQueue.force_release_leases(conn, pairs=leases_to_delete)
+        summary = f"Done. Released {released} group lease(s)."
+        if skipped_live:
+            summary += f" Skipped {skipped_live} LIVE lease(s)."
+        self.stdout.write(self.style.SUCCESS(summary))
 
     def _fail_target(
         self,

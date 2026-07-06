@@ -257,6 +257,23 @@ class TestFailRun:
 
         assert _failed_status_counts_by_run(queue_conn) == {}
 
+    @pytest.mark.parametrize("force", [False, True], ids=["without_force", "with_force"])
+    def test_live_lease_deleted_only_with_force(self, force, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()))
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=True)
+
+        args = ["fail-run", "--team-id", str(team.pk), "--schema-id", str(schema.id), "--live-run", "--yes"]
+        if force:
+            args.append("--force")
+        out = _call(*args)
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert _lease_count(queue_conn, str(schema.id)) == (0 if force else 1)
+        if not force:
+            assert "Use --force" in out
+
     def test_fails_running_job_with_no_queue_batches(self, team, queue_conn, fake_redis):
         _, schema, job = _create_pipeline(team)
 
