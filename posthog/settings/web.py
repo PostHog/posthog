@@ -889,6 +889,10 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
+# ID of the workflow (HogFlow) whose webhook trigger delivers the Error Tracking weekly digest email.
+# Empty disables sending.
+ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID = get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID", "")
+
 ####
 # OAuth
 
