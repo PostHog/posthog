@@ -7,25 +7,44 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress import wordpress as wordpress_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import WORDPRESS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
+    ANONYMOUS_FORBIDDEN_ERROR,
+    AUTH_REQUIRED_ERROR,
+    CREDENTIALS_IGNORED_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    INVALID_CREDENTIALS_ERROR,
+    USER_AGENT,
+    WPCOM_AUTH_REQUIRED_TABLE_ERROR,
+    WPCOM_PRIVATE_SITE_ERROR,
+    WPCOM_SITE_NOT_FOUND_ERROR,
+    WordpressComAccessError,
     WordpressHostNotAllowedError,
     WordpressResumeConfig,
     _build_initial_params,
     _build_initial_url,
+    _direct_api_base,
     _format_incremental_value,
     _get_headers,
-    _is_same_host,
+    _is_within_api_base,
+    _is_wpcom_host,
     _parse_next_url,
+    _proxy_api_base,
     get_rows,
     normalize_host,
     validate_credentials,
     wordpress_source,
 )
 
+WPCOM_PROXY_BASE = "https://public-api.wordpress.com/wp/v2/sites/example.wordpress.com"
+
 
 def _response(
-    *, status_code: int = 200, json_data: Any = None, link: Optional[str] = None, text: str = ""
+    *,
+    status_code: int = 200,
+    json_data: Any = None,
+    link: Optional[str] = None,
+    text: str = "",
+    headers: Optional[dict[str, str]] = None,
 ) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
@@ -34,7 +53,7 @@ def _response(
     response.is_permanent_redirect = status_code in (301, 308)
     response.text = text
     response.json.return_value = json_data
-    response.headers = {"Link": link} if link else {}
+    response.headers = {**({"Link": link} if link else {}), **(headers or {})}
     return response
 
 
@@ -93,6 +112,8 @@ class TestGetHeaders:
         headers = _get_headers(None, None)
         assert "Authorization" not in headers
         assert headers["Accept"] == "application/json"
+        # Some hosts/WAFs 403 the default python-requests User-Agent, so we must identify ourselves.
+        assert headers["User-Agent"] == USER_AGENT
 
     def test_partial_credentials_are_anonymous(self):
         # A username without a password (or vice versa) is not enough to authenticate.
@@ -105,6 +126,23 @@ class TestGetHeaders:
         headers = _get_headers("admin", "abcd efgh")
         expected = base64.b64encode(b"admin:abcd efgh").decode()
         assert headers["Authorization"] == f"Basic {expected}"
+        assert headers["User-Agent"] == USER_AGENT
+
+
+class TestIsWpcomHost:
+    @pytest.mark.parametrize(
+        "host, expected",
+        [
+            ("example.wordpress.com", True),
+            ("wordpress.com", True),
+            ("example.com", False),
+            # Suffix matching must not swallow lookalike hosts.
+            ("evil-wordpress.com", False),
+            ("example.wordpress.com.evil.com", False),
+        ],
+    )
+    def test_is_wpcom_host(self, host, expected):
+        assert _is_wpcom_host(host) is expected
 
 
 class TestFormatIncrementalValue:
@@ -206,12 +244,16 @@ class TestBuildInitialParams:
 
 class TestBuildInitialUrl:
     def test_builds_url_with_params(self):
-        url = _build_initial_url("https://example.com", WORDPRESS_ENDPOINTS["posts"], {"per_page": 100})
+        url = _build_initial_url(
+            _direct_api_base("https://example.com"), WORDPRESS_ENDPOINTS["posts"], {"per_page": 100}
+        )
         assert url == "https://example.com/wp-json/wp/v2/posts?per_page=100"
 
-    def test_accepts_bare_hostname(self):
-        url = _build_initial_url("example.com", WORDPRESS_ENDPOINTS["users"], {})
-        assert url == "https://example.com/wp-json/wp/v2/users"
+    def test_builds_proxy_url(self):
+        url = _build_initial_url(
+            _proxy_api_base("example.wordpress.com"), WORDPRESS_ENDPOINTS["posts"], {"per_page": 100}
+        )
+        assert url == f"{WPCOM_PROXY_BASE}/posts?per_page=100"
 
 
 class TestParseNextUrl:
@@ -230,49 +272,111 @@ class TestParseNextUrl:
         assert _parse_next_url(header) == expected
 
 
-class TestIsSameHost:
+class TestIsWithinApiBase:
     @pytest.mark.parametrize(
-        "url, site_url, expected",
+        "url, api_base, expected",
         [
-            ("https://example.com/wp-json/wp/v2/posts?page=2", "https://example.com", True),
+            ("https://example.com/wp-json/wp/v2/posts?page=2", "https://example.com/wp-json/wp/v2", True),
             # Scheme downgrade to http when configured https must be rejected (credential exposure).
-            ("http://example.com/wp-json/wp/v2/posts?page=2", "https://example.com", False),
+            ("http://example.com/wp-json/wp/v2/posts?page=2", "https://example.com/wp-json/wp/v2", False),
             # Foreign / internal host must be rejected (SSRF).
-            ("https://169.254.169.254/latest/meta-data/", "https://example.com", False),
+            ("https://169.254.169.254/latest/meta-data/", "https://example.com/wp-json/wp/v2", False),
             # Anonymous http site: an http next URL on the same host is allowed.
-            ("http://example.com/wp-json/wp/v2/posts?page=2", "http://example.com", True),
+            ("http://example.com/wp-json/wp/v2/posts?page=2", "http://example.com/wp-json/wp/v2", True),
+            # Same host but outside the API base path.
+            ("https://example.com/xmlrpc.php", "https://example.com/wp-json/wp/v2", False),
+            # Proxied pagination stays inside the proxied site's base.
+            (f"{WPCOM_PROXY_BASE}/posts?page=2", WPCOM_PROXY_BASE, True),
+            # A stale direct-style resume URL is outside the proxy base.
+            ("https://example.wordpress.com/wp-json/wp/v2/posts?page=2", WPCOM_PROXY_BASE, False),
+            # Another site's path on the shared proxy host must be rejected.
+            ("https://public-api.wordpress.com/wp/v2/sites/other.wordpress.com/posts", WPCOM_PROXY_BASE, False),
+            (f"{WPCOM_PROXY_BASE}-evil/posts", WPCOM_PROXY_BASE, False),
         ],
     )
-    def test_is_same_host(self, url, site_url, expected):
-        assert _is_same_host(url, site_url) is expected
+    def test_is_within_api_base(self, url, api_base, expected):
+        assert _is_within_api_base(url, api_base) is expected
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response=None, raises=None):
+    def _patch_session(self, response=None, raises=None, responses=None):
         session = mock.MagicMock()
         if raises is not None:
             session.get.side_effect = raises
+        elif responses is not None:
+            session.get.side_effect = responses
         else:
             session.get.return_value = response
         return mock.patch.object(wordpress_module, "make_tracked_session", return_value=session)
 
     @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_msg_substr",
+        "status_code, expected_valid, expected_msg",
         [
             (200, True, None),
-            (401, False, "Invalid WordPress username or application password"),
-            (403, False, "lack permission"),
+            (401, False, AUTH_REQUIRED_ERROR),
+            (403, False, ANONYMOUS_FORBIDDEN_ERROR),
             (404, False, "REST API not found"),
         ],
     )
-    def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with self._patch_session(_response(status_code=status_code)):
+    def test_anonymous_status_code_mapping(self, status_code, expected_valid, expected_msg):
+        with self._patch_session(_response(status_code=status_code)) as patched:
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is expected_valid
-            if expected_msg_substr is None:
+            if expected_msg is None:
                 assert msg is None
             else:
-                assert expected_msg_substr in (msg or "")
+                assert expected_msg in (msg or "")
+            probe_url = patched.return_value.get.call_args.args[0]
+            assert probe_url == "https://example.com/wp-json/wp/v2/posts?per_page=1"
+
+    def test_anonymous_403_does_not_blame_credentials(self):
+        # The customer-facing regression: with no credentials supplied, a 403 must not claim
+        # "these credentials lack permission".
+        with self._patch_session(_response(status_code=403)):
+            _valid, msg = validate_credentials("https://example.com", None, None)
+            assert "credentials lack" not in (msg or "")
+
+    def test_credentialed_probe_uses_users_me(self):
+        # /users/me exercises auth for real; a public-collection probe silently validates garbage
+        # credentials on sites where application passwords are unavailable.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, msg = validate_credentials("https://example.com", "admin", "app pass word")
+            assert (valid, msg) == (True, None)
+            probe_url = patched.return_value.get.call_args.args[0]
+            assert probe_url == "https://example.com/wp-json/wp/v2/users/me"
+
+    @pytest.mark.parametrize(
+        "json_data, expected_msg",
+        [
+            ({"code": "rest_not_logged_in", "message": "You are not currently logged in."}, CREDENTIALS_IGNORED_ERROR),
+            ({"code": "incorrect_password", "message": "..."}, INVALID_CREDENTIALS_ERROR),
+            ({"code": "invalid_username", "message": "..."}, INVALID_CREDENTIALS_ERROR),
+            (None, INVALID_CREDENTIALS_ERROR),
+        ],
+    )
+    def test_credentialed_401_mapping(self, json_data, expected_msg):
+        with self._patch_session(_response(status_code=401, json_data=json_data)):
+            valid, msg = validate_credentials("https://example.com", "admin", "app pass word")
+            assert valid is False
+            assert msg == expected_msg
+
+    def test_credentialed_403_blames_credentials(self):
+        with self._patch_session(_response(status_code=403)):
+            valid, msg = validate_credentials("https://example.com", "admin", "app pass word")
+            assert valid is False
+            assert "credentials lack permission" in (msg or "")
+
+    def test_users_route_blocked_falls_back_to_posts_probe(self):
+        # Security plugins often hide the users routes (rest_no_route) while the REST API itself works.
+        blocked = _response(status_code=404, json_data={"code": "rest_no_route", "message": "No route"})
+        with self._patch_session(responses=[blocked, _response(status_code=200)]) as patched:
+            valid, msg = validate_credentials("https://example.com", "admin", "app pass word")
+            assert (valid, msg) == (True, None)
+            urls = [call.args[0] for call in patched.return_value.get.call_args_list]
+            assert urls == [
+                "https://example.com/wp-json/wp/v2/users/me",
+                "https://example.com/wp-json/wp/v2/posts?per_page=1",
+            ]
 
     def test_invalid_site_url(self):
         valid, msg = validate_credentials("", None, None)
@@ -287,12 +391,29 @@ class TestValidateCredentials:
             assert valid is False
             assert "boom" in (msg or "")
 
-    def test_rejects_redirect_response(self):
+    def test_rejects_redirect_response_without_location(self):
         with self._patch_session(_response(status_code=302)) as patched:
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is False
             assert msg == HOST_NOT_ALLOWED_ERROR
             assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+
+    def test_redirect_surfaces_target_url(self):
+        # www canonicalization and Business-plan subdomain redirects are legit; tell the user which
+        # URL to enter instead of a bare "not allowed".
+        redirect = _response(status_code=301, headers={"Location": "https://www.example.com/wp-json/wp/v2/posts?a=1"})
+        with self._patch_session(redirect):
+            valid, msg = validate_credentials("https://example.com", None, None)
+            assert valid is False
+            assert "https://www.example.com" in (msg or "")
+            assert "a=1" not in (msg or "")  # query stripped: Location is server-controlled
+
+    def test_redirect_to_wpcom_typo_page_means_no_such_site(self):
+        redirect = _response(status_code=302, headers={"Location": "https://wordpress.com/typo/?subdomain=examplee"})
+        with self._patch_session(redirect):
+            valid, msg = validate_credentials("https://examplee.wordpress.com", None, None)
+            assert valid is False
+            assert msg == WPCOM_SITE_NOT_FOUND_ERROR
 
     def test_rejects_plaintext_http_when_credentials_present(self):
         # Basic-auth credentials must never be sent over plaintext HTTP.
@@ -318,6 +439,51 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "status_code, expected_valid, expected_msg",
+        [
+            (200, True, None),
+            (401, False, WPCOM_PRIVATE_SITE_ERROR),
+            (403, False, WPCOM_PRIVATE_SITE_ERROR),
+            (404, False, WPCOM_SITE_NOT_FOUND_ERROR),
+        ],
+    )
+    def test_wpcom_host_probes_via_proxy(self, status_code, expected_valid, expected_msg):
+        with (
+            mock.patch.object(wordpress_module, "_is_host_safe") as host_safe,
+            self._patch_session(_response(status_code=status_code, json_data=[])) as patched,
+        ):
+            valid, msg = validate_credentials("https://example.wordpress.com", None, None, team_id=99)
+            assert valid is expected_valid
+            assert msg == expected_msg
+            probe_url = patched.return_value.get.call_args.args[0]
+            assert probe_url == f"{WPCOM_PROXY_BASE}/posts?per_page=1"
+            # Proxied traffic only ever reaches the fixed public proxy host, so the per-host SSRF
+            # check is skipped.
+            host_safe.assert_not_called()
+
+    def test_wpcom_host_never_sends_credentials(self):
+        # wp.com "application passwords" are OAuth credentials for wordpress.com itself; forwarding
+        # them as Basic auth would leak them without ever working.
+        with self._patch_session(_response(status_code=200, json_data=[])) as patched:
+            valid, _msg = validate_credentials("https://example.wordpress.com", "admin", "app pass word")
+            assert valid is True
+            sent_headers = patched.return_value.get.call_args.kwargs["headers"]
+            assert "Authorization" not in sent_headers
+
+    def test_wpcom_served_custom_domain_falls_back_to_proxy(self):
+        # Personal/Premium wp.com sites on custom domains 404 the direct REST path but stamp the
+        # wp.com host header; their content is only served by the proxy.
+        direct_404 = _response(status_code=404, headers={"host-header": "WordPress.com"})
+        with self._patch_session(responses=[direct_404, _response(status_code=200, json_data=[])]) as patched:
+            valid, msg = validate_credentials("https://example.com", None, None)
+            assert (valid, msg) == (True, None)
+            urls = [call.args[0] for call in patched.return_value.get.call_args_list]
+            assert urls == [
+                "https://example.com/wp-json/wp/v2/posts?per_page=1",
+                "https://public-api.wordpress.com/wp/v2/sites/example.com/posts?per_page=1",
+            ]
 
 
 class TestWordpressSourceResponse:
@@ -355,7 +521,16 @@ class TestWordpressSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, manager, responses, endpoint="posts", site_url="https://example.com", **kwargs):
+    def _run(
+        self,
+        manager,
+        responses,
+        endpoint="posts",
+        site_url="https://example.com",
+        username=None,
+        application_password=None,
+        **kwargs,
+    ):
         session = mock.MagicMock()
         session.get.side_effect = responses
         with (
@@ -365,8 +540,8 @@ class TestGetRows:
             rows: list[Any] = []
             for table in get_rows(
                 site_url=site_url,
-                username=None,
-                application_password=None,
+                username=username,
+                application_password=application_password,
                 endpoint=endpoint,
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
@@ -503,6 +678,95 @@ class TestGetRows:
         manager.can_resume.return_value = False
         _rows, session = self._run(manager, [_response(json_data=[{"id": 1}])])
         assert session.get.call_args.kwargs["allow_redirects"] is False
+
+    def test_wpcom_site_paginates_via_proxy(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        page1 = _response(json_data=[{"id": 1}], link=f'<{WPCOM_PROXY_BASE}/posts?page=2>; rel="next"')
+        page2 = _response(json_data=[{"id": 2}])
+        rows, session = self._run(manager, [page1, page2], site_url="https://example.wordpress.com")
+
+        assert [r["id"] for r in rows] == [1, 2]
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0].startswith(f"{WPCOM_PROXY_BASE}/posts?")
+        assert urls[1] == f"{WPCOM_PROXY_BASE}/posts?page=2"
+
+    def test_wpcom_site_never_sends_credentials(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        _rows, session = self._run(
+            manager,
+            [_response(json_data=[{"id": 1}])],
+            site_url="https://example.wordpress.com",
+            username="admin",
+            application_password="app pass word",
+        )
+        assert "Authorization" not in session.get.call_args.kwargs["headers"]
+
+    def test_wpcom_served_direct_failure_falls_back_to_proxy(self):
+        # Personal/Premium wp.com sites on custom domains 404 the direct REST path but stamp the
+        # wp.com host header; the run must restart on the proxy, without forwarding credentials.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        direct_404 = _response(status_code=404, headers={"host-header": "WordPress.com"})
+        rows, session = self._run(
+            manager,
+            [direct_404, _response(json_data=[{"id": 7}])],
+            username="admin",
+            application_password="app pass word",
+        )
+
+        assert [r["id"] for r in rows] == [7]
+        first_call, second_call = session.get.call_args_list
+        assert first_call.args[0].startswith("https://example.com/wp-json/wp/v2/posts?")
+        assert "Authorization" in first_call.kwargs["headers"]
+        assert second_call.args[0].startswith("https://public-api.wordpress.com/wp/v2/sites/example.com/posts?")
+        assert "Authorization" not in second_call.kwargs["headers"]
+
+    def test_wpcom_served_failure_mid_pagination_raises(self):
+        # Flipping to the proxy after pages were already yielded would mix bases mid-run.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        page1 = _response(
+            json_data=[{"id": 1}],
+            link='<https://example.com/wp-json/wp/v2/posts?page=2>; rel="next"',
+        )
+        direct_404 = _response(status_code=404, headers={"host-header": "WordPress.com"})
+        with pytest.raises(WordpressComAccessError) as exc:
+            self._run(manager, [page1, direct_404])
+        assert WPCOM_PRIVATE_SITE_ERROR in str(exc.value)
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_msg",
+        [
+            ("media", WPCOM_AUTH_REQUIRED_TABLE_ERROR),
+            ("users", WPCOM_AUTH_REQUIRED_TABLE_ERROR),
+            ("posts", WPCOM_PRIVATE_SITE_ERROR),
+        ],
+    )
+    def test_proxied_auth_failure_maps_to_wpcom_error(self, endpoint, expected_msg):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        with pytest.raises(WordpressComAccessError) as exc:
+            self._run(
+                manager,
+                [_response(status_code=401, json_data={"code": "unauthorized"})],
+                endpoint=endpoint,
+                site_url="https://example.wordpress.com",
+            )
+        assert expected_msg in str(exc.value)
+
+    def test_stale_direct_resume_url_restarts_at_proxy_initial(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = WordpressResumeConfig(
+            next_url="https://example.wordpress.com/wp-json/wp/v2/posts?page=5"
+        )
+        rows, session = self._run(manager, [_response(json_data=[{"id": 3}])], site_url="https://example.wordpress.com")
+
+        assert [r["id"] for r in rows] == [3]
+        first_url = session.get.call_args_list[0].args[0]
+        assert first_url.startswith(f"{WPCOM_PROXY_BASE}/posts?")
 
 
 class TestRetryAfter:

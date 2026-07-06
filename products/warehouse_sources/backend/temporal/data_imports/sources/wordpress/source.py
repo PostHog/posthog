@@ -24,11 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    WPCOM_AUTH_REQUIRED_TABLE_ERROR,
+    WPCOM_PRIVATE_SITE_ERROR,
     WordpressResumeConfig,
+    uses_wordpress_com_proxy,
     validate_credentials as validate_wordpress_credentials,
     wordpress_source,
 )
@@ -54,11 +58,11 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="WordPress",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync posts, pages, comments, media, categories, tags, and users from a self-hosted WordPress site via the core REST API (`/wp-json/wp/v2`).
+            caption="""Sync posts, pages, comments, media, categories, tags, and users from a WordPress site via the WordPress REST API.
 
-Enter your site URL (for example `https://example.com`). Public, published content syncs without credentials.
+**Self-hosted sites and WordPress.com Business/Commerce plans:** enter the site URL (for WordPress.com Business/Commerce, use your custom domain). Public, published content syncs without credentials. To sync protected content, create an [Application Password](https://wordpress.org/documentation/article/application-passwords/) under **Users > Profile > Application Passwords** (requires WordPress 5.6+ and HTTPS) and enter your username and that password.
 
-To sync private content or authenticate, create an [Application Password](https://wordpress.org/documentation/article/application-passwords/) under **Users > Profile > Application Passwords** and enter your username and that password. Application passwords require WordPress 5.6+ and an HTTPS site.""",
+**Free, Personal, and Premium WordPress.com sites:** the site must be launched and public. Content syncs anonymously through the WordPress.com public API, so leave username and password empty. The media and users tables are not available on these plans, and private WordPress.com sites are not supported.""",
             iconPath="/static/services/wordpress.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wordpress",
             fields=cast(
@@ -70,6 +74,7 @@ To sync private content or authenticate, create an [Application Password](https:
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="https://example.com",
+                        caption="For example https://example.com, or yoursite.wordpress.com for WordPress.com sites",
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -78,6 +83,7 @@ To sync private content or authenticate, create an [Application Password](https:
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="admin",
+                        caption="Self-hosted and WordPress.com Business sites only. Leave empty for free WordPress.com sites",
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -86,6 +92,7 @@ To sync private content or authenticate, create an [Application Password](https:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="xxxx xxxx xxxx xxxx xxxx xxxx",
+                        caption="Created under Users > Profile > Application Passwords. Leave empty for free WordPress.com sites",
                         secret=True,
                     ),
                 ],
@@ -95,8 +102,10 @@ To sync private content or authenticate, create an [Application Password](https:
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid WordPress username or application password. Create a new application password and reconnect.",
-            "403 Client Error": "Your WordPress credentials lack permission to read this data. Check the user's role and try again.",
+            "403 Client Error": "WordPress denied access to this data (HTTP 403). If you provided credentials, check the user's role; otherwise a security plugin, firewall, or the site's privacy settings may be blocking REST API access.",
             "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
+            WPCOM_PRIVATE_SITE_ERROR: "This WordPress.com site is private or not yet launched. Launch the site and set its privacy to Public, then sync again.",
+            WPCOM_AUTH_REQUIRED_TABLE_ERROR: "Free WordPress.com sites only expose public content, so the media and users tables are not available for this site. Remove them from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
         }
@@ -116,6 +125,11 @@ To sync private content or authenticate, create an [Application Password](https:
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        endpoints: tuple[str, ...] = ENDPOINTS
+        if uses_wordpress_com_proxy(config.site_url):
+            # The wp.com proxy only serves media/users with OAuth; hide them so the wizard doesn't
+            # offer tables that can never sync.
+            endpoints = tuple(e for e in ENDPOINTS if e not in WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS)
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -123,7 +137,7 @@ To sync private content or authenticate, create an [Application Password](https:
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in ENDPOINTS
+            for endpoint in endpoints
         ]
         if names is not None:
             names_set = set(names)

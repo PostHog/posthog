@@ -106,6 +106,10 @@ WORDPRESS_ENDPOINTS: dict[str, WordpressEndpointConfig] = {
 
 ENDPOINTS = tuple(WORDPRESS_ENDPOINTS.keys())
 
+# public-api.wordpress.com serves these collections only with wp.com OAuth, which we don't support
+# (free-plan sites have no core Application Passwords) -> excluded from proxied syncs.
+WORDPRESS_COM_AUTH_REQUIRED_ENDPOINTS: frozenset[str] = frozenset({"media", "users"})
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in WORDPRESS_ENDPOINTS.items()
 }
