@@ -19,7 +19,12 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
-from posthog.egress.github.transport import GitHubRateLimitError, raise_if_github_rate_limited
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    raise_if_github_rate_limited,
+)
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
@@ -1285,6 +1290,43 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
+    @parameterized.expand(
+        [
+            ("uninstalled_404", 404, "Not Found", {}, True),
+            ("suspended_403", 403, "This installation has been suspended.", {}, True),
+            ("rate_limited_403", 403, "You have exceeded a secondary rate limit", {"retry-after": "60"}, False),
+            ("transient_500", 500, "Server Error", {}, False),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_disarms_proactive_refresh_only_for_dead_installation(
+        self, _name, status_code, text, headers, expected_disarmed, mock_client_request, _mock_reload
+    ):
+        response = MagicMock(spec=requests.Response)
+        response.status_code = status_code
+        response.text = text
+        response.headers = headers
+        response.json.return_value = {}
+        mock_client_request.return_value = response
+
+        integration = self.create_integration(
+            config={"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+        with pytest.raises(GitHubIntegrationError):
+            GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        if expected_disarmed:
+            assert "expires_in" not in integration.config
+            assert "refreshed_at" not in integration.config
+            assert GitHubIntegration(integration).access_token_expired() is False
+        else:
+            assert integration.config["expires_in"] == 3600
+            assert "refreshed_at" in integration.config
+
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
@@ -1997,9 +2039,12 @@ class TestGitHubIntegrationModel(BaseTest):
 
 class TestGitHubIntegrationGhApiGet(BaseTest):
     def _create_integration(self) -> Integration:
+        # integration_id mirrors production (set from config on install) — the egress gate and
+        # tier store key on it; without it every call is identity-blind and skips both.
         return Integration.objects.create(
             team=self.team,
             kind="github",
+            integration_id="INSTALL",
             config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
@@ -2015,6 +2060,33 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         integration = self._create_integration()
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert body == {"default_branch": "main"}
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_batch_instance_is_shed_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+        # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
+        # callers silently ride the never-shed CRITICAL lane again and denials stop deferring work.
+        integration = self._create_integration()
+        github = GitHubIntegration(integration, priority=Priority.BATCH)
+        with pytest.raises(GitHubEgressBudgetExhausted):
+            github.api_request("GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        mock_request.assert_not_called()
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False)
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_critical_default_proceeds_when_budget_denied(self, _mock_expired, _mock_consume, mock_request):
+        ok = MagicMock()
+        ok.status_code = 200
+        mock_request.return_value = ok
+
+        integration = self._create_integration()
+        response = GitHubIntegration(integration).api_request(
+            "GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
+        )
+        assert response.status_code == 200
+        mock_request.assert_called_once()
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)

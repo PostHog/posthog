@@ -39,7 +39,6 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -60,10 +59,28 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
     from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
     from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
+    from products.error_tracking.backend.models import (
+        ErrorTrackingAssignmentRule,
+        ErrorTrackingBypassRule,
+        ErrorTrackingIssue,
+        ErrorTrackingIssueAssignment,
+        ErrorTrackingIssueFingerprintV2,
+        ErrorTrackingRelease,
+        ErrorTrackingSuppressionRule,
+        ErrorTrackingSymbolSet,
+    )
 else:
     Account = apps.get_model("customer_analytics", "Account")
     CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
     CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
+    ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+    ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
+    ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
+    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+    ErrorTrackingAssignmentRule = apps.get_model("error_tracking", "ErrorTrackingAssignmentRule")
+    ErrorTrackingBypassRule = apps.get_model("error_tracking", "ErrorTrackingBypassRule")
+    ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
+    ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -295,46 +312,34 @@ def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
 
 
 def _create_error_tracking_issue_assignment(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
-
     issue = ErrorTrackingIssue.objects.create(team=team, name=f"assigned_issue_{label}", status="active")
     return ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue)
 
 
 def _create_error_tracking_issue_fingerprint(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-
     issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
     return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
 def _create_error_tracking_assignment_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
-
     return ErrorTrackingAssignmentRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
     )
 
 
 def _create_error_tracking_bypass_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingBypassRule
-
     return ErrorTrackingBypassRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
     )
 
 
 def _create_error_tracking_suppression_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
-
     return ErrorTrackingSuppressionRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
     )
 
 
 def _create_error_tracking_release(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingRelease
-
     return ErrorTrackingRelease.objects.create(
         team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
     )
@@ -825,6 +830,48 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_markdown_column_extracts_only_markdown_notebook_source(self):
+        markdown_source = "# Title\n\nSome notebook markdown."
+        Notebook.objects.create(
+            team=self.team,
+            short_id="mdnote",
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {"nodeId": "markdown-notebook-v2", "markdown": markdown_source},
+                    }
+                ],
+            },
+            text_content=markdown_source,
+        )
+        Notebook.objects.create(
+            team=self.team,
+            short_id="legacy",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Legacy content"}]},
+                ],
+            },
+            text_content="Legacy content",
+        )
+        Notebook.objects.create(team=self.team, short_id="empty", content=None, text_content=None)
+
+        response = execute_hogql_query(
+            "SELECT short_id, markdown FROM system.notebooks WHERE short_id IN ('mdnote', 'legacy', 'empty')",
+            team=self.team,
+            user=self.user,
+        )
+        rows = {row[0]: row[1] for row in response.results}
+
+        assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

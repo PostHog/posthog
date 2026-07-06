@@ -68,6 +68,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
 
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../property_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_list_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         assert response.status_code == status.HTTP_200_OK

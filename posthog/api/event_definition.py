@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db.models import Manager
+from django.http import Http404
 
 import orjson
 import posthoganalytics
@@ -404,6 +406,13 @@ class EventDefinitionViewSet(
         return response.Response(serializer.data)
 
     def dangerously_get_object(self):
+        # A non-UUID lookup (e.g. the literal "undefined" from a link built without a saved
+        # definition id) would raise a ValueError deep in the ORM and surface as a 500. Return a
+        # clean 404 instead.
+        try:
+            uuid.UUID(str(self.kwargs["id"]))
+        except ValueError:
+            raise Http404("Event definition not found.")
         return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
 
     def _get_event_definition(self, **filters) -> EventDefinition:

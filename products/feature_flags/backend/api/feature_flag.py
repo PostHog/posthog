@@ -1776,7 +1776,7 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
-            if instance.features.count() > 0:
+            if instance.features.exists():
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )

@@ -943,7 +943,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
@@ -2264,6 +2264,20 @@
         "summary": "Get early access feature",
         "title": "Get early access feature",
         "required_scopes": ["early_access_feature:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "elements-stats-retrieve": {
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get element click stats",
+        "title": "Get element click stats",
+        "required_scopes": ["element:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6720,8 +6734,22 @@
             "readOnlyHint": false
         }
     },
+    "session-recording-bulk-delete": {
+        "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Bulk delete session recordings",
+        "title": "Bulk delete session recordings",
+        "required_scopes": ["session_recording:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "session-recording-delete": {
-        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Delete session recording",
