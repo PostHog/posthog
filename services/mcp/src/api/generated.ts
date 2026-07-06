@@ -12424,6 +12424,40 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+     */
+    export interface TaskUserBasicInfo {
+      id: number;
+      uuid: string;
+      distinct_id: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
+      /** @nullable */
+      role_at_organization?: string | null;
+    }
+
+    /**
+     * Response shape for a task channel, read from a frozen ``ChannelDTO``.
+     */
+    export interface ChannelDTO {
+      id: string;
+      name: string;
+      channel_type: string;
+      created_at: string;
+      created_by?: TaskUserBasicInfo | null;
+    }
+
+    /**
      * * `slack_channel_message` - Channel message
      * * `slack_bot_mention` - Bot mention
      * * `slack_emoji_reaction` - Emoji reaction
@@ -12464,6 +12498,17 @@ export namespace Schemas {
       Teams: 'teams',
       Github: 'github',
     } as const;
+
+    /**
+     * Request body for creating (resolve-or-create) or renaming a public channel.
+     */
+    export interface ChannelWrite {
+      /**
+         * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+         * @maxLength 128
+         */
+      name: string;
+    }
 
     export interface CheckDatabaseNameResponse {
       name: string;
@@ -13451,29 +13496,6 @@ export namespace Schemas {
       DeepResearch: 'deep_research',
       Slack: 'slack',
     } as const;
-
-    /**
-     * @nullable
-     */
-    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
-
-    /**
-     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
-     */
-    export interface TaskUserBasicInfo {
-      id: number;
-      uuid: string;
-      distinct_id: string;
-      first_name: string;
-      last_name: string;
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
-      /** @nullable */
-      role_at_organization?: string | null;
-    }
 
     /**
      * @nullable
@@ -18337,6 +18359,11 @@ export namespace Schemas {
       order?: number | null;
       tag_name: string;
       text?: string | null;
+    }
+
+    export interface ElementValue {
+      /** A distinct value of the requested element property */
+      name: string;
     }
 
     /**
@@ -31421,6 +31448,15 @@ export namespace Schemas {
       results: ChangeRequest[];
     }
 
+    export interface PaginatedChannelDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelDTO[];
+    }
+
     export interface PaginatedClickhouseEventList {
       /** @nullable */
       next?: string | null;
@@ -34779,6 +34815,29 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one message in a task's thread.
+     */
+    export interface TaskThreadMessageDTO {
+      id: string;
+      task: string;
+      content: string;
+      created_at: string;
+      author?: TaskUserBasicInfo | null;
+      /** @nullable */
+      forwarded_to_agent_at?: string | null;
+      forwarded_by?: TaskUserBasicInfo | null;
+    }
+
+    export interface PaginatedTaskThreadMessageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskThreadMessageDTO[];
+    }
+
+    /**
      * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
      * Also used for nested serializers.
      */
@@ -36392,6 +36451,17 @@ export namespace Schemas {
     export interface PatchedCanvasPublish {
       code?: string;
       prompt?: string;
+      name?: string;
+    }
+
+    /**
+     * Request body for creating (resolve-or-create) or renaming a public channel.
+     */
+    export interface PatchedChannelWrite {
+      /**
+         * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+         * @maxLength 128
+         */
       name?: string;
     }
 
@@ -42041,6 +42111,11 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Channel this task is owned by (the channel it was kicked off in).
+         * @nullable
+         */
+      channel?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -52832,6 +52907,14 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for posting a thread message.
+     */
+    export interface TaskThreadMessageWrite {
+      /** Message text. */
+      content: string;
+    }
+
+    /**
      * Request body for creating or updating a task.
      *
      * Field required/default semantics match the ``Task`` model. The view passes
@@ -52921,6 +53004,11 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Channel this task is owned by (the channel it was kicked off in).
+         * @nullable
+         */
+      channel?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -55494,6 +55582,24 @@ export namespace Schemas {
       traceCount: number;
     }
 
+    export interface _TracingDurationHistogramQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingDurationHistogramRequest {
+      /** The duration-histogram query to execute. */
+      query: _TracingDurationHistogramQueryBody;
+    }
+
     /**
      * * `timestamp` - timestamp
      * * `duration` - duration
@@ -55567,22 +55673,6 @@ export namespace Schemas {
     export interface _TracingSparklineRequest {
       /** The sparkline query to execute. */
       query: _TracingSparklineQueryBody;
-    }
-
-    export interface _TracingTimeseriesQueryBody {
-      /** Date range for the query. Defaults to last hour. */
-      dateRange?: _TracingDateRange;
-      /** Filter by service names. */
-      serviceNames?: string[];
-      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
-      statusCodes?: number[];
-      /** Property filters for the query. */
-      filterGroup?: _SpanPropertyFilter[];
-    }
-
-    export interface _TracingTimeseriesRequest {
-      /** The sparkline / duration-histogram query to execute. */
-      query: _TracingTimeseriesQueryBody;
     }
 
     export interface _TracingTraceRequest {
@@ -56409,7 +56499,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[];
     /**
@@ -56421,9 +56515,24 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string;
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number;
+    };
+
+    export type EnvironmentsElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, or attr_id.
+     */
+    key: string;
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string;
     };
 
     export type EnvironmentsEndpointsListParams = {
@@ -62492,7 +62601,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[];
     /**
@@ -62504,9 +62617,24 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string;
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number;
+    };
+
+    export type ElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, or attr_id.
+     */
+    key: string;
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string;
     };
 
     export type EndpointsListParams = {
@@ -62572,6 +62700,25 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
+    /**
+     * GitHub handle whose CI spend to break down.
+     */
+    author: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsCiCardsParams = {
@@ -67317,6 +67464,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type TasksListParams = {
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
@@ -67327,6 +67485,10 @@ export namespace Schemas {
      * @minLength 1
      */
     archived?: TasksListArchived;
+    /**
+     * Filter tasks to a channel's feed.
+     */
+    channel?: string;
     /**
      * Filter by creator user ID
      */
@@ -67466,6 +67628,17 @@ export namespace Schemas {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string;
+    };
+
+    export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {

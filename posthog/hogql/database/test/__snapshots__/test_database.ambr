@@ -7270,6 +7270,16 @@
                   "table": null,
                   "type": "json"
               },
+              "markdown": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "markdown",
+                  "id": null,
+                  "name": "markdown",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "text_content": {
                   "chain": null,
                   "fields": null,
@@ -15865,6 +15875,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "markdown": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "markdown",
+                  "id": null,
+                  "name": "markdown",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "text_content": {
                   "chain": null,

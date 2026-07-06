@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import changes_between
@@ -131,7 +131,10 @@ def _notebook_scope(team_id: int | None) -> QuerySet[Notebook]:
 
 
 def _pending_notebook_scope(team_id: int | None) -> QuerySet[Notebook]:
-    return _notebook_scope(team_id).exclude(content__content__0__type=markdown_collab.MARKDOWN_NOTEBOOK_NODE_TYPE)
+    return _notebook_scope(team_id).filter(
+        Q(content__content__0__type__isnull=True)
+        | ~Q(content__content__0__type=markdown_collab.MARKDOWN_NOTEBOOK_NODE_TYPE)
+    )
 
 
 def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any], text_content: str) -> bool:
