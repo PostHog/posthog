@@ -422,6 +422,38 @@ account_relationships_lazy_join: LazyJoin = LazyJoin(
 )
 
 
+account_relationship_definitions: PostgresTable = PostgresTable(
+    name="account_relationship_definitions",
+    postgres_table_name="customer_analytics_accountrelationshipdefinition",
+    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
+    access_scope="account",
+    description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(
+            name="name", description="Human-readable name of the relationship; unique within the team."
+        ),
+        "description": StringDatabaseField(
+            name="description", nullable=True, description="What this relationship means."
+        ),
+        "_is_single_holder": BooleanDatabaseField(name="is_single_holder", hidden=True),
+        "is_single_holder": ExpressionField(
+            name="is_single_holder",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_single_holder"])]),
+            description="1 if only one user can hold this relationship per account at a time, 0 otherwise.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="PostHog user who created the definition."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the definition was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the definition was last updated."
+        ),
+    },
+)
+
+
 account_relationships: PostgresTable = PostgresTable(
     name="account_relationships",
     postgres_table_name="customer_analytics_accountrelationship",

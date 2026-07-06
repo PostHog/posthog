@@ -200,6 +200,10 @@ def _create_account_relationship(team: Team, label: str) -> "AccountRelationship
     return AccountRelationship.objects.unscoped().create(team=team, account=account, definition=definition)
 
 
+def _create_account_relationship_definition(team: Team, label: str) -> "AccountRelationshipDefinition":
+    return AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_def_{label}")
+
+
 def _create_action(team: Team, label: str) -> Action:
     return Action.objects.create(team=team, name=f"action_{label}")
 
@@ -654,6 +658,7 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("account_relationship_definitions", _create_account_relationship_definition),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
