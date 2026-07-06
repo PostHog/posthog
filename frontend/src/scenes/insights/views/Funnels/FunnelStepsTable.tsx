@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonColorButton } from '@posthog/lemon-ui'
+import { LemonColorButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -11,6 +11,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-u
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
@@ -39,7 +40,8 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const isOnlySeries = flattenedBreakdowns.length <= 1
+    // Count values, not rows — compare mode shows one row per period for each value.
+    const isOnlySeries = flattenedBreakdowns.filter((b) => b.compare_label !== 'previous').length <= 1
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -69,10 +71,17 @@ export function FunnelStepsTable(): JSX.Element | null {
                             <LemonCheckbox
                                 checked={allChecked ? true : someChecked ? 'indeterminate' : false}
                                 onChange={() => {
-                                    // Either toggle all breakdowns on or off
+                                    // Either toggle all breakdowns on or off. Deduped — both rows of
+                                    // a compare pair share one visibility key.
                                     setHiddenLegendBreakdowns(
                                         allChecked
-                                            ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
+                                            ? Array.from(
+                                                  new Set(
+                                                      flattenedBreakdowns.map((b) =>
+                                                          getVisibilityKey(b.breakdown_value)
+                                                      )
+                                                  )
+                                              )
                                             : []
                                     )
                                 }}
@@ -122,14 +131,24 @@ export function FunnelStepsTable(): JSX.Element | null {
 
                         const color = getFunnelsColor(breakdown)
 
+                        // Pure-compare rows carry no breakdown value (their color/customization key
+                        // must match the chart bars), so fall back to the baseline label.
+                        const labelText =
+                            formatBreakdownLabel(
+                                value,
+                                breakdownFilter,
+                                allCohorts.results,
+                                formatPropertyValueForDisplay
+                            ) || (breakdown.isBaseline ? 'Baseline' : '')
+
                         const label = (
                             <div className="flex justify-between items-center">
-                                {formatBreakdownLabel(
-                                    value,
-                                    breakdownFilter,
-                                    allCohorts.results,
-                                    formatPropertyValueForDisplay
-                                )}
+                                <span className="inline-flex items-center gap-2">
+                                    {labelText}
+                                    {breakdown.compare_label && (
+                                        <LemonTag>{capitalizeFirstLetter(breakdown.compare_label)}</LemonTag>
+                                    )}
+                                </span>
                                 {showCustomizationIcon && (
                                     <LemonColorButton
                                         onClick={() => openModal(breakdown)}

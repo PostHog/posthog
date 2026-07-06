@@ -147,6 +147,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             user_id=self.integration.user_id,
             status_code=response.status_code,
         )
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     def _on_token_refreshed(self) -> None:
         logger.info(

@@ -7,6 +7,24 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface WorkflowCostApi {
+    /** GitHub Actions workflow name this cost is for. */
+    workflow_name: string
+    /** Billable (self-hosted) minutes for this workflow within the scope. */
+    billable_minutes: number
+    /**
+     * Estimated dollar cost for this workflow, or null when nothing was costable.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+    /** Costed jobs for this workflow (billable Linux runner, finished). */
+    costed_jobs: number
+    /** Billable Linux jobs still queued/running for this workflow. */
+    unsettled_jobs: number
+    /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
+    excluded_jobs: number
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -134,24 +152,6 @@ export interface MasterFailureGroupApi {
     last_seen: string
     /** Run id of the newest failing run — the drill-down anchor. */
     latest_run_id: number
-}
-
-export interface WorkflowCostApi {
-    /** GitHub Actions workflow name this cost is for. */
-    workflow_name: string
-    /** Billable (self-hosted) minutes for this workflow within the scope. */
-    billable_minutes: number
-    /**
-     * Estimated dollar cost for this workflow, or null when nothing was costable.
-     * @nullable
-     */
-    estimated_cost_usd: number | null
-    /** Costed jobs for this workflow (billable Linux runner, finished). */
-    costed_jobs: number
-    /** Billable Linux jobs still queued/running for this workflow. */
-    unsettled_jobs: number
-    /** Provider-hosted/non-Linux jobs for this workflow, outside the estimate. */
-    excluded_jobs: number
 }
 
 export interface RunCostApi {
@@ -806,6 +806,25 @@ export interface WorkflowRunnerCostApi {
      * @nullable
      */
     estimated_cost_usd: number | null
+}
+
+export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
+    /**
+     * GitHub handle whose CI spend to break down.
+     */
+    author: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsCiCardsParams = {
