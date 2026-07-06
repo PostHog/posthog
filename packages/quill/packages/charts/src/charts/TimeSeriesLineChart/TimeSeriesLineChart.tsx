@@ -137,8 +137,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        // Multi-axis: each axis hides its own gutter; collapse globally only when all are hidden.
-        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
+        hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,

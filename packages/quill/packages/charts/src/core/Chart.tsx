@@ -153,7 +153,6 @@ export function Chart<Meta = unknown>({
         formatters: yAxisFormatters,
         positions: yAxisPositions,
         titles: yAxisTitles,
-        hidden: yAxisHidden,
     } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
@@ -211,7 +210,6 @@ export function Chart<Meta = unknown>({
         yAxisFormatters,
         yAxisPositions,
         yAxisTitles,
-        yAxisHidden,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -238,18 +236,8 @@ export function Chart<Meta = unknown>({
                       userYTickFormatter: yTickFormatter,
                       yAxisFormatters,
                       titles: yAxisTitles,
-                      hiddenAxes: yAxisHidden,
                   }),
-        [
-            scales,
-            hideYAxis,
-            axisOrientation,
-            resolvedYFormatter,
-            yTickFormatter,
-            yAxisFormatters,
-            yAxisTitles,
-            yAxisHidden,
-        ]
+        [scales, hideYAxis, axisOrientation, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles]
     )
 
     // Mirrors AxisLabels' visible-label computation (same pure helpers, same inputs) so every tick
@@ -342,14 +330,7 @@ export function Chart<Meta = unknown>({
             labelToCoord,
         })
         return composeDrawHoverWithSelection(withCrosshair)
-    }, [
-        showCrosshair,
-        theme.crosshairColor,
-        theme.crosshairDashPattern,
-        axisOrientation,
-        labelToCoord,
-        drawHoverRef.current,
-    ])
+    }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHoverRef.current])
 
     useChartDraw({
         ctx,

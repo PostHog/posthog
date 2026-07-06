@@ -11,8 +11,6 @@ export interface YAxisMaps {
     positions?: Record<string, 'left' | 'right'>
     /** Per-axis titles keyed by axis id; single-axis charts fall back to the scalar `yAxisLabel`. */
     titles: Record<string, string>
-    /** Axis ids whose tick labels (and margin gutters) are hidden. Absent when no axis hides. */
-    hidden?: Record<string, boolean>
 }
 
 /** Per-axis tick formatters, sides, and titles keyed by axis id (formatters/sides are absent for
@@ -30,7 +28,6 @@ export function useYAxisMaps(yAxes: YAxis[] | undefined, yAxisLabel?: string): Y
         const formatters: Record<string, (value: number) => string> = {}
         const positions: Record<string, 'left' | 'right'> = {}
         const titles: Record<string, string> = {}
-        const hidden: Record<string, boolean> = {}
         for (const axis of yAxes) {
             if (axis.tickFormatter) {
                 formatters[axis.id] = axis.tickFormatter
@@ -40,15 +37,11 @@ export function useYAxisMaps(yAxes: YAxis[] | undefined, yAxisLabel?: string): Y
             if (label) {
                 titles[axis.id] = label
             }
-            if (axis.hide) {
-                hidden[axis.id] = true
-            }
         }
         return {
             formatters: Object.keys(formatters).length > 0 ? formatters : undefined,
             positions,
             titles,
-            hidden: Object.keys(hidden).length > 0 ? hidden : undefined,
         }
     }, [yAxes, yAxisLabel])
 }

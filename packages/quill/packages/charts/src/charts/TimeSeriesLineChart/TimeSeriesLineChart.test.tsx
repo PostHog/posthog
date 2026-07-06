@@ -205,26 +205,6 @@ describe('TimeSeriesLineChart', () => {
             expect(chart.yRightTicks().length).toBeGreaterThan(0)
         })
 
-        it('hides only the right axis when its entry sets hide, keeping the left axis', () => {
-            const yAxis = [{ id: 'left' }, { id: 'right', position: 'right' as const, hide: true }]
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart series={LEFT_RIGHT_SERIES} labels={LABELS} theme={THEME} config={{ yAxis }} />
-            )
-            expect(chart.yTicks().length).toBeGreaterThan(0)
-            expect(chart.yRightTicks()).toHaveLength(0)
-        })
-
-        it('collapses the y-axis gutter only when every entry sets hide', () => {
-            const yAxis = [
-                { id: 'left', hide: true },
-                { id: 'right', position: 'right' as const, hide: true },
-            ]
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart series={LEFT_RIGHT_SERIES} labels={LABELS} theme={THEME} config={{ yAxis }} />
-            )
-            expect(chart.yTicks()).toHaveLength(0)
-        })
-
         it('formats each axis with its own tick formatter', () => {
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart

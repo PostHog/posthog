@@ -408,19 +408,6 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
         })
 
-        it('floats an axis to its data range when its axes entry sets startAtZero false', () => {
-            const left = makeSeries({ key: 'left', data: [800, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
-            const right = makeSeries({ key: 'right', data: [800, 1000], yAxisId: 'y1' })
-            const result = createScales([left, right], ['a', 'b'], dimensions, {
-                axes: [
-                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
-                    { id: 'y1', position: 'right', startAtZero: false },
-                ],
-            })
-            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
-            expect(result.yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
-        })
-
         it('applies a per-axis scaleType from options.axes to that axis only', () => {
             const left = makeSeries({ key: 'left', data: [1, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
             const right = makeSeries({ key: 'right', data: [1, 1000], yAxisId: 'y1' })

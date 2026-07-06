@@ -301,10 +301,6 @@ export interface YAxis {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
-    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
-    hide?: boolean
-    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
-    startAtZero?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
