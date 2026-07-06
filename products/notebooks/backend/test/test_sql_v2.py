@@ -354,6 +354,15 @@ class TestSQLV2RunPage(APIBaseTest):
         run = self._create_run(status=status)
         self.assertEqual(self._get(str(run.id)).status_code, expected)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_page(self, _mock_enabled, mock_fetch):
+        # Paging returns analytics rows, so a query-denied notebook reader must not fetch pages.
+        run = self._create_run()
+        _restrict_query_access(self)
+        self.assertEqual(self._get(str(run.id)).status_code, 403)
+        mock_fetch.assert_not_called()
+
 
 class TestSQLV2PageDispatch(APIBaseTest):
     def setUp(self):

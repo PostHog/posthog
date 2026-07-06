@@ -979,7 +979,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page", detail=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
     def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
         # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
@@ -990,6 +995,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
+        # Paging re-queries ClickHouse and returns analytics rows, so gate it on query access
+        # too — a notebook editor whose query access is denied must not read rows through it.
+        self._require_query_access()
 
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
