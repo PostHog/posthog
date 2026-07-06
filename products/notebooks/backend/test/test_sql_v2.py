@@ -13,10 +13,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
@@ -42,6 +45,27 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
+
+from ee.models.rbac.access_control import AccessControl
+
+
+def _restrict_query_access(test: APIBaseTest) -> None:
+    # Demote from owner (owner bypasses access control) to member, turn on the ACCESS_CONTROL
+    # feature, and write an explicit query "none" row so the user falls below query-read.
+    test.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    test.organization.save(update_fields=["available_product_features"])
+    test.organization_membership.level = OrganizationMembership.Level.MEMBER
+    test.organization_membership.save(update_fields=["level"])
+    AccessControl.objects.create(
+        team=test.team,
+        resource="query",
+        resource_id=None,
+        organization_member=test.organization_membership,
+        access_level="none",
+    )
+    cache.clear()
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -142,6 +166,16 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.RUNNING)
         mock_start.assert_called_once()
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_run(self, _mock_enabled, mock_start):
+        # A notebook editor whose query access is denied must not execute HogQL through the node.
+        _restrict_query_access(self)
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        mock_start.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).exists())
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -294,6 +328,13 @@ class TestSQLV2RunResult(APIBaseTest):
                 team=self.team, notebook=other_notebook, node_id="n1", status=NotebookNodeRun.Status.DONE
             )
         self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_read_result(self, _mock_enabled):
+        # The result envelope is analytics rows, so a query-denied notebook reader must not read them back.
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
+        _restrict_query_access(self)
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
 
 
 class TestSQLV2Activities(APIBaseTest):
