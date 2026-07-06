@@ -22,6 +22,7 @@ import {
     VariantFNoHandleDashFillGray,
     VariantGCenteredHandleDash,
     VariantHFullWidthHandleDashAccent,
+    VariantICenteredHandleDashNeutral,
 } from './LemonSwitchIndeterminate.prototype'
 
 const meta: Meta = {
@@ -55,6 +56,12 @@ const VARIANTS: {
         description:
             'Track filled like "checked", handle carries a minus glyph — borrowed from indeterminate checkboxes.',
         Component: VariantBDashInHandle,
+    },
+    {
+        key: 'I',
+        name: 'Centered handle with dash (neutral track)',
+        description: 'Like A — centered handle on a neutral track — but the handle carries the minus glyph.',
+        Component: VariantICenteredHandleDashNeutral,
     },
     {
         key: 'G',
