@@ -3,9 +3,17 @@ from functools import cache
 from ipaddress import IPv6Address, collapse_addresses, ip_network
 
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
+    AHREFSBOT_NETWORKS,
+    APPLEBOT_NETWORKS,
+    BINGBOT_NETWORKS,
     GOOGLE_COMMON_CRAWLER_NETWORKS,
     GOOGLE_SPECIAL_CRAWLER_NETWORKS,
     GOOGLE_USER_TRIGGERED_FETCHER_NETWORKS,
+    OPENAI_CHATGPT_USER_NETWORKS,
+    OPENAI_GPTBOT_NETWORKS,
+    OPENAI_SEARCHBOT_NETWORKS,
+    PERPLEXITY_USER_NETWORKS,
+    PERPLEXITYBOT_NETWORKS,
 )
 
 
@@ -47,6 +55,73 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Google",
         networks=GOOGLE_USER_TRIGGERED_FETCHER_NETWORKS,
         documentation_url="https://developers.google.com/crawling/docs/verifying-google-crawlers",
+    ),
+    # Labels below mirror the corresponding UA definitions in BOT_DEFINITIONS so a bot
+    # classifies identically whichever signal catches it. Where one operator's lists
+    # overlap (OpenAI shares some ranges across lists), earlier entries win the label.
+    "openai-chatgpt-user": BotIPDefinition(
+        "ChatGPT",
+        "ai_assistant",
+        "AI Agent",
+        "OpenAI",
+        networks=OPENAI_CHATGPT_USER_NETWORKS,
+        documentation_url="https://openai.com/chatgpt-user.json",
+    ),
+    "openai-searchbot": BotIPDefinition(
+        "OpenAI Search",
+        "ai_search",
+        "AI Agent",
+        "OpenAI",
+        networks=OPENAI_SEARCHBOT_NETWORKS,
+        documentation_url="https://openai.com/searchbot.json",
+    ),
+    "openai-gptbot": BotIPDefinition(
+        "GPTBot",
+        "ai_crawler",
+        "AI Agent",
+        "OpenAI",
+        networks=OPENAI_GPTBOT_NETWORKS,
+        documentation_url="https://openai.com/gptbot.json",
+    ),
+    "perplexity-user": BotIPDefinition(
+        "Perplexity User",
+        "ai_assistant",
+        "AI Agent",
+        "Perplexity",
+        networks=PERPLEXITY_USER_NETWORKS,
+        documentation_url="https://www.perplexity.com/perplexity-user.json",
+    ),
+    "perplexitybot": BotIPDefinition(
+        "Perplexity",
+        "ai_search",
+        "AI Agent",
+        "Perplexity",
+        networks=PERPLEXITYBOT_NETWORKS,
+        documentation_url="https://www.perplexity.com/perplexitybot.json",
+    ),
+    "bingbot": BotIPDefinition(
+        "Bingbot",
+        "search_crawler",
+        "Bot",
+        "Microsoft",
+        networks=BINGBOT_NETWORKS,
+        documentation_url="https://www.bing.com/webmasters/help/verifying-that-bingbot-is-bingbot-3905dc26",
+    ),
+    "applebot": BotIPDefinition(
+        "Applebot",
+        "ai_search",
+        "AI Agent",
+        "Apple",
+        networks=APPLEBOT_NETWORKS,
+        documentation_url="https://support.apple.com/en-us/119829",
+    ),
+    "ahrefsbot": BotIPDefinition(
+        "Ahrefs",
+        "seo_crawler",
+        "Bot",
+        "Ahrefs",
+        networks=AHREFSBOT_NETWORKS,
+        documentation_url="https://ahrefs.com/robot",
     ),
 }
 
