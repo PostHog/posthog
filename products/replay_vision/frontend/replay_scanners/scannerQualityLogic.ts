@@ -236,7 +236,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         setRatedFilter: () => actions.loadObservations(),
         setSort: () => actions.loadObservations(),
 
-        // Refresh the chart and staleness shortly after a rating settles, debounced so a burst loads once.
+        // Debounced so a burst of ratings reloads the chart and staleness once.
         labelChanged: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadLabelStats()
@@ -300,7 +300,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 )
                 actions.applySuggestionSuccess(suggestion)
                 lemonToast.success('Prompt applied to the scanner as a new version')
-                // The scanner's prompt and version changed; refresh it wherever the scene shows it.
+                // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
                 replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
             } catch (error: any) {
                 lemonToast.error(`Failed to apply the recommendation${error.detail ? `: ${error.detail}` : ''}`)
