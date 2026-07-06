@@ -89,33 +89,16 @@ class TestSimplesatSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Simplesat API key"),
-            (403, False, "Invalid Simplesat API key"),
-            (500, False, "Simplesat returned HTTP 500"),
-            (0, False, "Could not connect to Simplesat: boom"),
-        ],
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source.validate_credentials"
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "Simplesat returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Simplesat: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
+    def test_validate_credentials_delegates_to_transport(self, mock_validate: mock.MagicMock) -> None:
+        # The status → message mapping is covered in test_simplesat.py; here we only lock in that the
+        # source passes the api key through and returns the transport helper's verdict unchanged.
+        mock_validate.return_value = (False, "Invalid Simplesat API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with(self.config.api_key)
+        assert result == (False, "Invalid Simplesat API key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())

@@ -111,6 +111,21 @@ class TestGetRows:
         assert rows == []
         assert manager.saved == []
 
+    def test_off_origin_next_url_raises(self, monkeypatch: Any) -> None:
+        # A pagination cursor pointing off the Simplesat API origin must not be followed — it would
+        # leak the customer's API key to another host.
+        manager = _FakeResumableManager()
+        evil = "https://evil.example.com/api/v1/surveys?page=2"
+        with pytest.raises(SimplesatRetryableError):
+            self._collect(manager, monkeypatch, {None: ([{"id": 1}], evil)})
+
+    def test_off_origin_resume_url_raises(self, monkeypatch: Any) -> None:
+        # A tampered saved cursor is rejected before any request is made.
+        evil = "https://evil.example.com/api/v1/surveys?page=2"
+        manager = _FakeResumableManager(SimplesatResumeConfig(next_url=evil))
+        with pytest.raises(SimplesatRetryableError):
+            self._collect(manager, monkeypatch, {evil: ([{"id": 5}], None)})
+
 
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
@@ -164,6 +179,12 @@ class TestFetchPage:
 
     def test_non_list_resource_key_is_retryable(self) -> None:
         session = self._session_returning(200, {"surveys": {"nope": 1}})
+        with pytest.raises(SimplesatRetryableError):
+            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+
+    def test_missing_resource_key_is_retryable(self) -> None:
+        # A response envelope without the resource key must fail loudly rather than sync zero rows.
+        session = self._session_returning(200, {"count": 0, "next": None})
         with pytest.raises(SimplesatRetryableError):
             _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
 

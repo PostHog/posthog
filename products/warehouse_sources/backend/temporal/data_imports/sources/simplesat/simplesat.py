@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -12,6 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.settings import SIMPLESAT_ENDPOINTS
 
 SIMPLESAT_BASE_URL = "https://api.simplesat.io/api/v1"
+SIMPLESAT_HOST = "api.simplesat.io"
+SIMPLESAT_PATH_PREFIX = "/api/v1"
 # The list endpoints return up to 100 records per page; the largest page minimises round trips.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -34,6 +37,17 @@ class SimplesatResumeConfig:
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"X-Simplesat-Token": api_key, "Accept": "application/json"}
+
+
+def _assert_same_origin(url: str) -> None:
+    # The pagination cursor (`next`) comes from the response body and is followed with the same
+    # session that carries `X-Simplesat-Token`. Pin it to the Simplesat API origin so a malformed
+    # or malicious response can't redirect the customer's key to another host.
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != SIMPLESAT_HOST or not parts.path.startswith(SIMPLESAT_PATH_PREFIX):
+        raise SimplesatRetryableError(
+            f"Simplesat returned an off-origin pagination URL: {parts.scheme}://{parts.netloc}"
+        )
 
 
 @retry(
@@ -68,7 +82,7 @@ def _fetch_page(
     if not isinstance(data, dict):
         raise SimplesatRetryableError(f"Simplesat returned an unexpected payload for {url}: {type(data).__name__}")
 
-    items = data.get(list_key, [])
+    items = data.get(list_key)
     if not isinstance(items, list):
         raise SimplesatRetryableError(f"Simplesat returned a non-list `{list_key}` for {url}")
 
@@ -86,7 +100,9 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[SimplesatResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = SIMPLESAT_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    # Never follow redirects: the pagination cursor is user-supplied response data, so a 3xx could
+    # otherwise smuggle the customer's API key to another host.
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
 
     # The search-style collection endpoints are POST; an empty body means "no date filter",
     # i.e. every record — the full refresh we want.
@@ -95,6 +111,7 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume and resume.next_url:
         # Follow the saved cursor URL verbatim; it already carries the pagination params.
+        _assert_same_origin(resume.next_url)
         url = resume.next_url
         params: Optional[dict[str, Any]] = None
         logger.debug(f"Simplesat: resuming {endpoint} from {url}")
@@ -112,6 +129,7 @@ def get_rows(
             break
 
         # Follow the full `next` URL — it already carries page and page_size, so we don't re-send params.
+        _assert_same_origin(next_url)
         url = next_url
         params = None
         # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
