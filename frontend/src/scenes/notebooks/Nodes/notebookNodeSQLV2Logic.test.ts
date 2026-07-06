@@ -142,4 +142,68 @@ describe('notebookNodeSQLV2Logic', () => {
         )
         expect(logic.values.isRunning).toBe(true)
     })
+
+    it('blocks a second node while another node has a run in flight', async () => {
+        // Default resultSpy keeps r1 'running', so the notebook stays busy after n1 dispatches.
+        mount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(1)
+        expect(other.values.isRunning).toBe(false)
+        expect(other.values.operationBlockReason).toBeTruthy()
+        other.unmount()
+    })
+
+    it('blocks page fetches while another node is busy', async () => {
+        const pageSpy = jest.spyOn(api.notebooks, 'sqlV2RunPage')
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        const other = notebookNodeSQLV2Logic({
+            nodeId: 'n2',
+            notebookShortId: 'nb1',
+            updateAttributes,
+            runId: 'r9',
+            hasResult: true,
+        })
+        other.mount()
+        other.actions.setPage(2)
+        await expectLogic(other).toFinishAllListeners()
+        expect(pageSpy).not.toHaveBeenCalled()
+        other.unmount()
+    })
+
+    it('releases the notebook when a run finishes so the next run can proceed', async () => {
+        resultSpy.mockResolvedValue({
+            status: 'done',
+            result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+            error: null,
+        })
+        mount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(2)
+        other.unmount()
+    })
+
+    it('unmounting a busy node releases the notebook', async () => {
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic = other // afterEach unmounts this one; n1 is already unmounted
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(2)
+    })
 })

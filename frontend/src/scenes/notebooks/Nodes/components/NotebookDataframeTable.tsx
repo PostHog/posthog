@@ -14,6 +14,8 @@ type NotebookDataframeTableProps = {
     /** Unknown-total mode: when set, Next is driven by this flag and no total is shown
      * (push-to-CH paging can't know the full count without an extra query). */
     hasMore?: boolean
+    /** Disables all pagination controls, e.g. while a page fetch is already in flight. */
+    paginationDisabledReason?: string
     onNextPage: () => void
     onPreviousPage: () => void
     onPageSizeChange: (pageSize: number) => void
@@ -44,6 +46,7 @@ export const NotebookDataframeTable = ({
     page,
     pageSize,
     hasMore,
+    paginationDisabledReason,
     onNextPage,
     onPreviousPage,
     onPageSizeChange,
@@ -113,6 +116,7 @@ export const NotebookDataframeTable = ({
                         size="small"
                         value={pageSize}
                         onChange={(value) => onPageSizeChange(value ?? pageSize)}
+                        disabledReason={paginationDisabledReason}
                         options={PAGE_SIZE_OPTIONS.map((option) => ({
                             label: option.toString(),
                             value: option,
@@ -132,14 +136,14 @@ export const NotebookDataframeTable = ({
                     <LemonButton
                         size="small"
                         onClick={onPreviousPage}
-                        disabledReason={hasPrevious ? undefined : 'No previous page'}
+                        disabledReason={paginationDisabledReason ?? (hasPrevious ? undefined : 'No previous page')}
                     >
                         Prev
                     </LemonButton>
                     <LemonButton
                         size="small"
                         onClick={onNextPage}
-                        disabledReason={hasNext ? undefined : 'No next page'}
+                        disabledReason={paginationDisabledReason ?? (hasNext ? undefined : 'No next page')}
                     >
                         Next
                     </LemonButton>
