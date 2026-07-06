@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -272,29 +273,38 @@ class TestRepoPickerOptions(TestCase):
         mock_handle.signal.assert_called_once_with(PostHogCodeSlackMentionWorkflow.authorship_confirmed)
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("clicker_mismatch", "U_OTHER", "U123"),
+            ("missing_expected_user_fails_closed", "U123", None),
+        ]
+    )
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_continue_as_bot_user_mismatch_does_not_signal(self, mock_config, mock_sync_connect, mock_webclient_class):
+    def test_continue_as_bot_does_not_signal_without_verified_mentioner(
+        self, _name, clicker_id, expected_user_id, mock_config, mock_sync_connect, mock_webclient_class
+    ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_webclient_class.return_value = MagicMock()
         mock_handle = MagicMock()
         mock_handle.signal = AsyncMock()
         mock_sync_connect.return_value.get_workflow_handle.return_value = mock_handle
 
+        value = {
+            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
+            "integration_id": self.posthog_code_integration.id,
+        }
+        if expected_user_id is not None:
+            value["mentioning_slack_user_id"] = expected_user_id
+
         payload = {
             "type": "block_actions",
-            "user": {"id": "U_OTHER"},
+            "user": {"id": clicker_id},
             "actions": [
                 {
                     "action_id": "posthog_code_continue_as_bot",
-                    "value": json.dumps(
-                        {
-                            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                        }
-                    ),
+                    "value": json.dumps(value),
                     "action_ts": "1700000000.123",
                 }
             ],

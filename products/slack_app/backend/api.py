@@ -54,6 +54,7 @@ from posthog.utils import get_instance_region
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
+    is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -849,33 +850,10 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
-POSTHOG_CODE_BOT_PRS_FLAG = "posthog-code-slack-bot-prs"
-
-
-def bot_prs_enabled(team: Team) -> bool:
-    """Fail-closed per-project check: may Slack mentions open PRs as the PostHog bot for this team?"""
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                POSTHOG_CODE_BOT_PRS_FLAG,
-                str(team.uuid),
-                groups={"organization": organization_id, "project": project_id},
-                group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("posthog_code_bot_prs_flag_check_failed", team_id=team.id, exc_info=True)
-        return False
-
-
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
     """Repo names available to the mentioner: their personal install, plus the team install when bot PRs are on."""
     user_repos = _get_user_repo_names(integration, user_id=user_id)
-    if not bot_prs_enabled(integration.team):
+    if not is_slack_app_bot_prs_enabled(integration.team):
         return user_repos
     combined = set(user_repos) | set(_get_team_repo_names(integration))
     return sorted(combined)[:_MAX_GITHUB_REPOS]
@@ -2929,13 +2907,13 @@ def _handle_continue_as_bot(payload: dict) -> HttpResponse:
     expected_user_id = value.get("mentioning_slack_user_id")
 
     if not workflow_id:
-        logger.info("posthog_code_continue_as_bot_missing_workflow_id")
+        logger.info("slack_app_continue_as_bot_missing_workflow_id")
         return HttpResponse(status=200)
 
     clicker_id = payload.get("user", {}).get("id")
-    if expected_user_id and clicker_id != expected_user_id:
+    if not expected_user_id or clicker_id != expected_user_id:
         logger.info(
-            "posthog_code_continue_as_bot_user_mismatch",
+            "slack_app_continue_as_bot_user_mismatch",
             workflow_id=workflow_id,
             expected_user_id=expected_user_id,
             clicker_id=clicker_id,
@@ -2947,7 +2925,7 @@ def _handle_continue_as_bot(payload: dict) -> HttpResponse:
         handle = client.get_workflow_handle(workflow_id)
         asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.authorship_confirmed))
     except Exception as e:
-        logger.warning("posthog_code_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("slack_app_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
         return HttpResponse(status=200)
 
     # Best-effort: replace the prompt so it can't be clicked twice.
@@ -2969,7 +2947,7 @@ def _handle_continue_as_bot(payload: dict) -> HttpResponse:
             )
         except Exception:
             logger.warning(
-                "posthog_code_continue_as_bot_picker_update_failed",
+                "slack_app_continue_as_bot_picker_update_failed",
                 workflow_id=workflow_id,
                 channel=channel,
                 message_ts=message_ts,

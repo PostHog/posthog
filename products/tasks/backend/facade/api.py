@@ -2132,6 +2132,17 @@ def relay_task_run_message(
 # --- Task run creation / start / cloud resume ---
 
 
+def user_can_author_repository(user_id: int, repository: str) -> bool:
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_user_github_integration,
+        user_github_integration_is_usable,
+    )
+
+    user = User.objects.filter(id=user_id).first()
+    integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
+    return user_github_integration_is_usable(integration)
+
+
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True

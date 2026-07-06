@@ -136,7 +136,7 @@ def _post_connect_personal_github_prompt(
         ],
     )
     logger.info(
-        "posthog_code_task_blocked_no_personal_github",
+        "slack_app_task_blocked_no_personal_github",
         user_id=user_id,
         team_id=team_id,
         channel=channel,
@@ -151,6 +151,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
     channel: str,
     thread_ts: str,
     user_id: int,
+    allow_bot_prs: bool = False,
 ) -> bool:
     """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
 
@@ -167,6 +168,8 @@ def block_posthog_code_task_if_no_personal_github_activity(
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.models.user_integration import UserIntegration
 
+    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
+
     has_personal_github = UserIntegration.objects.filter(
         user_id=user_id,
         kind=UserIntegration.IntegrationKind.GITHUB,
@@ -179,6 +182,13 @@ def block_posthog_code_task_if_no_personal_github_activity(
         kind="slack",
         integration_id=inputs.slack_team_id,
     )
+    if allow_bot_prs:
+        team_has_github = Integration.objects.filter(
+            team=integration.team, kind=Integration.IntegrationKind.GITHUB
+        ).exists()
+        if team_has_github and is_slack_app_bot_prs_enabled(integration.team):
+            return False
+
     slack = SlackIntegration(integration)
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
     _post_connect_personal_github_prompt(
@@ -201,6 +211,7 @@ def resolve_posthog_code_authorship_activity(
     slack_user_id: str,
     user_id: int,
     workflow_id: str,
+    repository: str,
 ) -> str:
     """Gate PR authorship for a repo-bound task: returns "proceed", "awaiting_confirmation", or "blocked"."""
     from django.conf import settings
@@ -208,14 +219,16 @@ def resolve_posthog_code_authorship_activity(
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.models.user_integration import UserIntegration
 
-    from products.slack_app.backend.api import bot_prs_enabled
+    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
+    from products.tasks.backend.facade import api as tasks_facade
 
-    if UserIntegration.objects.filter(
-        user_id=user_id,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-    ).exists():
+    if tasks_facade.user_can_author_repository(user_id, repository):
         return "proceed"
 
+    has_personal_github = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists()
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -226,11 +239,17 @@ def resolve_posthog_code_authorship_activity(
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
     team_has_github = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.GITHUB).exists()
 
-    if bot_prs_enabled(team) and team_has_github:
-        text = (
-            "You have no personal integration setup yet. The PR will be authored by the PostHog bot.\n"
-            "To change this, set up a personal integration."
-        )
+    if is_slack_app_bot_prs_enabled(team) and team_has_github:
+        if has_personal_github:
+            text = (
+                f"Your personal GitHub can't author PRs in `{repository}`, so the PR will be authored by the "
+                "PostHog bot.\nTo change this, update your personal integration."
+            )
+        else:
+            text = (
+                "You have no personal integration setup yet. The PR will be authored by the PostHog bot.\n"
+                "To change this, set up a personal integration."
+            )
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -264,13 +283,31 @@ def resolve_posthog_code_authorship_activity(
             metadata={"event_type": "posthog_code_authorship", "event_payload": {"workflow_id": workflow_id}},
         )
         logger.info(
-            "posthog_code_authorship_confirmation_posted",
+            "slack_app_authorship_confirmation_posted",
             user_id=user_id,
             team_id=integration.team_id,
             channel=channel,
             thread_ts=thread_ts,
         )
         return "awaiting_confirmation"
+
+    if has_personal_github:
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=(
+                f"I can't start this task yet — your personal GitHub can't author PRs in `{repository}`. "
+                "Update your personal integration, then mention me again."
+            ),
+        )
+        logger.info(
+            "slack_app_task_blocked_personal_github_missing_repo",
+            user_id=user_id,
+            team_id=integration.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return "blocked"
 
     _post_connect_personal_github_prompt(
         slack,

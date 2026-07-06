@@ -66,6 +66,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
         thread_ts: str,
         slack_user_id: str,
         user_id: int,
+        repository: str,
     ) -> bool:
         """Return True if the workflow must stop (blocked or timed out); False to proceed."""
         status = await _execute_posthog_code_activity(
@@ -76,6 +77,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             slack_user_id,
             user_id,
             workflow.info().workflow_id,
+            repository,
         )
         if status == "proceed":
             return False
@@ -283,7 +285,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         repository = self._selected_repo
             if repository:
                 if workflow.patched("posthog-code-authorship-confirm-2026-06"):
-                    if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id):
+                    if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id, repository):
                         return
                 elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                     return

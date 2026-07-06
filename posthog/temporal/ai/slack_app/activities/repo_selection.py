@@ -47,7 +47,8 @@ def cascade_posthog_code_repository_activity(
         )
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names, bot_prs_enabled
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -62,7 +63,7 @@ def cascade_posthog_code_repository_activity(
         team_has_github = Integration.objects.filter(
             team=integration.team, kind=Integration.IntegrationKind.GITHUB
         ).exists()
-        if team_has_github and not bot_prs_enabled(integration.team):
+        if team_has_github and not is_slack_app_bot_prs_enabled(integration.team):
             return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
