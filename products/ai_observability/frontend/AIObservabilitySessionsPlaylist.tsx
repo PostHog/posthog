@@ -23,8 +23,8 @@ import {
 } from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost } from './utils'
 
-const WIDER_DATE_FROM = '-7d'
 const WIDER_RANGE_DAYS = 7
+const WIDER_DATE_FROM = `-${WIDER_RANGE_DAYS}d`
 
 const SESSION_LIST_DEFAULT_WIDTH = 300
 const SESSION_LIST_MIN_WIDTH = 260
@@ -192,15 +192,8 @@ function SessionsErrorState({ errorKind }: { errorKind: NonNullable<SessionsErro
 
 // Unknowable spans count as wide — the shortcut must never narrow the window.
 function spansWiderRange(dateFrom: string | null, dateTo: string | null): boolean {
-    if (!dateFrom) {
-        return true
-    }
     const from = dateStringToDayJs(dateFrom)
-    if (!from) {
-        return true
-    }
-    const to = dateStringToDayJs(dateTo) ?? dayjs()
-    return to.diff(from, 'day') >= WIDER_RANGE_DAYS
+    return !from || (dateStringToDayJs(dateTo) ?? dayjs()).diff(from, 'day') >= WIDER_RANGE_DAYS
 }
 
 function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.Element {

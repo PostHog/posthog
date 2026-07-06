@@ -21,7 +21,6 @@ export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 const SESSIONS_PAGE_SIZE = 50
 const SESSIONS_QUERY_TIMEOUT_MS = 60_000
 
-// Tells "no AI traffic" apart from "traffic without $ai_session_id" — the sessions query filters the latter out.
 const EMPTY_REASON_PROBE_QUERY = `
 SELECT 1
 FROM events
@@ -31,7 +30,6 @@ WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
     AND {filters}
 LIMIT 1
 `
-// Tighter than the main query — the probe holds up the loading state.
 const EMPTY_REASON_PROBE_TIMEOUT_MS = 15_000
 
 export type SessionsErrorKind = 'error' | 'timeout' | null
@@ -179,7 +177,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         }
 
         // A cached answer is fine here, so `refresh` is deliberately not forwarded.
-        const classifyEmptyReason = async (source: HogQLQuery, requestId: number): Promise<SessionsEmptyReason> => {
+        const classifyEmptyReason = async (source: HogQLQuery): Promise<SessionsEmptyReason> => {
             try {
                 const response = await withTimeout(
                     (signal) =>
@@ -187,9 +185,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                     EMPTY_REASON_PROBE_TIMEOUT_MS,
                     'AI sessions empty-reason probe timed out'
                 )
-                if (requestId !== loadSessionsRequestId) {
-                    return null
-                }
                 return (response.results?.length ?? 0) > 0 ? 'no-session-ids' : 'no-data'
             } catch {
                 return null
@@ -222,7 +217,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         return
                     }
                     // Hold the loading state until the reason is known — avoids flashing the generic empty copy.
-                    const reason = await classifyEmptyReason(source, requestId)
+                    const reason = await classifyEmptyReason(source)
                     if (requestId !== loadSessionsRequestId) {
                         return
                     }

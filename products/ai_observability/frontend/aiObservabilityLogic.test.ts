@@ -395,7 +395,7 @@ describe('aiObservabilitySessionsViewLogic', () => {
     it('surfaces a retryable timeout state when the sessions query hangs', async () => {
         jest.useFakeTimers()
         try {
-            querySpy.mockImplementation(() => deferredResponse().promise) // never settles
+            querySpy.mockImplementation(() => deferredResponse().promise)
 
             logic.actions.loadSessions()
             await settleListeners()
