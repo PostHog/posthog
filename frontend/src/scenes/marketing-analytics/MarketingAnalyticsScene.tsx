@@ -178,7 +178,11 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { activeTab } = useValues(marketingAnalyticsLogic)
     const { setActiveTab } = useActions(marketingAnalyticsLogic)
 
-    const dashboard = (
+    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
+    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
+    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+        <NewMarketingAnalyticsDashboard />
+    ) : (
         <>
             <MarketingAnalyticsFilters tabs={<></>} />
             <MarketingAnalyticsDashboard />
@@ -187,15 +191,6 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
-            ? [
-                  {
-                      key: MarketingAnalyticsTab.NEW_DASHBOARD,
-                      label: 'New dashboard',
-                      content: <NewMarketingAnalyticsDashboard />,
-                  },
-              ]
-            : []),
         ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
             ? [
                   {
