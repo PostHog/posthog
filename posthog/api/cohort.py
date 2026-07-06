@@ -1418,7 +1418,7 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                     "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) "
                     "matches only; if no exact match exists, returns similar (fuzzy trigram — typos, "
                     "transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` "
-                    "is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at "
+                    "is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at "
                     "200 characters; longer queries return a 400 error."
                 ),
             ),
