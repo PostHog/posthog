@@ -105,11 +105,15 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_samples_the_expected_teams_at_rate_0_5(self):
-        # Fixed ids give a deterministic split at rate 0.5. The expected set below is derived
-        # independently of the command's sampling code: for these 100 ids, simple_hash(id) % 10000
-        # lands under 5000 for ids 9_400_000..9_400_079 and at/above it for the last 20. Asserting
-        # against this precomputed 80/20 split (rather than re-deriving it with sample_on_property)
-        # proves the command applies sampling correctly, not merely that it matches itself.
+        # Fixed ids are required: sample_on_property now hashes into 10000 buckets (was 100 before
+        # #68598 raised the resolution so sub-1% rates stop truncating to zero). At that finer
+        # resolution a block of consecutive auto-increment ids lands almost all-or-nothing mod 10000,
+        # so the old "roughly 50 of 100 sampled" assertion flipped to 0 or 100 depending on the id
+        # block CI happened to assign. These fixed ids give a stable split, and the expected set below
+        # is derived independently of the command's sampling code: for these 100 ids
+        # simple_hash(id) % 10000 lands under 5000 for ids 9_400_000..9_400_079 and at/above it for
+        # the last 20. Asserting against this precomputed 80/20 split (rather than re-deriving it with
+        # sample_on_property) proves the command samples correctly, not merely that it matches itself.
         Team.objects.bulk_create(
             [
                 Team(id=9_400_000 + i, organization=self.organization, project=self.project, name=f"Team {i}")
