@@ -64,8 +64,12 @@ const BillingGaugeItem = ({
 
     // Split the current usage bar at the billing limit: the part at or below the limit is what the
     // user pays for (solid), the part above is not charged (striped + desaturated). We only do this on
-    // usage gauges (not the monetary `$` gauge, which carries a `prefix`) where a limit is actually set.
-    const hasLimit = item.type === BillingGaugeItemKind.CurrentUsage && !item.prefix && !!billingLimit
+    // usage gauges (not the monetary `$` gauge, which carries a `prefix`) where a limit is actually set
+    // AND we can price the usage. Free/unsubscribed products carry a `usage_limit` (often equal to the
+    // free allocation) with `tiers: null` — without tiers we can't price anything, so we must not
+    // invent paid/not-charged semantics.
+    const hasLimit =
+        item.type === BillingGaugeItemKind.CurrentUsage && !item.prefix && !!billingLimit && !!product?.tiers?.length
     const isOverLimit = hasLimit && item.value > (billingLimit as number)
     const paidUsage = hasLimit ? Math.min(item.value, billingLimit as number) : item.value
     const paidAmountUsd = hasLimit ? getPaidAmountUsd(paidUsage, product, discountPercent) : null
@@ -81,9 +85,11 @@ const BillingGaugeItem = ({
     // The projected/forecast bar spans 0..projected and paints over the current-usage bar. We only
     // want its explanatory hover on the *incremental* part beyond current usage — the rest must stay
     // transparent to pointer events so the paid/over-limit tooltips underneath remain reachable.
-    const isProjected = item.type === BillingGaugeItemKind.ProjectedUsage
+    // Only usage gauges get the forecast hover: `currentUsage` is in usage units, so dividing it by a
+    // monetary (`$`-prefixed) projected value would mix units and mislabel dollars as "usage".
+    const isProjectedUsage = item.type === BillingGaugeItemKind.ProjectedUsage && !item.prefix
     const currentUsage = product?.current_usage ?? 0
-    const projectedForecastFraction = isProjected && item.value > 0 ? Math.min(currentUsage / item.value, 1) : 0
+    const projectedForecastFraction = isProjectedUsage && item.value > 0 ? Math.min(currentUsage / item.value, 1) : 0
 
     return (
         <div
@@ -115,7 +121,7 @@ const BillingGaugeItem = ({
                         />
                     </Tooltip>
                 </>
-            ) : isProjected ? (
+            ) : isProjectedUsage ? (
                 <Tooltip title="Projected usage by the end of your billing period">
                     <div
                         className="BillingGaugeItem__section absolute top-0 bottom-0 right-0"

@@ -55,24 +55,55 @@ describe('BillingGauge', () => {
         expect(forecast?.style.left).toBe('50%')
     })
 
-    it('does not split the bar when usage is below the billing limit', () => {
-        const { container } = render(
-            <BillingGauge items={usageItems(2, 3)} product={makeProduct({ percentage_usage: 2 / 3 })} />
-        )
+    it.each([
+        {
+            name: 'usage is below the billing limit',
+            items: usageItems(2, 3),
+            product: makeProduct({ percentage_usage: 2 / 3 }),
+        },
+        {
+            // Monetary items carry a `$` prefix — usage-based paid/not-charged semantics don't apply.
+            name: 'the gauge is monetary ($) even when over the limit',
+            items: [
+                { type: BillingGaugeItemKind.BillingLimit, text: 'Billing limit', value: 3, prefix: '$' },
+                { type: BillingGaugeItemKind.CurrentUsage, text: 'Current', value: 8, prefix: '$' },
+            ] as BillingGaugeItemType[],
+            product: makeProduct({ unit: '$', percentage_usage: 8 / 3 }),
+        },
+        {
+            // Free/unsubscribed products carry a usage_limit (~free allocation) with tiers: null — with no
+            // pricing we can't say what's "paid", so the bar must not split.
+            name: 'the product has no tier pricing',
+            items: [
+                { type: BillingGaugeItemKind.BillingLimit, text: 'Billing limit', value: 3 },
+                { type: BillingGaugeItemKind.FreeTier, text: 'Free tier limit', value: 3 },
+                { type: BillingGaugeItemKind.CurrentUsage, text: 'Current', value: 8 },
+            ] as BillingGaugeItemType[],
+            product: makeProduct({ tiers: null, percentage_usage: 8 / 3 }),
+        },
+    ])('does not split the current usage bar when $name', ({ items, product }) => {
+        const { container } = render(<BillingGauge items={items} product={product} />)
 
         expect(container.querySelector('.BillingGaugeItem__section--paid')).not.toBeInTheDocument()
         expect(container.querySelector('.BillingGaugeItem__section--over-limit')).not.toBeInTheDocument()
     })
 
-    it('does not split the monetary ($) gauge even when over the limit', () => {
+    it('does not render the usage forecast section on a monetary ($) gauge', () => {
+        // Forecast math divides usage units by the projected value; on a $ gauge that would mix units,
+        // so the projected section (and its "Projected usage" copy) must not render.
         const items: BillingGaugeItemType[] = [
-            { type: BillingGaugeItemKind.BillingLimit, text: 'Billing limit', value: 3, prefix: '$' },
             { type: BillingGaugeItemKind.CurrentUsage, text: 'Current', value: 8, prefix: '$' },
+            { type: BillingGaugeItemKind.ProjectedUsage, text: 'Projected', value: 16, prefix: '$' },
         ]
         const { container } = render(
-            <BillingGauge items={items} product={makeProduct({ unit: '$', percentage_usage: 8 / 3 })} />
+            <BillingGauge
+                items={items}
+                product={makeProduct({ unit: '$', current_usage: 8, percentage_usage: 8 / 3 })}
+            />
         )
 
-        expect(container.querySelector('.BillingGaugeItem__section--paid')).not.toBeInTheDocument()
+        expect(
+            container.querySelector('.BillingGaugeItem--projected_usage .BillingGaugeItem__section')
+        ).not.toBeInTheDocument()
     })
 })
