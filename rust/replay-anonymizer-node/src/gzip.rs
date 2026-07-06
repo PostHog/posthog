@@ -11,9 +11,14 @@ use libdeflater::{CompressionLvl, Compressor, Decompressor};
 /// Exceeding it fails closed as a classified DLQ instead of an unclassifiable OOM crash-loop.
 pub const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
-/// zstd level for re-emitted cv payloads: the efficient frontier on the real cv corpus (gzip-6's
-/// ratio at ~5x its compress speed; levels 2-4 add nothing).
-const CV_ZSTD_LEVEL: i32 = 1;
+/// zstd level for re-emitted cv payloads. Counterintuitively negative: raw codec ratio is 20%
+/// worse than level 1 (0.145 vs 0.121 on the real cv corpus), but these bytes are stored
+/// latin-1-in-JSON inside snappy blocks, where entropy-coded output pays twice — high bytes cost
+/// 2 UTF-8 bytes each and are incompressible to the block snappy, while the raw ASCII literals
+/// negative levels leave behind cost 1 byte and snappy still compresses them. Measured end to
+/// end on the corpus, -1 beats 1 on every axis: 3.67 vs 3.88 ms/msg, snappy'd blocks 272.7 vs
+/// 289.2 MB, and the loader-side decompress is ~30% faster. Levels below -1 gain nothing.
+const CV_ZSTD_LEVEL: i32 = -1;
 
 thread_local! {
     // Reused per thread: each codec state is a one-time ~50-300 KB malloc and cv work runs several
