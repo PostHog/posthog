@@ -1,14 +1,16 @@
 import type { Series, TooltipContext } from '@posthog/quill-charts'
 
-import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelUtils'
+import { getReferenceStep, getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
+    buildFunnelBarHorizontalDropOff,
     buildFunnelBarHorizontalFiller,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    funnelConversionRate,
     RATE_TO_PERCENT,
     type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
@@ -86,9 +88,10 @@ function buildBreakdownSegments(
     return [...segments, buildFunnelBarHorizontalFiller(segments, options.fillerColor)]
 }
 
-/** One step in compare mode: two stacked bars (current, then previous), each a full 0–100 track
- *  rather than two segments sharing one track. `bars[0]` is current, `bars[1]` previous; previous is
- *  omitted only when the backend sent no previous-period series for the step. */
+/** One step in compare mode: two stacked bars (current, then previous) on a shared 0–100 axis.
+ *  `bars[0]` is current, `bars[1]` previous; previous is omitted only when the backend sent no
+ *  previous-period series for the step. A shorter period's bar sums to its own entry level, leaving
+ *  the volume gap above as blank whitespace. */
 export interface FunnelBarHorizontalCompareStep {
     bars: FunnelBarHorizontalStepData[]
 }
@@ -96,12 +99,23 @@ export interface FunnelBarHorizontalCompareStep {
 /** Builds the top-to-bottom compare layout: one bar per period, per step. Each bar is scaled to the
  *  shared baseline already baked into `conversionRates.fromBasisStep` (so the larger period's first
  *  step fills the track and the other is proportional), and takes its color from the *current step's*
- *  variant — both periods share step i's color, with `getColor` dimming the `previous` series. This is
- *  the key difference from `buildBreakdownSegments`, whose representative comes from step 0. */
+ *  variant — both periods share step i's color, with `getColor` dimming the `previous` series. Drop-off
+ *  stops at each period's entry level (its first-step share of the shared baseline); the space above is
+ *  the blank volume gap, left as whitespace rather than rendered as drop-off. */
 export function buildFunnelBarHorizontalCompareData(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
 ): FunnelBarHorizontalCompareStep[] {
+    const firstNested = steps[0]?.nested_breakdown ?? []
+    // Breakdown + compare draws two stacks per step (one per period), each split by breakdown value;
+    // pure compare draws one bar per period. A value's series carries both a real breakdown value and a
+    // compare label, whereas pure compare carries only the label.
+    if (firstNested.some((variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value))) {
+        return buildBreakdownCompareStacks(steps, options)
+    }
+
+    // Each period's entry level on the shared axis, indexed to match nested_breakdown order.
+    const entryLevels = firstNested.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT)
     return steps.map((step, stepIndex) => {
         const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
@@ -113,7 +127,15 @@ export function buildFunnelBarHorizontalCompareData(
             }
             return {
                 label: String(stepIndex),
-                series: [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex)],
+                series: [
+                    segment,
+                    buildFunnelBarHorizontalDropOff(
+                        [segment],
+                        entryLevels[breakdownIndex] ?? 0,
+                        options.fillerColor,
+                        breakdownIndex
+                    ),
+                ],
             }
         })
         return { bars }
@@ -137,11 +159,14 @@ type FunnelBarHorizontalHoverContext = Pick<
 /** Resolves which breakdown variant a hover maps to. `hoveredSeriesKey` identifies the exact
  *  stacked segment under the cursor (including the tooltip-hidden drop-off filler) — without it,
  *  `seriesData` lists every breakdown segment in declaration order and index 0 is just the first
- *  breakdown, not the hovered one. Returns `null` when there is nothing to describe. */
+ *  breakdown, not the hovered one. `firstStep` is the funnel's first step; it feeds the period
+ *  aggregate's from-start rate for breakdown + compare stack drop-offs, and is required so that
+ *  path can't silently degrade to a 0% rate. Returns `null` when there is nothing to describe. */
 export function resolveFunnelBarHorizontalHover(
     context: FunnelBarHorizontalHoverContext,
     step: FunnelStepWithConversionMetrics,
-    stepIndex: number
+    stepIndex: number,
+    firstStep: FunnelStepWithConversionMetrics
 ): FunnelBarHorizontalHoverTarget | null {
     const { hoveredSeriesKey, seriesData } = context
     const variantAt = (breakdownIndex: number | null | undefined): FunnelStepWithConversionMetrics =>
@@ -149,16 +174,29 @@ export function resolveFunnelBarHorizontalHover(
 
     if (hoveredSeriesKey === FUNNEL_BAR_HORIZONTAL_FILLER_KEY) {
         // Drop-off region. A lone visible segment (compare bar, plain funnel) shares the filler's
-        // variant, so resolve from it; multiple segments (breakdown) means the whole step's drop-off.
-        // The aggregate step inherits `breakdown_value` from its first variant (aggregateBreakdownResult
-        // spreads it), so clear it — the whole step's drop-off is not one breakdown's.
+        // variant, so resolve from it.
         const entry = seriesData.length === 1 ? seriesData[0] : undefined
+        if (entry) {
+            return {
+                series: variantAt(entry.series.meta?.breakdownIndex),
+                isDropOffHover: stepIndex > 0,
+                color: entry.color,
+            }
+        }
+        // Multiple segments: the whole stack's drop-off. A breakdown + compare stack holds one
+        // period's values, so describe that period's aggregate — the aggregate step itself carries
+        // the current period's totals and `compare_label`, which would mislabel the previous stack.
+        // A plain breakdown stack is the whole step; it inherits `breakdown_value` from its first
+        // variant (aggregateBreakdownResult spreads it), so clear it — the whole step's drop-off is
+        // not one breakdown's.
+        const stackCompareLabel = seriesData[0]
+            ? variantAt(seriesData[0].series.meta?.breakdownIndex).compare_label
+            : undefined
         return {
-            series: entry
-                ? variantAt(entry.series.meta?.breakdownIndex)
+            series: stackCompareLabel
+                ? comparePeriodAggregate(step, firstStep, stackCompareLabel)
                 : { ...step, breakdown: undefined, breakdown_value: undefined },
             isDropOffHover: stepIndex > 0,
-            color: entry?.color,
         }
     }
 
@@ -181,6 +219,107 @@ export function resolveFunnelBarHorizontalHover(
     const isDropOffHover =
         stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.x > entry.yPixel
     return { series: variantAt(entry.series.meta?.breakdownIndex), isDropOffHover, color: entry.color }
+}
+
+/** One period's aggregate view of a breakdown + compare step, for the stack-wide drop-off band —
+ *  the band spans every breakdown value of one period, so the tooltip needs that period's summed
+ *  count, drop-off, and rates. `breakdown_value` is cleared for the same reason as the whole-step
+ *  path: the period's drop-off is not one breakdown's. */
+function comparePeriodAggregate(
+    step: FunnelStepWithConversionMetrics,
+    firstStep: FunnelStepWithConversionMetrics,
+    compareLabel: NonNullable<FunnelStepWithConversionMetrics['compare_label']>
+): FunnelStepWithConversionMetrics {
+    const periodVariants = (
+        candidate: FunnelStepWithConversionMetrics
+    ): Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[] =>
+        (candidate.nested_breakdown ?? []).filter((variant) => variant.compare_label === compareLabel)
+    const count = periodVariants(step).reduce((sum, variant) => sum + variant.count, 0)
+    const droppedOffFromPrevious = periodVariants(step).reduce(
+        (sum, variant) => sum + variant.droppedOffFromPrevious,
+        0
+    )
+    const firstStepCount = periodVariants(firstStep).reduce((sum, variant) => sum + variant.count, 0)
+    const total = funnelConversionRate(count, firstStepCount)
+    return {
+        ...step,
+        breakdown: undefined,
+        breakdown_value: undefined,
+        compare_label: compareLabel,
+        count,
+        droppedOffFromPrevious,
+        conversionRates: {
+            // Entrants into this step for the period = converted + dropped, so the rate needs no
+            // separate previous-step lookup.
+            fromPrevious: funnelConversionRate(count, count + droppedOffFromPrevious),
+            total,
+            fromBasisStep: total,
+        },
+    }
+}
+
+/** Builds the breakdown + compare layout: two stacks per step (current, then previous), each split into
+ *  breakdown-value segments and scaled to whichever period had more total entrants at the first step. The
+ *  smaller period's stack is shorter, its volume gap left blank. The aggregate drop-off band spans all
+ *  values for the period, so it's tagged `breakdownIndex: null` plus its period's `compareLabel` — a
+ *  click opens the period's whole-step drop-off persons rather than a single value's. */
+function buildBreakdownCompareStacks(
+    steps: FunnelStepWithConversionMetrics[],
+    options: BuildOptions
+): FunnelBarHorizontalCompareStep[] {
+    const firstStep = periodTotals(steps[0])
+    // Both stacks share the larger period's first-step total, so the smaller stack sits proportionally short.
+    const basis = Math.max(firstStep.current, firstStep.previous, 0)
+    const toPercent = (count: number): number => (basis > 0 ? (count / basis) * RATE_TO_PERCENT : 0)
+    const currentEntry = toPercent(firstStep.current)
+    const previousEntry = toPercent(firstStep.previous)
+
+    return steps.map((step, stepIndex) => {
+        const current: Series<FunnelBarHorizontalSegmentMeta>[] = []
+        const previous: Series<FunnelBarHorizontalSegmentMeta>[] = []
+        ;(step.nested_breakdown ?? []).forEach((variant, breakdownIndex) => {
+            const segment: Series<FunnelBarHorizontalSegmentMeta> = {
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
+                label: options.getLabel(variant),
+                data: [toPercent(variant.count)],
+                color: options.getColor(variant),
+                meta: { isDropOff: false, breakdownIndex },
+            }
+            ;(variant.compare_label === 'previous' ? previous : current).push(segment)
+        })
+        return {
+            bars: [
+                {
+                    label: String(stepIndex),
+                    series: [
+                        ...current,
+                        buildFunnelBarHorizontalDropOff(current, currentEntry, options.fillerColor, null, 'current'),
+                    ],
+                },
+                {
+                    label: String(stepIndex),
+                    series: [
+                        ...previous,
+                        buildFunnelBarHorizontalDropOff(previous, previousEntry, options.fillerColor, null, 'previous'),
+                    ],
+                },
+            ],
+        }
+    })
+}
+
+/** Sums a period's first-step counts split by compare label — the basis for the shared stack scale. */
+function periodTotals(step: FunnelStepWithConversionMetrics | undefined): { current: number; previous: number } {
+    let current = 0
+    let previous = 0
+    for (const variant of step?.nested_breakdown ?? []) {
+        if (variant.compare_label === 'previous') {
+            previous += variant.count
+        } else {
+            current += variant.count
+        }
+    }
+    return { current, previous }
 }
 
 function buildSingleSegment(

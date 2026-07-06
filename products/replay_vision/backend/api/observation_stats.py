@@ -6,7 +6,7 @@ summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 
 import math
 from datetime import timedelta
-from typing import Any
+from typing import Any, get_args
 
 from django.db import connection
 from django.db.models import Count, Q, QuerySet
@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 _DEFAULT_RECENT_DAYS = 14
 _MAX_RECENT_DAYS = 365
@@ -87,7 +88,7 @@ def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[s
 
 
 def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    counts = {"yes": 0, "no": 0, "inconclusive": 0}
+    counts = dict.fromkeys(get_args(MonitorVerdict), 0)
     rows = (
         queryset.filter(status=ObservationStatus.SUCCEEDED)
         .annotate(verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")))

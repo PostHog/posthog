@@ -1,14 +1,70 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
+import type { LogMessage } from '~/queries/schema/schema-general'
+
+import { LogTag } from 'products/logs/frontend/components/LogTag'
 import type { _LogPatternApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsPatternsLogic } from './logsPatternsLogic'
+
+// Most-severe-first, so ties in sample counts resolve to the stronger signal.
+const SEVERITY_RANK: LogMessage['severity_text'][] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace']
+
+// Non-canonical spellings services emit (Python's default "warning", syslog's "err"/"crit", …),
+// folded onto the OTel-canonical level so their counts aren't silently dropped from the Level column.
+const SEVERITY_ALIASES: Record<string, LogMessage['severity_text']> = {
+    warning: 'warn',
+    err: 'error',
+    critical: 'fatal',
+    crit: 'fatal',
+    alert: 'fatal',
+    emerg: 'fatal',
+    emergency: 'fatal',
+    panic: 'fatal',
+    notice: 'info',
+    verbose: 'trace',
+}
+
+function canonicalSeverity(raw: string): LogMessage['severity_text'] | null {
+    if ((SEVERITY_RANK as string[]).includes(raw)) {
+        return raw as LogMessage['severity_text']
+    }
+    return SEVERITY_ALIASES[raw] ?? null
+}
+
+// Dominant severity by sample count. Non-canonical spellings are folded onto their canonical
+// level; genuinely unknown levels keep their raw key so they still surface (rather than showing
+// "-"). Ties break toward the more severe level.
+function dominantSeverity(severityCounts: Record<string, number>): string | null {
+    const folded: Record<string, number> = {}
+    for (const [raw, count] of Object.entries(severityCounts)) {
+        if (count <= 0) {
+            continue
+        }
+        const key = canonicalSeverity(raw) ?? raw
+        folded[key] = (folded[key] ?? 0) + count
+    }
+    let best: string | null = null
+    let bestCount = 0
+    let bestRank = SEVERITY_RANK.length
+    for (const [key, count] of Object.entries(folded)) {
+        const canonical = canonicalSeverity(key)
+        const rank = canonical ? SEVERITY_RANK.indexOf(canonical) : SEVERITY_RANK.length
+        if (count > bestCount || (count === bestCount && rank < bestRank)) {
+            best = key
+            bestCount = count
+            bestRank = rank
+        }
+    }
+    return best
+}
 
 // Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
 // `<hex>`, …) the runner emits — see _MASKING_INSTRUCTIONS in
@@ -30,22 +86,69 @@ function renderPatternTemplate(pattern: string): JSX.Element {
 }
 
 export function LogsPatterns({ id }: { id: string }): JSX.Element {
-    const { patterns, patternsResponse, patternsResponseLoading, patternsError } = useValues(logsPatternsLogic({ id }))
+    const { patterns, patternsResponse, patternsResponseLoading, patternsError, sparklineLabels } = useValues(
+        logsPatternsLogic({ id })
+    )
     const { sampled, scanned_count, total_count, sample_coverage_pct } = patternsResponse
 
-    // Estimated counts get a "~" so a reader never mistakes an extrapolation for a measurement.
-    const renderEstimate = (value: number): string => `${sampled ? '~' : ''}${humanFriendlyNumber(value)}`
+    // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
+    // reader never mistakes an extrapolation for a measurement; the tooltip carries the raw
+    // sample fact the estimate was derived from.
+    const renderEstimate = (estimated: number, sampleCount: number): JSX.Element | string => {
+        if (!sampled) {
+            return humanFriendlyNumber(estimated)
+        }
+        return (
+            <Tooltip
+                title={`${humanFriendlyNumber(sampleCount)} of the ${humanFriendlyNumber(
+                    scanned_count
+                )} sampled lines — extrapolated to the full window`}
+            >
+                <span>~{humanFriendlyLargeNumber(estimated)}</span>
+            </Tooltip>
+        )
+    }
 
     const columns: LemonTableColumns<_LogPatternApi> = [
+        {
+            title: 'Level',
+            key: 'severity',
+            width: 0,
+            render: (_, row) => {
+                const severity = dominantSeverity(row.severity_counts)
+                if (!severity) {
+                    return <span className="text-muted">-</span>
+                }
+                const canonical = canonicalSeverity(severity)
+                return canonical ? <LogTag level={canonical} /> : <LemonTag>{severity}</LemonTag>
+            },
+        },
         {
             title: 'Pattern',
             dataIndex: 'pattern',
             render: (_, row) => renderPatternTemplate(row.pattern),
         },
         {
+            title: 'Trend',
+            key: 'sparkline',
+            render: (_, row) =>
+                row.sparkline.length ? (
+                    <div className="w-24 h-6">
+                        <Sparkline
+                            data={row.sparkline}
+                            labels={sparklineLabels}
+                            className="w-full h-full"
+                            maximumIndicator={false}
+                        />
+                    </div>
+                ) : (
+                    <span className="text-muted">-</span>
+                ),
+        },
+        {
             title: 'Count',
             dataIndex: 'estimated_count',
-            render: (_, row) => renderEstimate(row.estimated_count),
+            render: (_, row) => renderEstimate(row.estimated_count, row.count),
             sorter: (a, b) => a.estimated_count - b.estimated_count,
             align: 'right',
         },
@@ -61,7 +164,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             dataIndex: 'estimated_error_count',
             render: (_, row) =>
                 row.estimated_error_count > 0 ? (
-                    <LemonTag type="danger">{renderEstimate(row.estimated_error_count)}</LemonTag>
+                    <LemonTag type="danger">{renderEstimate(row.estimated_error_count, row.error_count)}</LemonTag>
                 ) : (
                     <span className="text-muted">0</span>
                 ),
@@ -89,14 +192,17 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     return (
         <div className="flex-1 min-h-0 overflow-auto" data-attr="logs-patterns">
             {sampled && !patternsResponseLoading && !patternsError && (
-                <div className="text-muted text-xs px-2 py-1" data-attr="logs-patterns-sample-info">
-                    Mined from a sample of {humanFriendlyNumber(scanned_count)} of {humanFriendlyNumber(total_count)}{' '}
-                    lines
+                <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
+                    Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of
+                    the {humanFriendlyLargeNumber(total_count)} matching your filters
                     {sample_coverage_pct < 100
-                        ? `, drawn from evenly-spaced slices covering ${sample_coverage_pct.toFixed(1)}% of the window`
+                        ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
+                              1
+                          )}% of the window`
                         : ''}
-                    . Counts are estimates.
-                </div>
+                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
+                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
+                </LemonBanner>
             )}
             <LemonTable
                 columns={columns}
