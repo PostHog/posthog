@@ -265,7 +265,7 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None),
+                return_value=(0, None, 0, None, 0),
             ) as mock_backlog,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -273,6 +273,10 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_blocked_schema_ids",
                 return_value=["blocked-schema"],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_failing_schema_ids",
+                return_value=[],
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_eligible_schema_ids",
@@ -320,7 +324,7 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None),
+                return_value=(0, None, 0, None, 0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -362,7 +366,7 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None, 0, None),
+                return_value=(0, None, 0, None, 0),
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -370,6 +374,10 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_blocked_schema_ids",
                 return_value=["blocked-schema"],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_failing_schema_ids",
+                return_value=[],
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_eligible_schema_ids",
