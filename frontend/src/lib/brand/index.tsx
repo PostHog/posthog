@@ -15,12 +15,13 @@ import { cn } from 'lib/utils/css-classes'
  * the rendered **height**; width always follows from the mark's aspect ratio, so call sites never
  * set width and height themselves. Omit `size` to fill the container (`width: 100%`, e.g. the toolbar).
  */
-export type LogoSize = 'sm' | 'md' | 'lg'
+export type LogoSize = 'sm' | 'md' | 'lg' | 'xl'
 
 const LOGO_SIZE_HEIGHTS: Record<LogoSize, number> = {
-    sm: 24, // compact: watermarks, inline marks, small onboarding headers
-    md: 28, // default: the standard logo — landscape renders at 160px wide (exporters, player, most)
-    lg: 48, // hero: emphasis surfaces (coupon campaigns, splash screens)
+    sm: 24, // compact: watermarks, exporter headers, inline marks
+    md: 28, // default: the standard logo — landscape renders at 160px wide (player, most surfaces)
+    lg: 32, // prominent: page headers users linger on (login, onboarding)
+    xl: 48, // hero: emphasis surfaces (coupon campaigns, splash screens)
 }
 
 // Package props are width-driven (`size`/`width` set width, height follows). We drive by height

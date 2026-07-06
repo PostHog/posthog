@@ -14,7 +14,7 @@ export function SelfDrivingOnboarding(): JSX.Element | null {
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
             {/* Logo above the card, group centered (paper-desk positioning). Gradient in light, white in dark. */}
             <span className="block mb-6">
-                <Logo size="md" />
+                <Logo size="lg" />
             </span>
             {/* The card chrome and its per-step width live inside ContextOnboarding (so the width can vary
                 by step); here we just center it under the logo. */}

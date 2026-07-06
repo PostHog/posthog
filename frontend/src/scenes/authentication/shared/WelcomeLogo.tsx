@@ -8,7 +8,7 @@ export function WelcomeLogo({ view }: { view?: string }): JSX.Element {
 
     return (
         <Link to={logoHref} className="flex flex-col items-center mb-8" aria-label="posthog.com">
-            <Logo size="sm" className="shrink-0" aria-hidden />
+            <Logo size="md" className="shrink-0" aria-hidden />
         </Link>
     )
 }

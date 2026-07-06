@@ -36,7 +36,7 @@ export function PaperDeskCard({
         <>
             {top === undefined ? (
                 <span className="PaperDesk__logo block mb-4">
-                    <Logo variant="gradient" size="md" />
+                    <Logo variant="gradient" size="lg" />
                 </span>
             ) : (
                 top

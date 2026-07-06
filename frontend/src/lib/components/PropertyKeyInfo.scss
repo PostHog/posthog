@@ -21,19 +21,21 @@
 }
 
 .PropertyKeyInfo__logo {
-    display: inline-block;
     flex-shrink: 0;
-    width: 1rem;
-    height: 1rem;
-    background-size: cover;
 }
 
+// The logomark SVG is landscape (wider than tall), so it's height-driven to sit inline with text
 .PropertyKeyInfo__logo--posthog {
-    background-image: url('../../../public/posthog-icon.svg');
+    width: auto;
+    height: 0.75rem;
 }
 
 .PropertyKeyInfo__logo--langfuse {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
     background-image: url('../../../public/langfuse-icon.svg');
+    background-size: cover;
 }
 
 .PropertyKeyInfo__overlay {

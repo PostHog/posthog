@@ -8,7 +8,7 @@ import { CampaignConfig } from './types'
 const LennyHero: React.FC = () => {
     return (
         <div className="flex items-center justify-center gap-3 mb-4">
-            <Logo size="lg" />
+            <Logo size="xl" />
             <IconX className="size-8 opacity-60" />
             <img
                 src="https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/lenny_logo_4f52d3bb15.webp"
