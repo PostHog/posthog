@@ -341,8 +341,9 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     """Reject incremental config values that would deterministically crash at sync time.
 
     The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
-    non-string ``datetime_format`` would otherwise only surface mid-sync, and only
-    from the second sync onward (formatting needs a stored watermark).
+    non-string ``datetime_format``, or an ``endpoint.incremental`` block missing the
+    required ``start_param``, would otherwise only surface mid-sync as a bare
+    ``KeyError`` the REST engine raises from ``setup_incremental_object``.
     """
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
@@ -356,6 +357,12 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
             raise ManifestValidationError(
                 f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
                 'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+            )
+        start_param = incremental.get("start_param")
+        if not isinstance(start_param, str) or not start_param:
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
+                "non-empty string naming the query parameter used to send the cursor value to the API"
             )
 
 
@@ -1021,6 +1028,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 _strip_engine_unsupported_incremental_keys(chain.child),
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+
+            # Backstop for manifests stored before create-time validation covered this: an
+            # endpoint.incremental block missing start_param crashes the engine with a bare,
+            # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
+            _validate_incremental_configs({"resources": engine_resources})
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.
