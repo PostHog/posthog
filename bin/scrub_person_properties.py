@@ -12,7 +12,7 @@ can miss persons whose only target properties hold null values.
 
 Scrubbing happens either by:
 
-  - events mode (default, fewest requests): sends `$delete_person_property` capture events
+  - events mode (fewest requests): sends `$delete_person_property` capture events
     with `$unset` through the batch endpoint - one event per person covers all matched
     properties, batched --batch-size events per request.
   - api mode: calls `POST /api/projects/:id/persons/:uuid/delete_property/` - one request
@@ -25,7 +25,7 @@ Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs query:read and person:read (+ person:write for api mode)
   export POSTHOG_PROJECT_API_KEY=phc_...    # only needed for events mode
   python bin/scrub_person_properties.py my_secret_prop other_prop \\
-      --host eu --project-id 123 --dry-run
+      --host eu --project-id 123 --mode events --dry-run
 
 --host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
 
@@ -366,7 +366,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["events", "api"],
-        default="events",
+        required=True,
+        default=argparse.SUPPRESS,
         help="events: batched $unset capture events (1 request per --batch-size persons); "
         "api: delete_property endpoint (1 request per person-property pair)",
     )
