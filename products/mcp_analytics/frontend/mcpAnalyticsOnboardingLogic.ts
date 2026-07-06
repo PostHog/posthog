@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,33 +10,68 @@ import type { mcpAnalyticsOnboardingLogicType } from './mcpAnalyticsOnboardingLo
 
 export type MCPOnboardingState = 'not-instrumented' | 'connected-no-calls' | 'onboarded'
 
+/**
+ * How much data the project has, once onboarded. `early` renders the progressive
+ * small-data view; `full` renders the windowed dashboard tabs. Volume-gated rather
+ * than time-gated so a low-traffic server never regresses to an empty dashboard.
+ */
+export type MCPDataMaturity = 'early' | 'full'
+
+/** Graduate to the full dashboard on lifetime volume… */
+export const FULL_DASHBOARD_LIFETIME_CALLS = 1000
+/** …or on sustained density, whichever comes first. */
+export const FULL_DASHBOARD_7D_CALLS = 250
+
 export interface MCPOnboardingSignals {
     /** A client has completed the MCP handshake — proves the SDK wrap is live. */
     hasInitialize: boolean
     /** A tool has actually been called — the server is in use. */
     hasToolCall: boolean
+    /** Lifetime `$mcp_tool_call` count — drives the early/full maturity gate. */
+    toolCallsTotal: number
+    /** `$mcp_tool_call` count over the last 7 days — the density half of the gate. */
+    toolCalls7d: number
+    /** Timestamp of the first tool call, for "since June 30" copy. Null before the first call. */
+    firstCallAt: string | null
 }
 
-// Two-signal funnel over all history. `$mcp_initialize` fires when an agent
-// connects (before any tool call), so it distinguishes "instrumented but no
-// traffic yet" from "not instrumented at all" — without it, a freshly-wired
-// server that hasn't been called looks identical to one that was never set up.
-// Filtering on the two event names hits the events sort key, so this stays cheap.
+// Signal funnel over all history. `$mcp_initialize` fires when an agent connects
+// (before any tool call), so it distinguishes "instrumented but no traffic yet"
+// from "not instrumented at all". Counts (not booleans) so the same query drives
+// the early/full maturity gate. Deliberately no `properties.*` access: event-name +
+// timestamp filters hit the events sort key, so this stays cheap even on projects
+// with millions of MCP events — property-derived stats live in mcpEarlyDataLogic,
+// which only mounts when volume is known to be small.
 const ONBOARDING_SIGNAL_QUERY = `
 SELECT
     countIf(event = '$mcp_initialize') > 0 AS has_initialize,
-    countIf(event = '$mcp_tool_call') > 0 AS has_tool_call
+    countIf(event = '$mcp_tool_call') AS tool_calls_total,
+    countIf(event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY) AS tool_calls_7d,
+    minIf(timestamp, event = '$mcp_tool_call') AS first_call_at
 FROM events
 WHERE event IN ('$mcp_initialize', '$mcp_tool_call')
 `
 
-// While the user is still onboarding we re-check on a timer so the page flips to
-// the dashboard on its own the moment the first events land. The disposables
-// plugin pauses this on hidden tabs and tears it down on unmount.
+// While the user is onboarding (or watching the early-data view fill in) we re-check
+// on a timer so the page advances on its own as events land. The disposables plugin
+// pauses this on hidden tabs and tears it down on unmount.
 const POLL_INTERVAL_MS = 20000
 
 export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsOnboardingLogic']),
+    actions({
+        setDashboardModeOverride: (override: MCPDataMaturity | null) => ({ override }),
+    }),
+    reducers({
+        // Manual escape hatch both ways: an early-mode user can open the full dashboard,
+        // and a graduated user can peek back at the early view. Persisted so the choice
+        // survives reloads; `null` means "follow the volume gate".
+        dashboardModeOverride: [
+            null as MCPDataMaturity | null,
+            { persist: true },
+            { setDashboardModeOverride: (_, { override }) => override },
+        ],
+    }),
     loaders({
         signals: {
             __default: null as MCPOnboardingSignals | null,
@@ -46,9 +81,10 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 // during that gap caches `[0,0]` — and with the default cache TTL the page
                 // would then keep serving that stale "not onboarded" answer for up to a
                 // minute after the data is actually queryable, dulling the "you're connected!"
-                // moment. Forcing keeps the flip near-instant. Polling stops as soon as we're
-                // onboarded (see loadSignalsSuccess), so this is bounded to the onboarding
-                // window, and the query itself is cheap (two event-name counts on the sort key).
+                // moment. Forcing keeps the flip near-instant. Polling stops once the project
+                // graduates to the full dashboard (see loadSignalsSuccess), so this is bounded
+                // to the onboarding + early-data window, and the query itself is cheap (event-name
+                // counts on the sort key).
                 const response = (await api.query(
                     {
                         kind: NodeKind.HogQLQuery,
@@ -58,10 +94,19 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 )) as HogQLQueryResponse
                 breakpoint()
                 const row = (response?.results?.[0] as unknown[] | undefined) ?? []
-                // ClickHouse returns the `> 0` comparisons as 0/1; coerce numerically so a
-                // stringified "0" can never read as truthy (Boolean("0") would).
-                const truthy = (value: unknown): boolean => Number(value) > 0
-                return { hasInitialize: truthy(row[0]), hasToolCall: truthy(row[1]) }
+                // ClickHouse returns booleans as 0/1 and counts possibly stringified; coerce
+                // numerically so a stringified "0" can never read as truthy.
+                const asNumber = (value: unknown): number => Number(value) || 0
+                const toolCallsTotal = asNumber(row[1])
+                return {
+                    hasInitialize: asNumber(row[0]) > 0,
+                    hasToolCall: toolCallsTotal > 0,
+                    toolCallsTotal,
+                    toolCalls7d: asNumber(row[2]),
+                    // minIf() returns the epoch sentinel when nothing matched — only trust it
+                    // once we know at least one call exists.
+                    firstCallAt: toolCallsTotal > 0 && typeof row[3] === 'string' ? row[3] : null,
+                }
             },
         },
     }),
@@ -82,6 +127,24 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             },
         ],
         isOnboarded: [(s) => [s.onboardingState], (onboardingState): boolean => onboardingState === 'onboarded'],
+        dataMaturity: [
+            (s) => [s.signals],
+            (signals): MCPDataMaturity | null => {
+                if (!signals || !signals.hasToolCall) {
+                    return null
+                }
+                return signals.toolCallsTotal >= FULL_DASHBOARD_LIFETIME_CALLS ||
+                    signals.toolCalls7d >= FULL_DASHBOARD_7D_CALLS
+                    ? 'full'
+                    : 'early'
+            },
+        ],
+        // What the scene actually renders: the manual override when set, the volume gate otherwise.
+        resolvedDashboardMode: [
+            (s) => [s.dataMaturity, s.dashboardModeOverride],
+            (dataMaturity, dashboardModeOverride): MCPDataMaturity | null =>
+                dataMaturity ? (dashboardModeOverride ?? dataMaturity) : null,
+        ],
     }),
     listeners(({ values, cache }) => ({
         loadSignalsSuccess: () => {
@@ -96,8 +159,10 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                     intent_context: ProductIntentContext.MCP_ANALYTICS_CONNECTED,
                 })
             }
-            // Once tool calls show up the gate flips for good — stop polling.
-            if (values.isOnboarded) {
+            // Keep polling through the early-data window so the progress header and
+            // milestones advance live; stop for good once the volume gate graduates
+            // the project to the full dashboard.
+            if (values.dataMaturity === 'full') {
                 cache.disposables.dispose('poll')
             }
         },
