@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 
 _SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
 _MODEL_CALL_TIMEOUT_MS = 90_000
-# The agentic path digs through sessions before rewriting; give it the stronger model.
+# The agentic path digs through sessions before rewriting, so give it the stronger model.
 _AGENT_MODEL = "gemini-3-flash-preview"
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
@@ -374,8 +374,8 @@ def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
         return {"error": "no rated observation for that session id on this scanner"}
     if state.summaries_used >= _MAX_SUMMARIES_PER_RUN:
         return {"error": "summary budget for this run is exhausted; decide with the context you have"}
-    # Heavy modules stay off the API import path; they only load when the agent actually asks for a summary.
-    # Summary access goes through core helpers: replay_vision must not import products.replay internals.
+    # Deferred: heavy modules stay off the API import path. Summaries go through core helpers,
+    # since replay_vision must not import products.replay internals.
     from posthog.temporal.session_replay.session_summary.state import get_ready_summaries_from_db  # noqa: PLC0415
 
     cached = get_ready_summaries_from_db([session_id], team_id=state.scanner.team_id, extra_summary_context=None)
@@ -388,8 +388,7 @@ def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
             execute_summarize_session,
         )
 
-        # Count before executing: a failing cold run still spends budget, so the model can't
-        # retry expensive summaries past the cap.
+        # Count before executing so a failing cold run still spends budget.
         state.summaries_used += 1
         team = Team.objects.get(pk=state.scanner.team_id)
         summary_json = async_to_sync(execute_summarize_session)(
@@ -444,9 +443,13 @@ def _generate_agentic(
     distinct_id: str,
 ) -> _LlmPromptSuggestion:
     """Tool-loop generation: the model may inspect rated sessions (and their summaries) before rewriting,
-    then a final tool-free turn forces the structured answer — mirroring the scanner's own tool loop."""
+    then a final tool-free turn forces the structured answer, mirroring the scanner's own tool loop."""
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
+    client = genai.Client(
+        api_key=api_key,
+        posthog_client=posthoganalytics.default_client,
+        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+    )
     state = _AgentToolState(scanner, user, allow_cold_summaries)
     tool_config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT + _AGENT_SYSTEM_ADDENDUM,

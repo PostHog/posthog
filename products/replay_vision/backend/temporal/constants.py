@@ -20,8 +20,8 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Children are ABANDONed and don't count against this budget.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 
-# The agentic refresh may run several tool rounds and generate up to two session summaries cold;
-# bounded so a slow provider can't eat the sweep budget indefinitely.
+# The agentic refresh may run several tool rounds and up to two cold summaries.
+# Bounded so a slow provider can't eat the sweep budget.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"

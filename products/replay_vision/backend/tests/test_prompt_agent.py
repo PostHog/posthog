@@ -95,11 +95,9 @@ class TestPromptAgent(_VisionAPITestCase):
         self.assertEqual(listing["total"], 1)
         self.assertEqual(listing["sessions"][0]["session_id"], "sess-1")
 
-        # No cached summary and cold generation disallowed: a clear error, not a workflow launch.
         summary = _dispatch_agent_tool(state, _Call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("error", summary)
 
-        # Budget exhaustion is reported once the cap is hit.
         state.summaries_used = _MAX_SUMMARIES_PER_RUN
         capped = _dispatch_agent_tool(state, _Call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("budget", capped["error"])
