@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
+    from products.conversations.backend.models.constants import Status
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
@@ -482,9 +483,14 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             if last_visible is not None:
                 update_fields_dict["last_message_at"] = last_visible.created_at
                 update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
-            if cust_count:
+            # Only still-active imported tickets should surface unread badges. Pending/on-hold/
+            # resolved (Zendesk solved+closed) tickets are done or parked, so lighting up the agent
+            # inbox (unread_team_count) or the customer widget (unread_customer_count) with years-old
+            # activity is pure alert fatigue — import them read.
+            is_active = ticket_obj.status in (Status.NEW, Status.OPEN)
+            if is_active and cust_count:
                 update_fields_dict["unread_team_count"] = F("unread_team_count") + cust_count
-            if agent_count:
+            if is_active and agent_count:
                 update_fields_dict["unread_customer_count"] = F("unread_customer_count") + agent_count
             Ticket.objects.filter(team_id=team.id, id=ticket_obj.id).update(**update_fields_dict)
 

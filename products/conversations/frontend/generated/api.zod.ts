@@ -388,11 +388,6 @@ export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(conversationsZendeskImportsCreateBodyApiTokenMax)
         .describe('Zendesk API token with ticket read access.'),
-    max_tickets: zod
-        .number()
-        .min(1)
-        .nullish()
-        .describe('Optional cap on how many tickets to import, for testing. Omit or null to import all.'),
     default_email_channel_id: zod
         .uuid()
         .nullish()

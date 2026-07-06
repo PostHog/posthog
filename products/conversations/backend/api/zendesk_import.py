@@ -46,12 +46,6 @@ class ZendeskImportStartSerializer(serializers.Serializer):
         write_only=True,
         max_length=500,
     )
-    max_tickets = serializers.IntegerField(
-        help_text="Optional cap on how many tickets to import, for testing. Omit or null to import all.",
-        required=False,
-        allow_null=True,
-        min_value=1,
-    )
     default_email_channel_id = serializers.UUIDField(
         help_text=(
             "Optional fallback email channel for tickets whose original Zendesk recipient doesn't "
@@ -197,7 +191,6 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 start_zendesk_import_workflow(
                     job_id=str(job.id),
                     team_id=team_id,
-                    max_tickets=data.get("max_tickets"),
                     default_email_channel_id=(
                         str(default_email_channel_id) if default_email_channel_id is not None else None
                     ),

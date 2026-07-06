@@ -43,6 +43,12 @@ class ZendeskImportCoordinatorInput:
     team_id: int
     cursor: str | None = None
     pages_processed: int = 0
+    # Cumulative pages completed in prior continue-as-new generations. Child workflow IDs are
+    # built from the *absolute* page index (pages_offset + pages_processed); without this the
+    # per-run pages_processed resets to 0 each generation, regenerating child IDs that collide
+    # with the previous generation's already-completed children (ALLOW_DUPLICATE_FAILED_ONLY ->
+    # WorkflowAlreadyStartedError -> zero imports past the first CAN boundary).
+    pages_offset: int = 0
     dry_run: bool = False
     # Cap total tickets enumerated for import (ops/testing). None = no cap. Carried across
     # continue-as-new as the *remaining* budget so the cap holds over the whole run.
@@ -159,7 +165,7 @@ class ZendeskImportCoordinatorWorkflow:
                             self._run_batch_child(
                                 child_id=(
                                     f"{BATCH_WORKFLOW_ID_PREFIX}-{input.job_id}"
-                                    f"-{pages_processed}-{window_start + offset}"
+                                    f"-{input.pages_offset + pages_processed}-{window_start + offset}"
                                 ),
                                 wf_input=ZendeskImportBatchWorkflowInput(
                                     job_id=input.job_id,
@@ -205,6 +211,7 @@ class ZendeskImportCoordinatorWorkflow:
                             team_id=input.team_id,
                             cursor=cursor,
                             pages_processed=0,
+                            pages_offset=input.pages_offset + pages_processed,
                             dry_run=input.dry_run,
                             max_tickets=None if input.max_tickets is None else input.max_tickets - selected,
                             default_email_channel_id=input.default_email_channel_id,

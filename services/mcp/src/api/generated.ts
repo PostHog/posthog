@@ -35011,6 +35011,8 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -42389,6 +42391,8 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id?: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -54494,12 +54498,6 @@ export namespace Schemas {
          * @maxLength 500
          */
       api_token: string;
-      /**
-         * Optional cap on how many tickets to import, for testing. Omit or null to import all.
-         * @minimum 1
-         * @nullable
-         */
-      max_tickets?: number | null;
       /**
          * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
          * @nullable

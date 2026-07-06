@@ -24,7 +24,6 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
         setSubdomain: (subdomain: string) => ({ subdomain }),
         setEmailAddress: (emailAddress: string) => ({ emailAddress }),
         setApiToken: (apiToken: string) => ({ apiToken }),
-        setMaxTickets: (maxTickets: number | null) => ({ maxTickets }),
         setDefaultEmailChannelId: (defaultEmailChannelId: string | null) => ({ defaultEmailChannelId }),
         submitImport: true,
         startPolling: true,
@@ -34,8 +33,6 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
         subdomain: ['', { setSubdomain: (_, { subdomain }) => subdomain }],
         emailAddress: ['', { setEmailAddress: (_, { emailAddress }) => emailAddress }],
         apiToken: ['', { setApiToken: (_, { apiToken }) => apiToken }],
-        // null = import all tickets; a number caps the import for testing.
-        maxTickets: [null as number | null, { setMaxTickets: (_, { maxTickets }) => maxTickets }],
         // Fallback email channel for tickets whose Zendesk recipient doesn't match a configured
         // support address; null = leave those tickets without an email channel.
         defaultEmailChannelId: [
@@ -62,7 +59,6 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
                         subdomain: values.subdomain,
                         email_address: values.emailAddress,
                         api_token: values.apiToken,
-                        max_tickets: values.maxTickets,
                         default_email_channel_id: values.defaultEmailChannelId,
                     })
                 },

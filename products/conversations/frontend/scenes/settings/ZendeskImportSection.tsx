@@ -53,7 +53,6 @@ function ZendeskImportForm(): JSX.Element {
         subdomain,
         emailAddress,
         apiToken,
-        maxTickets,
         defaultEmailChannelId,
         emailConfigs,
         importJob,
@@ -61,7 +60,7 @@ function ZendeskImportForm(): JSX.Element {
         isImportRunning,
         importProgressLabel,
     } = useValues(zendeskImportLogic)
-    const { setSubdomain, setEmailAddress, setApiToken, setMaxTickets, setDefaultEmailChannelId, submitImport } =
+    const { setSubdomain, setEmailAddress, setApiToken, setDefaultEmailChannelId, submitImport } =
         useActions(zendeskImportLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -119,22 +118,6 @@ function ZendeskImportForm(): JSX.Element {
                 onChange={setApiToken}
                 disabled={isImportRunning}
             />
-            <LemonField.Pure
-                label="Tickets to import"
-                info="Cap the number of tickets to import — useful for a quick test run before a full import."
-            >
-                <LemonSelect<number | null>
-                    value={maxTickets}
-                    onChange={setMaxTickets}
-                    disabled={isImportRunning}
-                    options={[
-                        { label: 'First 10 tickets', value: 10 },
-                        { label: 'First 100 tickets', value: 100 },
-                        { label: 'First 1,000 tickets', value: 1000 },
-                        { label: 'All tickets', value: null },
-                    ]}
-                />
-            </LemonField.Pure>
             <LemonField.Pure
                 label="Default inbox"
                 info="Fallback email channel for tickets whose original Zendesk recipient doesn't match one of your configured support addresses (e.g. a *.zendesk.com address, or a non-email ticket). Tickets that do match are assigned to the matching channel regardless of this setting."

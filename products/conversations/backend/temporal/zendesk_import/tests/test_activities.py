@@ -182,6 +182,34 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(stored.count(), 3)
         self.assertEqual(stored.order_by("created_at").first().created_at.year, 2020)
 
+    @parameterized.expand(
+        [
+            ("solved", "solved"),
+            ("closed", "closed"),
+            ("pending", "pending"),
+            ("hold", "hold"),
+        ]
+    )
+    def test_inactive_imported_tickets_have_no_unread_counts(self, _name: str, zendesk_status: str) -> None:
+        # Alert-fatigue guard: a done/parked ticket (resolved/pending/on-hold) must import read —
+        # no unread badge on the agent inbox or customer widget for years-old activity. Message
+        # metadata still populates; only the unread counters are suppressed for non-active statuses.
+        comments = [
+            _zd_comment(1, 10, public=True, body="customer msg"),
+            _zd_comment(2, 20, public=True, body="agent reply"),
+        ]
+        self._run_batch(
+            [211],
+            tickets=[_zd_ticket(211, 10, status=zendesk_status)],
+            users={10: _zd_user(10, "requester@x.com"), 20: _zd_user(20, "agent@x.com", role="agent")},
+            comments_by_ticket={211: comments},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=211)
+        self.assertEqual(ticket.message_count, 2)
+        self.assertEqual(ticket.unread_team_count, 0)
+        self.assertEqual(ticket.unread_customer_count, 0)
+
     def test_unmatched_requester_sets_anonymous_traits_for_display(self) -> None:
         # The customer must render as their Zendesk name/email (via anonymous_traits) instead of
         # "Anonymous user".
