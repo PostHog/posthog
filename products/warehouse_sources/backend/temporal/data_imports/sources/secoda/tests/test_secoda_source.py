@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -67,55 +69,33 @@ class TestSecodaSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.secoda.co/api/v1/table/tables",
-            "403 Client Error: Forbidden for url: https://api.secoda.co/api/v1/user",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.secoda.co/api/v1/table/tables",),
+            ("403 Client Error: Forbidden for url: https://api.secoda.co/api/v1/user",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.secoda.co/api/v1/table/tables",
-            "429 Client Error: Too Many Requests for url: https://api.secoda.co/api/v1/user",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.secoda.co/api/v1/table/tables",),
+            ("429 Client Error: Too Many Requests for url: https://api.secoda.co/api/v1/user",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Secoda API key"),
-            (403, False, "Invalid Secoda API key"),
-            (500, False, "Secoda returned HTTP 500"),
-            (0, False, "Could not connect to Secoda: boom"),
-        ],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "Secoda returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Secoda: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source.validate_credentials")
+    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
+        # The source method forwards the workspace API key to the shared validator and returns its result verbatim.
+        mock_validate.return_value = (False, "Invalid Secoda API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        assert result == (False, "Invalid Secoda API key")
+        mock_validate.assert_called_once_with("sk-key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
