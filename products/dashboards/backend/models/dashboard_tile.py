@@ -71,11 +71,16 @@ class DashboardTile(models.Model):
         related_name="dashboard_tiles",
         null=True,
     )
+    # button_tile_id is NULL for every non-button tile (the overwhelming majority), so the
+    # lookup index is a partial index (declared in Meta.indexes below) built concurrently in
+    # migration 0013. db_index=False stops Django from also expecting a full FK index, keeping
+    # state and DB in sync (mirrors `widget` and `team`).
     button_tile = models.ForeignKey(
         "dashboards.ButtonTile",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
+        db_index=False,
     )
     widget = models.ForeignKey(
         "dashboards.DashboardWidget",
@@ -111,7 +116,14 @@ class DashboardTile(models.Model):
     objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
 
     class Meta:
-        indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
+        indexes = [
+            models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
+            models.Index(
+                fields=["button_tile"],
+                name="posthog_dashboardtile_button_tile_id_idx",
+                condition=Q(("button_tile__isnull", False)),
+            ),
+        ]
         constraints = [
             UniqueConstraint(
                 fields=["dashboard", "insight"],
