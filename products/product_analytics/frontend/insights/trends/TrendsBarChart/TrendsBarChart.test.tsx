@@ -6,6 +6,7 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
@@ -128,6 +129,27 @@ describe('TrendsBarChart (ActionsBar)', () => {
             { timeout: 5000 }
         )
         expect(personsModal.title()).toMatch(/12 Jun/)
+    })
+
+    describe('shared mode', () => {
+        beforeEach(() => {
+            // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+        })
+
+        afterEach(() => {
+            delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+        })
+
+        it('clicking a bar does not open the persons modal', async () => {
+            renderInsight({ query: trendsBar(), inSharedMode: true })
+            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+            await chart.clickAtIndex(2)
+
+            // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {

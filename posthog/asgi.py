@@ -1,5 +1,7 @@
 import gc
 import os
+import time
+import asyncio
 
 # Django Imports
 from django.conf import settings
@@ -28,6 +30,49 @@ logger = structlog.get_logger(__name__)
 # runserver is single-process, and Celery doesn't import this file.
 _post_fork_initialized = False
 
+_LOOP_LAG_HEARTBEAT_SECONDS = 1.0
+
+
+async def _event_loop_lag_heartbeat() -> None:
+    """Measure event-loop starvation: sleep 1s, record how late we woke up.
+
+    A busy-but-healthy loop wakes within milliseconds; sustained lag means
+    something is hogging the loop between awaits (CPU-bound work in a stream,
+    a sync iterator, ...) and health probes on this worker are at risk of
+    timing out. Exported as a gauge so operators can alert on it.
+    """
+    from prometheus_client import Gauge  # noqa: PLC0415 — deferred with the rest of post-fork init
+
+    lag_gauge = Gauge(
+        "posthog_asgi_event_loop_lag_seconds",
+        "How late the 1s heartbeat task woke up on this worker's event loop",
+        multiprocess_mode="livemax",
+    )
+    while True:
+        try:
+            before = time.monotonic()
+            await asyncio.sleep(_LOOP_LAG_HEARTBEAT_SECONDS)
+            lag_gauge.set(max(0.0, time.monotonic() - before - _LOOP_LAG_HEARTBEAT_SECONDS))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("event_loop_lag_heartbeat_error")
+            await asyncio.sleep(_LOOP_LAG_HEARTBEAT_SECONDS)
+
+
+# Strong reference so the heartbeat task cannot be garbage-collected mid-flight
+# (the event loop only keeps weak references to tasks).
+_loop_lag_heartbeat_task: "asyncio.Task[None] | None" = None
+
+
+def _start_event_loop_lag_heartbeat() -> None:
+    global _loop_lag_heartbeat_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # not on an event loop (e.g. WSGI import path); nothing to measure
+    _loop_lag_heartbeat_task = loop.create_task(_event_loop_lag_heartbeat())
+
 
 def _ensure_post_fork_init():
     global _post_fork_initialized
@@ -50,6 +95,7 @@ def _ensure_post_fork_init():
     # threads (it starts none), but because signal handlers must be set on the worker's
     # main thread, which this init runs on. Inert unless WEB_MEMORY_PROBE_ENABLED is set.
     install_memory_probe_handler()
+    _start_event_loop_lag_heartbeat()
     _post_fork_initialized = True
 
 

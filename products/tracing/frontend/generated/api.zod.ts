@@ -286,6 +286,7 @@ export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault = true
 
 export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -357,8 +358,14 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 )
                 .default(tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    'When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.'
+                ),
         })
-        .describe('The sparkline \/ duration-histogram query to execute.'),
+        .describe('The duration-histogram query to execute.'),
 })
 
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []

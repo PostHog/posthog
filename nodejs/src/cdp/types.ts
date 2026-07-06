@@ -292,6 +292,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
+    emailAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -520,6 +521,25 @@ export type WarehouseWebhookPayload = {
     team_id: number
     schema_id: string
     payload: Record<string, any>
+}
+
+export type MessageAssetRow = {
+    team_id: number
+    function_kind: 'hog_flow' | 'hog_function'
+    function_id: string
+    parent_run_id: string
+    invocation_id: string
+    action_id: string
+    kind: 'email'
+    distinct_id: string
+    person_id: string
+    recipient: string
+    subject: string
+    status: 'sent'
+    sent_at: string // ISO microsecond DateTime64
+    version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
+    is_deleted: 0 | 1
+    html: string
 }
 
 export type Response = {

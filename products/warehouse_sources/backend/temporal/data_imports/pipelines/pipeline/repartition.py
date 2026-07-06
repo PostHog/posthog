@@ -290,7 +290,7 @@ async def repartition_table_in_place(
                 storage_options=storage_options,
                 logger=logger,
             )
-        await logger.ainfo("repartition: no delta table, skipping", schema_id=str(schema.id))
+        await logger.ainfo(f"repartition: no delta table, skipping schema_id={schema.id}", schema_id=str(schema.id))
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
     partition_bytes = await asyncio.to_thread(measure_partition_bytes, old_delta)
@@ -308,7 +308,7 @@ async def repartition_table_in_place(
     if resuming:
         resolved = target
         rows_written = old_row_count
-        await logger.ainfo("repartition: resuming from swap marker", schema_id=str(schema.id))
+        await logger.ainfo(f"repartition: resuming from swap marker schema_id={schema.id}", schema_id=str(schema.id))
     else:
         # Fresh build: clear any stale temp folder, then stream the live table into it.
         async with aget_s3_client() as s3:
@@ -364,7 +364,11 @@ async def repartition_table_in_place(
     helper.get_delta_table.cache_clear()
 
     await logger.ainfo(
-        "repartition: completed",
+        f"repartition: completed schema_id={schema.id} rows={rows_written} "
+        f"mode={before['partition_mode']}->{resolved.partition_mode} "
+        f"format={before['partition_format']}->{resolved.partition_format} "
+        f"count={before['partition_count']}->{resolved.partition_count} "
+        f"size={before['partition_size']}->{resolved.partition_size}",
         schema_id=str(schema.id),
         rows=rows_written,
         mode=f"{before['partition_mode']}->{resolved.partition_mode}",
@@ -411,10 +415,14 @@ async def _resume_swap_with_missing_live(
     if not temp_present:
         await asyncio.to_thread(schema.clear_repartition_swap)
         await asyncio.to_thread(schema.clear_repartition_pending)
-        await logger.ainfo("repartition: live and temp both missing, skipping", schema_id=str(schema.id))
+        await logger.ainfo(
+            f"repartition: live and temp both missing, skipping schema_id={schema.id}", schema_id=str(schema.id)
+        )
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
-    await logger.ainfo("repartition: live missing mid-swap, resuming from temp", schema_id=str(schema.id))
+    await logger.ainfo(
+        f"repartition: live missing mid-swap, resuming from temp schema_id={schema.id}", schema_id=str(schema.id)
+    )
     temp_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
     expected_rows = await asyncio.to_thread(_table_row_count, temp_delta)
 
@@ -438,7 +446,11 @@ async def _resume_swap_with_missing_live(
     await asyncio.to_thread(schema.stamp_last_repartition_at)
     helper.get_delta_table.cache_clear()
 
-    await logger.ainfo("repartition: recovered from interrupted swap", schema_id=str(schema.id), rows=expected_rows)
+    await logger.ainfo(
+        f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",
+        schema_id=str(schema.id),
+        rows=expected_rows,
+    )
     return {"outcome": "completed", "row_count": expected_rows, "recovered": True}
 
 

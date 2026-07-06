@@ -11,6 +11,7 @@ import httpx_sse
 import structlog
 import temporalio.client
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
@@ -143,7 +144,11 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             return
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
-        raise
+        # The stream now carries an error sentinel — a retried attempt would
+        # append events past it that disconnected consumers never see. Fail
+        # the activity for good; retries are reserved for attempt-level
+        # deaths (worker restart), where no sentinel was written.
+        raise ApplicationError(str(e), non_retryable=True) from e
     except Exception as e:
         try:
             marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
@@ -169,7 +174,9 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
                 logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
             else:
                 logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        raise
+        # A complete/error sentinel was written above (or attempted) — same
+        # reasoning as the RuntimeError path: don't retry past a sentinel.
+        raise ApplicationError(str(e), non_retryable=True) from e
 
 
 async def _mark_error_unless_run_is_terminal(

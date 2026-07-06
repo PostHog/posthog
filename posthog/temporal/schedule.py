@@ -577,32 +577,26 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Daily Temporal-based usage report run at 04:45 UTC.
+    """Intraday usage report run every 30 minutes.
 
-    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
-    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
-    side. The workflow writes per-org usage data to S3 and sends a single SQS
-    pointer to the billing service.
+    Reports *today's* usage so far (`day_offset=0`) so billing gets fresh
+    numbers throughout the day. A failed slot is superseded by the next one
+    30 minutes later, so no retries. The complete-day capture is handled by the
+    daily finalizer schedule (`create_finalize_usage_reports_schedule`). The
+    workflow writes per-org usage data to S3 and sends a single SQS pointer
+    to the billing service.
     """
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-usage-reports",
             # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
             # `dataclasses.asdict` would TypeError on registration.
-            RunUsageReportsInputs().model_dump(mode="json"),
+            RunUsageReportsInputs(day_offset=0).model_dump(mode="json"),
             id="run-usage-reports-schedule",
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Daily at 04:45 UTC",
-                    hour=[ScheduleRange(start=4, end=4)],
-                    minute=[ScheduleRange(start=45, end=45)],
-                )
-            ]
-        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -613,6 +607,60 @@ async def create_run_usage_reports_schedule(client: Client):
             client,
             "run-usage-reports-schedule",
             run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_finalize_usage_reports_schedule(client: Client):
+    """Daily finalizer for the usage reports v2 flow, 02:45 UTC.
+
+    Reports *yesterday* (`day_offset=1`) once the day is complete — its
+    pointer carries `report_completeness="complete"`, billing's signal that
+    the numbers are final for that date.
+    02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
+    of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
+    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    runs rather than clearing them by an hour, and the two schedules' SKIP
+    policies don't see each other. A brief overlap is harmless: every run
+    writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
+    reports yesterday while the intraday runs report today, so overlapping
+    runs touch distinct data and at worst add concurrent query load. Unlike
+    the intraday schedule this run has no later slot to supersede it, so the
+    retry policy keeps re-running it across the day (5m, 10m, ... capped at
+    2h) until it succeeds. Anything longer than that is a manual backfill:
+    trigger the workflow with `day_offset=N` for the missed day.
+    """
+    finalize_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            RunUsageReportsInputs(day_offset=1).model_dump(mode="json"),
+            id="finalize-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=8,
+                initial_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(hours=2),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 02:45 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "finalize-usage-reports-schedule"):
+        await a_update_schedule(client, "finalize-usage-reports-schedule", finalize_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "finalize-usage-reports-schedule",
+            finalize_usage_reports_schedule,
             trigger_immediately=False,
         )
 
@@ -744,6 +792,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
+    schedules.append(create_finalize_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

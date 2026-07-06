@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
-import products.data_modeling.backend.models.modeling
+import products.data_modeling.backend.facade.modeling
 
 
 class Migration(migrations.Migration):
@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("path", products.data_modeling.backend.models.modeling.LabelTreeField()),
+                ("path", products.data_modeling.backend.facade.modeling.LabelTreeField()),
                 (
                     "created_by",
                     models.ForeignKey(

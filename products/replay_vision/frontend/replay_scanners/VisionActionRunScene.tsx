@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,40 +26,44 @@ export const scene: SceneExport = {
 function RecordingsIncluded({ observations }: { observations: readonly RunObservationApi[] }): JSX.Element {
     const columns: LemonTableColumns<RunObservationApi> = [
         {
-            title: 'Recording',
-            key: 'recording',
+            title: 'Observation',
+            key: 'observation',
             render: (_, obs) => (
                 <Link
-                    className="font-semibold truncate max-w-xs inline-block align-bottom"
+                    className="font-semibold truncate max-w-md inline-block align-bottom"
                     to={urls.replayVisionObservation(obs.id)}
-                    title={obs.recording_subject_email || obs.session_id}
+                    title={obs.title || obs.session_id}
                 >
-                    {obs.recording_subject_email || obs.session_id}
+                    {obs.title || obs.session_id}
                 </Link>
             ),
         },
         {
-            title: 'What was observed',
-            key: 'title',
+            title: 'Person',
+            key: 'person',
+            // Plain text, not a link: the observation carries no reliable person distinct id (only the
+            // subject email), so a person-page link would land on "person not found" whenever the id differs.
             render: (_, obs) =>
-                obs.title ? (
-                    <span className="text-sm truncate max-w-md inline-block align-bottom" title={obs.title}>
-                        {obs.title}
+                obs.recording_subject_email ? (
+                    <span className="truncate max-w-xs inline-block align-bottom" title={obs.recording_subject_email}>
+                        {obs.recording_subject_email}
                     </span>
                 ) : (
-                    <span className="text-muted">—</span>
+                    <Tooltip title="No person is associated with this recording">
+                        <span className="text-muted">No person</span>
+                    </Tooltip>
                 ),
         },
         {
-            title: 'When',
-            key: 'when',
+            title: 'Time',
+            key: 'time',
             render: (_, obs) => <TZLabel time={obs.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />,
         },
     ]
 
     return (
         <div className="flex flex-col gap-2">
-            <h3 className="m-0">Recordings included ({observations.length})</h3>
+            <h3 className="m-0">Recordings included: {observations.length}</h3>
             <LemonTable columns={columns} dataSource={[...observations]} rowKey="id" />
         </div>
     )
@@ -103,9 +108,22 @@ function VisionActionRunScene(): JSX.Element {
             />
 
             {run.synthesized_markdown ? (
-                <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+                <LemonCard hoverEffect={false} className="p-4">
+                    <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+                </LemonCard>
+            ) : run.status === 'running' ? (
+                <div className="text-muted italic">This run is in progress — check back shortly for the summary.</div>
             ) : (
-                <div className="text-muted italic">{run.error_reason || 'No summary was produced for this run.'}</div>
+                <LemonBanner type={run.status === 'failed' ? 'error' : 'info'}>
+                    <div className="font-semibold">
+                        {run.status === 'failed'
+                            ? 'This run failed'
+                            : run.status === 'skipped'
+                              ? 'This run was skipped'
+                              : 'This run produced no summary'}
+                    </div>
+                    <div>{run.error_reason || 'No summary was produced for this run.'}</div>
+                </LemonBanner>
             )}
 
             {run.observations.length > 0 ? (

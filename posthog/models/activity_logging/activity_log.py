@@ -89,6 +89,7 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "InstanceSetting",
+    "SignalReport",
     "SignalScoutConfig",
 ]
 ChangeAction = Literal[
@@ -395,6 +396,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # FK to a connected Slack integration. The generic field-diff captures the related object,
+        # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
+        # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
+        "integration",
     ],
     "Cohort": [
         "version",
