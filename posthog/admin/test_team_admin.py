@@ -499,12 +499,28 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         assert entry.detail["context"]["reason"] == "goodwill"
         assert entry.detail["context"]["balance_usd"] == "35.000000"
 
-    def test_add_credit_duplicate_does_not_record_activity(self) -> None:
+    def test_add_credit_duplicate_backfills_missing_audit(self) -> None:
+        # A replay whose original audit was lost after the money moved backfills it.
         request = self._post({"amount_usd": "5", "reason": "x"})
         result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True)
         with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
             self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
-        assert not ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=self.team.id).exists()
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.item_id == "e1"
+
+    def test_add_credit_audit_is_idempotent_per_entry(self) -> None:
+        # Two submits resolving to the same ledger entry record exactly one audit row.
+        result_first = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False
+        )
+        result_replay = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True
+        )
+        for result in (result_first, result_replay):
+            request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=self.team.id, item_id="e1").count() == 1
 
     def test_credit_history_renders_recorded_top_ups(self) -> None:
         request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})

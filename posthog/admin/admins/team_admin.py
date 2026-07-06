@@ -697,14 +697,11 @@ class TeamAdmin(admin.ModelAdmin):
             duplicate=result.duplicate,
             triggered_by=request.user.email,
         )
-        if result.duplicate:
-            messages.info(
-                request,
-                f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
-            )
-        else:
-            # Audit real credits only: a replay moved no money, failures already warn.
-            # item_id = ledger entry_id, joining this record to the gateway movement.
+        # Audit is keyed by the ledger entry_id, so write it whenever one is missing.
+        # The credit (gateway) and this record (Postgres) can't share a transaction,
+        # so a replay backfills the audit if an earlier attempt's write was lost after
+        # the money moved. One row per real credit; the existence check dedupes.
+        if not ActivityLog.objects.filter(scope="AIGatewayCredit", item_id=result.entry_id).exists():
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
@@ -723,6 +720,12 @@ class TeamAdmin(admin.ModelAdmin):
                     ),
                 ),
             )
+        if result.duplicate:
+            messages.info(
+                request,
+                f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
+            )
+        else:
             messages.success(
                 request,
                 f"Added ${result.amount_usd} to team '{team.name}'. New balance: ${result.balance_usd}.",
