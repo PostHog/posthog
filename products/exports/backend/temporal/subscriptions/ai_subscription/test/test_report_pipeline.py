@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     QUERY_FAILED_PREFIX,
@@ -10,6 +10,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _all_queries_failed_notice,
     _arequest_hogql_fix,
     _run_steps,
+    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -271,3 +272,21 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()
+    # An ExposedHogQLError is safe to surface, so the diagnostic carries the human-readable reason
+    # (not just the type) for the delivery viewer to show.
+    assert diagnostics[0].error_type == "ExposedHogQLError"
+    assert diagnostics[0].error_message == "bad query"
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
+        (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
+        # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
+        (InternalHogQLError("internal detail with a team-scoped id"), None),
+        (ValueError("boom"), None),
+    ],
+)
+def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
+    assert _safe_error_message(exc) == expected

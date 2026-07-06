@@ -408,6 +408,11 @@ export interface AIReportQueryDiagnosticApi {
      * @nullable
      */
     error_type: string | null
+    /**
+     * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+     * @nullable
+     */
+    error_message?: string | null
 }
 
 export interface SubscriptionDeliveryApi {

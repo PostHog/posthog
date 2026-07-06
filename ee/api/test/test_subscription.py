@@ -1816,13 +1816,22 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
         subscription = self._create_ai_subscription() if is_ai else self.subscription
         generated_hogql = "SELECT count() FROM events"
+        # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
+        scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
             # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
             content_snapshot["ai_report"] = "# Weekly report"
             content_snapshot["ai_report_diagnostics"] = [
-                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
+                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None},
+                {
+                    "description": "adoption",
+                    "hogql": "SELECT bad",
+                    "ok": False,
+                    "error_type": "ResolutionError",
+                    "error_message": scrubbed_error_message,
+                },
             ]
             content_snapshot["ai_report_prompt"] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
@@ -1854,6 +1863,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data["ai_report"] is None
             assert data["ai_report_diagnostics"] is None
             assert generated_hogql not in str(data)
+            assert scrubbed_error_message not in str(data)
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data["ai_report_prompt"] == "Weekly growth recap"
@@ -1869,6 +1879,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row["ai_report_diagnostics"] is None
             assert row["ai_report_prompt"] == "Weekly growth recap"
             assert generated_hogql not in str(row)
+            assert scrubbed_error_message not in str(row)
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
@@ -1877,6 +1888,8 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # diagnostics (including the generated HogQL) — the intended debugging surface.
                 assert data["ai_report"] == "# Weekly report"
                 assert data["ai_report_diagnostics"][0]["hogql"] == generated_hogql
+                # The safe error message on the failed step is part of the query-access debugging surface.
+                assert data["ai_report_diagnostics"][1]["error_message"] == scrubbed_error_message
                 assert data["ai_report_prompt"] == "Weekly growth recap"
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).

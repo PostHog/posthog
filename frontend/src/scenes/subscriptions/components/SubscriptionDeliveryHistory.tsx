@@ -157,12 +157,17 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
                             <span>{d.description || 'Query'}</span>
                         </div>
                     ),
-                    content: d.hogql ? (
-                        <CodeSnippet language={Language.SQL} compact>
-                            {d.hogql}
-                        </CodeSnippet>
-                    ) : (
-                        <span className="text-secondary">No query captured.</span>
+                    content: (
+                        <div className="flex flex-col gap-2">
+                            {d.error_message ? <div className="text-danger">{d.error_message}</div> : null}
+                            {d.hogql ? (
+                                <CodeSnippet language={Language.SQL} compact>
+                                    {d.hogql}
+                                </CodeSnippet>
+                            ) : (
+                                <span className="text-secondary">No query captured.</span>
+                            )}
+                        </div>
                     ),
                 }))}
             />
