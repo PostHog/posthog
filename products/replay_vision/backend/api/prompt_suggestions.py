@@ -1,6 +1,7 @@
 import uuid
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -197,11 +198,13 @@ class ReplayScannerPromptSuggestionViewSet(
         config = dict(scanner.scanner_config or {})
         config["prompt"] = suggestion.suggested_prompt
         scanner.scanner_config = config
-        scanner.save(update_fields=["scanner_config"])
-        suggestion.status = SuggestionStatus.APPLIED
-        suggestion.applied_at = timezone.now()
-        suggestion.applied_by = cast(User, request.user)
-        suggestion.save(update_fields=["status", "applied_at", "applied_by"])
+        # One transaction so the scanner can't end up changed while the suggestion stays pending.
+        with transaction.atomic():
+            scanner.save(update_fields=["scanner_config"])
+            suggestion.status = SuggestionStatus.APPLIED
+            suggestion.applied_at = timezone.now()
+            suggestion.applied_by = cast(User, request.user)
+            suggestion.save(update_fields=["status", "applied_at", "applied_by"])
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
