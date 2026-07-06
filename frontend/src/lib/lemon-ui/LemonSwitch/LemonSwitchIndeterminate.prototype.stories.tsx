@@ -17,6 +17,7 @@ import {
     VariantDFullWidthHandleDash,
     VariantENoHandleDash,
     VariantFNoHandleDashFillGray,
+    VariantGCenteredHandleDash,
 } from './LemonSwitchIndeterminate.prototype'
 
 const meta: Meta = {
@@ -67,6 +68,12 @@ const VARIANTS: {
         name: 'Dash on track, no handle (fill gray)',
         description: 'Like E, but the track keeps the regular unchecked switch fill gray instead of the border gray.',
         Component: VariantFNoHandleDashFillGray,
+    },
+    {
+        key: 'G',
+        name: 'Centered handle with dash',
+        description: 'A + B combined: handle parks mid-track and carries the minus glyph on a "checked"-filled track.',
+        Component: VariantGCenteredHandleDash,
     },
 ]
 
