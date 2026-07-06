@@ -37,6 +37,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
+    AccountRelationshipSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
@@ -1033,3 +1034,37 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise Conflict(str(exc))
 
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
+
+
+class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    serializer_class = AccountRelationshipSerializer
+    pagination_class = None
+
+    def _accessible_account_id(self) -> str | None:
+        """The parent account's id when the caller has object-level access to it, else ``None``
+        (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
+        return api.get_accessible_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_history",
+                OpenApiTypes.BOOL,
+                description="Include ended assignments (the full timeline), not just active ones.",
+            )
+        ],
+        responses={200: AccountRelationshipSerializer(many=True)},
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        relationships = api.list_account_relationships(
+            team_id=self.team_id,
+            account_id=account_id,
+            include_history=request.query_params.get("include_history", "").lower() == "true",
+        )
+        return Response(AccountRelationshipSerializer(relationships, many=True).data)
