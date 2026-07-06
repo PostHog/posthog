@@ -35,7 +35,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
 )
-from products.data_modeling.backend.logic.schedule_truth import SCHEDULE_CANDIDATE_CAP, describe_schedules
+from products.data_modeling.backend.facade.schedule_truth import SCHEDULE_CANDIDATE_CAP, describe_schedules
 from products.data_modeling.backend.presentation.internal_auth import DataModelingOpsAuthenticationMixin
 from products.data_modeling.backend.presentation.internal_serializers import (
     InternalDAGSummarySerializer,
