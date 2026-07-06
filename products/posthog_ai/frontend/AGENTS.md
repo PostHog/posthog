@@ -132,8 +132,10 @@ Supporting modules live in `policy/` (tool policy + permission/question utils) a
 loosely typed — guard at the parse boundary with runtime checks; never assume a field is present.
 
 **Context injection (`logics/attachedContextLogic.ts`):** a global registry of on-screen context. A provider
-(a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic dispatching
-`registerContext(providerId, items)` in `afterMount` and `deregisterContext` in `beforeUnmount`) contributes
+(a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic registering via
+`cache.disposables` — setup dispatches `registerContext(providerId, items)`, cleanup `deregisterContext`,
+with `pauseOnPageHidden: false` since a hide-paused registration would drop context from sends that happen
+while the tab is hidden; `posthogAiContextBridgeLogic` is the exemplar) contributes
 abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight'`, `'dashboard'`, `'trace'`,
 `'text'`…; never an enumerated union), plus `key`/`label`/`value`. `contextItems` flattens and dedupes by
 `${type}:${key ?? value}`. At send time the send paths (`runInteractionLogic.sendNow`/`startNewRun`,

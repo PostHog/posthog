@@ -195,9 +195,28 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 useAttachedContext([{ type: 'insight', key: insight.short_id, label: insight.name }])
 ```
 
-JSX-only call sites can render `<AttachedContextProvider items={...} />` (`api/primitives`) instead. A kea
-logic connects to `attachedContextLogic` and dispatches `registerContext(providerId, items)` in
-`afterMount` / `deregisterContext(providerId)` in `beforeUnmount`.
+JSX-only call sites can render `<AttachedContextProvider items={...} />` (`api/primitives`) instead.
+
+From a kea logic, connect to `attachedContextLogic` and register through a disposable (the repo-preferred
+teardown idiom — see `/using-kea-disposables`); the returned cleanup deregisters on unmount, no
+`beforeUnmount` needed. Pass `pauseOnPageHidden: false`: the registration costs nothing while idle, and the
+default hide-pause would silently drop context from a queued follow-up that flushes while the tab is hidden.
+
+```ts
+afterMount(({ actions, cache, values }) => {
+  cache.disposables.add(
+    () => {
+      actions.registerContext('my-scene', [{ type: 'dashboard', key: values.dashboard.id }])
+      return () => actions.deregisterContext('my-scene')
+    },
+    'attachedContext',
+    { pauseOnPageHidden: false }
+  )
+})
+```
+
+Re-dispatching `registerContext` with the same provider id (e.g. from a `subscriptions` handler when the
+resource changes) is an upsert — see `scenes/max/posthogAiContextBridgeLogic.ts` for the full shape.
 
 ### React to the agent invoking a tool
 
@@ -218,9 +237,14 @@ useToolStreamListener({
 })
 ```
 
-Kea-natively: connect to `toolStreamEventsLogic` and listen to its `emitToolEvent` action. Note: for
-exec-wrapped PostHog tools the resolved name can be unknown at `phase: 'started'` (the command streams in
-later) — match on `completed` when you need certainty.
+From a kea logic, either connect to `toolStreamEventsLogic` and listen to its `emitToolEvent` action (you
+filter everything yourself, including `event.source`), or register a subscription through a disposable —
+same shape as the context recipe above, calling `registerToolListener(listenerId, { tools, onEvent })` in
+setup and `deregisterToolListener(listenerId)` in cleanup, with `pauseOnPageHidden: false` (tool events fire
+while the tab is hidden and missed live events are not redelivered).
+
+Note: for exec-wrapped PostHog tools the resolved name can be unknown at `phase: 'started'` (the command
+streams in later) — match on `completed` when you need certainty.
 
 ## 4. Coupling boundary
 

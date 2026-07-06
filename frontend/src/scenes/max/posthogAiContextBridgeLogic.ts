@@ -36,16 +36,23 @@ export const posthogAiContextBridgeLogic = kea<posthogAiContextBridgeLogicType>(
         actions: [attachedContextLogic, ['registerContext', 'deregisterContext']],
     })),
     subscriptions(({ actions }) => ({
+        // Re-registering the same provider id is an upsert, so each scene change replaces the mirrored set.
         sceneContext: (sceneContext: MaxContextItem[]) => {
             actions.registerContext(BRIDGE_PROVIDER_ID, projectSceneContext(sceneContext))
         },
     })),
-    events(({ actions, values }) => ({
+    events(({ actions, cache, values }) => ({
         afterMount: () => {
-            actions.registerContext(BRIDGE_PROVIDER_ID, projectSceneContext(values.sceneContext))
-        },
-        beforeUnmount: () => {
-            actions.deregisterContext(BRIDGE_PROVIDER_ID)
+            // `pauseOnPageHidden: false`: a hide-paused registration would drop scene context from a
+            // queued follow-up that flushes while the tab is hidden; the registration is idle-cost-free.
+            cache.disposables.add(
+                () => {
+                    actions.registerContext(BRIDGE_PROVIDER_ID, projectSceneContext(values.sceneContext))
+                    return () => actions.deregisterContext(BRIDGE_PROVIDER_ID)
+                },
+                'sceneContextBridge',
+                { pauseOnPageHidden: false }
+            )
         },
     })),
 ])
