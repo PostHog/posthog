@@ -215,7 +215,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     params.labeled = values.ratedFilter === 'rated'
                 }
                 if (values.sort) {
-                    // The scene keeps the scanner logic mounted; read the type lazily for the Result sort key.
+                    // The scene keeps the scanner logic mounted, so the type is read lazily for the Result sort key.
                     const scannerType = replayScannerLogic.findMounted({ id: props.scannerId })?.values.scanner
                         ?.scanner_type
                     const orderKey = resolveOrderByKey(values.sort.columnKey, scannerType)
@@ -236,7 +236,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         setRatedFilter: () => actions.loadObservations(),
         setSort: () => actions.loadObservations(),
 
-        // Refresh the chart and staleness shortly after a rating settles; debounced so a burst loads once.
+        // Refresh the chart and staleness shortly after a rating settles, debounced so a burst loads once.
         labelChanged: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadLabelStats()
