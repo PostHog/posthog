@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconClock, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -30,6 +30,7 @@ export function MCPAnalyticsEarlyData(): JSX.Element {
                 </div>
                 <div className="flex flex-col gap-4">
                     <StatsCard />
+                    <ClientsCard />
                     <ChecklistCard />
                 </div>
             </div>
@@ -40,7 +41,9 @@ export function MCPAnalyticsEarlyData(): JSX.Element {
 function ProgressHeader(): JSX.Element {
     const { signals } = useValues(mcpAnalyticsOnboardingLogic)
     const { setDashboardModeOverride } = useActions(mcpAnalyticsOnboardingLogic)
-    const { stats, totalCalls, milestones, nextMilestone, milestoneProgress } = useValues(mcpEarlyDataLogic)
+    const { stats, totalCalls, milestones, nextMilestone, milestoneProgress, isRefreshing } =
+        useValues(mcpEarlyDataLogic)
+    const { refreshAll } = useActions(mcpEarlyDataLogic)
     const summaryParts = [
         `${formatNumber(totalCalls)} tool call${totalCalls === 1 ? '' : 's'}`,
         stats.distinctTools > 0 ? `across ${stats.distinctTools} tool${stats.distinctTools === 1 ? '' : 's'}` : null,
@@ -71,14 +74,26 @@ function ProgressHeader(): JSX.Element {
                                 : '.'}
                         </p>
                     </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => setDashboardModeOverride('full')}
-                        data-attr="mcp-analytics-early-view-full-dashboard"
-                    >
-                        View full dashboard
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={isRefreshing}
+                            onClick={refreshAll}
+                            data-attr="mcp-analytics-early-view-refresh"
+                        >
+                            Refresh
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setDashboardModeOverride('full')}
+                            data-attr="mcp-analytics-early-view-full-dashboard"
+                        >
+                            View full dashboard
+                        </LemonButton>
+                    </div>
                 </div>
                 <LemonProgress percent={milestoneProgress * 100} />
                 <div className="flex gap-2 flex-wrap">
@@ -108,6 +123,7 @@ function LiveActivityCard(): JSX.Element {
     return (
         <Card title="Live activity">
             <LemonTable<EarlyRecentCall>
+                embedded
                 dataSource={recentCalls}
                 loading={recentCallsLoading && recentCalls.length === 0}
                 rowKey={(row) => `${row.timestamp}-${row.tool}`}
@@ -164,6 +180,7 @@ function TopToolsCard(): JSX.Element {
     return (
         <Card title="Most-used tools">
             <LemonTable<EarlyToolRow>
+                embedded
                 dataSource={topTools}
                 loading={topToolsLoading && topTools.length === 0}
                 rowKey="tool"
@@ -214,6 +231,31 @@ function StatsCard(): JSX.Element {
     )
 }
 
+function ClientsCard(): JSX.Element {
+    const { clients } = useValues(mcpEarlyDataLogic)
+    const maxCalls = clients[0]?.calls ?? 0
+
+    return (
+        <Card title="Clients calling your server">
+            {clients.length === 0 ? (
+                <span className="text-muted text-sm">No client info captured yet</span>
+            ) : (
+                <div className="flex flex-col gap-2">
+                    {clients.map((row) => (
+                        <div key={row.client}>
+                            <div className="flex justify-between text-sm">
+                                <span>{row.client}</span>
+                                <span className="text-muted">{formatNumber(row.calls)}</span>
+                            </div>
+                            <LemonProgress percent={maxCalls > 0 ? (row.calls / maxCalls) * 100 : 0} />
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Card>
+    )
+}
+
 const CHECKLIST_ICONS: Record<ChecklistItem['status'], JSX.Element> = {
     ok: <IconCheckCircle className="text-success shrink-0 mt-0.5" />,
     warning: <IconWarning className="text-warning shrink-0 mt-0.5" />,
@@ -232,7 +274,7 @@ function ChecklistCard(): JSX.Element {
                         <div>
                             <div className="text-sm font-medium">{item.title}</div>
                             <div className="text-muted text-xs">
-                                {item.detail} {item.status !== 'ok' ? <Link to={item.docsUrl}>Set up</Link> : null}
+                                {item.detail} {item.status !== 'ok' ? <Link to={item.docsUrl}>Learn more</Link> : null}
                             </div>
                         </div>
                     </div>

@@ -55,8 +55,11 @@ export function buildChecklist(stats: EarlyStats): ChecklistItem[] {
         {
             key: 'sessions',
             title: 'Session stitching',
+            // Deliberately informational: conversation IDs are opt-in (the echo-back loop
+            // can read as prompt injection to some agents), so we describe the tradeoff
+            // via docs instead of prescribing it.
             detail: sessionsDegenerate
-                ? 'Almost every tool call starts a new session — typical for stateless or serverless servers. Enable conversation IDs so calls group into real sessions.'
+                ? 'Almost every tool call starts a new session — typical for stateless or serverless servers. Session views will treat each call separately.'
                 : 'Tool calls are grouping into sessions.',
             status: !enoughSignal ? 'pending' : sessionsDegenerate ? 'warning' : 'ok',
             docsUrl: DOCS.conversationId,

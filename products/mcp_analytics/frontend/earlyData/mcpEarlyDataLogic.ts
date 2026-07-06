@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -25,6 +25,11 @@ export interface EarlyToolRow {
     tool: string
     calls: number
     errors: number
+}
+
+export interface EarlyClientRow {
+    client: string
+    calls: number
 }
 
 const EMPTY_STATS: EarlyStats = {
@@ -66,6 +71,17 @@ ORDER BY calls DESC
 LIMIT 5
 `
 
+const CLIENTS_QUERY = `
+SELECT
+    properties.$mcp_client_name AS client,
+    count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+GROUP BY client
+ORDER BY calls DESC
+LIMIT 6
+`
+
 const RECENT_CALLS_QUERY = `
 SELECT
     timestamp,
@@ -102,6 +118,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         values: [mcpAnalyticsOnboardingLogic, ['signals']],
         actions: [mcpAnalyticsOnboardingLogic, ['loadSignals']],
     })),
+    actions({
+        refreshAll: true,
+    }),
     loaders({
         stats: {
             __default: EMPTY_STATS,
@@ -129,6 +148,17 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                     tool: String(row[0] ?? ''),
                     calls: asNumber(row[1]),
                     errors: asNumber(row[2]),
+                }))
+            },
+        },
+        clients: {
+            __default: [] as EarlyClientRow[],
+            loadClients: async (_: void, breakpoint): Promise<EarlyClientRow[]> => {
+                const rows = await runQuery(CLIENTS_QUERY)
+                breakpoint()
+                return rows.map((row) => ({
+                    client: asOptionalString(row[0]) ?? 'Unknown client',
+                    calls: asNumber(row[1]),
                 }))
             },
         },
@@ -163,17 +193,28 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             (totalCalls, milestones): number => progressToNextMilestone(totalCalls, milestones),
         ],
         checklist: [(s) => [s.stats], (stats): ChecklistItem[] => buildChecklist(stats)],
+        isRefreshing: [
+            (s) => [s.statsLoading, s.topToolsLoading, s.recentCallsLoading, s.clientsLoading],
+            (statsLoading, topToolsLoading, recentCallsLoading, clientsLoading): boolean =>
+                statsLoading || topToolsLoading || recentCallsLoading || clientsLoading,
+        ],
     }),
+    listeners(({ actions }) => ({
+        refreshAll: () => {
+            actions.loadSignals()
+            actions.loadStats()
+            actions.loadTopTools()
+            actions.loadClients()
+            actions.loadRecentCalls()
+        },
+    })),
     afterMount(({ actions, cache }) => {
         actions.loadStats()
         actions.loadTopTools()
+        actions.loadClients()
         actions.loadRecentCalls()
         cache.disposables.add(() => {
-            const id = window.setInterval(() => {
-                actions.loadStats()
-                actions.loadTopTools()
-                actions.loadRecentCalls()
-            }, REFRESH_INTERVAL_MS)
+            const id = window.setInterval(() => actions.refreshAll(), REFRESH_INTERVAL_MS)
             return () => clearInterval(id)
         }, 'refresh')
     }),
