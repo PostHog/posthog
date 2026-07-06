@@ -5,6 +5,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
     PAGE_SIZE,
+    OutbrainClientError,
     OutbrainResumeConfig,
     _token_cache_key,
     get_rows,
@@ -225,6 +226,68 @@ class TestReportStreams:
         assert "_date" not in flat[0]
         report_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert "breakdown" not in report_url
+
+
+@mock.patch(f"{_MODULE}.cache")
+class TestClientErrorSkips:
+    # One marketer returning a 4xx must not abort the whole fan-out sync.
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_per_marketer_400_skips_marketer_and_continues(self, mock_session, mock_cache):
+        mock_cache.get.return_value = "tok"
+        mock_session.return_value.get.side_effect = [
+            _response({"marketers": [{"id": "m1"}, {"id": "m2"}]}),
+            _response({}, status_code=400),  # budgets for m1 — inaccessible
+            _response({"budgets": [{"id": "b2"}]}),  # budgets for m2
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("u", "p", "budgets", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [r["_marketer_id"] for r in flat] == ["m2"]
+        # State advances past both marketers so a resume does not retry the bad one.
+        assert [call.args[0].next_index for call in manager.save_state.call_args_list] == [1, 2]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_per_campaign_400_on_campaign_listing_skips_marketer(self, mock_session, mock_cache):
+        mock_cache.get.return_value = "tok"
+        mock_session.return_value.get.side_effect = [
+            _response({"marketers": [{"id": "m1"}, {"id": "m2"}]}),
+            _response({}, status_code=400),  # campaigns listing for m1 — inaccessible
+            _response({"campaigns": [{"id": "c1"}]}),  # campaigns for m2
+            _response({"promotedLinks": [{"id": "pl1"}]}),  # links for c1
+        ]
+
+        batches = list(get_rows("u", "p", "promoted_links", mock.MagicMock(), _make_manager()))
+
+        flat = [row for batch in batches for row in batch]
+        assert [(r["id"], r["_campaign_id"]) for r in flat] == [("pl1", "c1")]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_report_stream_400_skips_marketer_and_continues(self, mock_session, mock_cache):
+        mock_cache.get.return_value = "tok"
+        mock_session.return_value.get.side_effect = [
+            _response({"marketers": [{"id": "m1"}, {"id": "m2"}]}),
+            _response({}, status_code=400),  # report for m1 — inaccessible
+            _response({"results": [{"metadata": {"fromDate": "2024-01-01"}, "metrics": {"clicks": 5}}]}),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("u", "p", "marketer_performance_daily", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [r["_marketer_id"] for r in flat] == ["m2"]
+        assert [call.args[0].next_index for call in manager.save_state.call_args_list] == [1, 2]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_400_on_marketer_listing_is_fatal(self, mock_session, mock_cache):
+        # A client error listing the marketers themselves has nothing to skip, so
+        # it must still abort rather than silently yield an empty sync.
+        mock_cache.get.return_value = "tok"
+        mock_session.return_value.get.return_value = _response({}, status_code=400)
+
+        with pytest.raises(OutbrainClientError):
+            list(get_rows("u", "p", "budgets", mock.MagicMock(), _make_manager()))
 
 
 class TestOutbrainSourceResponse:

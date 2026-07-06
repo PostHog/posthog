@@ -35,6 +35,21 @@ class OutbrainRetryableError(Exception):
     pass
 
 
+class OutbrainClientError(Exception):
+    """A non-retryable 4xx response for a single Outbrain request.
+
+    Raised for client errors so the per-marketer / per-campaign fan-out can skip
+    an inaccessible entity (e.g. a disabled marketer the token cannot read
+    campaigns for) instead of aborting the whole sync.
+    """
+
+    def __init__(self, status_code: int, url: str, body: str) -> None:
+        self.status_code = status_code
+        self.url = url
+        self.body = body
+        super().__init__(f"Outbrain API client error: status={status_code}, url={url}, body={body}")
+
+
 @dataclasses.dataclass
 class OutbrainResumeConfig:
     # Index of the next fan-out parent (marketer or campaign) to process.
@@ -128,8 +143,10 @@ def get_rows(
             raise OutbrainRetryableError(f"Outbrain API error (retryable): status={response.status_code}, url={url}")
 
         if not response.ok:
-            logger.error(f"Outbrain API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-            response.raise_for_status()
+            # Non-retryable 4xx. Surface as OutbrainClientError so fan-out callers
+            # can skip an inaccessible marketer / campaign; top-level callers that
+            # don't catch it (e.g. the /marketers listing) still fail the sync.
+            raise OutbrainClientError(response.status_code, url, response.text[:500])
 
         return response.json()
 
@@ -155,6 +172,22 @@ def get_rows(
         marketers = rows_of(fetch(f"{OUTBRAIN_BASE_URL}/marketers"), "marketers")
         return [str(m["id"]) for m in marketers if m.get("id")]
 
+    def list_campaign_ids(marketer_id: str) -> list[str]:
+        campaigns_config = OUTBRAIN_ENDPOINTS["campaigns"]
+        campaign_ids: list[str] = []
+        offset = 0
+        while True:
+            url = (
+                f"{OUTBRAIN_BASE_URL}/marketers/{quote(marketer_id)}/campaigns?"
+                f"{urlencode({'limit': PAGE_SIZE, 'offset': offset})}"
+            )
+            batch = rows_of(fetch(url), campaigns_config.data_key)
+            campaign_ids.extend(str(c["id"]) for c in batch if c.get("id"))
+            if len(batch) < PAGE_SIZE:
+                break
+            offset += len(batch)
+        return campaign_ids
+
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index = resume_config.next_index if resume_config is not None else 0
     if resume_config is not None:
@@ -170,27 +203,27 @@ def get_rows(
                 ("_marketer_id", marketer_id, {"marketer_id": marketer_id}) for marketer_id in list_marketer_ids()
             ]
         else:
-            campaign_ids: list[str] = []
+            campaign_ids = []
             for marketer_id in list_marketer_ids():
-                campaigns_config = OUTBRAIN_ENDPOINTS["campaigns"]
-                offset = 0
-                while True:
-                    url = (
-                        f"{OUTBRAIN_BASE_URL}/marketers/{quote(marketer_id)}/campaigns?"
-                        f"{urlencode({'limit': PAGE_SIZE, 'offset': offset})}"
+                try:
+                    campaign_ids.extend(list_campaign_ids(marketer_id))
+                except OutbrainClientError as err:
+                    logger.warning(
+                        f"Outbrain: skipping marketer {marketer_id} while listing campaigns for {endpoint}: "
+                        f"status={err.status_code}"
                     )
-                    batch = rows_of(fetch(url), campaigns_config.data_key)
-                    campaign_ids.extend(str(c["id"]) for c in batch if c.get("id"))
-                    if len(batch) < PAGE_SIZE:
-                        break
-                    offset += len(batch)
             parents = [("_campaign_id", campaign_id, {"campaign_id": campaign_id}) for campaign_id in campaign_ids]
 
         for index in range(start_index, len(parents)):
             id_field, parent_id, path_params = parents[index]
             path = config.path.format(**{k: quote(v) for k, v in path_params.items()})
-            for page in fetch_paginated(path):
-                yield [{**row, id_field: parent_id} for row in page]
+            try:
+                for page in fetch_paginated(path):
+                    yield [{**row, id_field: parent_id} for row in page]
+            except OutbrainClientError as err:
+                logger.warning(
+                    f"Outbrain: skipping {id_field.lstrip('_')} {parent_id} for {endpoint}: status={err.status_code}"
+                )
             # Save state AFTER yielding so a crash re-yields the in-flight
             # parent (merge dedupes on primary key).
             resumable_source_manager.save_state(OutbrainResumeConfig(next_index=index + 1))
@@ -222,7 +255,13 @@ def get_rows(
             else {"from": window_start.isoformat(), "to": today.isoformat(), "limit": REPORT_ROW_LIMIT}
         )
         path = config.path.format(marketer_id=quote(marketer_id))
-        rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{params}"), config.data_key)
+        try:
+            rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{params}"), config.data_key)
+        except OutbrainClientError as err:
+            logger.warning(f"Outbrain: skipping marketer {marketer_id} for {endpoint}: status={err.status_code}")
+            # Advance past the inaccessible marketer so resume does not retry it.
+            resumable_source_manager.save_state(OutbrainResumeConfig(next_index=index + 1))
+            continue
 
         out: list[dict[str, Any]] = []
         for row in rows:
