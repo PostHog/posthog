@@ -132,8 +132,15 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
+        # Scope to this block's ids: BaseTest's self.team also has no recorder_script and may sample
+        # true at 0.5, so an unscoped query would leak it into updated_ids.
+        created_ids = range(9_400_000, 9_400_100)
         expected_ids = set(range(9_400_000, 9_400_080))
-        updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
+        updated_ids = set(
+            Team.objects.filter(extra_settings__has_key="recorder_script", id__in=created_ids).values_list(
+                "id", flat=True
+            )
+        )
 
         assert updated_ids == expected_ids
 
