@@ -153,6 +153,16 @@ keyed by task id so the dedupe survives a terminal-run send re-pointing to a fre
 backend's `prune_repeated_entity_refs`, which dedupes across the task's whole resume chain); `text` items
 are never deduped, repeated text is intentional.
 
+**User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
+composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Footer`; already wired into
+`TaskComposer` and `TaskRunChat`) renders a `TaxonomicPopover` whose selections are projected to flat refs by
+`taxonomicItemToAttachedContext` — no entity loading, the agent fetches details — and stored in
+`contextPickerLogic`, which is just another provider (`user-picker`) on `attachedContextLogic`. The bar's chips
+render **all** of `contextItems`; closing a picked chip removes it from the picker, closing any other
+provider's chip dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
+`contextItems` and **survives provider re-registration** (the scene bridge upserts on every scene read — a
+closed chip must not resurrect); re-picking the same item `undismissContext`s it.
+
 **Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
 tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via
 `toolResolver` (inner PostHog MCP tool, e.g. `create_dashboard`). Subscribe with `useToolStreamListener({
@@ -202,11 +212,11 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/;
                     #   AttachedContextProvider (render-null context injection wrapper)
-  composer/         #   the Composer compound
+  composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
     widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/error-tracking/notebook/query) + registerDataToolRenderers
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
-logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, toolStreamEventsLogic;
+logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
                     #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
 types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes

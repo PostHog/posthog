@@ -9,6 +9,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
@@ -135,9 +136,10 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                     <Composer.Placeholder>
                         {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
                     </Composer.Placeholder>
-                    <Composer.Textarea data-attr="sandbox-composer-input" />
+                    <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                 </Composer.Field>
-                <Composer.Footer>
+                <Composer.Footer className="flex flex-wrap items-center justify-between gap-2">
+                    <AttachedContextBar />
                     {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
                     applied when the message is sent — synced to the running agent on a follow-up,
                     or used to seed the next run once terminal. */}

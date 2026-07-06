@@ -30,6 +30,12 @@ export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
 export { attachedContextItemKey } from '../types/contextTypes'
 
+// --- User-picked context (the composer's @-affordance, headless half) ---
+// `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
+// the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.
+export { contextPickerLogic, taxonomicItemToAttachedContext, PICKER_PROVIDER_ID } from '../logics/contextPickerLogic'
+export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
+
 // --- Tool-stream event bus + subscription hook (headless) ---
 // `runStreamLogic` publishes tool-call lifecycle events (resolved names); subscribe to react when the
 // agent invokes a specific tool. `useToolStreamListener` registers a subscription for a mount's life.
