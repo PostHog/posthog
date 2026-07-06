@@ -183,17 +183,76 @@ _DEMO_MATRIX: dict[str, list[str | None]] = {
 }
 
 
-def _demo_multi_push(
-    prs: list[dict[str, Any]], runs: list[dict[str, Any]]
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    # Anchor the demo just after the fixture's newest row so the rebase lands its last push at "now".
+def _fixture_anchor(prs: list[dict[str, Any]], runs: list[dict[str, Any]]) -> datetime:
+    # Just after the fixture's newest row, so the rebase lands synthesized data at "now".
     newest = max(
         datetime.fromisoformat(row[field])
         for row, fields in [*((pr, PR_DATE_FIELDS) for pr in prs), *((run, RUN_DATE_FIELDS) for run in runs)]
         for field in fields
         if row[field] is not None
     )
-    anchor = newest + timedelta(hours=1)
+    return newest + timedelta(hours=1)
+
+
+# Synthetic default-branch commit stream: the captured snapshot holds only ~a dozen master SHAs, which
+# draws the master-health scatter as a near-empty chart. Deterministic (index arithmetic, no random),
+# local-seed only; SHAs are prefixed "aa57e2" so they read as seeded in the UI.
+_MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint", "Storybook")
+_MASTER_DAYS = 7
+_MASTER_COMMITS_PER_DAY = 18
+
+
+def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
+    def iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    total = _MASTER_DAYS * _MASTER_COMMITS_PER_DAY
+    spacing_minutes = _MASTER_DAYS * 24 * 60 // total
+    demo_runs: list[dict[str, Any]] = []
+    for commit_index in range(total):
+        # Even spacing with a per-commit wobble so the X axis doesn't read as a metronome.
+        age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
+        commit_time = anchor - timedelta(minutes=age_minutes)
+        sha = f"aa57e2{commit_index:04d}" + "e" * 30
+        red_commit = commit_index % 9 == 4  # an occasional broken master push
+        cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
+        for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
+            # Newest two commits keep one workflow running so the in-flight band has live data.
+            running = commit_index >= total - 2 and wf_index == len(_MASTER_WORKFLOWS) - 1
+            if running:
+                conclusion = None
+            elif cancelled_commit:
+                conclusion = "cancelled"
+            elif red_commit and wf_index == 2:
+                conclusion = "failure"
+            else:
+                conclusion = "success"
+            start = commit_time + timedelta(minutes=wf_index)
+            duration = timedelta(minutes=4 + (commit_index * 7 + wf_index * 11) % 48)
+            demo_runs.append(
+                {
+                    "id": 9_800_000_000 + commit_index * 10 + wf_index,
+                    "name": workflow,
+                    "head_sha": sha,
+                    "head_branch": "master",
+                    "status": "in_progress" if running else "completed",
+                    "conclusion": conclusion,
+                    "created_at": iso(start),
+                    "run_started_at": iso(start),
+                    "updated_at": iso(start) if running else iso(start + duration),
+                    "run_attempt": 1,
+                    "repository": {"full_name": "PostHog/posthog"},
+                    "pull_requests": [],
+                }
+            )
+    return demo_runs
+
+
+def _demo_multi_push(
+    prs: list[dict[str, Any]], runs: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    # Anchor the demo just after the fixture's newest row so the rebase lands its last push at "now".
+    anchor = _fixture_anchor(prs, runs)
     push_shas = [f"demo00{k + 1}" + "f" * 33 for k in range(4)]  # 40 chars, distinct first 7 (demo001…demo004)
     workflows = list(_DEMO_MATRIX.keys())
 
@@ -295,6 +354,11 @@ class Command(BaseCommand):
         demo_pr, demo_runs = _demo_multi_push(prs, runs)
         prs.append(demo_pr)
         runs.extend(demo_runs)
+        # The synthetic stream owns master: the snapshot's own master rows are a dozen SHAs whose
+        # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
+        # every real duration to the baseline. PR-branch rows stay untouched.
+        runs = [run for run in runs if run.get("head_branch") != "master"]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs)))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
