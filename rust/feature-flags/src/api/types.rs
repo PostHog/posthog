@@ -461,6 +461,7 @@ pub trait FromFeatureAndMatch {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<i32, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
         team_timezone: Tz,
     ) -> Self;
