@@ -753,6 +753,94 @@
                     {
                         "properties": {
                             "config": {
+                                "description": "New configuration for the survey results widget. Omit to leave unchanged.",
+                                "properties": {
+                                    "dateRange": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "date_from": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "-1M",
+                                                                    "-30M",
+                                                                    "-1h",
+                                                                    "-3h",
+                                                                    "-24h",
+                                                                    "-7d",
+                                                                    "-14d",
+                                                                    "-30d",
+                                                                    "-90d"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Null or omitted means all time (the survey's full lifetime)."
+                                    },
+                                    "limit": {
+                                        "default": 10,
+                                        "description": "Maximum number of recent responses to return.",
+                                        "maximum": 25,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "surveyId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Survey to show performance stats and recent responses for. Null until the user picks one."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "New markdown description for the widget. Omit to leave unchanged.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "New display name for the widget. Empty string or null clears it; omit to leave unchanged."
+                            },
+                            "tile_id": {
+                                "description": "ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+                                "type": "number"
+                            },
+                            "widget_type": {
+                                "enum": ["survey_results"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["tile_id", "widget_type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
                                 "description": "New configuration for the recent logs widget. Omit to leave unchanged.",
                                 "properties": {
                                     "dateRange": {

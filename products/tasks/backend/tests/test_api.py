@@ -333,6 +333,38 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task.id))
 
+    def test_retrieve_hogdesk_task_owned_by_another_user_is_visible(self):
+        # HogDesk Code threads are pinned to a support ticket via a shared ticket
+        # tag; any agent opening the ticket must be able to load the same task.
+        other_user = self.create_organization_user("hogdesk-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="HogDesk Task",
+            description="Started from a support ticket",
+            origin_product=Task.OriginProduct.HOGDESK,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_list_runs_hogdesk_task_owned_by_another_user_succeeds(self):
+        other_user = self.create_organization_user("hogdesk-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="HogDesk Task",
+            description="Started from a support ticket",
+            origin_product=Task.OriginProduct.HOGDESK,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
+
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
         other_user = self.create_organization_user("victim")

@@ -1,6 +1,7 @@
 from datetime import UTC, timedelta
 
 from django import forms
+from django.apps import apps
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.management import call_command
@@ -9,7 +10,6 @@ from django.template.loader import render_to_string
 from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
-from django.utils.module_loading import import_string
 from django.utils.safestring import mark_safe
 
 from posthog.admin.inline_registry import extra_inlines_for
@@ -23,22 +23,14 @@ from posthog.models.organization import Organization
 from posthog.person_db_router import PERSONS_DB_MODELS
 
 # Registry of default-db models to count for bulk-delete report.
-# Format: (model_import_path, filter_field, display_name)
+# Format: (app_label.ModelName, filter_field, display_name)
 # This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
 # When bulk-delete changes, update this list accordingly.
 # Note: BatchExport requires special handling (see below)
 BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
-    ("products.early_access_features.backend.models.EarlyAccessFeature", "team_id", "Early Access Features"),
-    (
-        "products.error_tracking.backend.models.ErrorTrackingIssueFingerprintV2",
-        "team_id",
-        "Error Tracking Fingerprints",
-    ),
-    (
-        "products.product_analytics.backend.models.insight_caching_state.InsightCachingState",
-        "team_id",
-        "Insight Caching States",
-    ),
+    ("early_access_features.EarlyAccessFeature", "team_id", "Early Access Features"),
+    ("error_tracking.ErrorTrackingIssueFingerprintV2", "team_id", "Error Tracking Fingerprints"),
+    ("product_analytics.InsightCachingState", "team_id", "Insight Caching States"),
 )
 
 # Subset of persons-db models that are part of the bulk-delete path.
@@ -64,9 +56,9 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
         return []
 
     results = []
-    for model_path, filter_field, display_name in BULK_DELETE_MODEL_REGISTRY:
+    for model_label, filter_field, display_name in BULK_DELETE_MODEL_REGISTRY:
         try:
-            model_class = import_string(model_path)
+            model_class = apps.get_model(model_label)
             # nosemgrep: orm-field-injection -- filter_field from hardcoded BULK_DELETE_MODEL_REGISTRY, not user input
             count = model_class.objects.filter(**{f"{filter_field}__in": team_ids}).count()
             results.append(
@@ -81,7 +73,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
                 {
                     "name": display_name,
                     "count": f"Error: {e}",
-                    "model": model_path,
+                    "model": model_label,
                 }
             )
 
