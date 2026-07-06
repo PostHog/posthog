@@ -1285,6 +1285,43 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
+    @parameterized.expand(
+        [
+            ("uninstalled_404", 404, "Not Found", {}, True),
+            ("suspended_403", 403, "This installation has been suspended.", {}, True),
+            ("rate_limited_403", 403, "You have exceeded a secondary rate limit", {"retry-after": "60"}, False),
+            ("transient_500", 500, "Server Error", {}, False),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_disarms_proactive_refresh_only_for_dead_installation(
+        self, _name, status_code, text, headers, expected_disarmed, mock_client_request, _mock_reload
+    ):
+        response = MagicMock(spec=requests.Response)
+        response.status_code = status_code
+        response.text = text
+        response.headers = headers
+        response.json.return_value = {}
+        mock_client_request.return_value = response
+
+        integration = self.create_integration(
+            config={"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+        with pytest.raises(GitHubIntegrationError):
+            GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        if expected_disarmed:
+            assert "expires_in" not in integration.config
+            assert "refreshed_at" not in integration.config
+            assert GitHubIntegration(integration).access_token_expired() is False
+        else:
+            assert integration.config["expires_in"] == 3600
+            assert "refreshed_at" in integration.config
+
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
@@ -1417,6 +1454,47 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         mock_list_all.assert_not_called()
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    def test_list_cached_repositories_surfaces_optional_fields_when_present(self, mock_list_all):
+        cached_repositories = [
+            {
+                "id": 1,
+                "name": "posthog",
+                "full_name": "PostHog/posthog",
+                "private": True,
+                "default_branch": "master",
+                "language": "Python",
+                "pushed_at": "2026-06-01T00:00:00Z",
+                "archived": False,
+                "can_push": True,
+            },
+            {"id": 2, "name": "legacy", "full_name": "PostHog/legacy"},
+        ]
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        integration.repository_cache = cached_repositories
+        integration.repository_cache_updated_at = timezone.now()
+        integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+
+        repos, _ = GitHubIntegration(integration).list_cached_repositories()
+
+        assert repos[0] == {
+            "id": 1,
+            "name": "posthog",
+            "full_name": "PostHog/posthog",
+            "private": True,
+            "default_branch": "master",
+            "language": "Python",
+            "pushed_at": "2026-06-01T00:00:00Z",
+            "archived": False,
+            "can_push": True,
+        }
+        # Repos cached before these fields existed keep their original shape — optional keys are omitted, not nulled.
+        assert repos[1] == {"id": 2, "name": "legacy", "full_name": "PostHog/legacy"}
+        mock_list_all.assert_not_called()
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_sync_repository_cache_respects_refresh_cooldown(self, mock_list_all):

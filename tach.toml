@@ -763,6 +763,8 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
