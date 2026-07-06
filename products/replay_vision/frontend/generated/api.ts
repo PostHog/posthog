@@ -604,7 +604,8 @@ export const getVisionScannersPromptSuggestionsListUrl = (
 }
 
 /**
- * AI prompt-rewrite suggestions for a scanner, generated from the team's thumbs up/down ratings.
+ * AI configuration suggestions for a scanner (prompt rewrite, plus optional classifier vocabulary,
+ * recordings filter, and sampling rate changes), generated from the team's thumbs up/down ratings.
  */
 export const visionScannersPromptSuggestionsList = async (
     projectId: string,
@@ -626,7 +627,7 @@ export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: stri
 }
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Requires session recording edit access.
+ * Apply this suggestion: write its proposed parameters (the prompt, plus any tag vocabulary, recordings filter, or sampling rate changes) to the scanner, bumping the scanner version, and mark the suggestion applied. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsApplyCreate = async (
     projectId: string,
@@ -721,7 +722,7 @@ export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: s
 }
 
 /**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ * Generate a fresh suggestion from the team's current ratings: a prompt rewrite, plus optional changes to the classifier vocabulary, recordings filter, and sampling rate. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
  */
 export const visionScannersPromptSuggestionsGenerateCreate = async (
     projectId: string,

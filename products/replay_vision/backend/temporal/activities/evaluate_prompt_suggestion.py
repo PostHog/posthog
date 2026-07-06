@@ -50,7 +50,7 @@ def _get_suggestion(suggestion_id: Any, team_id: int) -> ReplayScannerPromptSugg
 @activity.defn
 @track_activity()
 def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) -> SelectEvaluationSessionsOutput:
-    """Pick the rated sessions to test, build the suggested-prompt snapshot, and mark the evaluation running."""
+    """Pick the rated sessions to test, build the suggested-config snapshot, and mark the evaluation running."""
     suggestion = _get_suggestion(inputs.suggestion_id, inputs.team_id)
     scanner = suggestion.scanner
     if not evaluation_supported(scanner):
@@ -68,6 +68,13 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         )
         for o in observations
     ]
+    # The full proposed scanner_config drives the re-run, so tag-vocabulary changes are tested too.
+    # Trigger changes (query, sampling_rate) pick sessions rather than shape per-session output, so
+    # they don't participate. Suggestions predating parameter proposals swap the prompt only.
+    suggested_config = ((suggestion.suggested_parameters or {}).get("scanner_config")) or {
+        **(scanner.scanner_config or {}),
+        "prompt": suggestion.suggested_prompt,
+    }
     # Signals stay off so a dry run can't pollute the team's feeds.
     snapshot = ScannerSnapshot(
         name=scanner.name,
@@ -76,7 +83,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         model=scanner.model,
         provider=scanner.provider,
         emits_signals=False,
-        scanner_config={**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt},
+        scanner_config=suggested_config,
     )
     suggestion.evaluation = build_running_evaluation(
         total=len(sessions), labels_fingerprint=labels_fingerprint(scanner)

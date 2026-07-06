@@ -4,13 +4,15 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -50,6 +52,15 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
     def _suggestions_url(self, suffix: str = "") -> str:
         return f"{self.scanners_url}{self.scanner.id}/prompt_suggestions/{suffix}"
+
+    def _create_classifier_scanner(self) -> ReplayScanner:
+        return self._create_scanner(
+            name="classifier",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "tag the session", "tags": ["bug", "confusion"], "multi_label": True},
+            query={"kind": "RecordingsQuery", "filter_test_accounts": True},
+            sampling_rate=0.5,
+        )
 
     def _create_rated_observation(self, session_id: str, is_correct: bool, feedback: str = "") -> ReplayObservation:
         observation = ReplayObservation.objects.create(
@@ -149,6 +160,110 @@ class TestPromptSuggestions(_VisionAPITestCase):
         resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "dismissed")
+
+    def test_generate_stores_validated_parameter_proposals(self) -> None:
+        self.scanner = self._create_classifier_scanner()
+        self._create_rated_observation("sess-1", False, "should be tagged churn")
+        self.canned = _LlmPromptSuggestion(
+            suggested_prompt="Tag the session with the right categories.",
+            rationale="Adds churn to the vocabulary and narrows the filter.",
+            suggested_tags=["bug", "confusion", "churn"],
+            suggested_query='{"kind": "RecordingsQuery", "filter_test_accounts": false, "date_from": "-7d"}',
+            suggested_sampling_rate=0.25,
+        )
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["status"], "pending")
+        params = body["suggested_parameters"]
+        self.assertEqual(params["scanner_config"]["prompt"], "Tag the session with the right categories.")
+        self.assertEqual(params["scanner_config"]["tags"], ["bug", "confusion", "churn"])
+        # Date bounds are the schedule's business, stripped exactly like the scanner API does on save.
+        self.assertEqual(params["query"], {"kind": "RecordingsQuery", "filter_test_accounts": False})
+        self.assertEqual(params["sampling_rate"], 0.25)
+        self.assertEqual(body["base_parameters"]["scanner_config"]["tags"], ["bug", "confusion"])
+        self.assertEqual(body["base_parameters"]["sampling_rate"], 0.5)
+
+    @parameterized.expand(
+        [
+            ("invalid_query_json", True, {"suggested_query": "not json"}),
+            ("query_of_wrong_kind", True, {"suggested_query": '{"kind": "EventsQuery"}'}),
+            ("sampling_rate_out_of_range", True, {"suggested_sampling_rate": 1.5}),
+            ("blank_tags", True, {"suggested_tags": ["", "  "]}),
+            ("tags_on_non_classifier", False, {"suggested_tags": ["bug"]}),
+        ]
+    )
+    def test_invalid_parameter_proposals_fall_back_to_current_values(self, _name, use_classifier, extra) -> None:
+        if use_classifier:
+            self.scanner = self._create_classifier_scanner()
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.canned = _LlmPromptSuggestion(suggested_prompt="A better prompt.", rationale="r", **extra)
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        params = resp.json()["suggested_parameters"]
+        base = resp.json()["base_parameters"]
+        # The bad proposal is dropped; only the prompt changes.
+        self.assertEqual(params["scanner_config"], {**base["scanner_config"], "prompt": "A better prompt."})
+        self.assertEqual(params["query"], base["query"])
+        self.assertEqual(params["sampling_rate"], base["sampling_rate"])
+
+    def test_apply_writes_full_parameter_set_and_bumps_version_once(self) -> None:
+        self.scanner = self._create_classifier_scanner()
+        self._create_rated_observation("sess-1", False, "needs a churn tag")
+        self.canned = _LlmPromptSuggestion(
+            suggested_prompt="Tag it right.",
+            rationale="r",
+            suggested_tags=["bug", "confusion", "churn"],
+            suggested_query='{"kind": "RecordingsQuery", "filter_test_accounts": false}',
+            suggested_sampling_rate=1.0,
+        )
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        version_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_version
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner = ReplayScanner.objects.get(id=self.scanner.id)
+        self.assertEqual(scanner.scanner_config["prompt"], "Tag it right.")
+        self.assertEqual(scanner.scanner_config["tags"], ["bug", "confusion", "churn"])
+        self.assertEqual(scanner.query, {"kind": "RecordingsQuery", "filter_test_accounts": False})
+        self.assertEqual(scanner.sampling_rate, 1.0)
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+
+    def test_apply_legacy_prompt_only_suggestion_keeps_other_parameters(self) -> None:
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            suggested_prompt="legacy rewrite",
+            status=SuggestionStatus.PENDING,
+            scanner_version=self.scanner.scanner_version,
+        )
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion.id}/apply/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner = ReplayScanner.objects.get(id=self.scanner.id)
+        self.assertEqual(scanner.scanner_config["prompt"], "legacy rewrite")
+        self.assertEqual(scanner.query, {})
+        self.assertEqual(scanner.sampling_rate, 1.0)
+
+    def test_same_prompt_with_parameter_change_is_pending_not_no_change(self) -> None:
+        self._create_rated_observation("sess-1", True)
+        self.canned = _LlmPromptSuggestion(
+            suggested_prompt="did the user check out?",
+            rationale="The prompt is fine, but scan fewer sessions.",
+            suggested_sampling_rate=0.5,
+        )
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "pending")
+        self.assertEqual(resp.json()["suggested_parameters"]["sampling_rate"], 0.5)
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         self._create_rated_observation("sess-1", True)

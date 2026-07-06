@@ -30,7 +30,7 @@ class SelectEvaluationSessionsInputs(BaseModel, frozen=True):
 
 class SelectEvaluationSessionsOutput(BaseModel, frozen=True):
     sessions: list[EvaluationSession]
-    # Current scanner state with the suggested prompt swapped in, exactly what applying would produce.
+    # Current scanner state with the suggested scanner_config swapped in, exactly what applying would produce.
     snapshot: ScannerSnapshot | None = None
 
 

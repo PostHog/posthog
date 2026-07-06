@@ -17,6 +17,8 @@ from rest_framework.response import Response
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.schema import RecordingsQuery
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import QuotaLimitExceeded
@@ -84,6 +86,18 @@ class PromptSuggestionEvaluationSerializer(serializers.Serializer):
     )
 
 
+class ScannerParametersSerializer(serializers.Serializer):
+    scanner_config = serializers.JSONField(
+        help_text="Type-specific configuration including `prompt`. Classifiers also carry the `tags` vocabulary."
+    )
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            help_text="Persisted `RecordingsQuery` shape used to pick candidate sessions, with date bounds stripped."
+        )
+    )
+    sampling_rate = serializers.FloatField(help_text="0..1 random downsample applied after the query matches.")
+
+
 class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(
         read_only=True,
@@ -98,10 +112,31 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     evaluation = serializers.SerializerMethodField(
         help_text="Test-before-apply results: the suggested prompt re-run against rated sessions."
     )
+    suggested_parameters = serializers.SerializerMethodField(
+        help_text=(
+            "The full proposed parameter set applying would write: `scanner_config` (prompt included), "
+            "`query`, and `sampling_rate`. Null on suggestions generated before parameter proposals "
+            "existed. Those apply the rewritten prompt only."
+        )
+    )
+    base_parameters = serializers.SerializerMethodField(
+        help_text=(
+            "The scanner's parameter set this suggestion was generated against, for diffing. Null on "
+            "suggestions generated before parameter proposals existed."
+        )
+    )
 
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
         return suggestion.evaluation
+
+    @extend_schema_field(ScannerParametersSerializer(allow_null=True))
+    def get_suggested_parameters(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        return suggestion.suggested_parameters
+
+    @extend_schema_field(ScannerParametersSerializer(allow_null=True))
+    def get_base_parameters(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        return suggestion.base_parameters
 
     class Meta:
         model = ReplayScannerPromptSuggestion
@@ -110,6 +145,8 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
             "status",
             "suggested_prompt",
             "base_prompt",
+            "suggested_parameters",
+            "base_parameters",
             "rationale",
             "based_on_up",
             "based_on_down",
@@ -150,7 +187,8 @@ class ReplayScannerPromptSuggestionViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    """AI prompt-rewrite suggestions for a scanner, generated from the team's thumbs up/down ratings."""
+    """AI configuration suggestions for a scanner (prompt rewrite, plus optional classifier vocabulary,
+    recordings filter, and sampling rate changes), generated from the team's thumbs up/down ratings."""
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
@@ -223,9 +261,10 @@ class ReplayScannerPromptSuggestionViewSet(
         request=None,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
-            "Generate a fresh prompt suggestion from the team's current ratings. The previous pending "
-            "suggestion becomes history (superseded). Requires at least one rated observation and session "
-            "recording edit access."
+            "Generate a fresh suggestion from the team's current ratings: a prompt rewrite, plus optional "
+            "changes to the classifier vocabulary, recordings filter, and sampling rate. The previous "
+            "pending suggestion becomes history (superseded). Requires at least one rated observation and "
+            "session recording edit access."
         ),
     )
     @action(detail=False, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -245,8 +284,9 @@ class ReplayScannerPromptSuggestionViewSet(
         request=None,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
-            "Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark "
-            "the suggestion applied. Requires session recording edit access."
+            "Apply this suggestion: write its proposed parameters (the prompt, plus any tag vocabulary, "
+            "recordings filter, or sampling rate changes) to the scanner, bumping the scanner version, and "
+            "mark the suggestion applied. Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -254,17 +294,27 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
-        # A stale tab can submit an old suggestion id, silently rolling the prompt back.
+        # A stale tab can submit an old suggestion id, silently rolling the parameters back.
         if suggestion.status not in (SuggestionStatus.PENDING, SuggestionStatus.DISMISSED):
             raise ValidationError("Only the current recommendation can be applied.")
         if suggestion.scanner_version != scanner.scanner_version:
-            raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-        config = dict(scanner.scanner_config or {})
-        config["prompt"] = suggestion.suggested_prompt
-        scanner.scanner_config = config
+            raise ValidationError("The scanner configuration changed since this was generated. Generate a fresh one.")
+        parameters = suggestion.suggested_parameters or {}
+        # Suggestions predating parameter proposals (and any row missing a config) apply the prompt only.
+        scanner.scanner_config = parameters.get("scanner_config") or {
+            **(scanner.scanner_config or {}),
+            "prompt": suggestion.suggested_prompt,
+        }
+        update_fields = ["scanner_config"]
+        if isinstance(parameters.get("query"), dict):
+            scanner.query = parameters["query"]
+            update_fields.append("query")
+        if isinstance(parameters.get("sampling_rate"), int | float):
+            scanner.sampling_rate = float(parameters["sampling_rate"])
+            update_fields.append("sampling_rate")
         # One transaction so the scanner can't end up changed while the suggestion stays pending.
         with transaction.atomic():
-            scanner.save(update_fields=["scanner_config"])
+            scanner.save(update_fields=update_fields)
             suggestion.status = SuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)

@@ -138,6 +138,24 @@ class TestPromptEvaluation(_VisionAPITestCase):
         self.assertEqual(suggestion.evaluation["total"], 1)
         self.assertNotEqual(suggestion.evaluation["labels_fingerprint"], "")
 
+    def test_select_activity_uses_full_suggested_config_when_present(self) -> None:
+        self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(
+            suggested_parameters={
+                "scanner_config": {"prompt": "suggested prompt", "tags": ["bug", "churn"]},
+                "query": {"kind": "RecordingsQuery"},
+                "sampling_rate": 0.5,
+            }
+        )
+
+        output = select_evaluation_sessions_activity(
+            SelectEvaluationSessionsInputs(suggestion_id=suggestion.id, team_id=self.team.id)
+        )
+
+        # The re-run must test the whole proposed config (vocabulary included), not just the prompt.
+        assert output.snapshot is not None
+        self.assertEqual(output.snapshot.scanner_config, {"prompt": "suggested prompt", "tags": ["bug", "churn"]})
+
     def test_record_and_finalize_produce_summary_and_dedup_retries(self) -> None:
         observation = self._create_rated("sess-1", False, verdict="yes")
         suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})

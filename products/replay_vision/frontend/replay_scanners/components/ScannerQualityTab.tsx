@@ -41,6 +41,7 @@ import { fillLabelDays } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import { hasParameterChanges, suggestionParameterChanges } from '../suggestionParameterDiff'
 import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
@@ -53,7 +54,7 @@ const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string
     applied: {
         type: 'success',
         label: 'Applied',
-        tooltip: 'This prompt was applied to the scanner as a new version',
+        tooltip: 'This suggestion was applied to the scanner as a new version',
     },
     dismissed: {
         type: 'muted',
@@ -68,7 +69,7 @@ const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string
     no_change: {
         type: 'success',
         label: 'Looks good',
-        tooltip: 'The prompt already handles the rated sessions well; nothing to change',
+        tooltip: 'The scanner already handles the rated sessions well. Nothing to change',
     },
 }
 
@@ -86,14 +87,20 @@ function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null
 
 /** The bordered side-by-side diff with labeled panes, rendered inline and inside the fullscreen modal. */
 function SuggestionDiffPanes({
-    suggestion,
+    original,
+    modified,
     beforeLabel,
+    afterLabel,
+    language,
     isDarkModeOn,
     editorHeight,
     onExpand,
 }: {
-    suggestion: ReplayScannerPromptSuggestionApi
+    original: string
+    modified: string
     beforeLabel: string
+    afterLabel: string
+    language: string
     isDarkModeOn: boolean
     editorHeight?: string
     onExpand?: () => void
@@ -103,7 +110,7 @@ function SuggestionDiffPanes({
             <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
                 <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
                 <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>Suggested prompt</span>
+                    <span>{afterLabel}</span>
                     {onExpand && (
                         <LemonButton
                             size="xsmall"
@@ -116,9 +123,9 @@ function SuggestionDiffPanes({
                 </div>
             </div>
             <MonacoDiffEditor
-                original={suggestion.base_prompt}
-                modified={suggestion.suggested_prompt}
-                language="markdown"
+                original={original}
+                modified={modified}
+                language={language}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 height={editorHeight}
                 options={{
@@ -141,7 +148,79 @@ function SuggestionDiffPanes({
     )
 }
 
-/** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
+function formatSamplingRate(rate: number): string {
+    return `${(rate * 100).toFixed(rate > 0 && rate < 0.1 ? 2 : 1)}%`
+}
+
+/** Non-prompt changes a suggestion proposes: classifier vocabulary, recordings filter, sampling rate. */
+function SuggestionParameterChangesPanel({
+    suggestion,
+    isDarkModeOn,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+    isDarkModeOn: boolean
+}): JSX.Element | null {
+    const [queryDiffOpen, setQueryDiffOpen] = useState(false)
+    const changes = useMemo(() => suggestionParameterChanges(suggestion), [suggestion])
+    if (!changes || !hasParameterChanges(changes)) {
+        return null
+    }
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="text-sm font-medium">Other suggested changes</div>
+            {(changes.tagsAdded.length > 0 || changes.tagsRemoved.length > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="text-muted">Tag vocabulary:</span>
+                    {changes.tagsAdded.map((tag) => (
+                        <LemonTag key={`added-${tag}`} type="success">
+                            + {tag}
+                        </LemonTag>
+                    ))}
+                    {changes.tagsRemoved.map((tag) => (
+                        <LemonTag key={`removed-${tag}`} type="danger">
+                            − {tag}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
+            {changes.samplingRate && (
+                <div className="text-sm">
+                    <span className="text-muted">Sampling rate:</span>{' '}
+                    <span className="tabular-nums">
+                        {formatSamplingRate(changes.samplingRate.before)} →{' '}
+                        {formatSamplingRate(changes.samplingRate.after)}
+                    </span>
+                </div>
+            )}
+            {changes.queryChanged && (
+                <div className="space-y-2">
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={queryDiffOpen ? <IconChevronDown /> : <IconChevronRight />}
+                        onClick={() => setQueryDiffOpen(!queryDiffOpen)}
+                        data-attr="vision-quality-query-diff-toggle"
+                    >
+                        Recordings filter changes
+                    </LemonButton>
+                    {queryDiffOpen && (
+                        <SuggestionDiffPanes
+                            original={changes.queryBefore}
+                            modified={changes.queryAfter}
+                            beforeLabel="Current filter"
+                            afterLabel="Suggested filter"
+                            language="json"
+                            isDarkModeOn={isDarkModeOn}
+                        />
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
+/** The pane-labeled prompt diff, non-prompt parameter changes, and the model's rationale,
+ *  shared by the current card and history entries. */
 function SuggestionDetails({
     suggestion,
     beforeLabel,
@@ -157,8 +236,11 @@ function SuggestionDetails({
             {suggestion.base_prompt ? (
                 <>
                     <SuggestionDiffPanes
-                        suggestion={suggestion}
+                        original={suggestion.base_prompt}
+                        modified={suggestion.suggested_prompt}
                         beforeLabel={beforeLabel}
+                        afterLabel="Suggested prompt"
+                        language="markdown"
                         isDarkModeOn={isDarkModeOn}
                         onExpand={() => setIsDiffExpanded(true)}
                     />
@@ -170,8 +252,11 @@ function SuggestionDetails({
                     >
                         <div className="space-y-4">
                             <SuggestionDiffPanes
-                                suggestion={suggestion}
+                                original={suggestion.base_prompt}
+                                modified={suggestion.suggested_prompt}
                                 beforeLabel={beforeLabel}
+                                afterLabel="Suggested prompt"
+                                language="markdown"
                                 isDarkModeOn={isDarkModeOn}
                                 editorHeight="calc(100vh - 16rem)"
                             />
@@ -189,6 +274,7 @@ function SuggestionDetails({
                     {suggestion.suggested_prompt}
                 </div>
             )}
+            <SuggestionParameterChangesPanel suggestion={suggestion} isDarkModeOn={isDarkModeOn} />
             {suggestion.rationale && (
                 <div>
                     <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
@@ -319,6 +405,13 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { isDarkModeOn } = useValues(themeLogic)
     // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
     const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    // A suggestion that only changes trigger conditions (filter, sampling) leaves per-session
+    // behavior untouched, so re-running rated sessions would show no difference.
+    const parameterChanges = useMemo(
+        () => (currentSuggestion ? suggestionParameterChanges(currentSuggestion) : null),
+        [currentSuggestion]
+    )
+    const behaviorUnchanged = parameterChanges !== null && !parameterChanges.configChanged
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -367,8 +460,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
-                    changes to recommend.
+                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no changes to
+                    recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -393,9 +486,13 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
                                 disabledReason={
                                     editDisabledReason ??
-                                    (ratedCount === 0 ? 'Rate at least one result first' : undefined)
+                                    (ratedCount === 0
+                                        ? 'Rate at least one result first'
+                                        : behaviorUnchanged
+                                          ? 'This suggestion only changes which sessions get scanned, so re-running rated sessions would show no difference'
+                                          : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying"
+                                tooltip="Re-runs the scanner with the suggested configuration against your rated sessions, so you can see what would change before applying"
                                 onClick={() => evaluateSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
@@ -420,7 +517,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 type="primary"
                                 loading={applying}
                                 disabledReason={editDisabledReason ?? undefined}
-                                tooltip="Writes this prompt to the scanner as a new version"
+                                tooltip="Writes the suggested changes to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
                             >
@@ -436,7 +533,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">Prompt recommendation</span>
+                <span className="text-sm font-medium">Scanner recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
                 {suggestionStale && currentSuggestion && (
                     <Tooltip title="Refreshes automatically about once a day; regenerate to update now">
@@ -856,7 +953,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. PostHog AI
-                turns your team's ratings into the prompt recommendation below.
+                turns your team's ratings into the scanner recommendation below.
             </p>
 
             <PromptRecommendationPanel scannerId={scannerId} />

@@ -346,8 +346,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     suggestionId
                 )
                 actions.applySuggestionSuccess(suggestion)
-                lemonToast.success('Prompt applied to the scanner as a new version')
-                // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
+                lemonToast.success('Suggestion applied to the scanner as a new version')
+                // The scanner's parameters and version changed, so refresh it wherever the scene shows it.
                 replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
             } catch (error: any) {
                 lemonToast.error(`Failed to apply the recommendation${error.detail ? `: ${error.detail}` : ''}`)

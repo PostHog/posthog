@@ -13,7 +13,8 @@ class SuggestionStatus(models.TextChoices):
 
 
 class ReplayScannerPromptSuggestion(UUIDModel):
-    """An AI-suggested rewrite of a scanner's prompt, generated from the team's thumbs up/down ratings.
+    """An AI-suggested change to a scanner's parameters (prompt first, but also classifier vocabulary,
+    recordings filter, and sampling rate), generated from the team's thumbs up/down ratings.
 
     The newest row is the scanner's current recommendation; older rows are kept as history. A suggestion
     records the rating set it was generated from (`labels_fingerprint`), so a changed rating set marks
@@ -31,6 +32,21 @@ class ReplayScannerPromptSuggestion(UUIDModel):
     )
     rationale = models.TextField(
         blank=True, default="", help_text="What the rewrite changed and why, grounded in the ratings."
+    )
+    # Full parameter sets (shape: prompt_suggestions.scanner_parameters). Null on rows created
+    # before suggestions could change more than the prompt. Those rows apply prompt-only.
+    suggested_parameters = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The full proposed parameter set, ready to apply: `scanner_config` (prompt included), "
+            "`query`, and `sampling_rate`."
+        ),
+    )
+    base_parameters = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The scanner's parameter set this suggestion was generated against, for diffing.",
     )
     status = models.CharField(max_length=16, choices=SuggestionStatus.choices, default=SuggestionStatus.PENDING)
     based_on_up = models.PositiveIntegerField(default=0, help_text="Thumbs-up ratings the suggestion was based on.")

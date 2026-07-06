@@ -861,6 +861,15 @@ export const ReplayScannerPromptSuggestionStatusEnumApi = {
     NoChange: 'no_change',
 } as const
 
+export interface ScannerParametersApi {
+    /** Type-specific configuration including `prompt`. Classifiers also carry the `tags` vocabulary. */
+    scanner_config: unknown
+    /** Persisted `RecordingsQuery` shape used to pick candidate sessions, with date bounds stripped. */
+    query: unknown
+    /** 0..1 random downsample applied after the query matches. */
+    sampling_rate: number
+}
+
 export interface PromptEvaluationResultApi {
     /** The rated session that was re-run with the suggested prompt. */
     session_id: string
@@ -934,6 +943,10 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
     readonly base_prompt: string
+    /** The full proposed parameter set applying would write: `scanner_config` (prompt included), `query`, and `sampling_rate`. Null on suggestions generated before parameter proposals existed. Those apply the rewritten prompt only. */
+    readonly suggested_parameters: ScannerParametersApi | null
+    /** The scanner's parameter set this suggestion was generated against, for diffing. Null on suggestions generated before parameter proposals existed. */
+    readonly base_parameters: ScannerParametersApi | null
     /** What the rewrite changed and why, grounded in the ratings. */
     readonly rationale: string
     /** Thumbs-up ratings the suggestion was based on. */
