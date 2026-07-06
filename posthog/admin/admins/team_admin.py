@@ -21,7 +21,7 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
-from django.utils.html import escapejs, format_html
+from django.utils.html import escapejs, format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from structlog import get_logger
@@ -35,7 +35,8 @@ from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMar
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -67,6 +68,13 @@ MAX_CREDIT_USD = Decimal("1000000")
 @dataclasses.dataclass(frozen=True)
 class ReplayActivityContext(ActivityContextBase):
     reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class AIGatewayCreditActivityContext(ActivityContextBase):
+    amount_usd: str
+    reason: str
+    balance_usd: str
 
 
 class TeamAdminForm(ModelForm):
@@ -141,6 +149,7 @@ class TeamAdmin(admin.ModelAdmin):
         "admit_state",
         "ai_gateway_actions",
         "ai_gateway_wallet",
+        "ai_gateway_credit_history",
         "policy_cache_blob",
         "group_type_mappings_display",
     ]
@@ -278,6 +287,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "admit_state",
                     "ai_gateway_actions",
                     "ai_gateway_wallet",
+                    "ai_gateway_credit_history",
                     "policy_cache_blob",
                 ],
                 "description": mark_safe(
@@ -693,6 +703,27 @@ class TeamAdmin(admin.ModelAdmin):
                 f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
             )
         else:
+            # Audit the actor on real credits only; an idempotent replay moved no
+            # money and the failure path already logs a warning. item_id is the
+            # ledger entry_id, so this record joins back to the gateway movement.
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=result.entry_id,
+                scope="AIGatewayCredit",
+                activity="credit_added",
+                detail=Detail(
+                    name=f"AI gateway credit — ${result.amount_usd}",
+                    type="admin_add_credit",
+                    context=AIGatewayCreditActivityContext(
+                        amount_usd=result.amount_usd,
+                        reason=reason,
+                        balance_usd=result.balance_usd,
+                    ),
+                ),
+            )
             messages.success(
                 request,
                 f"Added ${result.amount_usd} to team '{team.name}'. New balance: ${result.balance_usd}.",
@@ -751,6 +782,39 @@ class TeamAdmin(admin.ModelAdmin):
                     "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
                 },
             )
+        )
+
+    @admin.display(description="Recent top-ups (who topped up)")
+    def ai_gateway_credit_history(self, team: Team):
+        if not team.pk:
+            return "-"
+        # Local ActivityLog read (not a gateway call), so render inline. The gateway
+        # ledger records the money movement; the actor lives here, joined by
+        # entry_id == ActivityLog.item_id.
+        entries = ActivityLog.objects.filter(
+            scope="AIGatewayCredit", team_id=team.pk, activity="credit_added"
+        ).order_by("-created_at")[:20]
+        if not entries:
+            return format_html("<em>(no top-ups recorded)</em>")
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
+            (
+                (
+                    e.created_at.strftime("%Y-%m-%d %H:%M UTC"),
+                    format_html(
+                        "{}{}", e.user.email if e.user else "—", " (impersonated)" if e.was_impersonated else ""
+                    ),
+                    (e.detail or {}).get("context", {}).get("amount_usd", ""),
+                    (e.detail or {}).get("context", {}).get("reason", ""),
+                )
+                for e in entries
+            ),
+        )
+        return format_html(
+            "<table><thead><tr><th>When</th><th>Who</th><th>Amount</th><th>Reason</th></tr></thead>"
+            "<tbody>{}</tbody></table>",
+            rows,
         )
 
     def ai_gateway_wallet_view(self, request, object_id):

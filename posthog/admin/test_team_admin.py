@@ -21,6 +21,7 @@ from posthog.llm.gateway_internal_client import (
     LedgerEntry,
     Wallet,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 
@@ -480,6 +481,47 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         with patch.object(self.admin, "has_change_permission", return_value=False):
             with self.assertRaises(PermissionDenied):
                 self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+    def test_add_credit_records_activity_log_with_actor(self) -> None:
+        request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})
+        result = CreditResult(
+            team_id=self.team.id, entry_id="entry-42", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
+        )
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.activity == "credit_added"
+        assert entry.item_id == "entry-42"
+        assert entry.user == self.user
+        assert entry.was_impersonated is False
+        assert entry.detail["context"]["amount_usd"] == "25.000000"
+        assert entry.detail["context"]["reason"] == "goodwill"
+        assert entry.detail["context"]["balance_usd"] == "35.000000"
+
+    def test_add_credit_duplicate_does_not_record_activity(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert not ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=self.team.id).exists()
+
+    def test_credit_history_renders_recorded_top_ups(self) -> None:
+        request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})
+        result = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
+        )
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert self.user.email in rendered
+        assert "25.000000" in rendered
+        assert "goodwill" in rendered
+
+    def test_credit_history_empty_state(self) -> None:
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "no top-ups recorded" in rendered
 
 
 class TestTeamAdminFormOverspendAllowance(BaseTest):
