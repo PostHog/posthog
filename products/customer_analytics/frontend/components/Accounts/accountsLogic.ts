@@ -24,6 +24,7 @@ import {
     ACCOUNTS_METRICS_DATA_NODE_KEY,
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
@@ -177,6 +178,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['selectColumns', 'visibleColumnNames'],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
+            customerAnalyticsSceneLogic,
+            ['mineOnly'],
         ],
         actions: [
             accountsColumnConfigLogic,
@@ -185,6 +188,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['setTileFilter'],
             accountsExpansionLogic,
             ['openAccountTab'],
+            customerAnalyticsSceneLogic,
+            ['setMineOnly'],
         ],
     })),
     actions({
@@ -508,6 +513,10 @@ export const accountsLogic = kea<accountsLogicType>([
             if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
+            // Keep the shared "mine only" toggle in step with the assigned-to filter
+            // (set via the "My accounts" shortcut or the assigned-to picker) so
+            // switching to the Notes tab reflects the same choice.
+            actions.setMineOnly(values.assignedToCurrentUser)
         },
         toggleSort: ({ column }) => {
             const current = values.sortOrder
@@ -693,7 +702,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 // resolve it to the opener's own id so old shared links still work.
                 const legacyMine =
                     !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine
+                // With no explicit assignment in the hash (e.g. arriving via the tab
+                // link), fall back to the shared "mine only" toggle so the choice made
+                // on the Notes tab carries over.
+                const sharedMine =
+                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
+                        ? [values.currentUserId]
+                        : []
+                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
                 if (!objectsEqual(nextAssignedTo, values.assignedToFilter)) {
                     actions.setAssignedToFilter(nextAssignedTo)
                 }

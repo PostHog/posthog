@@ -1479,12 +1479,21 @@ def list_account_notes_for_view(
     search: str | None = None,
     account_id: UUID | str | None = None,
     created_by_ids: list[int] | None = None,
+    assigned_to_ids: list[int] | None = None,
 ) -> tuple[list[contracts.AccountNoteView], int]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
-    notes authored by the given users. Returns ``(page, total_count)``."""
-    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    notes authored by the given users, ``assigned_to_ids`` to notes on accounts whose CSM or
+    account executive is one of the given users. Returns ``(page, total_count)``."""
+    accounts = _accounts_queryset(team_id, user_access_control)
+    if assigned_to_ids:
+        # "Assigned to" means CSM or AE (account_owner excluded), matching the accounts list
+        # HogQL runner's ASSIGNED_ROLE_KEYS.
+        accounts = accounts.filter(
+            Q(_properties__csm__id__in=assigned_to_ids) | Q(_properties__account_executive__id__in=assigned_to_ids)
+        )
+    accessible_account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
         team_id,
         account_ids=accessible_account_ids,
