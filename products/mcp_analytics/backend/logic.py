@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -330,6 +331,33 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     summary = intent_generation.summarize_intents(intents, team)
     MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
     return summary
+
+
+INTENT_DIGEST_CACHE_TTL = 60 * 60
+
+
+def generate_intent_digest(team: Team) -> contracts.IntentDigest:
+    """Return a project-level LLM digest of what agents are trying to do, for the activity stage.
+
+    Content-addressed cache: the digest is keyed by the current intent corpus, so it only
+    regenerates when new intents arrive (and at most refreshes hourly via the TTL). A project
+    with no recorded intents returns a null digest without an LLM call, so the frontend can
+    fall back to its verbatim list. Raises ``contracts.IntentGenerationUnavailable`` if the
+    LLM is unreachable.
+    """
+    intents = intent_generation.fetch_recent_project_intents(team)
+    if not intents:
+        return contracts.IntentDigest(digest=None, intent_count=0)
+
+    corpus_hash = hashlib.sha1("\n".join(intents).encode()).hexdigest()
+    cache_key = generate_cache_key(f"mcp_intent_digest/{team.pk}/{corpus_hash}")
+    cached = cache.get(cache_key)
+    if cached:
+        return contracts.IntentDigest(digest=cached, intent_count=len(intents))
+
+    digest = intent_generation.summarize_project_intents(intents, team)
+    cache.set(cache_key, digest, INTENT_DIGEST_CACHE_TTL)
+    return contracts.IntentDigest(digest=digest, intent_count=len(intents))
 
 
 def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]:

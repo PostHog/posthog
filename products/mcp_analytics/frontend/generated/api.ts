@@ -12,6 +12,7 @@ import type {
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
     MCPIntentClusterSnapshotApi,
+    MCPIntentDigestApi,
     MCPMissingCapabilityCreateApi,
     MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
@@ -261,5 +262,22 @@ export const mcpAnalyticsSessionsToolCalls = async (
     return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsIntentDigestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/intent_digest/`
+}
+
+/**
+ * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage.
+ */
+export const mcpAnalyticsSessionsIntentDigest = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPIntentDigestApi> => {
+    return apiMutator<MCPIntentDigestApi>(getMcpAnalyticsSessionsIntentDigestUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

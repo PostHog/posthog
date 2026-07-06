@@ -3,10 +3,13 @@ import { Card as QuillCard, CardContent, CardHeader, CardTitle } from '@posthog/
 export function Card({
     children,
     className,
+    contentClassName,
     title,
 }: {
     children: React.ReactNode
     className?: string
+    /** Extra classes for the content wrapper — e.g. `p-0` to let a table run edge to edge. */
+    contentClassName?: string
     title?: string
 }): JSX.Element {
     return (
@@ -16,7 +19,7 @@ export function Card({
                     <CardTitle>{title}</CardTitle>
                 </CardHeader>
             ) : null}
-            <CardContent className="flex flex-1 flex-col">{children}</CardContent>
+            <CardContent className={`flex flex-1 flex-col ${contentClassName ?? ''}`}>{children}</CardContent>
         </QuillCard>
     )
 }

@@ -151,3 +151,12 @@ class IntentClusterSnapshot:
     last_computed_by_email: str
     clusters: list[IntentCluster] = field(default_factory=list)
     computed_with: IntentClusterSnapshotMeta | None = None
+
+
+@dataclass(frozen=True)
+class IntentDigest:
+    """Project-level LLM digest of what agents are trying to do with the MCP server."""
+
+    # Null when the project has no recorded intents to summarise yet.
+    digest: str | None
+    intent_count: int

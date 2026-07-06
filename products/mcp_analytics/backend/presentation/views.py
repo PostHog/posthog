@@ -28,6 +28,7 @@ from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
+    MCPIntentDigestSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionIntentSerializer,
     MCPSessionListQuerySerializer,
@@ -250,6 +251,30 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         serializer = MCPSessionIntentSerializer({"session_id": session_id, "intent": intent})
         return Response(serializer.data)
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_intent_digest",
+        description=(
+            "Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, "
+            "derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: "
+            "only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage."
+        ),
+        request=None,
+        responses={
+            200: MCPIntentDigestSerializer,
+            503: OpenApiResponse(description="Intent digest generation is unavailable (LLM not configured)."),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="intent_digest")
+    def intent_digest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            digest = api.generate_intent_digest(self.team)
+        except contracts.IntentGenerationUnavailable:
+            return Response(
+                {"detail": "Intent digest generation is unavailable (LLM not configured)."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(MCPIntentDigestSerializer(digest).data)
 
 
 class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

@@ -303,6 +303,22 @@ class MCPSessionIntentSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentDigestSerializer(serializers.Serializer):
+    digest = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP "
+            "server, derived from the most recent recorded $mcp_intents across all sessions. Null when the "
+            "project has no recorded intents yet."
+        ),
+    )
+    intent_count = serializers.IntegerField(
+        read_only=True,
+        help_text="How many recorded intents (the most recent, capped at 100) the digest was derived from.",
+    )
+
+
 class MCPIntentClusterToolEntrySerializer(serializers.Serializer):
     tool = serializers.CharField(read_only=True, help_text="MCP tool name that received calls for this cluster.")
     count = serializers.IntegerField(

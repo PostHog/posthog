@@ -2,9 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
+import { mcpAnalyticsSessionsIntentDigest } from '../generated/api'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { buildActivitySummary } from './activitySummary'
 import { ChecklistItem, EarlyStats, buildChecklist } from './earlyDataChecklist'
@@ -17,8 +19,20 @@ export interface EarlyRecentCall {
     tool: string
     intent: string | null
     isError: boolean
+    /** Short human-readable error extracted from the tool's response, when the call failed. */
+    errorMessage: string | null
     durationMs: number | null
     clientName: string | null
+}
+
+export interface IntentTheme {
+    intent: string
+    count: number
+}
+
+export interface IntentDigest {
+    digest: string | null
+    intentCount: number
 }
 
 export interface EarlyToolRow {
@@ -88,6 +102,7 @@ SELECT
     properties.$mcp_tool_name AS tool,
     properties.$mcp_intent AS intent,
     toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+    if(toString(properties.$mcp_is_error) IN ('true', '1'), toString(properties.$mcp_response), NULL) AS error_response,
     toFloat(properties.$mcp_duration_ms) AS duration_ms,
     properties.$mcp_client_name AS client_name
 FROM events
@@ -112,15 +127,52 @@ async function runQuery(query: string): Promise<unknown[][]> {
 const asNumber = (value: unknown): number => Number(value) || 0
 const asOptionalString = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
 
+// Tool responses are MCP content envelopes; pull out the human-readable text.
+const extractErrorMessage = (raw: unknown): string | null => {
+    const value = asOptionalString(raw)
+    if (!value) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(value)
+        const text = parsed?.content?.find?.((c: { type?: string }) => c?.type === 'text')?.text ?? parsed?.message
+        if (typeof text === 'string' && text) {
+            return text
+        }
+    } catch {
+        // Not JSON — the raw string is the message.
+    }
+    return value
+}
+
 export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'earlyData', 'mcpEarlyDataLogic']),
     connect(() => ({
-        values: [mcpAnalyticsOnboardingLogic, ['signals']],
+        values: [mcpAnalyticsOnboardingLogic, ['signals'], teamLogic, ['currentProjectId']],
         actions: [mcpAnalyticsOnboardingLogic, ['loadSignals']],
     })),
     actions({
         refreshAll: true,
     }),
+    loaders(({ values }) => ({
+        intentDigest: {
+            __default: null as IntentDigest | null,
+            loadIntentDigest: async (_: void, breakpoint): Promise<IntentDigest | null> => {
+                if (!values.currentProjectId) {
+                    return null
+                }
+                try {
+                    const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId))
+                    breakpoint()
+                    return { digest: response.digest, intentCount: response.intent_count }
+                } catch {
+                    // LLM unconfigured (503) or transient failure — the card falls back
+                    // to the verbatim intent list.
+                    return null
+                }
+            },
+        },
+    })),
     loaders({
         stats: {
             __default: EMPTY_STATS,
@@ -172,8 +224,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                     tool: String(row[1] ?? ''),
                     intent: asOptionalString(row[2]),
                     isError: asNumber(row[3]) > 0,
-                    durationMs: row[4] == null ? null : asNumber(row[4]),
-                    clientName: asOptionalString(row[5]),
+                    errorMessage: extractErrorMessage(row[4]),
+                    durationMs: row[5] == null ? null : asNumber(row[5]),
+                    clientName: asOptionalString(row[6]),
                 }))
             },
         },
@@ -196,25 +249,29 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                     topTool: totalCalls > 10 ? (topTools[0]?.tool ?? null) : null,
                 }),
         ],
-        // Verbatim agent intents, deduplicated — at low volume, reading what agents
-        // actually tried beats any aggregation of it.
-        recentIntents: [
+        // Verbatim agent intents grouped by frequency — the fallback when no AI
+        // digest is available. At low volume, reading what agents actually tried
+        // beats any lossy aggregation of it.
+        intentThemes: [
             (s) => [s.recentCalls],
-            (recentCalls): string[] => {
-                const seen = new Set<string>()
+            (recentCalls): IntentTheme[] => {
+                const counts = new Map<string, number>()
                 for (const call of recentCalls) {
                     if (call.intent) {
-                        seen.add(call.intent)
+                        counts.set(call.intent, (counts.get(call.intent) ?? 0) + 1)
                     }
                 }
-                return [...seen].slice(0, 6)
+                return [...counts.entries()]
+                    .map(([intent, count]) => ({ intent, count }))
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 6)
             },
         ],
         checklist: [(s) => [s.stats], (stats): ChecklistItem[] => buildChecklist(stats)],
         isRefreshing: [
-            (s) => [s.statsLoading, s.topToolsLoading, s.recentCallsLoading, s.clientsLoading],
-            (statsLoading, topToolsLoading, recentCallsLoading, clientsLoading): boolean =>
-                statsLoading || topToolsLoading || recentCallsLoading || clientsLoading,
+            (s) => [s.statsLoading, s.topToolsLoading, s.recentCallsLoading, s.clientsLoading, s.intentDigestLoading],
+            (statsLoading, topToolsLoading, recentCallsLoading, clientsLoading, intentDigestLoading): boolean =>
+                statsLoading || topToolsLoading || recentCallsLoading || clientsLoading || intentDigestLoading,
         ],
     }),
     listeners(({ actions }) => ({
@@ -224,6 +281,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             actions.loadTopTools()
             actions.loadClients()
             actions.loadRecentCalls()
+            // Server-side the digest is content-addressed, so this only reaches the
+            // LLM when new intents have actually arrived.
+            actions.loadIntentDigest()
         },
     })),
     afterMount(({ actions, cache }) => {
@@ -231,6 +291,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         actions.loadTopTools()
         actions.loadClients()
         actions.loadRecentCalls()
+        actions.loadIntentDigest()
         cache.disposables.add(() => {
             const id = window.setInterval(() => actions.refreshAll(), REFRESH_INTERVAL_MS)
             return () => clearInterval(id)

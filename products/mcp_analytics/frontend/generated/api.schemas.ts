@@ -372,6 +372,16 @@ export interface PaginatedMCPToolCallListApi {
     has_next: boolean
 }
 
+export interface MCPIntentDigestApi {
+    /**
+     * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+     * @nullable
+     */
+    readonly digest: string | null
+    /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
+    readonly intent_count: number
+}
+
 export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
