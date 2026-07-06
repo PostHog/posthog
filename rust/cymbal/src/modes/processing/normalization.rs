@@ -20,6 +20,8 @@
 //! normalized. A `None` cutoff means the SDK has not flipped yet, so everything
 //! is normalized.
 
+use std::sync::OnceLock;
+
 use semver::Version;
 
 use crate::types::ExceptionList;
@@ -64,43 +66,46 @@ struct LibRule {
 /// version and leave everything else alone — legacy payloads keep normalizing,
 /// new payloads pass through.
 ///
-/// Built lazily because `semver::Version` is not `const`-constructible; the
-/// list is tiny and this runs once per process.
-fn lib_rules() -> Vec<LibRule> {
-    // Crash-first frames: entry point last, crash site first on the wire.
-    let crash_first_frames = [
-        "posthog-android",
-        "posthog-flutter",
-        "posthog-php",
-        "posthog-go",
-        "posthog-rs",
-        "posthog-elixir",
-        // Java: `posthog-server` is the current java server SDK identifier
-        // (module in the posthog-android repo, shares the android coercer);
-        // `posthog-java` is the tombstoned legacy SDK, included defensively.
-        // Both are crash-first.
-        "posthog-java",
-        "posthog-server",
-    ];
+/// Built lazily because `semver::Version` is not `const`-constructible; cached
+/// for the process lifetime since this is consulted for every ingested event.
+fn lib_rules() -> &'static [LibRule] {
+    static RULES: OnceLock<Vec<LibRule>> = OnceLock::new();
+    RULES.get_or_init(|| {
+        // Crash-first frames: entry point last, crash site first on the wire.
+        let crash_first_frames = [
+            "posthog-android",
+            "posthog-flutter",
+            "posthog-php",
+            "posthog-go",
+            "posthog-rs",
+            "posthog-elixir",
+            // Java: `posthog-server` is the current java server SDK identifier
+            // (module in the posthog-android repo, shares the android coercer);
+            // `posthog-java` is the tombstoned legacy SDK, included defensively.
+            // Both are crash-first.
+            "posthog-java",
+            "posthog-server",
+        ];
 
-    let mut rules: Vec<LibRule> = crash_first_frames
-        .into_iter()
-        .map(|lib| LibRule {
-            lib,
-            fix: WireOrderFix::FRAMES,
+        let mut rules: Vec<LibRule> = crash_first_frames
+            .into_iter()
+            .map(|lib| LibRule {
+                lib,
+                fix: WireOrderFix::FRAMES,
+                canonical_since: None,
+            })
+            .collect();
+
+        // Root-cause-first `$exception_list`: python sends chained exceptions with
+        // the root cause first. Its frames are already canonical (bottom-up).
+        rules.push(LibRule {
+            lib: "posthog-python",
+            fix: WireOrderFix::EXCEPTION_LIST,
             canonical_since: None,
-        })
-        .collect();
+        });
 
-    // Root-cause-first `$exception_list`: python sends chained exceptions with
-    // the root cause first. Its frames are already canonical (bottom-up).
-    rules.push(LibRule {
-        lib: "posthog-python",
-        fix: WireOrderFix::EXCEPTION_LIST,
-        canonical_since: None,
-    });
-
-    rules
+        rules
+    })
 }
 
 /// Parses a `$lib_version` leniently. `semver` rejects things like a bare
@@ -160,7 +165,7 @@ fn should_normalize(canonical_since: Option<&Version>, lib_version: Option<&str>
 /// Returns the fix to apply for `lib`/`lib_version`, or `None` if the payload
 /// already carries canonical order (or the SDK is unknown).
 fn fix_for(lib: &str, lib_version: Option<&str>) -> Option<WireOrderFix> {
-    let rule = lib_rules().into_iter().find(|r| r.lib == lib)?;
+    let rule = lib_rules().iter().find(|r| r.lib == lib)?;
     should_normalize(rule.canonical_since.as_ref(), lib_version).then_some(rule.fix)
 }
 
@@ -257,7 +262,7 @@ mod test {
     #[test]
     fn java_server_libs_both_normalize() {
         // Java server SDK sends crash-first frames under both the current
-        // (`posthog-java`) and deprecated (`posthog-server`) identifiers.
+        // (`posthog-server`) and legacy tombstoned (`posthog-java`) identifiers.
         for lib in ["posthog-java", "posthog-server"] {
             let mut list: ExceptionList =
                 vec![exception_with_frames("Boom", &["main", "boom"])].into();
