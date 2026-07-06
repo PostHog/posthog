@@ -2647,7 +2647,7 @@
 # ---
 # name: test_create_table_query[kafka_warehouse_webhook_delivery_status]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_warehouse_webhook_delivery_status
   (
       team_id Int64,
@@ -2660,7 +2660,7 @@
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_warehouse_webhook_delivery_status_test', kafka_group_name = 'clickhouse_warehouse_webhook_delivery_status', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_table_query[log_attributes2]
@@ -2689,7 +2689,7 @@
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
-
+  
   '''
 # ---
 # name: test_create_table_query[log_attributes3]
