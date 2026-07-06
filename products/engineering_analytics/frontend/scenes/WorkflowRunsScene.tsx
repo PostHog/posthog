@@ -390,7 +390,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 )}
             </Section>
             <Section id="runs" title="Runs">
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <LemonTable<WorkflowRunRow>
                         dataSource={runRows}
                         columns={runColumns}

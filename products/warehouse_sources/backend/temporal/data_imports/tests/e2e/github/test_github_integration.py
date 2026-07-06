@@ -5,10 +5,15 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, WORKFLOW_JOBS, WORKFLOW_RUNS
-
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.github.data import (
+    COMMITS,
+    ISSUES,
+    PULL_REQUESTS,
+    WORKFLOW_JOBS,
+    WORKFLOW_RUNS,
+)
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
