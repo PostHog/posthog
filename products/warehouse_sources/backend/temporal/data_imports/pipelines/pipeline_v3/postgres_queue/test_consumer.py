@@ -368,6 +368,42 @@ class TestRecoverySweep:
         )
 
 
+class TestStartupLiveness:
+    @pytest.mark.asyncio
+    async def test_heartbeat_reports_liveness_while_startup_sweep_runs(self):
+        health_reported = asyncio.Event()
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            heartbeat_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock(), health_reporter=health_reported.set)
+
+        release_sweep = asyncio.Event()
+
+        async def blocking_sweep(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            await release_sweep.wait()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=blocking_sweep,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # With the sweep blocked indefinitely, liveness must still be reported.
+            await asyncio.wait_for(health_reported.wait(), timeout=1.0)
+            consumer._shutdown.set()
+            release_sweep.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+
 class TestFailRun:
     @pytest.mark.asyncio
     async def test_does_not_raise_when_job_status_update_fails(self):

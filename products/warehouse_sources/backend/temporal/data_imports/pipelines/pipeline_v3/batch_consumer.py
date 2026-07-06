@@ -282,9 +282,12 @@ class BatchConsumer:
         )
 
         try:
+            # Liveness must be reporting before the startup sweep runs: the sweep
+            # scans the whole queue and can outlast the health server's startup
+            # grace window, and a pod liveness-killed mid-sweep can never boot.
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             await self._recovery_sweep()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
                 self._report_health()
