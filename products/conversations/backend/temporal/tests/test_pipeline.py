@@ -20,7 +20,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import _validate
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
-    DIAGNOSTIC_DRAFT_SCOPES,
+    DIAGNOSTIC_SCOPES_PRESET,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
 )
@@ -574,9 +574,10 @@ class TestUntrustedTicketGuard:
 
 
 class TestDiagnosticScopes:
-    """PR3: diagnostic tickets get wider read scopes + a diagnostic prompt block; others don't."""
+    """Scope selection keys off the org opt-in (diagnostics_allowed), not the classifier.
+    The diagnostic prompt block keys off needs_diagnostics (classifier hint)."""
 
-    async def _run_draft(self, needs_diagnostics: bool) -> tuple[str, list[str]]:
+    async def _run_draft(self, needs_diagnostics: bool = False, diagnostics_allowed: bool = False) -> tuple[str, Any]:
         captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
@@ -592,42 +593,99 @@ class TestDiagnosticScopes:
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
-                team_id=1, ticket_context="exports failing", chunk_ids=[], needs_diagnostics=needs_diagnostics
+                team_id=1,
+                ticket_context="exports failing",
+                chunk_ids=[],
+                needs_diagnostics=needs_diagnostics,
+                diagnostics_allowed=diagnostics_allowed,
             )
         return captured["prompt"], captured["scopes"]
 
     @pytest.mark.asyncio
-    async def test_diagnostic_ticket_requests_extra_scopes(self):
-        prompt, scopes = await self._run_draft(needs_diagnostics=True)
-        assert scopes == [*BASE_DRAFT_SCOPES, *DIAGNOSTIC_DRAFT_SCOPES]
-        # execute-sql/HogQL needs both query:read AND insight:read.
-        assert "query:read" in scopes and "insight:read" in scopes
-        assert "error_tracking:read" in scopes
-        assert "session_recording:read" in scopes
-        assert "logs:read" in scopes
+    async def test_opted_in_org_gets_read_only_preset(self):
+        _, scopes = await self._run_draft(diagnostics_allowed=True)
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+
+    @pytest.mark.asyncio
+    async def test_opted_in_org_gets_preset_even_for_non_diagnostic_ticket(self):
+        _, scopes = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=True)
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+
+    @pytest.mark.asyncio
+    async def test_non_opted_in_org_stays_base_scopes(self):
+        _, scopes = await self._run_draft(diagnostics_allowed=False)
+        assert scopes == BASE_DRAFT_SCOPES
+
+    @pytest.mark.asyncio
+    async def test_non_opted_in_org_stays_base_even_for_diagnostic_ticket(self):
+        _, scopes = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=False)
+        assert scopes == BASE_DRAFT_SCOPES
+
+    @pytest.mark.asyncio
+    async def test_diagnostic_prompt_block_gated_on_needs_diagnostics(self):
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True)
         assert "DIAGNOSTIC INVESTIGATION" in prompt
 
     @pytest.mark.asyncio
-    async def test_non_diagnostic_ticket_stays_base_scopes(self):
-        prompt, scopes = await self._run_draft(needs_diagnostics=False)
-        assert scopes == BASE_DRAFT_SCOPES
-        for diag_scope in ("error_tracking:read", "query:read", "insight:read", "session_recording:read", "logs:read"):
-            assert diag_scope not in scopes
+    async def test_no_diagnostic_prompt_block_when_not_flagged(self):
+        prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=True)
         assert "DIAGNOSTIC INVESTIGATION" not in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_forbids_raw_pii(self):
-        prompt, _ = await self._run_draft(needs_diagnostics=True)
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True)
         assert "NEVER include raw emails" in prompt
         assert "prefer aggregates" in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_forbids_external_connections(self):
-        # query:read exposes execute-sql's connectionId (external direct-query sources); the
-        # diagnostic prompt must keep the agent on the customer's own PostHog project data.
-        prompt, _ = await self._run_draft(needs_diagnostics=True)
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True)
         assert "connectionId" in prompt
         assert "external" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_data_safety_guardrails_present_for_opted_in_non_diagnostic_ticket(self):
+        # Regression: an opted-in org gets the read_only preset (execute-sql, persons, logs)
+        # on EVERY ticket, so the connectionId/raw-PII guardrails must be in the prompt even
+        # when the classifier didn't flag diagnostics — otherwise the agent has data tools
+        # with no scope-limit / data-safety constraints.
+        prompt, scopes = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=True)
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+        assert "DIAGNOSTIC INVESTIGATION" not in prompt
+        assert "connectionId" in prompt
+        assert "NEVER include raw emails" in prompt
+        assert "prefer aggregates" in prompt
+
+    @pytest.mark.asyncio
+    async def test_no_data_safety_block_when_not_opted_in(self):
+        # Not opted in -> base scopes only (no customer-data tools) -> no data-access block.
+        prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=False)
+        assert "DATA ACCESS" not in prompt
+        assert "connectionId" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_always_on_context_is_authoritative(self):
+        captured: dict[str, Any] = {}
+
+        async def fake_start(prompt, context, **kwargs):
+            captured["prompt"] = prompt
+            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
+            return AsyncMock(), result
+
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+        ):
+            await _draft_async(
+                team_id=1,
+                ticket_context="question",
+                chunk_ids=[],
+                always_on_context="Always be kind.",
+            )
+        assert "TEAM POLICY (AUTHORITATIVE" in captured["prompt"]
+        assert "Always be kind." in captured["prompt"]
 
 
 class TestSafetyFilterActivity:
@@ -1147,8 +1205,10 @@ async def test_classify_threading_and_diagnostics_gating(
     assert mock_validate.call_args[0][6] == "diagnostic"
     # seed_queries threads into refine (arg 4).
     assert mock_refine.call_args[0][4] == ["export failures"]
-    # needs_diagnostics threads into draft (arg 7) — requires the classifier to flag it AND the team to opt in.
+    # needs_diagnostics threads into draft (arg 7) -- requires the classifier to flag it AND the team to opt in.
     assert mock_draft.call_args[0][7] is expected_needs_diagnostics
+    # diagnostics_allowed threads into draft (arg 8) -- the org opt-in, independent of the classifier.
+    assert mock_draft.call_args[0][8] is diagnostics_allowed
 
 
 class TestClassifyActivity:

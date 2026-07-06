@@ -82,9 +82,11 @@ class DraftInput:
     prior_missing: list[str] = field(default_factory=list)
     always_on_context: str = ""
     ticket_type: str = "how_to"
-    # When true (diagnostic tickets), the draft sandbox gets the wider DIAGNOSTIC_DRAFT_SCOPES
-    # so the agent can investigate the customer's actual data instead of doc-lookup only.
+    # Classifier hint: the ticket needs data investigation. Gates the diagnostic prompt block.
     needs_diagnostics: bool = False
+    # Org opt-in (ai_diagnostics_enabled): gates the read_only scope preset independently
+    # of the classifier. When True the agent gets full reads on every ticket.
+    diagnostics_allowed: bool = False
 
 
 @dataclass

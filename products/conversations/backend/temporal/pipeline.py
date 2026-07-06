@@ -238,11 +238,10 @@ class SupportReplyWorkflow:
                         prior_missing=missing,
                         always_on_context=ctx_output.always_on_context,
                         ticket_type=ticket_type,
-                        # Only widen scopes when the classifier flagged diagnostics AND the team
-                        # opted in — the toggle is the human consent gate for project-wide reads.
                         needs_diagnostics=needs_diagnostics,
+                        diagnostics_allowed=ctx_output.diagnostics_allowed,
                     ),
-                    start_to_close_timeout=timedelta(minutes=15),
+                    start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 
