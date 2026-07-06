@@ -5,7 +5,15 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.api_core.exceptions import (
+    BadRequest,
+    Forbidden,
+    InternalServerError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    ServiceUnavailable,
+)
 from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
@@ -32,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _resolve_query_project,
     _resolve_region,
     _run_destination_query_with_job_retry,
+    _storage_read_should_retry,
     delete_all_temp_destination_tables,
     validate_bigquery_credentials,
 )
@@ -616,6 +625,24 @@ def test_non_retryable_errors_does_not_match_transient_refresh_failures(transien
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in transient_error]
     assert not matching, f"Transient error should remain retryable, but matched keys: {matching}"
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        # Stream reset surfaced by gRPC as a 500 InternalServerError carrying RST_STREAM: retry.
+        (InternalServerError("500 Received RST_STREAM with error code 2"), True),
+        # Transient transport unavailability: retry.
+        (ServiceUnavailable("503 Service Unavailable"), True),
+        # A 500 that is not a stream reset must not be swept up by the retry.
+        (InternalServerError("500 The job encountered an internal error"), False),
+        # Unrelated errors stay for the caller/activity to handle.
+        (NotFound("404 Not found: Table"), False),
+        (BadRequest("400 Invalid query"), False),
+    ],
+)
+def test_storage_read_should_retry_only_matches_stream_resets(error, expected):
+    assert _storage_read_should_retry(error) is expected
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):

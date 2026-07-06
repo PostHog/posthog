@@ -25,7 +25,8 @@ from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.retry import Retry
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
@@ -142,6 +143,25 @@ def _query_job_should_retry(exc: Exception) -> bool:
 
 
 BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
+
+
+# The BigQuery Storage Read API can drop a long-running HTTP/2 stream, which gRPC surfaces to the
+# caller as an `InternalServerError` carrying "RST_STREAM" (gRPC error code 2). The reader's own
+# iteration loop resumes on this mid-stream, but the `read_rows` call that (re)establishes the stream
+# only retries `ResourceExhausted` internally, so a reset raised while opening the stream escapes
+# straight into `get_rows` and fails the import. Passing this retry re-drives the stream open at the
+# stream level, which is cheaper than letting the whole Temporal activity retry. Matched on the
+# stable "RST_STREAM" marker rather than every 500, mirroring the reader's own resumption predicate.
+_BIGQUERY_STORAGE_STREAM_RESET_MARKER = "RST_STREAM"
+
+
+def _storage_read_should_retry(exc: Exception) -> bool:
+    if isinstance(exc, ServiceUnavailable):
+        return True
+    return isinstance(exc, InternalServerError) and _BIGQUERY_STORAGE_STREAM_RESET_MARKER in str(exc)
+
+
+BIGQUERY_STORAGE_READ_RETRY = Retry(predicate=_storage_read_should_retry)
 
 
 class BigQueryDatasetNotFoundError(Exception):
@@ -1357,7 +1377,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         return
 
                     stream_name = read_session.streams[0].name
-                    read_rows_stream = bq_storage.read_rows(stream_name)
+                    read_rows_stream = bq_storage.read_rows(stream_name, retry=BIGQUERY_STORAGE_READ_RETRY)
                     rows_iterator = read_rows_stream.rows()
 
                     record_batches = []
