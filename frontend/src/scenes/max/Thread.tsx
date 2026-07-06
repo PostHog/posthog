@@ -129,13 +129,17 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         className
     )
 
+    // `translate="no"` keeps browser page-translation (Edge/Chrome) from swapping text nodes out from
+    // under React in the streaming thread. When it does, React's next reconcile tries to remove a node
+    // the translator already replaced and throws NotFoundError (removeChild), knocking out the whole
+    // scene. The ErrorBoundary still catches anything we miss.
     // Born-sandbox conversation (no legacy history): render only the sandbox thread.
     if (isSandboxRuntime && !isConvertedConversation) {
         if (!sandboxConversationKey) {
             return null
         }
         return (
-            <div className={containerClassName}>
+            <div className={containerClassName} translate="no">
                 {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
                 <BindLogic
                     logic={runStreamLogic}
@@ -155,7 +159,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             return null
         }
         return (
-            <div className={containerClassName}>
+            <div className={containerClassName} translate="no">
                 <LegacyThread showTrailers={false} />
                 <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
                 <BindLogic
@@ -170,7 +174,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
     // Pure LangGraph conversation.
     return (
-        <div className={containerClassName}>
+        <div className={containerClassName} translate="no">
             <LegacyThread showTrailers />
         </div>
     )
