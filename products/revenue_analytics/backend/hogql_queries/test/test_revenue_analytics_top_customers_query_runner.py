@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.models.utils import uuid7
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import EARLIEST_TIMESTAMP
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
@@ -271,6 +272,30 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             # Mostly interested in the number of results
             # but also the query snapshot is more important than the results
             self.assertEqual(len(results), 16)
+
+    def test_all_time_window_bounded_to_earliest_revenue(self):
+        # "all time" must resolve to the team's earliest revenue timestamp, not the static 2015
+        # fallback that made this query scan a decade of empty partitions before the first row
+        # and blow past ClickHouse's execution ceiling. The empty events revenue-item view (no
+        # purchase events in setUp) returns the 1970 epoch for min() over an empty set, and must
+        # not pin the window back at 2015.
+        runner = RevenueAnalyticsTopCustomersQueryRunner(
+            team=self.team,
+            query=RevenueAnalyticsTopCustomersQuery(
+                dateRange=DateRange(date_from="all"),
+                groupBy=RevenueAnalyticsTopCustomersGroupBy.MONTH,
+                properties=[],
+            ),
+            user=self.user,
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            date_from = runner.query_date_range.date_from()
+            date_to = runner.query_date_range.date_to()
+
+        self.assertGreater(date_from, EARLIEST_TIMESTAMP)
+        self.assertLessEqual(date_from, date_to)
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
