@@ -271,19 +271,7 @@ export function MenuFilterCombobox({
     }, [includeStaleEvents])
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
-        // Compare by content, not array identity: `useGroupList` rebuilds `items`
-        // into a fresh array whenever any upstream memo churns (an unstable group
-        // reference is enough), even when the resulting rows are unchanged. A
-        // reference-only guard would then set new state every render, and the
-        // Fetcher effect keyed on `list.items` would re-fire in a loop
-        // ("Maximum update depth exceeded"). Shallow element equality settles it.
-        setItemsByType((prev) => {
-            const cur = prev[type]
-            if (cur === next || (cur && cur.length === next.length && cur.every((item, i) => item === next[i]))) {
-                return prev
-            }
-            return { ...prev, [type]: next }
-        })
+        setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
     }, [])
 
     const reportLoading = useCallback((type: string, loading: boolean): void => {
