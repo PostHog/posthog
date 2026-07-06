@@ -72,7 +72,7 @@ function SwitchShell({
     const indeterminate = value === 'indeterminate'
     const resetLink =
         onReset && !indeterminate ? (
-            <Link className="text-xs uppercase" onClick={onReset}>
+            <Link className="text-xs" onClick={onReset}>
                 Unset override
             </Link>
         ) : null
