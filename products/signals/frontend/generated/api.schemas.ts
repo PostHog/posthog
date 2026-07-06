@@ -628,6 +628,16 @@ export interface ExternalDataSourceEntryApi {
      * @nullable
      */
     created_at: string | null
+    /**
+     * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.
+     * @nullable
+     */
+    last_run_at: string | null
+    /**
+     * Newest schema-level sync error for this source, or null if no schema is erroring.
+     * @nullable
+     */
+    latest_error: string | null
 }
 
 /**

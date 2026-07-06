@@ -825,6 +825,18 @@ class ExternalDataSourceEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="ISO-8601 timestamp the source was connected.",
     )
+    last_run_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recent completed sync job, or null if this source has "
+            "never completed a sync. Use this to tell a healthy source apart from one stuck in "
+            "`Running` that has imported zero rows — `status` alone conflates the two."
+        ),
+    )
+    latest_error = serializers.CharField(
+        allow_null=True,
+        help_text="Newest schema-level sync error for this source, or null if no schema is erroring.",
+    )
 
 
 class SignalSourceConfigEntrySerializer(serializers.Serializer):
