@@ -9,6 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.rate_limit import AIBurstRateThrottle
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -293,6 +294,13 @@ class TestPromptSuggestions(_PromptSuggestionTestCase):
         with patch(_ACCESS_CONTROL_HELPER, return_value=False):
             resp = self.client.get(self._suggestions_url("current/"))
         self.assertEqual(resp.status_code, 403)
+
+    def test_generate_is_rate_limited_as_an_ai_endpoint(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        with patch.object(AIBurstRateThrottle, "rate", "1/minute"):
+            self.assertEqual(self.client.post(self._suggestions_url("generate/")).status_code, 200)
+            self.assertEqual(self.client.post(self._suggestions_url("generate/")).status_code, 429)
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 1)
 
     def test_cross_team_scanner_and_cross_scanner_suggestion_are_404(self) -> None:
         other_org = Organization.objects.create(name="other")

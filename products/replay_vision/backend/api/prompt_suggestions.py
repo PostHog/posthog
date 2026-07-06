@@ -12,10 +12,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -98,6 +100,13 @@ class ReplayScannerPromptSuggestionViewSet(
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # generate holds a web worker for a synchronous LLM call and burns provider quota,
+        # so it gets the AI throttles other LLM endpoints use.
+        if self.action == "generate":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def _scanner_for_url(self) -> ReplayScanner:
         cached = getattr(self, "_scanner_for_url_cache", None)
