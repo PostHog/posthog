@@ -63,8 +63,12 @@ BASE_DRAFT_SCOPES: list[str] = [
 # The prompt layer + support_review_reply_activity backstop external-connection data.
 DIAGNOSTIC_SCOPES_PRESET = "read_only"
 
-# Sandbox agent model for the draft step.
-DRAFT_MODEL = "claude-sonnet-4-6"
+# Sandbox agent model for the draft step. Must be in the LLM gateway's `background_agents`
+# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) -- that's the
+# product the sandbox agent server routes through, NOT `conversations`. `claude-sonnet-4-6`
+# is allowed for `conversations` (the plain utility/validator calls) but NOT for
+# `background_agents`, so the sandbox draft uses the strongest allowed sonnet instead.
+DRAFT_MODEL = "claude-sonnet-5"
 DRAFT_RUNTIME_ADAPTER = "claude"
 
 # One-line bias appended to refine/draft/validate prompts so each step focuses on what the
