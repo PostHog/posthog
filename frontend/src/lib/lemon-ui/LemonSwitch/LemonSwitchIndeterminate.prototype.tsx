@@ -31,11 +31,15 @@ import './LemonSwitch.scss'
 
 import clsx from 'clsx'
 
+import { Link } from 'lib/lemon-ui/Link'
+
 export type PrototypeToggleValue = boolean | 'indeterminate'
 
 export interface PrototypeSwitchProps {
     value: PrototypeToggleValue
     onChange: (nextChecked: boolean) => void
+    /** When set, a "reset" link shows next to a resolved (yes/no) switch to go back to indeterminate. */
+    onReset?: () => void
     label?: string | JSX.Element
     size?: 'small' | 'medium'
     bordered?: boolean
@@ -55,6 +59,7 @@ interface ShellProps extends PrototypeSwitchProps {
 function SwitchShell({
     value,
     onChange,
+    onReset,
     label,
     size = 'medium',
     bordered,
@@ -87,6 +92,11 @@ function SwitchShell({
                 </div>
                 {indeterminate ? trackContent : null}
             </button>
+            {onReset && !indeterminate && (
+                <Link className="text-xs" onClick={onReset}>
+                    reset
+                </Link>
+            )}
         </div>
     )
 }
