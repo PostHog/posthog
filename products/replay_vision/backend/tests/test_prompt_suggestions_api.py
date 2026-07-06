@@ -251,6 +251,22 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(scanner.query, {})
         self.assertEqual(scanner.sampling_rate, 1.0)
 
+    def test_apply_with_empty_config_proposal_falls_back_to_prompt_only(self) -> None:
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            suggested_prompt="rewrite",
+            status=SuggestionStatus.PENDING,
+            scanner_version=self.scanner.scanner_version,
+            suggested_parameters={"scanner_config": {}},
+        )
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion.id}/apply/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        # A malformed empty config must never be written; the prompt-only fallback applies instead.
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config, {"prompt": "rewrite"})
+
     def test_same_prompt_with_parameter_change_is_pending_not_no_change(self) -> None:
         self._create_rated_observation("sess-1", True)
         self.canned = _LlmPromptSuggestion(

@@ -300,7 +300,8 @@ class ReplayScannerPromptSuggestionViewSet(
         if suggestion.scanner_version != scanner.scanner_version:
             raise ValidationError("The scanner configuration changed since this was generated. Generate a fresh one.")
         parameters = suggestion.suggested_parameters or {}
-        # Suggestions predating parameter proposals (and any row missing a config) apply the prompt only.
+        # Falsy check on purpose: an empty config must never be written to the scanner. Suggestions
+        # predating parameter proposals (and any row missing a config) apply the rewritten prompt only.
         scanner.scanner_config = parameters.get("scanner_config") or {
             **(scanner.scanner_config or {}),
             "prompt": suggestion.suggested_prompt,
