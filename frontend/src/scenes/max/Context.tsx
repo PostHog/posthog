@@ -10,7 +10,6 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
 import { ModeSelector } from './components/ModeSelector'
-import { SandboxModeToggle } from './components/SandboxModeToggle'
 import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
@@ -385,7 +384,6 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
                 <ModeSelector />
-                <SandboxModeToggle />
                 <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
                     {/* Wrapper span prevents Base UI's Tooltip.Trigger from merging
                         props into TaxonomicPopover. Without it, mergeProps treats

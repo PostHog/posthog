@@ -43,6 +43,11 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+class EvaluationQuerySet(models.QuerySet):
+    def using_provider_keys(self) -> "EvaluationQuerySet":
+        return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
+
+
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
@@ -57,6 +62,15 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
         ]
+        constraints = [
+            models.CheckConstraint(
+                name="model_config_only_on_llm_judge",
+                condition=models.Q(model_configuration__isnull=True)
+                | models.Q(evaluation_type=EvaluationType.LLM_JUDGE),
+            ),
+        ]
+
+    objects = EvaluationQuerySet.as_manager()
 
     # Core fields
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

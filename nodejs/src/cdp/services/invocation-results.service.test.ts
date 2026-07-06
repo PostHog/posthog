@@ -1,6 +1,7 @@
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { InvocationResultsService } from './invocation-results.service'
+import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
@@ -10,6 +11,7 @@ describe('InvocationResultsService', () => {
     let invocationResultsRowsService: jest.Mocked<HogInvocationResultsService>
     let warehouseWebhooksService: jest.Mocked<WarehouseWebhooksService>
     let capturedEventsService: jest.Mocked<CapturedEventsService>
+    let messageAssetsService: jest.Mocked<MessageAssetsService>
     let service: InvocationResultsService
 
     const results = [
@@ -38,11 +40,17 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<CapturedEventsService>
 
+        messageAssetsService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<MessageAssetsService>
+
         service = new InvocationResultsService(
             monitoringService,
             invocationResultsRowsService,
             warehouseWebhooksService,
-            capturedEventsService
+            capturedEventsService,
+            messageAssetsService
         )
     })
 
@@ -58,6 +66,8 @@ describe('InvocationResultsService', () => {
             expect(warehouseWebhooksService.queueInvocationResults).toHaveBeenCalledWith(results)
             expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledTimes(1)
             expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledWith(results)
+            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledTimes(1)
+            expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledWith(results)
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -95,6 +105,7 @@ describe('InvocationResultsService', () => {
             expect(invocationResultsRowsService.flush).toHaveBeenCalledTimes(1)
             expect(warehouseWebhooksService.flush).toHaveBeenCalledTimes(1)
             expect(capturedEventsService.flush).toHaveBeenCalledTimes(1)
+            expect(messageAssetsService.flush).toHaveBeenCalledTimes(1)
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {

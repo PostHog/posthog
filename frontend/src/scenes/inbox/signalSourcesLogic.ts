@@ -1,11 +1,11 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
@@ -118,7 +118,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        values: [
+            sourcesDataLogic,
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [sourcesDataLogic, ['loadSources']],
     })),
 
@@ -616,9 +621,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         }
     }),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            if (posthog.isFeatureEnabled(FEATURE_FLAGS.PRODUCT_AUTONOMY)) {
+            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY]) {
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()

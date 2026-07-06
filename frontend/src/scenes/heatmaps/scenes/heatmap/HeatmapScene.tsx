@@ -45,6 +45,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         updateHeatmap,
         onIframeLoad,
         setScreenshotLoaded,
+        setScreenshotError,
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
@@ -192,10 +193,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             }}
                                             onLoad={() => {
                                                 setScreenshotLoaded(true)
+                                                setScreenshotError(null)
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
-                                                console.error('Failed to load screenshot')
+                                                setScreenshotLoaded(false)
+                                                setScreenshotError('The screenshot failed to load.')
                                             }}
                                         />
                                     </>
