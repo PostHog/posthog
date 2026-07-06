@@ -685,6 +685,39 @@ def team_api_test_factory():
                 ]
             )
 
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.team.secret_api_token = None
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("project secret API key", response.json()["detail"])
+            self.assertIsNone(self.team.secret_api_token)
+
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

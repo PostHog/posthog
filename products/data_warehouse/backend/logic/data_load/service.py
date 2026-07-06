@@ -448,7 +448,7 @@ def get_cdc_extraction_schedule(
     The schedule runs at the source level and the interval is the minimum
     sync_frequency_interval of all CDC-enabled schemas in the source.
     """
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.workflows import CDCExtractionInput
+    from products.warehouse_sources.backend.facade.pipelines import CDCExtractionInput
 
     inputs = CDCExtractionInput(
         team_id=source.team_id,
@@ -624,9 +624,7 @@ def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
     # module for self-cleanup when the source vanishes, so it imports from us at module
     # load time. Hoisting this import would deadlock the loader.
-    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
-        SyncNewSchemasActivityInputs,
-    )
+    from products.warehouse_sources.backend.facade.pipelines import SyncNewSchemasActivityInputs
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
 
