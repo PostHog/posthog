@@ -83,6 +83,17 @@ class CreateSandboxForRepositoryOutput:
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool | None = None
+    create_ms: int | None = None
+
+
+@dataclass
+class CloneRepositoryInSandboxOutput:
+    clone_ms: int | None = None
+
+
+@dataclass
+class CheckoutBranchInSandboxOutput:
+    checkout_ms: int | None = None
 
 
 @dataclass
@@ -494,6 +505,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
             sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        create_ms = sandbox_creation_timer.elapsed_ms
         snapshot_outcome = (
             "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
         )
@@ -530,12 +542,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             sandbox_url=credentials.url,
             connect_token=credentials.token,
             used_snapshot=actual_used_snapshot,
+            create_ms=create_ms,
         )
 
 
 @activity.defn
 @asyncify
-def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
+def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -546,7 +559,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        with StepTimer("repository_clone", used_snapshot=False):
+        with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
@@ -556,10 +569,12 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
+        return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
 
 @activity.defn
 @asyncify
-def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
+def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutBranchInSandboxOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -593,12 +608,14 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
             f"git checkout -B {shlex.quote(input.branch)} FETCH_HEAD"
         )
 
-        with StepTimer("branch_checkout", used_snapshot=input.used_snapshot):
+        with StepTimer("branch_checkout", used_snapshot=input.used_snapshot) as checkout_timer:
             result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
 
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
+
+        return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
 
 
 @activity.defn
