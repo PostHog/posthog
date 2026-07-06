@@ -807,9 +807,9 @@ class TestListRepositoriesTool(BaseTaskToolTest):
         content, artifact = await tool._arun_impl()
 
         assert "No GitHub repositories available" in content
-        assert "/settings/project-integrations" in content
+        assert "/integrations/github" in content
         assert artifact["repositories"] == []
-        assert artifact["settings_url"] == "/settings/project-integrations"
+        assert artifact["settings_url"] == "/integrations/github"
 
     @patch("posthog.models.integration.GitHubIntegration")
     @pytest.mark.django_db
@@ -963,9 +963,9 @@ class TestListRepositoriesTool(BaseTaskToolTest):
         content, artifact = await tool._arun_impl()
 
         assert "No GitHub repositories available" in content
-        assert "/settings/project-integrations" in content
+        assert "/integrations/github" in content
         assert artifact["repositories"] == []
-        assert artifact["settings_url"] == "/settings/project-integrations"
+        assert artifact["settings_url"] == "/integrations/github"
 
     @patch("posthog.models.integration.GitHubIntegration")
     @pytest.mark.django_db
@@ -992,6 +992,6 @@ class TestListRepositoriesTool(BaseTaskToolTest):
         content, artifact = await tool._arun_impl()
 
         assert "No GitHub repositories available" in content
-        assert "/settings/project-integrations" in content
+        assert "/integrations/github" in content
         assert artifact["repositories"] == []
-        assert artifact["settings_url"] == "/settings/project-integrations"
+        assert artifact["settings_url"] == "/integrations/github"

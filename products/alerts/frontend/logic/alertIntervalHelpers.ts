@@ -7,6 +7,8 @@ import { AvailableFeature } from '~/types'
 
 export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.REAL_TIME:
+            return '-1h'
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return '-12h'
         case AlertCalculationInterval.HOURLY:

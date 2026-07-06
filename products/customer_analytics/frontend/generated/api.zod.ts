@@ -218,7 +218,7 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
@@ -246,7 +246,7 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
@@ -276,7 +276,90 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const customPropertySourcesCreateBodySourceColumnMax = 400
+
+export const customPropertySourcesCreateBodyKeyColumnMax = 400
+
+export const customPropertySourcesCreateBodyIsEnabledDefault = true
+
+export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod
+            .uuid()
+            .describe('UUID of the custom property definition this source feeds. One source per definition.'),
+        saved_query: zod
+            .uuid()
+            .describe('UUID of the data-warehouse saved query (materialized view) to read values from.'),
+        source_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodySourceColumnMax)
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodyKeyColumnMax)
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .default(customPropertySourcesCreateBodyIsEnabledDefault)
+            .describe(
+                'Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.'
+            ),
+    })
+    .describe(
+        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+    )
+
+export const customPropertySourcesUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+    )
+
+export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
     )
 
 export const customerJourneysCreateBodyNameMax = 400

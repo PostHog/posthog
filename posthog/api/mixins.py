@@ -70,6 +70,7 @@ def validated_request(
     deprecated: bool = False,
     strict_request_validation: bool = True,
     strict_response_validation: bool = False,
+    include_serializer_context: bool = False,
     **extend_schema_kwargs,
 ) -> Callable:
     """
@@ -89,6 +90,12 @@ def validated_request(
             # request.validated_query_data contains validated query params (if query_serializer provided)
             body_field = request.validated_data["field"]
             query_param = request.validated_query_data["param"]
+
+    By default the request/query serializers are constructed with no context, unlike DRF's
+    own `get_serializer()` (which always includes `request`/`view`/`format`). Pass
+    `include_serializer_context=True` to opt a view into the standard context — needed when a
+    serializer's `validate()` reads `self.context["request"]` or `self.context["team"]` (e.g. to
+    attribute a rejected request to the calling user/team).
     """
 
     def decorator(view_func: Callable) -> Callable:
@@ -111,13 +118,19 @@ def validated_request(
             validated_request = cast(ValidatedRequest, request)
             validated_request.validated_query_data = {}
 
+            serializer_context = (
+                {"request": request, "view": self, "team": getattr(self, "team", None)}
+                if include_serializer_context
+                else {}
+            )
+
             if query_serializer is not None:
-                query_serializer_instance = query_serializer(data=request.query_params)
+                query_serializer_instance = query_serializer(data=request.query_params, context=serializer_context)
                 query_serializer_instance.is_valid(raise_exception=True)
                 validated_request.validated_query_data = query_serializer_instance.validated_data
 
             if request_serializer is not None:
-                serializer = request_serializer(data=request.data)
+                serializer = request_serializer(data=request.data, context=serializer_context)
                 req_validation_result = serializer.is_valid(raise_exception=strict_request_validation)
 
                 if not req_validation_result and settings.DEBUG:

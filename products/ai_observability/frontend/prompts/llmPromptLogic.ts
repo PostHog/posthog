@@ -85,7 +85,11 @@ const PROMPT_VERSIONS_LIMIT = 50
 export const PROMPT_NAME_MAX_LENGTH = 255
 const DEFAULT_PROMPT_ANALYTICS_DATE_FROM = '-1d'
 const STALE_PROMPT_ERROR_MESSAGE =
-    'This prompt changed while you were editing it. Review the latest version and try again.'
+    'This prompt changed while you were editing it. Your edits are preserved — review the latest version and publish again.'
+
+export interface PublishConflict {
+    latestVersion: number | null
+}
 
 async function fetchResolvedPrompt(
     promptName: string,
@@ -164,6 +168,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
+        setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
     }),
 
     reducers(({ props }) => ({
@@ -225,6 +230,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             false,
             {
                 toggleOutlineExpanded: (state) => !state,
+            },
+        ],
+        publishConflict: [
+            null as PublishConflict | null,
+            {
+                setPublishConflict: (_, { publishConflict }) => publishConflict,
+                setMode: () => null,
+                loadPromptSuccess: () => null,
             },
         ],
     })),
@@ -295,7 +308,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             base_version: currentPrompt.latest_version,
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
-                        lemonToast.success('Prompt version published successfully')
+                        lemonToast.success(`Published v${savedPrompt.version}`)
 
                         const optimisticVersions = [
                             buildPromptVersionSummary(savedPrompt, true),
@@ -335,11 +348,17 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     }
 
                     if (error instanceof ApiError && error.status === 409) {
+                        // Refresh the underlying prompt so base_version advances, but keep the
+                        // user's in-progress edits in the form — never overwrite their work.
+                        let latestVersion: number | null = null
                         try {
-                            await refreshLatestPromptState(props.promptName, actions)
+                            const latestPrompt = await fetchResolvedPrompt(props.promptName)
+                            actions.setPrompt(latestPrompt)
+                            latestVersion = latestPrompt.latest_version ?? latestPrompt.version
                         } catch {}
 
-                        lemonToast.error(error.detail || STALE_PROMPT_ERROR_MESSAGE)
+                        actions.setPublishConflict({ latestVersion })
+                        lemonToast.error(STALE_PROMPT_ERROR_MESSAGE)
                         throw error
                     }
 
@@ -364,6 +383,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         isHistoricalVersion: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? !prompt.is_latest : false)],
+
+        nextVersion: [
+            (s) => [s.prompt],
+            (prompt): number | null => (isPrompt(prompt) ? (prompt.latest_version ?? prompt.version) + 1 : null),
+        ],
 
         promptVariables: [
             (s) => [s.promptForm],

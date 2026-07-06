@@ -85,12 +85,12 @@
                 "description": "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped.",
                 "properties": {
                     "github_login": {
-                        "description": "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.",
+                        "description": "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.",
                         "maxLength": 200,
                         "type": "string"
                     },
                     "user_uuid": {
-                        "description": "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here.",
+                        "description": "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here.",
                         "type": "string"
                     }
                 },

@@ -130,6 +130,18 @@ export const WebAnalyticsAchievementsAcknowledgeCelebrationBody = /* @__PURE__ *
 })
 
 /**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const WebAnalyticsAchievementsUpdatePreferencesBody = /* @__PURE__ */ zod.object({
+    achievements_opt_out: zod
+        .boolean()
+        .describe(
+            'When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user).'
+        ),
+})
+
+/**
  * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Explorer and Detective achievement tracks.
  * @summary Record a Web analytics interaction
  */

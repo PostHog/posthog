@@ -233,6 +233,9 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),
+        "last_backfill_events_at": (
+            cohort.last_backfill_events_at.isoformat() if cohort.last_backfill_events_at else None
+        ),
     }
 
 

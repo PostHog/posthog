@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
@@ -14,7 +16,10 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
@@ -156,6 +161,31 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
     )
 }
 
+function CustomPropertyCell({
+    record,
+    column,
+    definition,
+}: {
+    record: unknown
+    column: string
+    definition: CustomPropertyDefinitionApi
+}): JSX.Element {
+    const getCell = useGetCell()
+    const raw = getCell(record, column)
+    const value = raw === null || raw === undefined ? '' : String(raw)
+
+    if (!value) {
+        return <span className="text-muted">—</span>
+    }
+    if (definition.display_type === 'date' || definition.display_type === 'datetime') {
+        return <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
+    }
+    if (definition.display_type === 'boolean') {
+        return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
+    }
+    return <span>{formatCustomPropertyValue(value, definition)}</span>
+}
+
 function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
     const { sortOrder } = useValues(accountsLogic)
     const { toggleSort } = useActions(accountsLogic)
@@ -225,10 +255,18 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 }
 
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { visibleColumnNames, aliasToDefinition } = useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            const definition = aliasToDefinition[key]
+            if (definition) {
+                columns[key] = {
+                    renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
+                    render: ({ record }) => <CustomPropertyCell record={record} column={key} definition={definition} />,
+                }
+                continue
+            }
             const template = KNOWN_COLUMN_TEMPLATES[key]
             const label = template?.label ?? key
             columns[key] = {
@@ -238,7 +276,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames])
+    }, [visibleColumnNames, aliasToDefinition])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {

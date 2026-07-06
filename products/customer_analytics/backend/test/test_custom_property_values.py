@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.utils import timezone
@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.facade import (
     api as facade,
@@ -32,8 +33,14 @@ from products.customer_analytics.backend.models import (
 )
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+from products.workflows.backend.models import HogFlow
 
 LOGIC_MODULE = "products.customer_analytics.backend.logic.custom_property_values"
+
+SELECT_OPTIONS = [
+    {"id": "opt-1", "label": "Enterprise", "color": "preset-1"},
+    {"id": "opt-2", "label": "Startup", "color": "preset-2"},
+]
 
 
 class TestSetCustomPropertyValue(BaseTest):
@@ -114,6 +121,37 @@ class TestSetCustomPropertyValue(BaseTest):
     )
     def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):
         definition = self._create_property_definition(display_type=display_type, name=_name)
+
+        with pytest.raises(InvalidCustomPropertyValue):
+            self._set(definition=definition, value=value)
+
+        assert not CustomPropertyValue.objects.for_team(self.team.id).filter(definition=definition).exists()
+
+    def test_select_writes_matching_label_into_value_str(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", display_type=DisplayType.SELECT, options=SELECT_OPTIONS
+        )
+
+        instance = self._set(definition=definition, value="Enterprise")
+        instance.refresh_from_db()
+
+        assert instance.value_str == "Enterprise"
+        assert instance.value_num is None and instance.value_bool is None and instance.value_datetime is None
+
+    @parameterized.expand(
+        [
+            ("unknown_label", "Mid-market"),
+            ("case_mismatch", "enterprise"),
+            ("empty_string", ""),
+            ("number", 3),
+            ("boolean", True),
+            ("list", ["Enterprise"]),
+        ]
+    )
+    def test_select_rejects_values_not_matching_an_option(self, _name, value):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name=f"Tier {_name}", display_type=DisplayType.SELECT, options=SELECT_OPTIONS
+        )
 
         with pytest.raises(InvalidCustomPropertyValue):
             self._set(definition=definition, value=value)
@@ -326,3 +364,85 @@ class TestSetExternalAccountCustomProperties(BaseTest):
         assert result.error == contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE
         # The good "Plan" write must roll back with the failed "Seats" write — nothing persists.
         assert not CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account).exists()
+
+
+class TestCustomPropertyDefinitionReferences(BaseTest):
+    def _uac(self, *, can_read_workflows: bool = True) -> MagicMock:
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = can_read_workflows
+        return uac
+
+    def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
+        return HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status=status,
+            actions=[
+                {
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-update-account-property",
+                        "inputs": {"properties": {"value": {definition_id: "{event.properties.x}"}}},
+                    },
+                }
+            ],
+        )
+
+    def test_list_attaches_workflow_references_matched_by_id(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        create_custom_property_definition(team_id=self.team.id, name="Unused")
+        workflow = self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            )
+        by_id = {view.id: view for view in page}
+
+        assert [(r.id, r.name, r.status, r.type) for r in by_id[plan.id].references] == [
+            (str(workflow.id), "Onboarding", "active", "workflow")
+        ]
+        # A definition no workflow references carries an empty list.
+        unused = next(v for v in page if v.name == "Unused")
+        assert unused.references == []
+
+    def test_reference_matches_id_not_name(self):
+        # A workflow keyed by a stale/foreign id must not attach to a same-named definition.
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._create_workflow_setting(str(uuid4()))
+
+        with team_scope(self.team.id):
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            )
+
+        assert next(v for v in page if v.id == plan.id).references == []
+
+    def test_get_attaches_workflow_references_for_single_definition(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        workflow = self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            view = facade.get_custom_property_definition(self.team.id, str(plan.id), user_access_control=self._uac())
+
+        assert view is not None
+        assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
+            (str(workflow.id), "Onboarding", "active", "workflow")
+        ]
+
+    def test_references_hidden_without_workflow_read_access(self):
+        # references expose HogFlow metadata, so a caller without hog_flow read access sees none.
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        self._create_workflow_setting(str(plan.id))
+
+        with team_scope(self.team.id):
+            page, _ = facade.list_custom_property_definitions(
+                self.team.id, offset=0, limit=50, user_access_control=self._uac(can_read_workflows=False)
+            )
+            view = facade.get_custom_property_definition(
+                self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
+            )
+
+        assert next(v for v in page if v.id == plan.id).references == []
+        assert view is not None
+        assert view.references == []

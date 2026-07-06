@@ -3016,6 +3016,9 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -5257,6 +5260,9 @@ const api = {
             },
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },

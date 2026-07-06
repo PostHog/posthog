@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -29,6 +28,7 @@ use crate::observability::metrics::{
     STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
     SWEEP_KEYS_EVICTED_TOTAL,
 };
+use crate::partitions::intake::MeteredReceiver;
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
@@ -41,7 +41,9 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
-use crate::workers::event_path::{process_event_with_memo, schedule_deadline, SkipReason};
+use crate::workers::event_path::{
+    process_event_with_memo, schedule_deadline, EventNameGating, SkipReason,
+};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::person_memo::{PersonMemo, PersonMemoConfig};
@@ -72,7 +74,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
-        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        receiver: MeteredReceiver,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -90,6 +92,7 @@ impl Stage1Worker {
             merge,
             durable_restore,
             PersonMemoConfig::DISABLED,
+            EventNameGating::Disabled,
         )
     }
 
@@ -98,7 +101,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_memo(
         partition_id: u16,
-        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        receiver: MeteredReceiver,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -106,6 +109,7 @@ impl Stage1Worker {
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
         person_memo: PersonMemoConfig,
+        event_name_gating: EventNameGating,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -117,6 +121,7 @@ impl Stage1Worker {
             merge,
             durable_restore,
             person_memo,
+            event_name_gating,
         ));
         Self {
             partition_id,
@@ -136,7 +141,7 @@ impl Stage1Worker {
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
-    mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+    mut receiver: MeteredReceiver,
     store: CohortStore,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -144,6 +149,7 @@ async fn run_worker(
     merge: Arc<MergeWorkerDeps>,
     durable_restore: bool,
     person_memo: PersonMemoConfig,
+    event_name_gating: EventNameGating,
 ) {
     info!(partition_id, "stage 1 worker started");
 
@@ -181,6 +187,7 @@ async fn run_worker(
                         &last_updated,
                         merge.partition_count,
                         &mut person_memo,
+                        event_name_gating,
                     );
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
@@ -494,6 +501,7 @@ fn handle_event(
     last_updated: &str,
     partition_count: u32,
     person_memo: &mut PersonMemo,
+    event_name_gating: EventNameGating,
 ) -> EventEffects {
     let snapshot = catalog.load();
     let generation = snapshot.generation();
@@ -523,6 +531,7 @@ fn handle_event(
         generation,
         &resolved,
         person_memo,
+        event_name_gating,
     );
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
@@ -925,6 +934,7 @@ mod tombstone_redirect_tests {
     use chrono_tz::UTC;
     use serde_json::json;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
@@ -1082,7 +1092,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event: person_event(person, "u@p.com", 5, 0),
+                event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
             }],
         )
@@ -1183,6 +1193,7 @@ mod tombstone_redirect_tests {
         batch: Vec<ShuffleMessage>,
     ) {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition_id,
             rx,
@@ -1217,7 +1228,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event,
+                event: Box::new(event),
                 cse_offset: 0,
             }],
         )
@@ -1286,6 +1297,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
@@ -1450,11 +1462,11 @@ mod tombstone_redirect_tests {
         let batch = || {
             vec![
                 ShuffleMessage::Event {
-                    event: person_event(alice, "u@p.com", 5, 0),
+                    event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
                 },
                 ShuffleMessage::Event {
-                    event: person_event(p_old, "u@p.com", 5, 9),
+                    event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
                 },
             ]
@@ -1538,6 +1550,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
@@ -1552,6 +1565,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1582,6 +1596,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
@@ -1607,6 +1622,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
@@ -1650,6 +1666,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());

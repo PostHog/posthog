@@ -79,36 +79,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestBreakdownProps.test_breakdown_person_props_materialized
-  '''
-  
-  SELECT "pmat_$browser" AS value,
-         count(*) as count
-  FROM events e
-  INNER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 99999
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-  INNER JOIN
-    (SELECT id,
-            argMax(pmat_$browser, version) as pmat_$browser
-     FROM person
-     WHERE team_id = 99999
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
-  WHERE team_id = 99999
-    AND event = '$pageview'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-21 00:00:00', 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-  GROUP BY value
-  ORDER BY count DESC, value DESC
-  LIMIT 6
-  OFFSET 0
-  '''
-# ---
 # name: TestBreakdownProps.test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown
   '''
   

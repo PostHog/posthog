@@ -214,6 +214,22 @@ class _TracingTimeseriesRequestSerializer(serializers.Serializer):
     query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
 
 
+class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "When true (default), bucket root-span durations only — a distribution of traces. "
+            "When false, bucket every matching span — used with a span name filter for "
+            "operation-scoped distributions."
+        ),
+    )
+
+
+class _TracingDurationHistogramRequestSerializer(serializers.Serializer):
+    query = _TracingDurationHistogramQueryBodySerializer(help_text="The duration-histogram query to execute.")
+
+
 class _TracingSparklineQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
     rootSpans = serializers.BooleanField(
         required=False,
@@ -878,7 +894,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingTimeseriesRequestSerializer)
+    @extend_schema(request=_TracingDurationHistogramRequestSerializer)
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -900,6 +916,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
+            root_spans=query_data.get("rootSpans", True),
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)

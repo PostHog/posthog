@@ -5,6 +5,7 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.checkpoint_compaction import CHECKPOINT_COMPACTION_ACTIVITIES, CHECKPOINT_COMPACTION_WORKFLOWS
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
 from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
@@ -51,6 +52,7 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     AnomalyInvestigationWorkflow,
+    *CHECKPOINT_COMPACTION_WORKFLOWS,
 ]
 
 AI_ACTIVITIES = [
@@ -62,6 +64,7 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     investigate_anomaly_activity,
+    *CHECKPOINT_COMPACTION_ACTIVITIES,
 ]
 
 __all__ = [
