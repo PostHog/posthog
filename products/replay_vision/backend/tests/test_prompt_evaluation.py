@@ -12,6 +12,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
@@ -24,6 +25,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     select_evaluation_observations,
     summarize_results,
 )
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
     finalize_evaluation_activity,
     record_evaluation_result_activity,
@@ -167,6 +169,59 @@ class TestPromptEvaluation(_VisionAPITestCase):
             suggestion.evaluation["summary"], {"kept": 0, "regressed": 0, "fixed": 1, "still_wrong": 0, "errors": 0}
         )
         self.assertIsNotNone(suggestion.evaluation["finished_at"])
+        # The retried run charged the org's quota exactly once, inside the current monthly window.
+        receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
+        self.assertEqual(receipts.count(), 1)
+        self.assertEqual(compute_quota_snapshot(self.team.organization_id).usage_this_month, 1)
+
+    def test_failed_session_run_does_not_charge_quota(self) -> None:
+        observation = self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})
+
+        record_evaluation_result_activity(
+            RecordEvaluationResultInputs(
+                suggestion_id=suggestion.id,
+                team_id=self.team.id,
+                session=EvaluationSession(
+                    observation_id=observation.id,
+                    session_id="sess-1",
+                    rated_correct=False,
+                    before_outcome="Verdict: no",
+                ),
+                error="rasterize failed",
+            )
+        )
+
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        self.assertEqual(suggestion.evaluation["results"][0]["outcome"], "error")
+        self.assertEqual(ReplayObservationUsage.objects.count(), 0)
+
+    def test_retest_charges_quota_again(self) -> None:
+        observation = self._create_rated("sess-1", False)
+        suggestion = self._create_suggestion(
+            evaluation={"status": "running", "results": [], "started_at": "2026-07-01T00:00:00+00:00"}
+        )
+        inputs = RecordEvaluationResultInputs(
+            suggestion_id=suggestion.id,
+            team_id=self.team.id,
+            session=EvaluationSession(
+                observation_id=observation.id,
+                session_id="sess-1",
+                rated_correct=False,
+                before_outcome="Verdict: no",
+            ),
+            after_output={"verdict": "yes"},
+        )
+        record_evaluation_result_activity(inputs)
+
+        # A fresh test run stamps a new started_at, so the same session must charge again.
+        suggestion.refresh_from_db()
+        suggestion.evaluation = {"status": "running", "results": [], "started_at": "2026-07-02T00:00:00+00:00"}
+        suggestion.save(update_fields=["evaluation"])
+        record_evaluation_result_activity(inputs)
+
+        self.assertEqual(ReplayObservationUsage.objects.count(), 2)
 
     def test_summarize_counts_errors(self) -> None:
         results = [{"outcome": "kept"}, {"outcome": "error"}, {"outcome": "fixed"}, {"outcome": "fixed"}]

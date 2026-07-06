@@ -6,6 +6,7 @@ session and a likely fix on a thumbs-down one. Results persist on the suggestion
 tab can show them without re-running.
 """
 
+import uuid
 from typing import Any, Literal
 
 from django.utils import timezone
@@ -15,6 +16,18 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 
 # Each evaluated session is a full scanner run (video upload + LLM conversation), so keep the bill bounded.
 EVALUATION_SESSION_CAP = 10
+
+_EVALUATION_USAGE_NAMESPACE = uuid.UUID("8f6f5e56-9f0b-4c5a-9a3e-2b7d1c4e8a90")
+
+
+def evaluation_usage_id(suggestion_id: uuid.UUID, session_id: str, started_at: str) -> uuid.UUID:
+    """Quota-ledger receipt id for one re-run session.
+
+    Deterministic per (suggestion, session, run start): an activity retry re-derives the same id and
+    dedups, while a re-test (new started_at) charges afresh.
+    """
+    return uuid.uuid5(_EVALUATION_USAGE_NAMESPACE, f"{suggestion_id}:{session_id}:{started_at}")
+
 
 EVALUATION_SUPPORTED_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER)
 

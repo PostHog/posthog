@@ -5,15 +5,18 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import {
+    environmentVisionQuotaRetrieve,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersPromptSuggestionsCurrentRetrieve,
     visionScannersPromptSuggestionsEvaluateCreate,
     visionScannersPromptSuggestionsGenerateCreate,
 } from '../generated/api'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
 
 jest.mock('../generated/api', () => ({
+    environmentVisionQuotaRetrieve: jest.fn(),
     visionScannersObservationsList: jest.fn(),
     visionScannersObservationsStatsRetrieve: jest.fn(),
     visionScannersPromptSuggestionsCurrentRetrieve: jest.fn(),
@@ -67,10 +70,17 @@ describe('scannerQualityLogic', () => {
             suggestion: PENDING_SUGGESTION,
             stale: false,
             rated_count: 3,
+            evaluation_session_cap: 10,
         })
         ;(visionScannersPromptSuggestionsGenerateCreate as jest.Mock).mockResolvedValue({
             ...PENDING_SUGGESTION,
             id: 'sug-2',
+        })
+        ;(environmentVisionQuotaRetrieve as jest.Mock).mockResolvedValue({
+            monthly_quota: 3000,
+            usage_this_month: 100,
+            remaining: 2900,
+            exhausted: false,
         })
     })
 
@@ -156,12 +166,30 @@ describe('scannerQualityLogic', () => {
         expect(logic.values.evaluating).toBe(false)
     })
 
+    it('a running test refreshes the quota snapshot on every poll', async () => {
+        // A test run spends quota per session, so stale quota numbers here mean the cost line lies.
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: {
+                ...PENDING_SUGGESTION,
+                evaluation: { status: 'running', results: [], total: 2, summary: null },
+            },
+            stale: false,
+            rated_count: 3,
+            evaluation_session_cap: 10,
+        })
+        await mountLogic()
+
+        // Matches the listener-driven refresh: the mount-time loadQuota is already behind the pointer.
+        await expectLogic(logic).toDispatchActions([visionQuotaLogic.actionTypes.loadQuota])
+    })
+
     it('never auto-generates on load, even when the recommendation is stale', async () => {
         // Generation is expensive. The daily backend refresh owns freshness, the tab only reports it.
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: PENDING_SUGGESTION,
             stale: true,
             rated_count: 3,
+            evaluation_session_cap: 10,
         })
         await mountLogic()
         await expectLogic(logic).toFinishAllListeners()

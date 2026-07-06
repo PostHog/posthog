@@ -36,6 +36,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
@@ -249,6 +250,8 @@ function SuggestionEvaluationPanel({
     const summary = evaluation.summary ?? { kept: 0, regressed: 0, fixed: 0, still_wrong: 0, errors: 0 }
     const downTotal = summary.fixed + summary.still_wrong
     const upTotal = summary.kept + summary.regressed
+    // Mirrors the backend: only sessions that ran successfully wrote a quota receipt.
+    const chargedCount = evaluation.results.filter((result) => result.outcome !== 'error').length
     return (
         <div className="border rounded p-3 space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -268,6 +271,11 @@ function SuggestionEvaluationPanel({
                     </Tooltip>
                 )}
                 {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
+                <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
+                    <span className="text-muted text-xs">
+                        Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
+                    </span>
+                </Tooltip>
             </div>
             <LemonButton
                 size="xsmall"
@@ -306,6 +314,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         currentSuggestion,
         suggestionStale,
         ratedCount,
+        evaluationSessionCap,
         suggestionLoading,
         generating,
         applying,
@@ -317,9 +326,11 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const { generateSuggestion, applySuggestion, dismissSuggestion, evaluateSuggestion, loadSuggestionHistory } =
         useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
     const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
+    const plannedTestSessions = Math.min(evaluationSessionCap, ratedCount)
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -394,9 +405,13 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
                                 disabledReason={
                                     editDisabledReason ??
-                                    (ratedCount === 0 ? 'Rate at least one result first' : undefined)
+                                    (ratedCount === 0
+                                        ? 'Rate at least one result first'
+                                        : quota?.exhausted
+                                          ? `Monthly Replay Vision quota of ${quota.monthly_quota.toLocaleString()} observations reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying"
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota."
                                 onClick={() => evaluateSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
@@ -430,6 +445,16 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         )}
                     </div>
                 </div>
+                {currentSuggestion.status === 'pending' && evaluationSupported && plannedTestSessions > 0 && (
+                    <div className="text-xs text-muted text-right">
+                        Testing re-runs up to {plannedTestSessions} rated session{plannedTestSessions === 1 ? '' : 's'}{' '}
+                        and uses one observation of monthly Replay Vision quota each
+                        {quota
+                            ? ` (${quota.remaining.toLocaleString()} of ${quota.monthly_quota.toLocaleString()} left this month)`
+                            : ''}
+                        .
+                    </div>
+                )}
             </div>
         )
     }

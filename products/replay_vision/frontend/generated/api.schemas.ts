@@ -1003,6 +1003,8 @@ export interface CurrentPromptSuggestionApi {
     stale: boolean
     /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
     rated_count: number
+    /** Maximum rated sessions one suggestion test re-runs. Each successful re-run consumes one observation of the monthly Replay Vision quota. */
+    evaluation_session_cap: number
 }
 
 /**

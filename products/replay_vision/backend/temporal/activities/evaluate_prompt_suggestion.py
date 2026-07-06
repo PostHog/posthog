@@ -12,6 +12,7 @@ from django.utils import timezone
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -20,6 +21,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     build_running_evaluation,
     classify_outcome,
     evaluation_supported,
+    evaluation_usage_id,
     primary_outcome,
     select_evaluation_observations,
     summarize_results,
@@ -113,6 +115,20 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
         results.append(result)
         suggestion.evaluation = {**suggestion.evaluation, "results": results}
         suggestion.save(update_fields=["evaluation"])
+        if outcome != "error":
+            # Each successful re-run spends one observation of monthly quota. Written in the same
+            # transaction as the result so a crash can't record one without the other.
+            ReplayObservationUsage.objects.get_or_create(
+                observation_id=evaluation_usage_id(
+                    suggestion.id,
+                    inputs.session.session_id,
+                    str(suggestion.evaluation.get("started_at") or ""),
+                ),
+                defaults={
+                    "organization_id": suggestion.team.organization_id,
+                    "observation_created_at": timezone.now(),
+                },
+            )
 
 
 @activity.defn

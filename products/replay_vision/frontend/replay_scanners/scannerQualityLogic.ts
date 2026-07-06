@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,6 +21,7 @@ import type {
     ReplayScannerPromptSuggestionApi,
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 import type { scannerQualityLogicType } from './scannerQualityLogicType'
 
@@ -38,6 +39,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerQualityLogic']),
     props({} as ScannerQualityLogicProps),
     key((props) => props.scannerId),
+
+    // Testing a suggestion spends quota, so the tab keeps the quota snapshot mounted and fresh.
+    connect(() => ({ actions: [visionQuotaLogic, ['loadQuota']] })),
 
     actions({
         loadObservations: true,
@@ -153,6 +157,13 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.rated_count,
             },
         ],
+        // 0 until the first load; the UI only quotes a test's quota cost once a suggestion is loaded.
+        evaluationSessionCap: [
+            0,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.evaluation_session_cap ?? 0,
+            },
+        ],
         suggestionLoading: [
             true,
             {
@@ -209,7 +220,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
+    listeners(({ actions, props, values, selectors, cache }) => ({
         loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -302,8 +313,14 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
 
         // Poll while an evaluation runs. The breakpoint cancels on unmount and re-arms on
         // every refresh, so only one poll chain is alive.
-        loadCurrentSuggestionSuccess: async ({ current }, breakpoint) => {
-            if (current.suggestion?.evaluation?.status === 'running') {
+        loadCurrentSuggestionSuccess: async ({ current }, breakpoint, _action, previousState) => {
+            const wasRunning = selectors.currentSuggestion(previousState)?.evaluation?.status === 'running'
+            const isRunning = current.suggestion?.evaluation?.status === 'running'
+            // Each re-run session spends an observation, so keep the visible quota numbers current.
+            if (isRunning || wasRunning) {
+                actions.loadQuota()
+            }
+            if (isRunning) {
                 await breakpoint(4000)
                 actions.loadCurrentSuggestion()
             }
