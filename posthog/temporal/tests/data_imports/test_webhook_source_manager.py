@@ -5,11 +5,14 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.external_data_job import Any_Source_Errors
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from posthog.temporal.data_imports.sources.common import webhook_s3
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WEBHOOK_DELIVERY_FAILING_ERROR, WebhookSourceManager
-from posthog.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import webhook_s3
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    WEBHOOK_DELIVERY_FAILING_ERROR,
+    WebhookSourceManager,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 
 def _build_manager() -> WebhookSourceManager:
