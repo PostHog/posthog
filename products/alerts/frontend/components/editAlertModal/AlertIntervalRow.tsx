@@ -1,5 +1,5 @@
 import { IconClock } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import {
@@ -108,32 +108,25 @@ export function AlertIntervalRow({
                     // so state what is actually evaluated instead of a trends-style "check last day".
                     <div>{hogqlEvaluatedText}</div>
                 ) : (
-                    <>
-                        <div>
-                            and check{' '}
-                            {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
-                                ? 'current'
-                                : 'last'}
-                        </div>
-                        <LemonSelect
-                            fullWidth
-                            className="w-28"
-                            data-attr="alertForm-trend-interval"
-                            disabledReason={
+                    <div data-attr="alertForm-trend-interval">
+                        and check{' '}
+                        {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
+                            ? 'current'
+                            : 'last'}{' '}
+                        <Tooltip
+                            title={
                                 <>
-                                    To change the interval being checked, edit and <b>save</b> the interval which the
-                                    insight is 'grouped by'
+                                    This is the interval the insight is <b>grouped by</b>, so it can't be set per alert.
+                                    To change it, edit and save the insight — that changes the insight everywhere it's
+                                    used.
                                 </>
                             }
-                            value={trendInterval ?? 'day'}
-                            options={[
-                                {
-                                    label: trendInterval ?? 'day',
-                                    value: trendInterval ?? 'day',
-                                },
-                            ]}
-                        />
-                    </>
+                        >
+                            <span className="font-semibold underline decoration-dotted cursor-help">
+                                {trendInterval ?? 'day'}
+                            </span>
+                        </Tooltip>
+                    </div>
                 )}
             </div>
             {!creatingNewAlert && alert ? (
