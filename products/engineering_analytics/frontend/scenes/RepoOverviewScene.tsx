@@ -117,7 +117,7 @@ function MasterFailuresSection(): JSX.Element {
 
     return (
         <Section id="now" title={`Failing on ${defaultBranch}`} note="Last 24 hours">
-            <LemonCard hoverEffect={false} className="p-0">
+            <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                 <LemonTable<MasterFailureGroupApi>
                     dataSource={masterFailures}
                     loading={masterFailuresLoading}
@@ -412,7 +412,7 @@ export function RepoOverviewScene(): JSX.Element {
                         stuck &gt;7d
                     </span>
                 </div>
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <PullRequestTable
                         rows={attentionPrs}
                         loading={pullRequestsLoading}
@@ -432,7 +432,7 @@ export function RepoOverviewScene(): JSX.Element {
             </Section>
 
             <Section id="workflows" title="Workflows">
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <WorkflowHealthTable
                         rows={workflowHealth}
                         loading={workflowHealthLoading}
