@@ -648,7 +648,13 @@ def test_source_registration_does_not_import_google_ads_sdk() -> None:
     # So registering sources (load_all_sources, which any sync triggers via SourceRegistry) must NOT
     # import the SDK — it loads lazily only when a google-ads sync actually runs. This guards the
     # split between configs.py (lightweight, registered) and google_ads.py (SDK, deferred).
-    result = subprocess.run([sys.executable, "-c", _SDK_LEAK_CHECK], capture_output=True, text=True, timeout=120)
+    # Hand the child our import paths so `import posthog` / `products.*` resolves regardless of the
+    # working directory (the product test job runs pytest from products/warehouse_sources/, not the
+    # repo root, so a bare `python -c` wouldn't find the repo packages on cwd alone).
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
+    result = subprocess.run(
+        [sys.executable, "-c", _SDK_LEAK_CHECK], capture_output=True, text=True, timeout=120, env=env
+    )
     assert result.returncode == 0, result.stderr[-2000:]
     leaked = [m for m in result.stdout.splitlines() if m]
     assert not leaked, f"google-ads SDK imported during source registration: {leaked[:5]}"
