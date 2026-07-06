@@ -89,6 +89,8 @@ function ProjectDigestSelector({
                             <Spinner className="text-lg" />
                             <span className="text-muted text-sm">Loading projects...</span>
                         </div>
+                    ) : projects.length === 0 ? (
+                        <p className="text-muted text-sm">No projects found in your organizations.</p>
                     ) : (
                         <div className="flex flex-col gap-2">
                             <div className="flex flex-row items-center gap-4">
