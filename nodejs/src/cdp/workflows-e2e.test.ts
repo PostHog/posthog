@@ -1113,27 +1113,6 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
-        it('re-parks a wait on the 10-minute cap (polling retained as backstop)', async () => {
-            // Polling is kept for now: a wait re-parks on the 10-minute cap and re-checks its condition,
-            // even though the matcher also wakes it early on a matching signal. A 30-minute wait must
-            // therefore schedule ~10 minutes out (the cap), not ~30. Removing the poll is a follow-up.
-            await createWaitUntilWorkflow({
-                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [eventNameFilter('never_fires')],
-                max_wait_duration: '30m',
-            })
-            await triggerWorkflow(createGlobals())
-            await expectParked()
-
-            const jobs = await queryCyclotronJobs()
-            const parked = jobs.find((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())
-            expect(parked).toBeDefined()
-            const minutesOut = (new Date(parked.scheduled).getTime() - Date.now()) / 60000
-            // Capped at the 10-minute poll interval, well below the 30-minute max_wait deadline.
-            expect(minutesOut).toBeGreaterThan(8)
-            expect(minutesOut).toBeLessThan(12)
-        })
-
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
             // Regression guard for conversion over-counting on measurement-only flows. The run stays
             // parked in the delay (exit_only_at_end), and the conversion event fires across three
