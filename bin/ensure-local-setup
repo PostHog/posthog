@@ -22,19 +22,16 @@ from django.conf import settings  # noqa: E402
 from django.core.management import call_command  # noqa: E402
 
 from posthog.models import OAuthApplication  # noqa: E402
+from posthog.scopes import UNPRIVILEGED_SCOPES  # noqa: E402
 
-# What the wizard's agent step needs (mirrors @posthog/wizard's WIZARD_PROVISIONING_SCOPES). Local-dev
-# convenience only — no need to track the published wizard forever.
-WIZARD_SCOPES = [
-    "user:read",
-    "project:read",
-    "llm_gateway:read",
-    "dashboard:write",
-    "insight:write",
-    "query:read",
-    "notebook:write",
-    "wizard_session:write"
-]
+# The wizard requests @posthog/wizard's WIZARD_OAUTH_SCOPES plus per-program additions
+# (PROGRAM_SCOPE_ADDITIONS), and any single scope outside the app's ceiling fails the whole
+# /authorize with invalid_scope. Enumerating the union here would break every time a program
+# adds a scope, so grant everything unprivileged plus the privileged/hidden scopes the wizard
+# needs — same broad ceiling the hedgebox demo matrix sets on this app. Local-dev only.
+WIZARD_SCOPES = sorted(
+    UNPRIVILEGED_SCOPES | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
+)
 
 
 def ensure_wizard_oauth_app() -> None:
