@@ -58,7 +58,9 @@ def _fetch_page(
         raise SalesflareRetryableError(f"Salesflare API error (retryable): status={response.status_code}, path={path}")
 
     if not response.ok:
-        logger.error(f"Salesflare API error: status={response.status_code}, body={response.text}, path={path}")
+        # Don't log the raw body: Salesflare error payloads can echo CRM records or request context,
+        # which would copy third-party data into our logs. Status and path are enough to triage.
+        logger.error(f"Salesflare API error: status={response.status_code}, path={path}")
         response.raise_for_status()
 
     data = response.json()
