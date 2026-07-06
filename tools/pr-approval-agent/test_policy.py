@@ -29,6 +29,7 @@ from policy import (  # noqa: E402
 )
 
 _LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
+_OWNERSHIP_FORMATS = gates.OWNERSHIP_FORMAT_LOCATORS
 
 # ── Frozen pre-extraction constants (verbatim, captured before removal) ──
 #
@@ -217,6 +218,30 @@ def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
 
+def _ownership_unknown_format(d: dict) -> None:
+    d["ownership"]["sources"][0]["format"] = "svn-blame"
+
+
+def _ownership_both_locators(d: dict) -> None:
+    d["ownership"]["sources"][0]["glob"] = "products/*/product.yaml"
+
+
+def _ownership_no_locator(d: dict) -> None:
+    del d["ownership"]["sources"][0]["path"]
+
+
+def _ownership_empty_sources(d: dict) -> None:
+    d["ownership"]["sources"] = []
+
+
+def _ownership_path_escapes_repo(d: dict) -> None:
+    d["ownership"]["sources"][0]["path"] = "../x"
+
+
+def _ownership_wrong_locator_for_format(d: dict) -> None:
+    d["ownership"]["sources"][1] = {"format": "ph-product", "path": "products/foo/product.yaml"}
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -226,6 +251,12 @@ def _rename_deps_toolchain(d: dict) -> None:
         _drop_self_governance,
         _out_of_contract_delegation,
         _rename_deps_toolchain,
+        _ownership_unknown_format,
+        _ownership_both_locators,
+        _ownership_no_locator,
+        _ownership_empty_sources,
+        _ownership_path_escapes_repo,
+        _ownership_wrong_locator_for_format,
     ],
 )
 def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
@@ -234,7 +265,7 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
     bad = tmp_path / "policy.yml"
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
-        load_policy(bad, lockfile_names=_LOCKFILE_NAMES)
+        load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
 # ── 3. Folder-override resolution ──

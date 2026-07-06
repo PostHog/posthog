@@ -1,18 +1,22 @@
 """Deterministic gate logic for PR approval classification.
 
-Handles deny-lists, allow-lists, CODEOWNERS-soft ownership, tier assignment,
-and file classification. Policy data loads from .stamphog/policy.yml at import
-via policy.py, which needs PyYAML: any uv-run script that imports this module
-must declare pyyaml in its PEP 723 dependencies block.
+Handles deny-lists, allow-lists, multi-source ownership (declared in
+`.stamphog/policy.yml`), tier assignment, and file classification. Policy data
+loads from .stamphog/policy.yml at import via policy.py, which needs PyYAML:
+any uv-run script that imports this module must declare pyyaml in its PEP 723
+dependencies block.
 """
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import Protocol
 
-from policy import load_policy
+import yaml
+from policy import OwnershipSource, load_policy
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -132,16 +136,202 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 #   "titles" — matched against the PR title only (scrutiny flag, never a
 #              deny) — for words whose path-side hits are false positives
 
+# ── Ownership sources ────────────────────────────────────────────
+#
+# Ownership is advisory reviewer context, not a hard gate. The sources are
+# declared in `.stamphog/policy.yml` (`ownership:`) and compiled here into
+# resolvers; each resolver answers "which teams own this file?" and the
+# per-file result is the union across sources. Two formats ship today:
+# `gh-codeowners` (a CODEOWNERS-soft file, last-match-wins) and `ph-product`
+# (products/*/product.yaml owners). OWNERSHIP_FORMATS is the single place a new
+# format registers.
+
+
+class OwnershipResolver(Protocol):
+    """A compiled ownership source: which teams own a given file."""
+
+    def owners(self, filepath: str) -> set[str]: ...
+
+
+class CodeownersRule:
+    def __init__(self, pattern: str, teams: list[str]):
+        self.raw_pattern = pattern
+        self.teams = set(teams)
+        self._pattern = pattern.lstrip("/").replace("\\*\\*", "**").replace("\\*", "*")
+
+    def matches(self, filepath: str) -> bool:
+        pat = self._pattern
+        if not any(c in pat for c in ("*", "?")):
+            if filepath == pat or filepath == pat.rstrip("/"):
+                return True
+            prefix = pat if pat.endswith("/") else pat + "/"
+            if filepath.startswith(prefix):
+                return True
+            return False
+        if fnmatch(filepath, pat):
+            return True
+        if "**" in pat and fnmatch(filepath, pat.rstrip("/") + "/**"):
+            return True
+        return False
+
+
+def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
+    rules = []
+    if not path.exists():
+        return rules
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            pattern = parts[0]
+            teams = [t for t in parts[1:] if t.startswith("@")]
+            if teams:
+                rules.append(CodeownersRule(pattern, teams))
+    return rules
+
+
+def resolve_owners(filepath: str, rules: list[CodeownersRule]) -> set[str]:
+    matched_teams: set[str] = set()
+    for rule in rules:
+        if rule.matches(filepath):
+            matched_teams = rule.teams
+    return matched_teams
+
+
+class _CodeownersResolver:
+    """gh-codeowners: last-match-wins CODEOWNERS-soft semantics over one file."""
+
+    def __init__(self, rules: list[CodeownersRule]) -> None:
+        self._rules = rules
+
+    def owners(self, filepath: str) -> set[str]:
+        return set(resolve_owners(filepath, self._rules))
+
+
+def _normalize_product_owner(slug: object) -> str | None:
+    """Normalize a product.yaml owner slug exactly like assign-reviewers.js.
+
+    Skip empty / `team-CHANGEME` / already-`@`-prefixed slugs (an existing
+    prefix would build `@PostHog/@PostHog/...`); otherwise prefix `@PostHog/`.
+    """
+    if not isinstance(slug, str):
+        return None
+    slug = slug.strip()
+    if not slug or slug == "team-CHANGEME" or slug.startswith("@"):
+        return None
+    return f"@PostHog/{slug}"
+
+
+def _read_product_owners(path: Path) -> frozenset[str]:
+    """Normalized owners from a product.yaml, or empty on any parse/shape problem."""
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return frozenset()
+    if not isinstance(data, dict) or not isinstance(data.get("owners"), list):
+        return frozenset()
+    teams = {norm for slug in data["owners"] if (norm := _normalize_product_owner(slug)) is not None}
+    return frozenset(teams)
+
+
+class _ProductYamlResolver:
+    """ph-product: each product.yaml owns its parent directory subtree."""
+
+    def __init__(self, owned_dirs: dict[str, frozenset[str]]) -> None:
+        # Maps a repo-relative directory (posix, no trailing slash) to its owners.
+        self._owned_dirs = owned_dirs
+
+    def owners(self, filepath: str) -> set[str]:
+        result: set[str] = set()
+        for directory, teams in self._owned_dirs.items():
+            if filepath.startswith(directory + "/"):
+                result |= teams
+        return result
+
+
+def _build_codeowners_resolver(repo_root: Path, source: OwnershipSource) -> _CodeownersResolver:
+    assert source.path is not None  # validated by the loader (gh-codeowners uses `path`)
+    return _CodeownersResolver(parse_codeowners_soft(repo_root / source.path))
+
+
+def _build_product_yaml_resolver(repo_root: Path, source: OwnershipSource) -> _ProductYamlResolver:
+    assert source.glob is not None  # validated by the loader (ph-product uses `glob`)
+    owned_dirs: dict[str, frozenset[str]] = {}
+    for yaml_path in sorted(repo_root.glob(source.glob)):
+        teams = _read_product_owners(yaml_path)
+        if teams:
+            owned_dirs[yaml_path.parent.relative_to(repo_root).as_posix()] = teams
+    return _ProductYamlResolver(owned_dirs)
+
+
+@dataclass(frozen=True)
+class OwnershipFormat:
+    """A registered source format: its required locator key and resolver builder."""
+
+    locator: str  # "path" or "glob" - which locator the format's builder reads
+    build: Callable[[Path, OwnershipSource], OwnershipResolver]
+
+
+# Registry: format name -> format. Adding a new ownership format is a one-line
+# entry here plus its resolver above; the loader validates each declared
+# source's format name and locator pairing against this table.
+OWNERSHIP_FORMATS: dict[str, OwnershipFormat] = {
+    "gh-codeowners": OwnershipFormat("path", _build_codeowners_resolver),
+    "ph-product": OwnershipFormat("glob", _build_product_yaml_resolver),
+}
+
+OWNERSHIP_FORMAT_LOCATORS: dict[str, str] = {name: fmt.locator for name, fmt in OWNERSHIP_FORMATS.items()}
+
+
+def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> list[OwnershipResolver]:
+    """Compile the declared ownership sources into resolvers, in declared order."""
+    return [OWNERSHIP_FORMATS[source.format].build(repo_root, source) for source in sources]
+
+
+def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
+    """Aggregate per-file team ownership, unioning each source's owners per file."""
+    all_teams: set[str] = set()
+    owned_files = 0
+    unowned_files = 0
+    team_file_counts: Counter = Counter()
+
+    for f in files:
+        teams: set[str] = set()
+        for resolver in resolvers:
+            teams |= resolver.owners(f)
+        if teams:
+            owned_files += 1
+            all_teams.update(teams)
+            for t in teams:
+                team_file_counts[t] += 1
+        else:
+            unowned_files += 1
+
+    return {
+        "teams": sorted(all_teams),
+        "team_count": len(all_teams),
+        "owned_files": owned_files,
+        "unowned_files": unowned_files,
+        "team_file_counts": dict(team_file_counts.most_common()),
+        "cross_team": len(all_teams) > 1,
+    }
+
+
 # ── Policy-sourced data ──────────────────────────────────────────
 #
 # The deny/allow/size/tier/dismiss data lives in .stamphog/policy.yml and is
 # loaded here at import time, keeping the existing module-level constant names
 # populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS (and
 # DISMISS_TIME_LOCKFILES below) stay code-derived; the loader splices the
-# lockfile names into the deps_toolchain deny paths. A malformed policy raises
-# at import - fail closed, the tool crashes rather than gating on a half-loaded
+# lockfile names into the deps_toolchain deny paths and validates the declared
+# ownership formats against OWNERSHIP_FORMATS. A malformed policy raises at
+# import - fail closed, the tool crashes rather than gating on a half-loaded
 # policy.
-POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES)
+POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
@@ -454,84 +644,6 @@ def is_allow_listed_only(files: list[str]) -> bool:
             continue
         return False
     return True
-
-
-# ── CODEOWNERS-soft ──────────────────────────────────────────────
-
-
-class CodeownersRule:
-    def __init__(self, pattern: str, teams: list[str]):
-        self.raw_pattern = pattern
-        self.teams = set(teams)
-        self._pattern = pattern.lstrip("/").replace("\\*\\*", "**").replace("\\*", "*")
-
-    def matches(self, filepath: str) -> bool:
-        pat = self._pattern
-        if not any(c in pat for c in ("*", "?")):
-            if filepath == pat or filepath == pat.rstrip("/"):
-                return True
-            prefix = pat if pat.endswith("/") else pat + "/"
-            if filepath.startswith(prefix):
-                return True
-            return False
-        if fnmatch(filepath, pat):
-            return True
-        if "**" in pat and fnmatch(filepath, pat.rstrip("/") + "/**"):
-            return True
-        return False
-
-
-def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
-    rules = []
-    if not path.exists():
-        return rules
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            pattern = parts[0]
-            teams = [t for t in parts[1:] if t.startswith("@")]
-            if teams:
-                rules.append(CodeownersRule(pattern, teams))
-    return rules
-
-
-def resolve_owners(filepath: str, rules: list[CodeownersRule]) -> set[str]:
-    matched_teams: set[str] = set()
-    for rule in rules:
-        if rule.matches(filepath):
-            matched_teams = rule.teams
-    return matched_teams
-
-
-def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
-    all_teams: set[str] = set()
-    owned_files = 0
-    unowned_files = 0
-    team_file_counts: Counter = Counter()
-
-    for f in files:
-        teams = resolve_owners(f, rules)
-        if teams:
-            owned_files += 1
-            all_teams.update(teams)
-            for t in teams:
-                team_file_counts[t] += 1
-        else:
-            unowned_files += 1
-
-    return {
-        "teams": sorted(all_teams),
-        "team_count": len(all_teams),
-        "owned_files": owned_files,
-        "unowned_files": unowned_files,
-        "team_file_counts": dict(team_file_counts.most_common()),
-        "cross_team": len(all_teams) > 1,
-    }
 
 
 # ── Size gate ────────────────────────────────────────────────────

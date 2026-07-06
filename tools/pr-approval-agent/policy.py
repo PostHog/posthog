@@ -24,7 +24,7 @@ Security posture (see .stamphog/README.md):
 
 import re
 import functools
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -151,6 +151,21 @@ class FamiliarityPolicy:
 
 
 @dataclass(frozen=True)
+class OwnershipSource:
+    """One ownership-context source: a format plus exactly one locator.
+
+    `format` names an entry in gates.OWNERSHIP_FORMATS; exactly one of `path`
+    (a single file) or `glob` (a repo-root glob) is set, dictated by that
+    entry's declared locator. Both locators stay repo-relative - the loader
+    rejects absolute paths and any `..` escape.
+    """
+
+    format: str
+    path: str | None = None
+    glob: str | None = None
+
+
+@dataclass(frozen=True)
 class Policy:
     version: int
     deny: dict[str, DenyCategory]
@@ -161,6 +176,7 @@ class Policy:
     dismiss: DismissData
     overrides: dict[str, OverrideContract]
     familiarity: FamiliarityPolicy
+    ownership: tuple[OwnershipSource, ...]
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -207,7 +223,7 @@ class PolicyError(ValueError):
 
 # ── Global policy loading + validation ───────────────────────────
 
-_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides", "familiarity"}
+_TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides", "familiarity", "ownership"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -410,13 +426,60 @@ def _parse_familiarity(raw: Any) -> FamiliarityPolicy:
     return FamiliarityPolicy(strong=strong, moderate=moderate)
 
 
-def load_policy(policy_path: Path | None = None, *, lockfile_names: Iterable[str]) -> Policy:
+def _require_repo_relative(value: str, context: str) -> None:
+    """A source locator must stay inside the checked-out tree - no absolute path, no `..`.
+
+    The workflow pins `ref: master`, so sources are read from the trusted
+    checkout; an absolute or escaping locator could reach outside it.
+    """
+    parts = PurePosixPath(value).parts
+    _require(not PurePosixPath(value).is_absolute(), f"{context}: must be repo-relative, not absolute")
+    _require(".." not in parts, f"{context}: must not escape the repo (no '..')")
+
+
+def _parse_ownership(raw: Any, known_formats: Mapping[str, str]) -> tuple[OwnershipSource, ...]:
+    _require(isinstance(raw, dict), "ownership: must be a mapping")
+    _require_exact_keys(raw, {"sources"}, "ownership")
+    sources_raw = raw["sources"]
+    _require(isinstance(sources_raw, list) and bool(sources_raw), "ownership.sources: must be a non-empty list")
+
+    formats = dict(known_formats)
+    sources: list[OwnershipSource] = []
+    for index, entry in enumerate(sources_raw):
+        context = f"ownership.sources[{index}]"
+        _require(isinstance(entry, dict), f"{context}: must be a mapping")
+        _require(
+            not set(entry) - {"format", "path", "glob"},
+            f"{context}: unknown keys {sorted(set(entry) - {'format', 'path', 'glob'})}",
+        )
+
+        fmt = entry.get("format")
+        _require(isinstance(fmt, str) and fmt in formats, f"{context}.format: must be one of {sorted(formats)}")
+
+        key = formats[fmt]
+        locator_keys = {"path", "glob"} & set(entry)
+        _require(locator_keys == {key}, f"{context}: format {fmt!r} takes exactly one locator, {key!r}")
+        value = entry[key]
+        _require(isinstance(value, str) and bool(value), f"{context}.{key}: must be a non-empty string")
+        _require_repo_relative(value, f"{context}.{key}")
+        sources.append(OwnershipSource(format=fmt, **{key: value}))
+    return tuple(sources)
+
+
+def load_policy(
+    policy_path: Path | None = None, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]
+) -> Policy:
     """Parse and validate `.stamphog/policy.yml`, splicing code-derived data.
 
     `lockfile_names` are the deps_toolchain lockfile filenames owned by
     gates.py's DEPENDENCY_ECOSYSTEMS table; the loader re.escapes them and
     splices them into the deps_toolchain deny paths (they stay code-sourced,
-    never copied into the YAML). Raises PolicyError on any malformed input.
+    never copied into the YAML). `ownership_formats` maps each source-format
+    name gates.py's OWNERSHIP_FORMATS registry knows how to build to its
+    required locator key ("path" or "glob"); the loader validates every
+    `ownership.sources[*]` format and locator pairing against it (same
+    code-sourced pattern as lockfile_names). Raises PolicyError on any
+    malformed input.
     """
     path = policy_path or default_policy_path()
     try:
@@ -442,6 +505,7 @@ def load_policy(policy_path: Path | None = None, *, lockfile_names: Iterable[str
         dismiss=_parse_dismiss(raw["dismiss"]),
         overrides=_parse_overrides(raw["overrides"]),
         familiarity=_parse_familiarity(raw["familiarity"]),
+        ownership=_parse_ownership(raw["ownership"], ownership_formats),
     )
 
 

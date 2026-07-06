@@ -188,10 +188,14 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 
 ### Ownership
 
-Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
-Cross-team typo/test/comment fixes are fine, as are small well-tested behavioral
-fixes (T1a/T1b) with no outstanding reviewer concerns; API contract, data model,
-and larger behavioral changes get escalated.
+Ownership context for the LLM (not a hard gate). The sources are declared in
+`.stamphog/policy.yml` under `ownership:` and read from the master checkout: a
+`gh-codeowners` source (`.github/CODEOWNERS-soft`, last-match-wins) plus a
+`ph-product` source (`products/*/product.yaml` owners). A file's owning teams
+are the union across all sources, so stamphog sees the same merged view the
+reviewer auto-assigner builds. Cross-team typo/test/comment fixes are fine, as
+are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer
+concerns; API contract, data model, and larger behavioral changes get escalated.
 
 ## Evidence bundle
 

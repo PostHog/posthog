@@ -36,6 +36,7 @@ from gates import (
     MAX_LINES,
     POLICY,
     assign_tier,
+    build_ownership,
     category_fully_exempt,
     classify_files,
     dependency_manifests_without_lockfile,
@@ -45,7 +46,6 @@ from gates import (
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
-    parse_codeowners_soft,
     parse_conventional_commit,
     scope_breadth,
     substantive_size,
@@ -70,7 +70,6 @@ except ImportError:
 # ── Repo root detection ──────────────────────────────────────────
 
 REPO_ROOT = repo_root()
-CODEOWNERS_SOFT = REPO_ROOT / ".github" / "CODEOWNERS-soft"
 
 
 def _head_commit_sha() -> str:
@@ -389,8 +388,8 @@ class Pipeline:
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
         allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
         is_test = test_only(categories)
-        ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
-        ownership = detect_ownership(file_paths, ownership_rules)
+        ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
+        ownership = detect_ownership(file_paths, ownership_resolvers)
 
         tier = assign_tier(
             deny_categories=deny,

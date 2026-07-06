@@ -481,7 +481,7 @@ class Reviewer:
         ownership = cl.get("ownership", {})
         teams = ownership.get("teams", [])
         if not teams:
-            return "Ownership: no CODEOWNERS-soft match"
+            return "Ownership: no ownership-source match"
         summary = cl.get("ownership_summary", "")
         on_team = cl.get("author_on_owning_team", True)
         per_team = ownership.get("team_file_counts", {})

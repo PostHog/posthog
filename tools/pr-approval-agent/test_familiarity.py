@@ -30,6 +30,7 @@ from policy import (  # noqa: E402
 )
 
 _LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
+_OWNERSHIP_FORMATS = gates.OWNERSHIP_FORMAT_LOCATORS
 _THRESHOLDS = FamiliarityPolicy(
     strong=FamiliarityStrong(min_blame_overlap_pct=50),
     moderate=FamiliarityModerate(min_prior_prs=3, max_days_since_touch=180),
@@ -225,7 +226,7 @@ def _valid_policy_dict() -> dict:
 
 
 def test_familiarity_section_loaded() -> None:
-    policy = load_policy(lockfile_names=_LOCKFILE_NAMES)
+    policy = load_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert policy.familiarity.strong.min_blame_overlap_pct == 70
     assert policy.familiarity.moderate.min_prior_prs == 5
     assert policy.familiarity.moderate.max_days_since_touch == 180
@@ -267,7 +268,7 @@ def test_malformed_familiarity_hard_fails(tmp_path: Path, mutate) -> None:
     bad = tmp_path / "policy.yml"
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
-        load_policy(bad, lockfile_names=_LOCKFILE_NAMES)
+        load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
 # ── Ratchet: absent familiarity leaves the prompt byte-identical ──
