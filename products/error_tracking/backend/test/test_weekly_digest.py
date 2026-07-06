@@ -559,7 +559,9 @@ class TestSourceMapsRecommendationForDigest(APIBaseTest):
 class TestSendDigestToWorkflow(SimpleTestCase):
     def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
         with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
-            mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("500")
+            mock_post.return_value.raise_for_status.side_effect = requests.HTTPError(
+                "500", response=mock_post.return_value
+            )
             with pytest.raises(requests.HTTPError):
                 send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
 

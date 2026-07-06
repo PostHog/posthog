@@ -59,7 +59,7 @@ class Command(BaseCommand):
 
         sections.sort(key=lambda d: d["exception_count"], reverse=True)
 
-        distinct_id = user.distinct_id if user else email
+        distinct_id = (user.distinct_id if user else None) or email
         digest = {
             "recipient_email": email,
             "org_name": org.name,
