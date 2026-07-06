@@ -3,7 +3,7 @@ import { BindLogic } from 'kea'
 
 import { AdvertisementCard, ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-import { DEFAULT_PRODUCT_PUSH_DISPLAY, PRODUCT_PUSH_DISPLAY } from './NavPanelProductPushAd'
+import { DEFAULT_PRODUCT_PUSH_DISPLAY, PRODUCT_PUSH_DISPLAY } from './navPanelProductPushDisplay'
 
 const meta = {
     title: 'Components/NavPanelProductPush',
