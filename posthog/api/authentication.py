@@ -164,7 +164,18 @@ class EmailMFARequired(APIException):
         super().__init__(detail=detail, code=self.default_code)
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
+    """Return next_url only when it's a safe same-origin/relative redirect target, else None.
+
+    The value is embedded into emailed verification links, so an unvalidated next
+    would be an open-redirect / phishing vector.
+    """
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return None
+
+
+def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
     """
     Send a verification email when the login policy requires it.
 
@@ -180,7 +191,7 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
-    EmailVerifier.create_token_and_send_email_verification(user)
+    EmailVerifier.create_token_and_send_email_verification(user, next_url)
     if user.is_email_verified is False:
         return False
 
@@ -191,6 +202,16 @@ def is_email_verified_for_login(user: User) -> bool:
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Relative path to resume after login (e.g. an /oauth/authorize URL). "
+            "Embedded into email verification / login-verification links so the flow "
+            "can continue after the email step. Ignored unless it is a safe same-origin path."
+        ),
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -249,6 +270,7 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        next_url = get_safe_next_url(validated_data.get("next"), request)
 
         existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
@@ -291,7 +313,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if not is_email_verified_for_login(user):
+        if not is_email_verified_for_login(user, next_url):
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",
@@ -316,7 +338,9 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Email MFA flow - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+                        request, user, next_url
+                    )
                     if email_mfa_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = EmailMFAResendThrottle()
@@ -859,7 +883,9 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+        email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(
+            request, user, request.session.get("email_mfa_next")
+        )
         if not email_mfa_sent:
             raise serializers.ValidationError(
                 {"detail": "Could not send email MFA verification email."}, code="email_mfa_verification_email_failed"
