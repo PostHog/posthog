@@ -294,6 +294,42 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["auth_type"] == "api_key"
 
+    @ALLOW_URL
+    def test_install_custom_basic_auth_server(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "DataForSEO",
+                "url": "https://mcp.basic.com",
+                "auth_type": "basic",
+                "username": "login@example.com",
+                "password": "sk-pw-123",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["auth_type"] == "basic"
+
+        installation = MCPServerInstallation.objects.get(url="https://mcp.basic.com", user=self.user)
+        assert installation.sensitive_configuration == {"username": "login@example.com", "password": "sk-pw-123"}
+
+    @ALLOW_URL
+    def test_install_custom_basic_auth_duplicate_url_rejected(self, _mock):
+        payload = {
+            "name": "Basic Server",
+            "url": "https://mcp.basicdup.com",
+            "auth_type": "basic",
+            "username": "u",
+            "password": "p",
+        }
+        self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/", data=payload, format="json"
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/", data=payload, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_install_custom_none_auth_type_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",

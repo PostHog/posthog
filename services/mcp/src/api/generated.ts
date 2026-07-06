@@ -27672,6 +27672,7 @@ export namespace Schemas {
     /**
      * * `api_key` - api_key
      * * `oauth` - oauth
+     * * `basic` - basic
      */
     export type InstallCustomAuthTypeEnum = typeof InstallCustomAuthTypeEnum[keyof typeof InstallCustomAuthTypeEnum];
 
@@ -27679,6 +27680,7 @@ export namespace Schemas {
     export const InstallCustomAuthTypeEnum = {
       ApiKey: 'api_key',
       Oauth: 'oauth',
+      Basic: 'basic',
     } as const;
 
     /**
@@ -27700,6 +27702,8 @@ export namespace Schemas {
       url: string;
       auth_type: InstallCustomAuthTypeEnum;
       api_key?: string;
+      username?: string;
+      password?: string;
       description?: string;
       client_id?: string;
       client_secret?: string;
@@ -29331,6 +29335,7 @@ export namespace Schemas {
     /**
      * * `api_key` - API Key
      * * `oauth` - OAuth
+     * * `basic` - Basic Auth
      */
     export type MCPAuthTypeEnum = typeof MCPAuthTypeEnum[keyof typeof MCPAuthTypeEnum];
 
@@ -29338,6 +29343,7 @@ export namespace Schemas {
     export const MCPAuthTypeEnum = {
       ApiKey: 'api_key',
       Oauth: 'oauth',
+      Basic: 'basic',
     } as const;
 
     /**

@@ -1,5 +1,6 @@
 import time
 import uuid
+import base64
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -110,6 +111,31 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer oauth-token-123"
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_forwards_json_rpc_with_basic_auth(self, mock_client_cls):
+        installation = self._create_installation(
+            auth_type="basic",
+            sensitive_configuration={"username": "alice", "password": "s3cret"},
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        _, kwargs = mock_client.build_request.call_args
+        auth_header = kwargs["headers"]["Authorization"]
+        # RFC 7617: Basic <base64(username:password)> — assert scheme, order and encoding.
+        assert auth_header.startswith("Basic ")
+        assert base64.b64decode(auth_header.split(" ", 1)[1]).decode() == "alice:s3cret"
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_proxy_streams_sse_response_in_chunks(self, mock_client_cls):
@@ -483,6 +509,28 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation = self._create_installation(
             auth_type="api_key",
             sensitive_configuration={},
+        )
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["error"] == "No credentials configured"
+
+    @parameterized.expand(
+        [
+            ("missing_both", {}),
+            ("missing_password", {"username": "alice"}),
+            ("missing_username", {"password": "s3cret"}),
+        ]
+    )
+    def test_proxy_returns_401_for_basic_auth_missing_credentials(self, _name, sensitive_configuration):
+        installation = self._create_installation(
+            auth_type="basic",
+            sensitive_configuration=sensitive_configuration,
         )
 
         response = self.client.post(

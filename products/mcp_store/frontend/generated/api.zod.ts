@@ -17,7 +17,10 @@ export const McpServerInstallationsCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsCreateBodyUrlMax).optional(),
     description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
+    auth_type: zod
+        .enum(['api_key', 'oauth', 'basic'])
+        .optional()
+        .describe('\* `api_key` - API Key\n\* `oauth` - OAuth\n\* `basic` - Basic Auth'),
     is_enabled: zod.boolean().optional(),
 })
 
@@ -29,7 +32,10 @@ export const McpServerInstallationsUpdateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsUpdateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsUpdateBodyUrlMax).optional(),
     description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
+    auth_type: zod
+        .enum(['api_key', 'oauth', 'basic'])
+        .optional()
+        .describe('\* `api_key` - API Key\n\* `oauth` - OAuth\n\* `basic` - Basic Auth'),
     is_enabled: zod.boolean().optional(),
 })
 
@@ -47,7 +53,10 @@ export const McpServerInstallationsProxyCreateBody = /* @__PURE__ */ zod.object(
     display_name: zod.string().max(mcpServerInstallationsProxyCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsProxyCreateBodyUrlMax).optional(),
     description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
+    auth_type: zod
+        .enum(['api_key', 'oauth', 'basic'])
+        .optional()
+        .describe('\* `api_key` - API Key\n\* `oauth` - OAuth\n\* `basic` - Basic Auth'),
     is_enabled: zod.boolean().optional(),
 })
 
@@ -66,7 +75,10 @@ export const McpServerInstallationsToolsRefreshCreateBody = /* @__PURE__ */ zod.
     display_name: zod.string().max(mcpServerInstallationsToolsRefreshCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsToolsRefreshCreateBodyUrlMax).optional(),
     description: zod.string().optional(),
-    auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
+    auth_type: zod
+        .enum(['api_key', 'oauth', 'basic'])
+        .optional()
+        .describe('\* `api_key` - API Key\n\* `oauth` - OAuth\n\* `basic` - Basic Auth'),
     is_enabled: zod.boolean().optional(),
 })
 
@@ -75,6 +87,8 @@ export const mcpServerInstallationsInstallCustomCreateBodyNameMax = 200
 export const mcpServerInstallationsInstallCustomCreateBodyUrlMax = 2048
 
 export const mcpServerInstallationsInstallCustomCreateBodyApiKeyDefault = ``
+export const mcpServerInstallationsInstallCustomCreateBodyUsernameDefault = ``
+export const mcpServerInstallationsInstallCustomCreateBodyPasswordDefault = ``
 export const mcpServerInstallationsInstallCustomCreateBodyDescriptionDefault = ``
 export const mcpServerInstallationsInstallCustomCreateBodyClientIdDefault = ``
 export const mcpServerInstallationsInstallCustomCreateBodyClientSecretDefault = ``
@@ -84,8 +98,12 @@ export const mcpServerInstallationsInstallCustomCreateBodyPosthogCodeCallbackUrl
 export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(mcpServerInstallationsInstallCustomCreateBodyNameMax),
     url: zod.url().max(mcpServerInstallationsInstallCustomCreateBodyUrlMax),
-    auth_type: zod.enum(['api_key', 'oauth']).describe('\* `api_key` - api_key\n\* `oauth` - oauth'),
+    auth_type: zod
+        .enum(['api_key', 'oauth', 'basic'])
+        .describe('\* `api_key` - api_key\n\* `oauth` - oauth\n\* `basic` - basic'),
     api_key: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyApiKeyDefault),
+    username: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyUsernameDefault),
+    password: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyPasswordDefault),
     description: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyDescriptionDefault),
     client_id: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyClientIdDefault),
     client_secret: zod.string().default(mcpServerInstallationsInstallCustomCreateBodyClientSecretDefault),

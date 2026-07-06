@@ -1,4 +1,5 @@
 import json
+import base64
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -125,6 +126,14 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
             return {}
         return {"Authorization": f"Bearer {access_token}"}
 
+    if installation.auth_type == "basic":
+        username = sensitive.get("username")
+        password = sensitive.get("password")
+        if not username or not password:
+            return {}
+        token = base64.b64encode(f"{username}:{password}".encode()).decode()
+        return {"Authorization": f"Basic {token}"}
+
     return {}
 
 
@@ -188,6 +197,18 @@ def validate_installation_auth(
     if installation.auth_type == "api_key" and not sensitive.get("api_key"):
         logger.warning(
             "Proxy auth failed: no API key configured", installation_id=str(installation.id), url=installation.url
+        )
+        return False, HttpResponse(
+            '{"error": "No credentials configured"}',
+            content_type="application/json",
+            status=401,
+        )
+
+    if installation.auth_type == "basic" and not (sensitive.get("username") and sensitive.get("password")):
+        logger.warning(
+            "Proxy auth failed: no Basic Auth credentials configured",
+            installation_id=str(installation.id),
+            url=installation.url,
         )
         return False, HttpResponse(
             '{"error": "No credentials configured"}',

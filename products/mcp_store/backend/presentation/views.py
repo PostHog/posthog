@@ -259,8 +259,11 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
-    auth_type = serializers.ChoiceField(choices=["api_key", "oauth"])
+    auth_type = serializers.ChoiceField(choices=["api_key", "oauth", "basic"])
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
+    # HTTP Basic Auth credentials, used when auth_type == "basic".
+    username = serializers.CharField(required=False, allow_blank=True, default="")
+    password = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     # Optional user-supplied OAuth client credentials. When omitted and auth_type=oauth,
     # we fall back to per-user Dynamic Client Registration.
@@ -710,6 +713,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         url = data["url"]
         auth_type = data["auth_type"]
         api_key = data.get("api_key", "")
+        username = (data.get("username") or "").strip()
+        password = data.get("password", "")
         description = data.get("description", "")
         user_client_id = (data.get("client_id") or "").strip()
         user_client_secret = (data.get("client_secret") or "").strip()
@@ -764,6 +769,52 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "server_name": name,
                     "server_url": url,
                     "auth_type": "api_key",
+                    "install_source": install_source,
+                    "source": "custom",
+                },
+                team=self.team,
+            )
+
+            result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
+
+        if auth_type == "basic":
+            sensitive_config = SensitiveConfig()
+            if username and password:
+                sensitive_config["username"] = username
+                sensitive_config["password"] = password
+
+            installation, created = MCPServerInstallation.objects.get_or_create(
+                team_id=self.team_id,
+                user=request.user,
+                url=url,
+                defaults={
+                    "display_name": name,
+                    "description": description,
+                    "auth_type": "basic",
+                    "sensitive_configuration": sensitive_config,
+                },
+            )
+
+            if not created:
+                return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
+
+            transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
+
+            logger.info(
+                "MCP server installed via Basic Auth",
+                server_name=name,
+                server_url=url,
+                install_source=install_source,
+                team_id=self.team_id,
+            )
+            report_user_action(
+                request.user,
+                "mcp_store server installed",
+                properties={
+                    "server_name": name,
+                    "server_url": url,
+                    "auth_type": "basic",
                     "install_source": install_source,
                     "source": "custom",
                 },

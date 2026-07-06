@@ -8,6 +8,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 AUTH_TYPE_CHOICES = [
     ("api_key", "API Key"),
     ("oauth", "OAuth"),
+    ("basic", "Basic Auth"),
 ]
 
 APPROVAL_STATES = [
@@ -31,6 +32,9 @@ CATEGORY_CHOICES = [
 
 class SensitiveConfig(TypedDict, total=False):
     api_key: str
+    # HTTP Basic Auth credentials (RFC 7617), base64-encoded at proxy time.
+    username: str
+    password: str
     access_token: str
     refresh_token: str
     token_retrieved_at: int

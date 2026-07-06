@@ -10,12 +10,14 @@
 /**
  * * `api_key` - API Key
  * * `oauth` - OAuth
+ * * `basic` - Basic Auth
  */
 export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
 
 export const MCPAuthTypeEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
+    Basic: 'basic',
 } as const
 
 export interface MCPServerInstallationApi {
@@ -116,6 +118,7 @@ export interface PatchedToolApprovalUpdateApi {
 /**
  * * `api_key` - api_key
  * * `oauth` - oauth
+ * * `basic` - basic
  */
 export type InstallCustomAuthTypeEnumApi =
     (typeof InstallCustomAuthTypeEnumApi)[keyof typeof InstallCustomAuthTypeEnumApi]
@@ -123,6 +126,7 @@ export type InstallCustomAuthTypeEnumApi =
 export const InstallCustomAuthTypeEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
+    Basic: 'basic',
 } as const
 
 /**
@@ -143,6 +147,8 @@ export interface InstallCustomApi {
     url: string
     auth_type: InstallCustomAuthTypeEnumApi
     api_key?: string
+    username?: string
+    password?: string
     description?: string
     client_id?: string
     client_secret?: string
