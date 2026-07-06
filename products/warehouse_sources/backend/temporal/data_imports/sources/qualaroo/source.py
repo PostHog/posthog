@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import QualarooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo import (
     QualarooResumeConfig,
-    check_access,
     qualaroo_source,
+    validate_credentials as _validate_qualaroo_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.settings import (
     ENDPOINTS,
@@ -118,12 +118,7 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
         self, config: QualarooSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The key/secret pair is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key, config.api_secret)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Qualaroo API key or secret"
-        return False, message or "Could not validate Qualaroo credentials"
+        return _validate_qualaroo_credentials(config.api_key, config.api_secret)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[QualarooResumeConfig]:
         return ResumableSourceManager[QualarooResumeConfig](inputs, QualarooResumeConfig)

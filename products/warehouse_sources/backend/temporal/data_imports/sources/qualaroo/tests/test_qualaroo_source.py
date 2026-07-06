@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,7 +34,7 @@ class TestQualarooSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key", "api_secret"]
 
-    @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
+    @parameterized.expand([("api_key",), ("api_secret",)])
     def test_credential_fields_are_secret_passwords(self, field_name: str) -> None:
         config = self.source.get_source_config
         field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
@@ -68,55 +70,36 @@ class TestQualarooSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",
-            "403 Client Error: Forbidden for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
+            ("403 Client Error: Forbidden for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.qualaroo.com/api/v1/nudges.json",
-            "429 Client Error: Too Many Requests for url: https://api.qualaroo.com/api/v1/nudges.json",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.qualaroo.com/api/v1/nudges.json",),
+            ("429 Client Error: Too Many Requests for url: https://api.qualaroo.com/api/v1/nudges.json",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Qualaroo API key or secret"),
-            (403, False, "Invalid Qualaroo API key or secret"),
-            (500, False, "Qualaroo returned HTTP 500"),
-            (0, False, "Could not connect to Qualaroo: boom"),
-        ],
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source._validate_qualaroo_credentials"
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "Qualaroo returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Qualaroo: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
+    def test_validate_credentials_delegates_to_qualaroo(self, mock_validate: mock.MagicMock) -> None:
+        # The status-to-result mapping lives in qualaroo.validate_credentials; the source only forwards
+        # the account-wide key/secret and returns the result unchanged.
+        mock_validate.return_value = (False, "Invalid Qualaroo API key or secret")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("q-key", "q-secret")
+        assert result == (False, "Invalid Qualaroo API key or secret")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
