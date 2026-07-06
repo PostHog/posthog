@@ -462,8 +462,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
 
 
 if TYPE_CHECKING:
-    # Resolved at runtime by get_sandbox_class(); for type-checkers it is the base class.
-    Sandbox: SandboxClass = SandboxBase
+    # Declared for type-checkers only; resolved at runtime by __getattr__ -> get_sandbox_class().
+    Sandbox: SandboxClass
 else:
 
     def __getattr__(name: str) -> object:
