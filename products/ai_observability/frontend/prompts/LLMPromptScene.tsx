@@ -53,6 +53,7 @@ export function LLMPromptScene(): JSX.Element {
         isHistoricalVersion,
         versions,
         canLoadMoreVersions,
+        nextVersion,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
@@ -103,41 +104,28 @@ export function LLMPromptScene(): JSX.Element {
                                 Open in Playground
                             </LemonButton>
                         ) : null}
-                        {isPrompt(prompt) && prompt.is_latest ? (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPencil />}
+                                onClick={() => {
+                                    if (isPrompt(prompt)) {
+                                        setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
+                                        setMode(PromptMode.Edit)
+                                    }
+                                }}
+                                size="small"
+                                tooltip={
+                                    isHistoricalVersion ? 'Start a new version from this historical version' : undefined
+                                }
+                                data-attr="llma-prompt-new-version-button"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPencil />}
-                                    onClick={() => setMode(PromptMode.Edit)}
-                                    size="small"
-                                    data-attr="llma-prompt-edit-button"
-                                >
-                                    Edit latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        ) : (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => {
-                                        if (isPrompt(prompt)) {
-                                            setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
-                                            setMode(PromptMode.Edit)
-                                        }
-                                    }}
-                                    size="small"
-                                    data-attr="llma-prompt-use-as-latest-button"
-                                >
-                                    Use as latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                                New version
+                            </LemonButton>
+                        </AccessControlAction>
 
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
@@ -266,7 +254,11 @@ export function LLMPromptScene(): JSX.Element {
                                     size="small"
                                     data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
                                 >
-                                    {isNewPrompt ? 'Create prompt' : 'Publish version'}
+                                    {isNewPrompt
+                                        ? 'Create prompt'
+                                        : nextVersion
+                                          ? `Publish v${nextVersion}`
+                                          : 'Publish version'}
                                 </LemonButton>
                             </AccessControlAction>
 
