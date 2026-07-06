@@ -26,6 +26,7 @@ const meta: Meta = {
 }
 export default meta
 
+// Ordered by mechanism: handle-only treatments, then dash-in-handle, then dash-without-handle.
 const VARIANTS: {
     key: string
     name: string
@@ -39,6 +40,12 @@ const VARIANTS: {
         Component: VariantACenteredHandle,
     },
     {
+        key: 'C',
+        name: 'Half fill',
+        description: 'Handle stretches over the left half, right half shows accent. Literally half on.',
+        Component: VariantCHalfFill,
+    },
+    {
         key: 'B',
         name: 'Dash in handle',
         description:
@@ -46,10 +53,10 @@ const VARIANTS: {
         Component: VariantBDashInHandle,
     },
     {
-        key: 'C',
-        name: 'Half fill',
-        description: 'Handle stretches over the left half, right half shows accent. Literally half on.',
-        Component: VariantCHalfFill,
+        key: 'G',
+        name: 'Centered handle with dash',
+        description: 'A + B combined: handle parks mid-track and carries the minus glyph on a "checked"-filled track.',
+        Component: VariantGCenteredHandleDash,
     },
     {
         key: 'D',
@@ -68,12 +75,6 @@ const VARIANTS: {
         name: 'Dash on track, no handle (fill gray)',
         description: 'Like E, but the track keeps the regular unchecked switch fill gray instead of the border gray.',
         Component: VariantFNoHandleDashFillGray,
-    },
-    {
-        key: 'G',
-        name: 'Centered handle with dash',
-        description: 'A + B combined: handle parks mid-track and carries the minus glyph on a "checked"-filled track.',
-        Component: VariantGCenteredHandleDash,
     },
 ]
 
