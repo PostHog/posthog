@@ -84,4 +84,27 @@ describe('accountNotesLogic', () => {
             expect.objectContaining({ assigned_to: [CURRENT_USER_ID] })
         )
     })
+
+    // Regression: a fresh page load can mount this logic before userLogic resolves the user,
+    // so afterMount can't apply the persisted choice (currentUserId null). The user resolving
+    // later must still apply it — otherwise the returning user sees all notes until they toggle.
+    it('applies a persisted "My accounts" choice when the user resolves after mount', async () => {
+        logic = accountNotesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Persisted choice present but not yet applied (user was unknown during restore).
+        customerAnalyticsSceneLogic.actions.setMineOnly(true)
+        expect(logic.values.assignedToCurrentUser).toBe(false)
+
+        await expectLogic(logic, () => {
+            userLogic.actions.loadUserSuccess({ id: CURRENT_USER_ID } as unknown as UserType)
+        }).toFinishAllListeners()
+
+        expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+        expect(mockAccountNotesList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ assigned_to: [CURRENT_USER_ID] })
+        )
+    })
 })

@@ -190,6 +190,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['openAccountTab'],
             customerAnalyticsSceneLogic,
             ['setMineOnly'],
+            userLogic,
+            ['loadUserSuccess'],
         ],
     })),
     actions({
@@ -518,6 +520,21 @@ export const accountsLogic = kea<accountsLogicType>([
             // switching to the Notes tab reflects the same choice.
             actions.setMineOnly(values.assignedToCurrentUser)
         },
+        // The "My accounts" restore needs the current user's id. On a fresh page load this
+        // logic can mount before userLogic resolves the user (currentUserId still null during
+        // URL restore), so the persisted choice can't be applied then. Re-apply it once the
+        // user arrives — only when the URL carried no explicit assignment and nothing else has
+        // set the filter, so a shared link or an explicit pick always wins.
+        loadUserSuccess: () => {
+            if (
+                values.mineOnly &&
+                values.currentUserId !== null &&
+                !values.assignedToFilter.length &&
+                !values.allRolesUnassigned
+            ) {
+                actions.setAssignedToFilter([values.currentUserId])
+            }
+        },
         toggleSort: ({ column }) => {
             const current = values.sortOrder
             let next: AccountSortOrder
@@ -709,8 +726,14 @@ export const accountsLogic = kea<accountsLogicType>([
                     !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
                         ? [values.currentUserId]
                         : []
+                // The persisted "my accounts" intent can't be resolved until the user id is
+                // known. If the user hasn't loaded yet, leave the filter untouched (rather than
+                // writing an empty one, which would cascade to setMineOnly(false) and clobber the
+                // preference) and let the loadUserSuccess listener apply it once the user resolves.
+                const mineRestorePending =
+                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
                 const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
-                if (!objectsEqual(nextAssignedTo, values.assignedToFilter)) {
+                if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
                     actions.setAssignedToFilter(nextAssignedTo)
                 }
 

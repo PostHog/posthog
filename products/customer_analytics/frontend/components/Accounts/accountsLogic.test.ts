@@ -251,6 +251,32 @@ describe('accountsLogic', () => {
                 expect(logic.values.assignedToFilter).toEqual([7])
                 expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
             })
+
+            // Regression: on a fresh load the logic can run URL restore before userLogic
+            // resolves the user (currentUserId null), so the persisted choice can't be applied
+            // then. The user resolving later must apply it, without clearing the preference.
+            it('applies the persisted "my accounts" choice when the user resolves after restore', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                expect(logic.values.assignedToFilter).toEqual([])
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+            })
+
+            it('the user resolving does not override an explicit assigned-to from the URL', async () => {
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([7])
+            })
         })
     })
 

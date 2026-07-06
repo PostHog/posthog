@@ -823,6 +823,34 @@ def _synthesize_notebook_content(text_content, existing_content):
     return None
 
 
+# Module-level (not ViewSet static methods) so the ``list[int]`` return annotation resolves to
+# the builtin: the ViewSets define a ``list`` method that shadows ``list`` inside the class body.
+def _parse_int_ids_param(request: Request, name: str) -> list[int]:
+    """Parse a repeated or comma-joined integer-id query param (e.g. ``created_by`` / ``assigned_to``).
+
+    The generated client serializes an array as a single comma-joined value; accept that
+    and the repeated-param form alike."""
+    ids: list[int] = []
+    for value in request.query_params.getlist(name):
+        for part in value.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if not part.isdigit():
+                raise ValidationError({name: "Must be a comma-separated list of numeric user IDs."})
+            ids.append(int(part))
+    return ids
+
+
+def _parse_uuid_param(request: Request, name: str) -> UUID | None:
+    if raw := request.query_params.get(name):
+        try:
+            return UUID(raw)
+        except ValueError:
+            raise ValidationError({name: "Must be a valid UUID."})
+    return None
+
+
 @extend_schema(tags=["customer_analytics"])
 class AccountNotesViewSet(
     TeamAndOrgViewSetMixin,
@@ -879,36 +907,12 @@ class AccountNotesViewSet(
                 offset=offset,
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
-                account_id=self._parse_uuid_param(request, "account_id"),
-                created_by_ids=self._parse_int_ids_param(request, "created_by") or None,
-                assigned_to_ids=self._parse_int_ids_param(request, "assigned_to") or None,
+                account_id=_parse_uuid_param(request, "account_id"),
+                created_by_ids=_parse_int_ids_param(request, "created_by") or None,
+                assigned_to_ids=_parse_int_ids_param(request, "assigned_to") or None,
             ),
             AccountNoteSerializer,
         )
-
-    @staticmethod
-    def _parse_int_ids_param(request: Request, name: str) -> list[int]:
-        # The generated client serializes an array as a single comma-joined value; accept that
-        # and the repeated-param form alike.
-        ids: list[int] = []
-        for value in request.query_params.getlist(name):
-            for part in value.split(","):
-                part = part.strip()
-                if not part:
-                    continue
-                if not part.isdigit():
-                    raise ValidationError({name: "Must be a comma-separated list of numeric user IDs."})
-                ids.append(int(part))
-        return ids
-
-    @staticmethod
-    def _parse_uuid_param(request: Request, name: str) -> UUID | None:
-        if raw := request.query_params.get(name):
-            try:
-                return UUID(raw)
-            except ValueError:
-                raise ValidationError({name: "Must be a valid UUID."})
-        return None
 
 
 @extend_schema(

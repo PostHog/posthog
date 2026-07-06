@@ -27,7 +27,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'AccountNotes', 'accountNotesLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], userLogic, ['user'], customerAnalyticsSceneLogic, ['mineOnly']],
-        actions: [customerAnalyticsSceneLogic, ['setMineOnly']],
+        actions: [customerAnalyticsSceneLogic, ['setMineOnly'], userLogic, ['loadUserSuccess']],
     })),
     actions({
         loadAccountNotes: true,
@@ -165,6 +165,14 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
         },
         setAssignedToCurrentUser: ({ value }) => {
             actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
+        },
+        // A fresh page load can mount this logic before userLogic resolves the user, leaving
+        // currentUserId null in afterMount so the persisted "My accounts" choice can't be
+        // applied. Re-apply it once the user arrives (skip if already applied or turned off).
+        loadUserSuccess: () => {
+            if (values.mineOnly && values.currentUserId !== null && !values.assignedToCurrentUser) {
+                actions.setAssignedToCurrentUser(true)
+            }
         },
         setAccountFilter: () => actions.loadAccountNotes(),
         setAccountSearch: ({ query }) => actions.loadAccountOptions({ query }),
