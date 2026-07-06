@@ -424,6 +424,20 @@ describe('llmEvaluationLogic', () => {
 
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
+
+            // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
+            // record with no prompt) used to crash formValid with a TypeError on render.
+            it.each([
+                ['missing name', { ...mockEvaluation, name: undefined }],
+                ['missing conditions', { ...mockEvaluation, conditions: undefined }],
+                ['missing evaluation_config', { ...mockEvaluation, evaluation_config: undefined }],
+                ['llm_judge missing prompt', { ...mockEvaluation, evaluation_config: {} }],
+                ['hog missing source', { ...mockEvaluation, evaluation_type: 'hog' as const, evaluation_config: {} }],
+            ])('returns false without throwing when %s', async (_label, malformed) => {
+                logic.actions.loadEvaluationSuccess(malformed as unknown as EvaluationConfig)
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
         })
 
         describe('evaluationProviderKeyIssue', () => {
