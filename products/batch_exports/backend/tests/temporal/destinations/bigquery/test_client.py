@@ -22,6 +22,10 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
 )
 
 
+def _bigquery_field(name: str, nullable: bool) -> BigQueryField:
+    return BigQueryField(name, BigQueryType("STRING", repeated=False), nullable=nullable)
+
+
 @pytest.mark.parametrize(
     "states_sequence,should_timeout",
     [
@@ -71,6 +75,48 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
             poll_interval=0.01,
         )
         assert result == mock_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ip_nullable,field_names_to_relax,expected_ip_nullable_after,expected_update",
+    [
+        pytest.param(False, {"ip"}, True, True, id="required_field_relaxed"),
+        pytest.param(True, {"ip"}, True, False, id="already_nullable_noop"),
+        pytest.param(False, set(), False, False, id="field_out_of_scope_untouched"),
+    ],
+)
+async def test_relax_required_fields(
+    ip_nullable: bool,
+    field_names_to_relax: set[str],
+    expected_ip_nullable_after: bool,
+    expected_update: bool,
+):
+    """Known null-producing fields that a table declares REQUIRED are relaxed to NULLABLE."""
+    mock_sync_client = MagicMock()
+    mock_sync_client.project = "test-project"
+    client = BigQueryClient(mock_sync_client)
+
+    table = BigQueryTable(
+        "test_table",
+        fields=(_bigquery_field("uuid", nullable=False), _bigquery_field("ip", nullable=ip_nullable)),
+        parents=("test-project", "test_dataset"),
+    )
+
+    result = await client.relax_required_fields(table, field_names_to_relax)
+
+    assert result["ip"].nullable is expected_ip_nullable_after
+    # A field we never relax must be left untouched.
+    assert result["uuid"].nullable is False
+
+    if expected_update:
+        mock_sync_client.update_table.assert_called_once()
+        updated_table, updated_fields = mock_sync_client.update_table.call_args[0]
+        assert updated_fields == ["schema"]
+        ip_schema_field = next(field for field in updated_table.schema if field.name == "ip")
+        assert ip_schema_field.mode == "NULLABLE"
+    else:
+        mock_sync_client.update_table.assert_not_called()
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS

@@ -152,6 +152,13 @@ def bigquery_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+# Default fields whose expression can evaluate to NULL (e.g. `ip` uses `nullIf`). If a
+# destination table declares any of these REQUIRED (a legacy or manually created NOT NULL
+# schema), a batch containing a NULL value fails the entire load or merge job. We relax
+# them to NULLABLE when adopting an existing table's schema so NULLs land as NULLs.
+KNOWN_NULLABLE_DEFAULT_FIELD_NAMES = frozenset({"ip"})
+
+
 class BigQueryType(typing.NamedTuple):
     name: BigQueryTypeName
     repeated: bool
@@ -662,6 +669,42 @@ class BigQueryClient:
         except NotFound:
             table = await self.create_table(table)
             return table
+
+    async def relax_required_fields(
+        self,
+        table: BigQueryTable,
+        field_names: collections.abc.Collection[str],
+    ) -> BigQueryTable:
+        """Relax any of `field_names` from REQUIRED to NULLABLE on an existing table.
+
+        Some default fields (notably `ip`) can evaluate to NULL, but a destination table
+        may declare them REQUIRED (a legacy or manually created schema). Loading or
+        merging a batch that contains a NULL for such a field fails the entire job, so we
+        relax them here. Relaxing REQUIRED -> NULLABLE is a non-destructive schema change
+        in BigQuery.
+
+        Returns the (possibly updated) table, mutated in place to reflect the new modes.
+        """
+        fields_to_relax = [field for field in table.fields if field.name in field_names and field.mode == "REQUIRED"]
+        if not fields_to_relax:
+            return table
+
+        for field in fields_to_relax:
+            table[field.name] = BigQueryField(field.name, field.bigquery_type, nullable=True)
+
+        self.external_logger.warning(
+            "Relaxing required field(s) '%s' to nullable on table '%s' so null values can be loaded",
+            ", ".join(field.name for field in fields_to_relax),
+            table.fully_qualified_name,
+        )
+
+        bq_table = bigquery.Table(
+            table.fully_qualified_name,
+            schema=tuple(field.to_destination_field() for field in table.fields),
+        )
+        await asyncio.to_thread(self.sync_client.update_table, bq_table, ["schema"])
+
+        return table
 
     async def execute_query(
         self, query: str, start_query_timeout: float | int = 15 * 60, poll_interval: float | int = 0.5
@@ -1436,6 +1479,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
         async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
+
+            # Relax known null-producing default fields (e.g. `ip`) that the destination
+            # declares REQUIRED, so a batch containing a null value doesn't fail the whole
+            # load or merge job. Scope to fields we actually export to avoid touching
+            # unrelated customer columns.
+            exported_field_names = {field.name for field in target_table.fields}
+            bigquery_target_table = await bq_client.relax_required_fields(
+                bigquery_target_table, KNOWN_NULLABLE_DEFAULT_FIELD_NAMES & exported_field_names
+            )
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
             if not can_perform_merge:
