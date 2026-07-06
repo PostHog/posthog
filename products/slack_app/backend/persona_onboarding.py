@@ -792,6 +792,15 @@ def _save_state(row: SlackSettings, state: dict | None) -> None:
     row.save(update_fields=["onboarding_state", "updated_at"])
 
 
+def _remember_message_ts(ctx: _FlowContext, key: str, posted: SlackResponse) -> None:
+    """Track a posted message so a later step can rewrite it in place (e.g. flip the channel
+    prompt to a done note once the channel is configured)."""
+    ts = posted.get("ts")
+    if ts:
+        ctx.state[key] = ts
+        _save_state(ctx.row, ctx.state)
+
+
 def _freeze_buttons(ctx: _FlowContext, payload: dict, note: str) -> None:
     """Replace the clicked message's action blocks with a note, so stale buttons can't
     double-fire. Best-effort — a failure here never blocks the step itself."""
@@ -1012,16 +1021,25 @@ def _repost_current_step(ctx: _FlowContext) -> None:
     if step == STEP_AWAITING_CHANNEL:
         pending_channel = ctx.state.get("pending_channel_id")
         if pending_channel:
-            blocks = build_invite_needed_blocks(
-                pending_channel, ctx.state.get("pending_channel_name") or pending_channel
-            )
+            _post_invite_needed(ctx, pending_channel, ctx.state.get("pending_channel_name") or pending_channel)
         else:
-            blocks = build_channel_prompt_blocks(_can_create_channel(ctx.slack))
-        _post(ctx, blocks, "Pick a channel for scout findings.")
+            _post_channel_prompt(ctx)
         return
     display_name = _display_name(ctx.slack, ctx.slack_user_id)
     blocks = build_kickoff_blocks(display_name, ctx.state.get("persona_candidate"))
     _post(ctx, blocks, "Quick setup — which best describes what you do?")
+
+
+def _post_channel_prompt(ctx: _FlowContext, can_create: bool | None = None) -> None:
+    if can_create is None:
+        can_create = _can_create_channel(ctx.slack)
+    posted = _post(ctx, build_channel_prompt_blocks(can_create), "Pick a channel for scout findings.")
+    _remember_message_ts(ctx, "channel_prompt_ts", posted)
+
+
+def _post_invite_needed(ctx: _FlowContext, channel_id: str, channel_name: str) -> None:
+    posted = _post(ctx, build_invite_needed_blocks(channel_id, channel_name), "Invite me to the channel, then verify.")
+    _remember_message_ts(ctx, "invite_message_ts", posted)
 
 
 def _can_create_channel(slack: SlackIntegration) -> bool:
@@ -1166,7 +1184,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
     if posted and posted.get("ts"):
         ctx.state["fleet_message_ts"] = posted.get("ts")
         _save_state(ctx.row, ctx.state)
-    _post(ctx, build_channel_prompt_blocks(_can_create_channel(ctx.slack)), "Pick a channel for scout findings.")
+    _post_channel_prompt(ctx)
     capture_slack_event(
         ctx.integration,
         EVENT_FLEET_SHOWN,
@@ -1223,7 +1241,7 @@ def _handle_channel_create(payload: dict) -> None:
         _repost_current_step(ctx)
         return
     if not _can_create_channel(ctx.slack):
-        _post(ctx, build_channel_prompt_blocks(False), "Pick a channel for scout findings.")
+        _post_channel_prompt(ctx, can_create=False)
         return
     ensured = ensure_inbox_channel(ctx.integration)
     if ensured is None:
@@ -1294,7 +1312,7 @@ def _attempt_channel_setup(
     if error is not None:
         ctx.state.update({"pending_channel_id": channel_id, "pending_channel_name": channel_name})
         _save_state(ctx.row, ctx.state)
-        _post(ctx, build_invite_needed_blocks(channel_id, channel_name), "Invite me to the channel, then verify.")
+        _post_invite_needed(ctx, channel_id, channel_name)
         return
     capture_slack_event(
         ctx.integration,
@@ -1304,6 +1322,24 @@ def _attempt_channel_setup(
         invite_required=invite_required,
     )
     _provision_and_complete(ctx, channel_id, channel_name)
+
+
+def _resolve_channel_prompts(ctx: _FlowContext, channel_name: str) -> None:
+    """Rewrite the now-stale channel-setup messages (prompt with the picker, invite-then-verify
+    ask) to a done note so their controls don't linger after the channel is configured.
+    Best-effort — a failure here never blocks completion."""
+    note = f"✅ Channel set — I'll post scout findings to #{channel_name}."
+    dm_channel_id = ctx.state.get("dm_channel_id")
+    if not dm_channel_id:
+        return
+    for key in ("channel_prompt_ts", "invite_message_ts"):
+        ts = ctx.state.get(key)
+        if not ts:
+            continue
+        try:
+            ctx.slack.client.chat_update(channel=dm_channel_id, ts=ts, text=note, blocks=[_section(note)])
+        except Exception:
+            logger.warning("persona_onboarding_channel_prompt_update_failed", exc_info=True)
 
 
 def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: str) -> None:
@@ -1338,6 +1374,7 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
     ctx.row.onboarded_at = timezone.now()
     ctx.row.onboarding_state = None
     ctx.row.save(update_fields=["persona", "onboarded_at", "onboarding_state", "updated_at"])
+    _resolve_channel_prompts(ctx, channel_name)
     _post(
         ctx,
         build_locked_in_blocks(

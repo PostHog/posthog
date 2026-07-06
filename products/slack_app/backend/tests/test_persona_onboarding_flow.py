@@ -297,6 +297,8 @@ class TestPersonaSelection(_FlowTestBase):
         assert state["detected_tools"] == []
         # The post-OAuth return leg needs this pointer to flip the reveal's ⚠️ lines to ✅.
         assert state["fleet_message_ts"] == "111.222"
+        # Completion needs this pointer to rewrite the channel prompt to its done note.
+        assert state["channel_prompt_ts"] == "111.222"
         assert client.chat_postMessage.call_count == 2
         reveal_blocks, prompt_blocks = (call.kwargs["blocks"] for call in client.chat_postMessage.call_args_list)
         assert persona_onboarding.SCOUTS_DOC_URL in str(reveal_blocks)
@@ -515,6 +517,25 @@ class TestChannelStep(_FlowTestBase):
 
     @patch(PROVISION)
     @patch(WEBCLIENT)
+    def test_completion_rewrites_channel_prompt_to_done_note(self, mock_webclient, mock_provision):
+        # Without the rewrite, the picker stays live after onboarding completes and a stray
+        # click re-runs channel setup against a finished flow.
+        client = self._client(mock_webclient)
+        mock_provision.return_value = self._results()
+        row = self._seed_channel_state()
+        row.onboarding_state["channel_prompt_ts"] = "55.66"
+        row.save(update_fields=["onboarding_state"])
+
+        self._select_channel()
+
+        prompt_updates = [call for call in client.chat_update.call_args_list if call.kwargs.get("ts") == "55.66"]
+        assert len(prompt_updates) == 1
+        assert prompt_updates[0].kwargs["channel"] == DM_CHANNEL
+        assert "Channel set" in prompt_updates[0].kwargs["text"]
+        assert "#cs-alerts" in prompt_updates[0].kwargs["text"]
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
     def test_channel_prompt_and_invite_offer_a_skip(self, mock_webclient, mock_provision):
         assert any(
             element.get("action_id") == persona_onboarding.SKIP_ACTION_ID
@@ -560,6 +581,7 @@ class TestChannelStep(_FlowTestBase):
         row.refresh_from_db()
         assert row.onboarded_at is None
         assert row.onboarding_state["pending_channel_id"] == PICKED_CHANNEL
+        assert row.onboarding_state["invite_message_ts"] == "1.3"
         assert "/invite" in self._posted_text(client)
 
         client.chat_postMessage.side_effect = None
@@ -571,6 +593,10 @@ class TestChannelStep(_FlowTestBase):
         row.refresh_from_db()
         assert row.onboarded_at is not None
         assert row.onboarding_state is None
+        # The stale invite-then-verify ask flips to the done note so Verify can't double-fire.
+        invite_updates = [call for call in client.chat_update.call_args_list if call.kwargs.get("ts") == "1.3"]
+        assert len(invite_updates) == 1
+        assert "Channel set" in invite_updates[0].kwargs["text"]
 
     @patch(PROVISION, side_effect=RuntimeError("enabled cap reached"))
     @patch(WEBCLIENT)
