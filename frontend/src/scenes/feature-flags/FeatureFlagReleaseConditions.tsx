@@ -112,12 +112,19 @@ export function FeatureFlagReleaseConditions({
     removedLastConditionCallback,
     evaluationRuntime,
     isDisabled,
+    deferEmptyPropertyErrors = false,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
     isDisabled?: boolean
+    /**
+     * When true, don't surface the "Property filters can't be empty" error on a property that has a
+     * key but no value yet. Lets callers (e.g. the survey editor) defer these until the user submits,
+     * so pristine, still-being-edited rows don't flash a validation error.
+     */
+    deferEmptyPropertyErrors?: boolean
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -382,6 +389,7 @@ export function FeatureFlagReleaseConditions({
                                         : undefined
                                 }
                                 errorMessages={
+                                    !deferEmptyPropertyErrors &&
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {
                                               return message.value ? (

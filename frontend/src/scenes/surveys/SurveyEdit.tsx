@@ -278,6 +278,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         translationErrorsByQuestion,
         translationErrorsForField,
         aiGeneratedTranslationFields,
+        hasAttemptedSubmit,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -1798,6 +1799,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       }
                                                                                       excludeTitle={true}
                                                                                       filters={targetingFlagFilters}
+                                                                                      deferEmptyPropertyErrors={
+                                                                                          !hasAttemptedSubmit
+                                                                                      }
                                                                                       onChange={(filters, errors) => {
                                                                                           setFlagPropertyErrors(errors)
                                                                                           setSurveyValue(

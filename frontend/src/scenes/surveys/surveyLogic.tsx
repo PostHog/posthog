@@ -1899,6 +1899,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 setFlagPropertyErrors: (_, { errors }) => errors,
             },
         ],
+        // Tracks whether the user has tried to submit yet, so we can hold back display-condition
+        // validation errors on pristine, still-being-edited property filters until then.
+        hasAttemptedSubmit: [
+            false,
+            {
+                submitSurvey: () => true,
+                loadSurveySuccess: () => false,
+                resetSurvey: () => false,
+            },
+        ],
         answerFilters: [
             [] as EventPropertyFilter[],
             { persist: true },

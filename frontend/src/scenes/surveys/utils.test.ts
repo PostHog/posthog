@@ -109,6 +109,10 @@ describe('survey utils', () => {
                     // Named colors - extend the list with more common colors
                     return ['red', 'blue', 'green', 'transparent', 'black', 'white'].includes(value)
                 }
+                // Length values need a unit: a bare number like "10" is invalid CSS, "10px" is valid
+                if (property === 'border-radius') {
+                    return /^-?\d+(\.\d+)?(px|em|rem|%)$/.test(value)
+                }
                 return false
             },
         } as unknown as typeof CSS
@@ -180,6 +184,19 @@ describe('survey utils', () => {
             expect(result.backgroundColor).toBe('not-a-color is not a valid property for background-color.')
             expect(result.borderColor).toBe('also-not-a-color is not a valid property for border-color.')
             expect(result.maxWidth).toBe('definitely-not-a-width is not a valid property for width.')
+        })
+
+        it('treats a unit-less numeric border radius as pixels instead of flagging it', () => {
+            // A pristine "10" is what the user means as 10px, so it shouldn't read as invalid
+            expect(
+                validateSurveyAppearance({ borderRadius: '10' }, false, SurveyType.Popover).borderRadius
+            ).toBeUndefined()
+            expect(
+                validateSurveyAppearance({ borderRadius: '10px' }, false, SurveyType.Popover).borderRadius
+            ).toBeUndefined()
+            expect(validateSurveyAppearance({ borderRadius: 'abc' }, false, SurveyType.Popover).borderRadius).toBe(
+                'abc is not a valid property for border-radius.'
+            )
         })
     })
 

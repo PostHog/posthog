@@ -60,6 +60,17 @@ export function validateCSSProperty(property: string, value: string | undefined)
     return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
 }
 
+// A unit-less numeric length (e.g. "10") is a sensible value the user means as pixels, but it fails
+// CSS.supports for length properties like border-radius. Treat it as pixels for validation so a
+// pristine numeric value doesn't read as invalid.
+function appendPxIfUnitlessNumber(value: string | undefined): string | undefined {
+    if (value === undefined || value === null) {
+        return value
+    }
+    const trimmed = String(value).trim()
+    return /^-?\d+(\.\d+)?$/.test(trimmed) ? `${trimmed}px` : value
+}
+
 export function validateSurveyAppearance(
     appearance: SurveyAppearance,
     hasRatingQuestions: boolean,
@@ -88,7 +99,7 @@ export function validateSurveyAppearance(
         maxWidth: validateCSSProperty('width', appearance.maxWidth),
         boxPadding: validateCSSProperty('padding', appearance.boxPadding),
         boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
-        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
+        borderRadius: validateCSSProperty('border-radius', appendPxIfUnitlessNumber(appearance.borderRadius)),
         zIndex: validateCSSProperty('z-index', appearance.zIndex),
         widgetSelector:
             surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
