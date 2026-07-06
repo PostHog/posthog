@@ -237,7 +237,7 @@ export function VariantGCenteredHandleDash(props: PrototypeSwitchProps): JSX.Ele
                 width: 'calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)',
                 transform: 'translateX(calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 4))',
             }}
-            handleContent={<Dash color="var(--color-accent)" width="40%" />}
+            handleContent={<Dash color="var(--color-accent)" width="55%" />}
         />
     )
 }
