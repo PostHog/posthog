@@ -11,6 +11,7 @@ import {
     dedupeByChainIdentity,
     heatmapToolbarMenuLogic,
     isInFixedContainer,
+    resolveAreaElement,
     resolveAreaTarget,
     stepAreaCandidate,
 } from './heatmapToolbarMenuLogic'
@@ -125,6 +126,66 @@ describe('heatmapToolbarMenuLogic', () => {
             document.body.innerHTML = html
             const hovered = document.getElementById(hoveredId) as HTMLElement
             expect(resolveAreaTarget(hovered).id).toBe(expectedId)
+        })
+    })
+
+    describe('resolveAreaElement', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        it.each([
+            [
+                'keeps the tracked element while it is connected',
+                (element: HTMLElement) => ({ element, selector: 'nav#other' }),
+                'tracked',
+            ],
+            [
+                'follows a replaced node via the stored selector',
+                (element: HTMLElement) => {
+                    element.remove()
+                    return { element, selector: 'nav#tracked' }
+                },
+                'replacement',
+            ],
+            [
+                'returns null when the node is gone and the selector matches nothing',
+                (element: HTMLElement) => {
+                    element.remove()
+                    return { element, selector: 'nav#gone' }
+                },
+                null,
+            ],
+            [
+                'returns null when the node is gone and no selector was derived',
+                (element: HTMLElement) => {
+                    element.remove()
+                    return { element, selector: null }
+                },
+                null,
+            ],
+            [
+                'returns null when the node is gone and the selector is not valid querySelector input',
+                (element: HTMLElement) => {
+                    element.remove()
+                    return { element, selector: ':::' }
+                },
+                null,
+            ],
+        ])('%s', (_name, buildFilter, expectedTestId) => {
+            document.body.innerHTML =
+                '<nav id="tracked" data-testid="tracked"></nav><nav id="other" data-testid="replacement"></nav>'
+            const tracked = document.getElementById('tracked') as HTMLElement
+            const replacement = document.getElementById('other') as HTMLElement
+            // the "follows a replaced node" row re-queries nav#tracked, so the survivor takes over that id
+            const filter = buildFilter(tracked)
+            if (!tracked.isConnected) {
+                replacement.id = 'tracked'
+            }
+
+            const resolved = resolveAreaElement(filter)
+
+            expect(resolved?.dataset.testid ?? null).toBe(expectedTestId)
         })
     })
 

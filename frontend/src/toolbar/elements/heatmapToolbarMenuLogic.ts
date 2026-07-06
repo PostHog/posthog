@@ -217,6 +217,12 @@ function findElementBySelector(selector: string | null): HTMLElement | null {
     }
 }
 
+// the single rule for following a filter whose node a re-render replaced — shared by the
+// clickmap containment check and the bounds updater so the two can't resolve differently
+export function resolveAreaElement(filter: { element: HTMLElement; selector: string | null }): HTMLElement | null {
+    return filter.element.isConnected ? filter.element : findElementBySelector(filter.selector)
+}
+
 export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
     const rect = element.getBoundingClientRect()
     const areaFixed = isInFixedContainer(element)
@@ -710,14 +716,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
 
             // a re-render can replace the picked area node between mutation-observer ticks;
-            // re-resolve via the stored selector for this run so the containment check keeps
-            // filtering, and only pass rows through when the area is truly unresolvable
-            // (updateAreaBounds will then clear the filter visibly on its next tick)
-            const areaElement = heatmapAreaFilter
-                ? heatmapAreaFilter.element.isConnected
-                    ? heatmapAreaFilter.element
-                    : findElementBySelector(heatmapAreaFilter.selector)
-                : null
+            // re-resolve so the containment check keeps filtering across the swap
+            const areaElement = heatmapAreaFilter ? resolveAreaElement(heatmapAreaFilter) : null
+            if (heatmapAreaFilter && !areaElement) {
+                // unresolvable: hand off to the action that owns the clear-with-telemetry path
+                // now, rather than showing unfiltered rows until the mutation observer's
+                // debounce next fires (sustained DOM churn can push that back indefinitely)
+                actions.updateAreaBounds()
+            }
 
             cache.visibilityCache = cache.visibilityCache || new WeakMap<HTMLElement, boolean>()
             const cursorPointerCache = new WeakMap<HTMLElement, boolean>()
@@ -913,21 +919,22 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (!filter) {
                 return
             }
-            if (!filter.element.isConnected) {
-                // a re-render replaced the node; re-resolve via the stored selector so the
-                // filter follows the page, or clear it visibly rather than degrade silently
-                const requeried = findElementBySelector(filter.selector)
-                if (requeried) {
-                    actions.rebindAreaElement(requeried)
-                } else {
-                    actions.setHeatmapAreaFilter(null, null)
-                    toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
-                        enabled: false,
-                        has_selector: !!filter.selector,
-                        tag_name: filter.element.tagName.toLowerCase(),
-                        trigger: 'element_lost',
-                    })
-                }
+            const resolved = resolveAreaElement(filter)
+            if (!resolved) {
+                // the node is gone and the selector no longer matches anything; clear the
+                // filter visibly rather than degrade silently
+                actions.setHeatmapAreaFilter(null, null)
+                toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
+                    enabled: false,
+                    has_selector: !!filter.selector,
+                    tag_name: filter.element.tagName.toLowerCase(),
+                    trigger: 'element_lost',
+                })
+                return
+            }
+            if (resolved !== filter.element) {
+                // a re-render replaced the node; follow it via the stored selector
+                actions.rebindAreaElement(resolved)
                 return
             }
             actions.setHeatmapBoundsFilter(computeAreaBounds(filter.element))
@@ -1155,8 +1162,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 if (!values.areaSelectionActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) {
                     return
                 }
-                const target = e.target as HTMLElement | null
-                if (target && isToolbarElement(target)) {
+                // focus usually sits on the toolbar button that started the pick, and shadow
+                // retargeting turns document-level targets into the toolbar host, so a
+                // toolbar-membership guard would eat every arrow key; guard on the composed
+                // target being editable instead — arrows step the highlight unless typing
+                const composedTarget = e.composedPath()[0]
+                if (
+                    composedTarget instanceof HTMLElement &&
+                    composedTarget.closest('input, textarea, select, [contenteditable]')
+                ) {
                     return
                 }
                 // arrows refine the selection, so they must not scroll the page mid-pick

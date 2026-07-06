@@ -176,10 +176,10 @@ A user paginating emits one event per page with cumulative `event_count` — gro
 
 Fired when the user starts picking an area to filter the heatmap/clickmap to (the target icon in the heatmap menu).
 
-| Property          | Type      | Description                                                                       |
-| ----------------- | --------- | --------------------------------------------------------------------------------- |
-| `candidate_count` | `number`  | Area candidates rendered as hover targets                                         |
-| `capped`          | `boolean` | Whether the candidate list hit its rendering cap, so some candidates were dropped |
+| Property          | Type      | Description                                                                                        |
+| ----------------- | --------- | -------------------------------------------------------------------------------------------------- |
+| `candidate_count` | `number`  | Area candidates rendered as hover targets                                                          |
+| `capped`          | `boolean` | Whether the candidate list hit its rendering cap (candidates beyond the cap, if any, were dropped) |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
