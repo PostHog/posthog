@@ -43091,7 +43091,7 @@ export namespace Schemas {
     export interface _DayBreakdown {
       /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
       items: _DayBreakdownRow[];
-      /** Always false. A time series truncated by cost would be meaningless, so `by_day` is not subject to `limit` — the window is already capped at 90 days. */
+      /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
       truncated: boolean;
     }
 

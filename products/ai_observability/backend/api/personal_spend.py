@@ -28,6 +28,8 @@ from rest_framework import exceptions, permissions, serializers, status, viewset
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -48,6 +50,8 @@ SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
+# The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
+BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
@@ -278,13 +282,6 @@ class _ModelBreakdownSerializer(serializers.Serializer):
     )
 
 
-class _TopTracesSerializer(serializers.Serializer):
-    items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
-    truncated = serializers.BooleanField(
-        help_text="True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them."
-    )
-
-
 class _DayBreakdownSerializer(serializers.Serializer):
     items = _DayBreakdownRowSerializer(
         many=True,
@@ -295,9 +292,17 @@ class _DayBreakdownSerializer(serializers.Serializer):
     )
     truncated = serializers.BooleanField(
         help_text=(
-            "Always false. A time series truncated by cost would be meaningless, so `by_day` is not "
-            f"subject to `limit` — the window is already capped at {MAX_WINDOW_DAYS} days."
+            "Effectively always false: `by_day` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {MAX_WINDOW_DAYS}-day window cap already bounds the "
+            "series length."
         )
+    )
+
+
+class _TopTracesSerializer(serializers.Serializer):
+    items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
+    truncated = serializers.BooleanField(
+        help_text="True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them."
     )
 
 
@@ -587,10 +592,13 @@ def _fetch_by_day(
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
             # Not the request `limit`: truncating a time series by cost makes no sense, and the
-            # window cap already bounds the row count. +2 covers partial days at both edges.
-            "limit": ast.Constant(value=MAX_WINDOW_DAYS + 2),
+            # window cap already bounds the row count. +1 is the truncation probe row.
+            "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
         },
         team=team,
+        # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
+        # shift the day buckets; days here are documented as UTC, so pin them.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         query_type="PersonalSpendByDay",
     )
     rows = [
@@ -601,7 +609,7 @@ def _fetch_by_day(
         }
         for row in (result.results or [])
     ]
-    return {"items": rows, "truncated": False}
+    return _truncate(rows, BY_DAY_MAX_ROWS)
 
 
 class PersonalSpendViewSet(viewsets.ViewSet):
