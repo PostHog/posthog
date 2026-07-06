@@ -61,47 +61,53 @@ class ExperimentMetricsField(serializers.JSONField):
     pass
 
 
+def _with_split_percent(variants: list) -> list:
+    # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
+    return [
+        {**variant, "split_percent": variant["rollout_percentage"]}
+        if isinstance(variant, dict) and "rollout_percentage" in variant
+        else variant
+        for variant in variants
+    ]
+
+
+def _normalized_flag_variants(variants: list) -> list:
+    """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
+    variants = deepcopy(variants)
+    # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
+    # to lowercase 'control'. The downstream validator and runtime treat 'control'
+    # as a special key, so a typo in casing was the leading cause of the
+    # "Feature flag variants must contain a control variant" error in MCP traces —
+    # most often from LLM-generated payloads. Only rewrite when no exact 'control'
+    # match already exists, so we never collapse two distinct keys into a duplicate.
+    existing_keys = {v.get("key") for v in variants if isinstance(v, dict)}
+    if "control" not in existing_keys:
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            key = variant.get("key")
+            if isinstance(key, str) and key != "control" and key.lower() == "control":
+                variant["key"] = "control"
+                break
+    for variant in variants:
+        if isinstance(variant, dict) and "split_percent" in variant:
+            # split_percent wins in case both keys present, as rollout_percentage deprecated
+            variant["rollout_percentage"] = variant.pop("split_percent")
+    return variants
+
+
 @extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
     def to_representation(self, value: Any) -> Any:
-        from copy import deepcopy
-
-        # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
-        # Deep copy to avoid mutating the model instance's in-memory parameters dict
-        data: Any = deepcopy(super().to_representation(value))
-        if isinstance(data, dict) and "feature_flag_variants" in data:
-            for variant in data["feature_flag_variants"]:
-                if isinstance(variant, dict) and "rollout_percentage" in variant:
-                    variant["split_percent"] = variant["rollout_percentage"]
+        data: Any = super().to_representation(value)
+        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
+            # New dicts throughout, to avoid mutating the model instance's in-memory parameters
+            data = {**data, "feature_flag_variants": _with_split_percent(data["feature_flag_variants"])}
         return data
 
     def to_internal_value(self, data: Any) -> Any:
-        from copy import deepcopy
-
-        # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
-        if isinstance(data, dict) and "feature_flag_variants" in data:
-            data = deepcopy(data)
-            variants = data["feature_flag_variants"]
-            if isinstance(variants, list):
-                # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-                # to lowercase 'control'. The downstream validator and runtime treat 'control'
-                # as a special key, so a typo in casing was the leading cause of the
-                # "Feature flag variants must contain a control variant" error in MCP traces —
-                # most often from LLM-generated payloads. Only rewrite when no exact 'control'
-                # match already exists, so we never collapse two distinct keys into a duplicate.
-                existing_keys = {v.get("key") for v in variants if isinstance(v, dict)}
-                if "control" not in existing_keys:
-                    for variant in variants:
-                        if not isinstance(variant, dict):
-                            continue
-                        key = variant.get("key")
-                        if isinstance(key, str) and key != "control" and key.lower() == "control":
-                            variant["key"] = "control"
-                            break
-                for variant in variants:
-                    if isinstance(variant, dict) and "split_percent" in variant:
-                        # split_percent wins in case both keys present, as rollout_percentage deprecated
-                        variant["rollout_percentage"] = variant.pop("split_percent")
+        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
+            data = {**data, "feature_flag_variants": _normalized_flag_variants(data["feature_flag_variants"])}
         return super().to_internal_value(data)
 
 
@@ -254,17 +260,11 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             return
         parameters = dict(data.get("parameters") or {})
 
-        variants = deepcopy(flag.variants)
-        for variant in variants:
-            # Mirror ExperimentParametersField.to_representation: the UI edits splits via split_percent.
-            if isinstance(variant, dict) and "rollout_percentage" in variant:
-                variant["split_percent"] = variant["rollout_percentage"]
-        parameters["feature_flag_variants"] = variants
+        parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
         filters = flag.get_filters()
-        aggregation_group_type_index = filters.get("aggregation_group_type_index")
-        if aggregation_group_type_index is not None:
-            parameters["aggregation_group_type_index"] = aggregation_group_type_index
+        if flag.aggregation_group_type_index is not None:
+            parameters["aggregation_group_type_index"] = flag.aggregation_group_type_index
         else:
             parameters.pop("aggregation_group_type_index", None)
 
@@ -494,6 +494,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
         if not isinstance(feature_flag_input, dict) or "id" in feature_flag_input:
             return data
+        # On a running experiment the service only syncs flag config when the caller opts in;
+        # without the opt-in the config would be applied nowhere and silently dropped.
+        if self.instance is not None and not self.instance.is_draft and not data.get("update_feature_flag_params"):
+            raise serializers.ValidationError(
+                {
+                    "feature_flag": "This experiment is running. To change its flag config, "
+                    "send update_feature_flag_params=true (or edit the feature flag directly)."
+                }
+            )
         # On a partial update that omits ``parameters``, DRF drops it from ``data``. Seed the merge
         # from the instance so non-flag params (minimum_detectable_effect, variant_notes, ...) survive.
         if "parameters" in data:
@@ -507,6 +516,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             base_parameters,
             flag=self.instance.feature_flag if self.instance is not None else None,
         )
+        if isinstance(merged.get("feature_flag_variants"), list):
+            # Same normalization the legacy ``parameters`` field applies (case-insensitive
+            # 'control', split_percent translation) — both input surfaces must behave alike.
+            merged["feature_flag_variants"] = _normalized_flag_variants(merged["feature_flag_variants"])
         ExperimentService.validate_experiment_parameters(merged)
         data["parameters"] = merged
         return data

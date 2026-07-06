@@ -2493,6 +2493,170 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(flag.filters["aggregation_group_type_index"], 1)
         self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 30)
 
+    @parameterized.expand(
+        [
+            ("filters_not_object", {"filters": "oops"}),
+            ("multivariate_not_object", {"filters": {"multivariate": [1]}}),
+            ("group_not_object", {"filters": {"groups": ["x"]}}),
+            (
+                "group_properties_unsupported",
+                {"filters": {"groups": [{"properties": [{"key": "email", "value": "a"}], "rollout_percentage": 50}]}},
+            ),
+            (
+                "multiple_groups_unsupported",
+                {"filters": {"groups": [{"rollout_percentage": 50}, {"rollout_percentage": 100}]}},
+            ),
+        ]
+    )
+    def test_invalid_feature_flag_object_returns_400(self, _name, feature_flag_input):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "FF invalid", "feature_flag_key": "ff-invalid", "feature_flag": feature_flag_input},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertFalse(FeatureFlag.objects.filter(key="ff-invalid", team_id=self.team.id).exists())
+
+    def test_feature_flag_object_normalizes_control_variant_key(self):
+        # Same normalization as the legacy parameters path — LLM/MCP payloads often send 'Control'.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF control case",
+                "feature_flag_key": "ff-control-case",
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "Control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        flag = FeatureFlag.objects.get(key="ff-control-case", team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+
+    def test_feature_flag_object_on_running_experiment_requires_opt_in(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF running",
+                "feature_flag_key": "ff-running",
+                "start_date": "2021-12-01T10:23",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+        new_variants_input = {
+            "feature_flag": {
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 60},
+                            {"key": "test", "rollout_percentage": 40},
+                        ]
+                    }
+                }
+            }
+        }
+
+        # Without the opt-in the service would sync nothing — reject loudly instead.
+        response = self.client.patch(f"/api/projects/{self.team.id}/experiments/{experiment_id}", new_variants_input)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("update_feature_flag_params", str(response.json()))
+        flag = FeatureFlag.objects.get(key="ff-running", team_id=self.team.id)
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [50, 50])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {**new_variants_input, "update_feature_flag_params": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
+
+    def test_feature_flag_object_payloads_and_continuity_live_on_the_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF payloads",
+                "feature_flag_key": "ff-payloads",
+                "feature_flag": {
+                    "ensure_experience_continuity": True,
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "payloads": {"test": '"v1"'},
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        experiment_id = response.json()["id"]
+
+        flag = FeatureFlag.objects.get(key="ff-payloads", team_id=self.team.id)
+        self.assertEqual(flag.filters["payloads"], {"test": '"v1"'})
+        self.assertTrue(flag.ensure_experience_continuity)
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertNotIn("feature_flag_payloads", experiment.parameters or {})
+        self.assertNotIn("ensure_experience_continuity", experiment.parameters or {})
+
+        # A draft update through the object syncs payloads to the flag too.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"feature_flag": {"filters": {"payloads": {"test": '"v2"'}}}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["payloads"], {"test": '"v2"'})
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+
+    def test_duplicate_experiment_carries_flag_payloads_and_continuity(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF clone source",
+                "feature_flag_key": "ff-clone-src",
+                "feature_flag": {
+                    "ensure_experience_continuity": True,
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "payloads": {"test": '"v1"'},
+                    },
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+
+        # The stored column carries no flag config, so the duplicate's new flag must inherit
+        # payloads and continuity from the source flag, not lose them.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{create.json()['id']}/duplicate",
+            {"feature_flag_key": "ff-clone-dst"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        new_flag = FeatureFlag.objects.get(key="ff-clone-dst", team_id=self.team.id)
+        self.assertEqual(new_flag.filters["payloads"], {"test": '"v1"'})
+        self.assertTrue(new_flag.ensure_experience_continuity)
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(
