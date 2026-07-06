@@ -56,6 +56,9 @@ tools:
             summary.
         requires_ai_consent: true
         feature_flag: mcp-analytics
+    mcp-analytics-sessions-intent-digest:
+        operation: mcp_analytics_sessions_intent_digest
+        enabled: false
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
         enabled: true
