@@ -22,7 +22,10 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from google.genai import types
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
+from posthoganalytics.ai.gemini import (
+    Client as GeminiClient,
+    genai,
+)
 from pydantic import BaseModel, Field
 
 from posthog.models.team import Team
@@ -229,7 +232,7 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
     return "\n".join(lines)
 
 
-def _gemini_client() -> genai.Client:
+def _gemini_client() -> GeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
     return genai.Client(
         api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
@@ -462,7 +465,7 @@ def _dispatch_agent_tool(state: _AgentToolState, call: types.FunctionCall) -> di
 
 
 def _model_call(
-    client: genai.Client,
+    client: GeminiClient,
     contents: list[types.Content | types.Part],
     config: GenerateContentConfig,
     *,

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from google.genai import types
 from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import (
@@ -24,10 +25,8 @@ from products.replay_vision.backend.prompt_suggestions import (
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
-class _Call:
-    def __init__(self, name: str, args: dict) -> None:
-        self.name = name
-        self.args = args
+def _call(name: str, args: dict[str, Any]) -> types.FunctionCall:
+    return types.FunctionCall(name=name, args=args)
 
 
 class _Candidate:
@@ -36,7 +35,7 @@ class _Candidate:
 
 
 class _Response:
-    def __init__(self, *, calls: list[_Call] | None = None, text: str = "") -> None:
+    def __init__(self, *, calls: list[types.FunctionCall] | None = None, text: str = "") -> None:
         self.function_calls = calls or []
         self.candidates = [_Candidate()]
         self.text = text
@@ -73,7 +72,7 @@ class TestPromptAgent(_VisionAPITestCase):
         answer = json.dumps({"suggested_prompt": "better prompt", "rationale": "grounded in sess-1"})
         responses = iter(
             [
-                _Response(calls=[_Call("get_rated_observation", {"session_id": "sess-1"})]),
+                _Response(calls=[_call("get_rated_observation", {"session_id": "sess-1"})]),
                 _Response(),  # model is done with tools
                 _Response(text=answer),  # forced structured turn
             ]
@@ -110,7 +109,7 @@ class TestPromptAgent(_VisionAPITestCase):
             seen_contents.append(list(contents))
             if config.response_json_schema is not None:
                 return _Response(text=answer)
-            return _Response(calls=[_Call("get_rated_observation", {"session_id": "sess-1"})])
+            return _Response(calls=[_call("get_rated_observation", {"session_id": "sess-1"})])
 
         with (
             patch("products.replay_vision.backend.prompt_suggestions._AGENT_BUDGET_INLINE_S", budget_s),
@@ -137,28 +136,28 @@ class TestPromptAgent(_VisionAPITestCase):
     def test_observation_tool_returns_full_detail_and_summary_tool_budgets_cold_runs(self) -> None:
         state = self._state()
 
-        detail = _dispatch_agent_tool(state, _Call("get_rated_observation", {"session_id": "sess-1"}))
+        detail = _dispatch_agent_tool(state, _call("get_rated_observation", {"session_id": "sess-1"}))
         self.assertEqual(detail["rating"], "thumbs_down")
         self.assertEqual(detail["feedback"], "should be yes")
         self.assertEqual(detail["reasoning"], "the user closed the tab at payment")
 
-        listing = _dispatch_agent_tool(state, _Call("list_rated_sessions", {}))
+        listing = _dispatch_agent_tool(state, _call("list_rated_sessions", {}))
         self.assertEqual(listing["total"], 1)
         self.assertEqual(listing["sessions"][0]["session_id"], "sess-1")
 
-        summary = _dispatch_agent_tool(state, _Call("get_session_summary", {"session_id": "sess-1"}))
+        summary = _dispatch_agent_tool(state, _call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("error", summary)  # no cached summary, cold generation disallowed here
 
         cold_state = self._state(allow_cold_summaries=True, budget_s=600.0)
         cold_state.cold_summaries_used = _MAX_SUMMARIES_PER_RUN
-        capped = _dispatch_agent_tool(cold_state, _Call("get_session_summary", {"session_id": "sess-1"}))
+        capped = _dispatch_agent_tool(cold_state, _call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("budget", capped["error"])
 
         drained = self._state(allow_cold_summaries=True, budget_s=0.0)
-        timed_out = _dispatch_agent_tool(drained, _Call("get_session_summary", {"session_id": "sess-1"}))
+        timed_out = _dispatch_agent_tool(drained, _call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("time", timed_out["error"])
 
     def test_unknown_session_and_unknown_tool_return_errors(self) -> None:
         state = self._state()
-        self.assertIn("error", _dispatch_agent_tool(state, _Call("get_rated_observation", {"session_id": "nope"})))
-        self.assertIn("error", _dispatch_agent_tool(state, _Call("hack_the_planet", {})))
+        self.assertIn("error", _dispatch_agent_tool(state, _call("get_rated_observation", {"session_id": "nope"})))
+        self.assertIn("error", _dispatch_agent_tool(state, _call("hack_the_planet", {})))
