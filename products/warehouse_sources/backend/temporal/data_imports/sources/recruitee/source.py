@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RecruiteeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee import (
     RecruiteeResumeConfig,
-    check_access,
     recruitee_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.settings import (
     ENDPOINTS,
@@ -124,12 +124,7 @@ Find your company ID and create a personal API token under **Settings → Apps a
         self, config: RecruiteeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The token is company-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.company_id, config.api_token)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Recruitee company ID or API token"
-        return False, message or "Could not validate Recruitee credentials"
+        return validate_credentials(config.company_id, config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RecruiteeResumeConfig]:
         return ResumableSourceManager[RecruiteeResumeConfig](inputs, RecruiteeResumeConfig)
