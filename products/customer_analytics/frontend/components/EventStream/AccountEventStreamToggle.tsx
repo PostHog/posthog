@@ -2,17 +2,29 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
-export function AccountEventStreamToggle({
-    accountId,
-    externalId,
-}: {
+interface AccountEventStreamToggleProps {
     accountId: string
     externalId: string
-}): JSX.Element {
+}
+
+export function AccountEventStreamToggle(props: AccountEventStreamToggleProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    // Gate before the inner component so eventStreamLogic never mounts (and never
+    // fires its load request) when the feature is off.
+    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_EVENT_STREAM]) {
+        return null
+    }
+    return <AccountEventStreamToggleContent {...props} />
+}
+
+function AccountEventStreamToggleContent({ accountId, externalId }: AccountEventStreamToggleProps): JSX.Element {
     const { eventStream, eventStreamLoading, membershipUpdatingIds, isAccountInStream } = useValues(eventStreamLogic)
     const { setAccountMembership } = useActions(eventStreamLogic)
 
