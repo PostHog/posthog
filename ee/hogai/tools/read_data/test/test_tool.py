@@ -44,8 +44,8 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
 )
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError

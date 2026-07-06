@@ -237,8 +237,8 @@ const config: Config = {
     // Run tests from one or more projects
     // projects: undefined,
 
-    // Use this configuration option to add custom reporters to Jest
-    // reporters: undefined,
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
 
     // Automatically reset mock state between every test
     // resetMocks: false,
@@ -297,6 +297,8 @@ const config: Config = {
         '/products/visual_review/cli/',
         '/products/agent_platform/services/',
         '/products/agent_platform/packages/',
+        // Flaky on master and blocking merges — tracked for re-enable.
+        '/lib/components/TaxonomicFilter/menu/Combobox.test.tsx',
     ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files

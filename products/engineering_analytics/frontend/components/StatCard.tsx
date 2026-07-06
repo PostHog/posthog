@@ -15,7 +15,8 @@ export function StatCard({
 }: {
     label: string
     value: string
-    caption: string
+    /** Visible definition — only when the label alone doesn't explain the count. */
+    caption?: string
     loading: boolean
     onClick: () => void
     active?: boolean
@@ -47,7 +48,7 @@ export function StatCard({
                 ) : (
                     <div className="text-2xl font-bold leading-tight">{value}</div>
                 )}
-                <div className="text-xs text-tertiary">{caption}</div>
+                {caption && <div className="text-xs text-tertiary">{caption}</div>}
             </button>
         </Tooltip>
     )

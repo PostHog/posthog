@@ -1,10 +1,11 @@
 import './WizardCommandBlock.scss'
 
-import { ComponentType, useState } from 'react'
+import { type ComponentType, useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
+import { WIZARD_HOG_URL } from 'scenes/onboarding/shared/wizardHog'
 
 import androidImage from '../logos/android.svg'
 import angularImage from '../logos/angular.svg'
@@ -41,8 +42,6 @@ const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
     { name: 'React Router', icon: ReactRouterLogo },
     { name: 'Python', icon: pythonImage },
 ]
-
-export const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
 
 export function WizardCommandBlock(): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()

@@ -6,8 +6,106 @@ tier assignment, and file classification. No external dependencies.
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+
+# ── Dependency ecosystems ────────────────────────────────────────
+#
+# Source of truth for how each package ecosystem pairs manifests with
+# lockfiles. The deps_toolchain deny patterns, DISMISS_TIME_LOCKFILES, and
+# the manifest/lockfile helper sets all derive from this table — add a new
+# ecosystem here, not in several places. (requirements*.{txt,in} stays out:
+# a pinned requirements.txt is arguably both manifest and lockfile, so
+# has_dependency_changes recognizes it directly instead of forcing it into
+# one column of this table.)
+#
+# `manifests` entries are fnmatch patterns, not just literal names — a
+# plain filename like "package.json" matches itself, so ecosystems with no
+# glob needs can still write literal names.
+
+
+@dataclass(frozen=True)
+class Ecosystem:
+    manifests: frozenset[str]
+    lockfiles: frozenset[str]
+    # Whether this ecosystem's lockfiles are trivially trusted at dismiss
+    # time (a lockfile-only push retains a prior stamphog approval without
+    # LLM re-review). Defaults to NOT trusted so a newly added ecosystem
+    # narrows trust rather than silently widening it — dismiss-time trust
+    # is an explicit decision made here, not inherited from the deny list.
+    trusted_at_dismiss: bool = False
+
+
+DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
+    "node": Ecosystem(
+        manifests=frozenset({"package.json"}),
+        lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
+        trusted_at_dismiss=True,
+    ),
+    "python": Ecosystem(
+        # setup.py/setup.cfg execute code at install/build time even though
+        # no lockfile pairs with them in this repo.
+        manifests=frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
+        lockfiles=frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    "ruby": Ecosystem(
+        manifests=frozenset({"gemfile"}),
+        lockfiles=frozenset({"gemfile.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    # No composer usage in-repo today; listed so a future composer.json
+    # doesn't arrive ungated.
+    "php": Ecosystem(
+        manifests=frozenset({"composer.json"}),
+        lockfiles=frozenset({"composer.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    "rust": Ecosystem(
+        manifests=frozenset({"cargo.toml"}),
+        lockfiles=frozenset({"cargo.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    # go.sum deliberately stays untrusted at dismiss time: it hashes what
+    # go.mod names rather than being the sole source of installed code.
+    "go": Ecosystem(
+        manifests=frozenset({"go.mod"}),
+        lockfiles=frozenset({"go.sum"}),
+    ),
+    # tsconfig configures the compiler, not dependencies — no lockfile ever
+    # pairs with it, so a tsconfig change is always flagged for scrutiny
+    # (empty `lockfiles` means dependency_manifests_without_lockfile can
+    # never find a paired lockfile to suppress it).
+    "typescript": Ecosystem(
+        manifests=frozenset({"tsconfig*.json"}),
+        lockfiles=frozenset(),
+    ),
+}
+
+_ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e.lockfiles for e in DEPENDENCY_ECOSYSTEMS.values()))
+
+# Call sites match against Path(...).name.lower(), so a mixed-case table entry
+# would silently never match — a fail-open hole in a security gate. Enforce the
+# invariant at import so a bad entry fails the gate closed (the tool crashes
+# instead of auto-approving). A raise, not an assert, so python -O can't strip
+# it; test_dependency_ecosystem_names_are_lowercase covers it once the suite is
+# wired into CI.
+if any(
+    n != n.lower()
+    for spec in DEPENDENCY_ECOSYSTEMS.values()
+    for names in (spec.manifests, spec.lockfiles)
+    for n in names
+):
+    raise ValueError("DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()")
+
+
+def _ecosystem_for_manifest(name: str) -> str | None:
+    for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
+        if any(fnmatch(name, pattern) for pattern in spec.manifests):
+            return ecosystem
+    return None
+
 
 # ── Pattern data ─────────────────────────────────────────────────
 
@@ -15,10 +113,20 @@ from pathlib import Path
 # from substring hits like "session" in "SessionAnalysis" or "key" in
 # "localStorage key". Patterns are compiled into regexes at import time.
 #
-# Two pattern lists per category:
-#   "paths"  — matched against file paths only
-#   "any"    — matched against both file paths and the PR title
-# If a category only has "any", all patterns apply everywhere.
+# Only file paths hard-deny. PR titles never deny on their own: calibration
+# against ~440 deny-listed PRs showed title-only hits were dominated by
+# incidental mentions ("treat OAuth invalid_grant as non-retryable" in a
+# connector fix) that humans approved unchanged. Title matches surface as
+# scrutiny flags for the LLM instead (see detect_title_scrutiny_flags),
+# which reads the actual diff and can refuse when the change really does
+# touch the flagged domain.
+#
+# Three pattern lists per category:
+#   "paths"  — matched against file paths (hard deny)
+#   "any"    — matched against file paths (hard deny) and the PR title
+#              (scrutiny flag only)
+#   "titles" — matched against the PR title only (scrutiny flag, never a
+#              deny) — for words whose path-side hits are false positives
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     "auth": {
@@ -34,11 +142,26 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "password",
             "2fa",
             "mfa",
+            "authentication",
+            "authenticate",
+            "authorize",
+            "authorization",
+            r"two[_-]?factor",
+        ],
+        # Past participles hard-deny the wrong things as path patterns
+        # (web analytics' authorized_urls.py health check is domain config,
+        # not the auth system) but are natural title words.
+        "titles": [
+            "authenticated",
+            "authorized",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
         # "permission" matches permission-checking helpers everywhere.
         # Restrict these to path-only with tighter patterns.
+        # camelCase compounds (e.g. AuthenticatedShell.tsx) don't break on
+        # word boundaries when lowercased, so the "any" words above only
+        # reliably match snake/kebab paths and natural-language titles.
         "paths": [
             "session_auth",
             "session_token",
@@ -82,26 +205,34 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "kubernetes",
             "helm",
         ],
+        # "routing" and bare "deploy" are gone on purpose: every historical
+        # match was app-level (posthog/api/routing.py DRF routers, Slack/Teams
+        # message-routing tests, deploy-timing docs), never infrastructure.
+        # Narrow deploy literals below (bin/deploy, deploy.sh, .github/pr-deploy)
+        # cover real deployment artifacts without re-introducing the false positives.
         "paths": [
             r"k8s",
             "dockerfile",
             "docker-compose",
             r"\.github/workflows",
-            "deploy",
+            r"\.github/pr-deploy",
             "iam",
             "cloudflare",
             "cdn",
             "waf",
-            "routing",
+            r"(?:^|/)bin/deploy",
+            r"deploy\.sh",
         ],
     },
     "billing": {
+        # "subscription" is gone on purpose: in this repo it means scheduled
+        # insight/report deliveries (ee/api/subscription.py, products/exports),
+        # not payments. Real billing surfaces still match via the other words.
         "any": [
             "billing",
             "payment",
             "stripe",
             "invoice",
-            "subscription",
             "pricing",
         ],
     },
@@ -115,19 +246,21 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     },
     "deps_toolchain": {
         # All path-only — these are literal filenames, not title words.
+        # Manifests (package.json, pyproject.toml, tsconfig, Cargo.toml,
+        # go.mod) deliberately don't hard-deny: without a lockfile change
+        # they cannot pull in third-party code, and 69-80% of manifest-only
+        # denials merged unchanged. The residual risk — manifest "scripts"/
+        # lifecycle hooks execute in CI — is guarded by the reviewer prompt
+        # (see the dependency-manifest rules in reviewer.py), and such PRs
+        # are kept out of the T0 fast path (see is_allow_listed_only usage).
+        # requirements.txt stays: it pins installed code directly, no
+        # lockfile involved. .nvmrc/.tool-versions stay: they change the
+        # runtime for every CI job. Makefile/Dockerfile stay: they execute.
         "paths": [
-            r"package\.json",
-            r"requirements\.txt",
-            r"pyproject\.toml",
-            "pnpm-lock",
-            "package-lock",
-            r"yarn\.lock",
-            r"uv\.lock",
-            r"Cargo\.toml",
-            r"go\.mod",
+            *(re.escape(name) for name in sorted(_ALL_LOCKFILE_NAMES)),
+            r"requirements[-\w]*\.(txt|in)",
             "Makefile",
             "Dockerfile",
-            "tsconfig",
             r"\.tool-versions",
             r"\.nvmrc",
         ],
@@ -162,6 +295,7 @@ def _compile_patterns(
     """Compile pattern definitions into regexes.
 
     "paths" patterns use path-friendly boundaries (break on _ and -).
+    "titles" patterns use natural-language word boundaries.
     "any" patterns are compiled twice: once for paths, once for titles,
     and stored as a list of (path_rx, title_rx) tuples.
     """
@@ -171,6 +305,8 @@ def _compile_patterns(
         for scope, patterns in groups.items():
             if scope == "paths":
                 compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
+            elif scope == "titles":
+                compiled[category][scope] = [_compile_pattern(p, for_paths=False) for p in patterns]
             else:
                 # "any" — store (path_regex, title_regex) pairs
                 compiled[category][scope] = [
@@ -227,18 +363,11 @@ ALLOW_PATH_PATTERNS = [
 # pipeline (workflows, configs, build files) even though those paths may
 # be allow-listed at approve time.
 
-DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
-    {
-        "package-lock.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "uv.lock",
-        "cargo.lock",
-        "pipfile.lock",
-        "poetry.lock",
-        "gemfile.lock",
-        "composer.lock",
-    }
+# Derived from the ecosystems that explicitly opted in via trusted_at_dismiss
+# — dismiss-time trust is a per-ecosystem decision made in the table, never a
+# default a new deny-list entry inherits. See the field's comment on Ecosystem.
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
+    *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
 )
 
 _DISMISS_TIME_TEST_RE = re.compile(
@@ -374,80 +503,100 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Path prefixes exempt from the `auth` deny category. Code under these trees
-# performs auth/OAuth/credential handshakes as part of its normal job — e.g.
-# every data warehouse import connector — so the code and PR titles legitimately
-# mention auth, oauth, token, login, etc. without touching the auth *system*.
-# Without this, the `auth` deny would force T2-never on essentially every such
-# PR. Other deny categories (crypto/secrets, migrations, …) still apply. Add new
+# Code under these trees performs auth/OAuth/billing-API handshakes as part of
+# its normal job — every data warehouse import connector (Stripe, Google Ads,
+# Salesforce, …) — so file names legitimately mention auth, oauth, stripe,
+# api_key, etc. without touching the auth *system* or PostHog's own billing.
+_CONNECTOR_SOURCE_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
+
+# Per-category path prefixes exempt from deny matching. Categories not listed
+# (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
+# code that stores customer API keys still deserves the crypto gate. Add new
 # exempt trees here rather than special-casing in detect_deny_categories.
-AUTH_EXEMPT_PATH_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
+DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
+    "auth": _CONNECTOR_SOURCE_PREFIXES,
+    "billing": _CONNECTOR_SOURCE_PREFIXES,
+}
 
 
-def _is_auth_exempt_path(path: str) -> bool:
-    low = path.lower()
-    return any(low.startswith(prefix) for prefix in AUTH_EXEMPT_PATH_PREFIXES)
+def _is_exempt_path(category: str, path: str) -> bool:
+    return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
-def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
+def category_fully_exempt(category: str, files: list[str]) -> bool:
+    """True when every changed file is exempt for this category.
+
+    Used to suppress title scrutiny flags on connector-only PRs: a Stripe
+    source fix legitimately says "stripe"/"oauth" in its title, and flagging
+    it re-creates the friction the path exemption exists to remove.
+    """
+    return bool(files) and all(_is_exempt_path(category, f) for f in files)
+
+
+def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
+    """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
-    subject_lower = subject.lower()
-
-    # Auth exemption for AUTH_EXEMPT_PATH_PREFIXES: drop exempt paths from auth
-    # path-matching, and — when any exempt path is in the change set — only let
-    # the PR title trip `auth` if a non-exempt file is also touched. PRs that
-    # touch no exempt paths are evaluated exactly as before.
-    auth_paths = [p for p in paths_lower if not _is_auth_exempt_path(p)]
-    has_exempt_path = len(auth_paths) != len(paths_lower)
-    auth_title_eligible = (not has_exempt_path) or bool(auth_paths)
+    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
 
     for category, scopes in DENY_PATTERNS.items():
-        category_paths = auth_paths if category == "auth" else paths_lower
-        title_eligible = auth_title_eligible if category == "auth" else True
-        found = False
-        # "paths" patterns — only match against file paths
-        for rx in scopes.get("paths", []):
-            if found:
-                break
-            for p in category_paths:
-                if rx.search(p):
-                    hits.add(category)
-                    found = True
-                    break
-        if found:
-            continue
-        # "any" patterns — match against file paths (path_rx) and title (title_rx)
-        for path_rx, title_rx in scopes.get("any", []):
-            if found:
-                break
-            for p in category_paths:
-                if path_rx.search(p):
-                    hits.add(category)
-                    found = True
-                    break
-            if not found and title_eligible and title_rx.search(subject_lower):
-                hits.add(category)
-                found = True
+        category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
+        path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
+        if any(rx.search(p) for rx in path_regexes for p in category_paths):
+            hits.add(category)
     return sorted(hits)
 
 
+def detect_title_scrutiny_flags(subject: str) -> list[str]:
+    """Categories whose keywords appear in the PR title.
+
+    Not a gate: the reviewer prompt tells the LLM to refuse only when the
+    diff behaviorally touches the flagged domain, so incidental mentions
+    (an OAuth error string in a connector fix) don't force a human review.
+    """
+    subject_lower = subject.lower()
+    return sorted(
+        category
+        for category, scopes in DENY_PATTERNS.items()
+        if any(title_rx.search(subject_lower) for _path_rx, title_rx in scopes.get("any", []))
+        or any(rx.search(subject_lower) for rx in scopes.get("titles", []))
+    )
+
+
 def has_dependency_changes(files: list[str]) -> bool:
-    dep_files = {
-        "package.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "package-lock.json",
-        "requirements.txt",
-        "pyproject.toml",
-        "uv.lock",
-        "Cargo.toml",
-        "go.mod",
-        "go.sum",
+    for f in files:
+        name = Path(f).name.lower()
+        if name in _ALL_LOCKFILE_NAMES or _ecosystem_for_manifest(name) is not None:
+            return True
+        if name.startswith("requirements") and name.endswith((".txt", ".in")):
+            return True
+    return False
+
+
+def is_dependency_manifest(path: str) -> bool:
+    return _ecosystem_for_manifest(Path(path).name.lower()) is not None
+
+
+def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
+    """Manifest files changed without their own ecosystem's lockfile.
+
+    Such a change cannot install new third-party code (CI installs are
+    frozen-lockfile), so it passes the deny-list — but manifest scripts/hooks
+    execute in CI, so these paths feed the deterministic scripts scan and the
+    reviewer prompt. The lockfile check is per-ecosystem: a Cargo.lock bump
+    hard-denies on its own but must not silence the scripts guard on an
+    unrelated package.json edit in the same PR.
+    """
+    names = {Path(f).name.lower() for f in files}
+    ecosystems_with_lockfile_change = {
+        ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec.lockfiles
     }
-    dep_files_lower = {d.lower() for d in dep_files}
-    return any(Path(f).name.lower() in dep_files_lower for f in files)
+    return sorted(
+        f
+        for f in files
+        if (ecosystem := _ecosystem_for_manifest(Path(f).name.lower())) is not None
+        and ecosystem not in ecosystems_with_lockfile_change
+    )
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:
@@ -546,11 +695,62 @@ def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
     }
 
 
-# ── Tier assignment ──────────────────────────────────────────────
+# ── Size gate ────────────────────────────────────────────────────
 
 
 MAX_LINES = 500
 MAX_FILES = 20
+
+# Files that inflate a diff without adding review surface: prose docs,
+# regenerated artifacts, and test snapshots. The size ceiling counts only the
+# substantive remainder, so a 2000-line docs rewrite or type regen isn't
+# auto-denied. Exempt files still count toward tier/subclass classification
+# (which calibrates LLM scrutiny) and still appear in the diff the LLM reads.
+# Deliberately narrower than ALLOW_ONLY_EXTENSIONS: .json/.yaml/.toml configs
+# change runtime behavior, so they stay in the count.
+SIZE_EXEMPT_EXTENSIONS = {
+    ".md",
+    ".mdx",
+    ".txt",
+    ".rst",
+    ".snap",
+    ".ambr",
+    ".storyshot",
+    ".svg",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".lock",
+}
+
+# __snapshots__/ deliberately has no directory-wide exemption: snapshot
+# artifacts are covered by extension (.snap/.ambr/.storyshot), so an
+# executable file placed under a snapshots dir still counts toward the
+# ceiling — same reasoning as the extension allowlists below.
+_SIZE_EXEMPT_PATH_RE = re.compile(
+    r"(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|\.gen\.(ts|tsx|js|jsx)$"
+    r"|\.generated\.(ts|tsx|js|jsx)$"
+    r"|^frontend/src/queries/schema/",
+    re.IGNORECASE,
+)
+
+
+def is_size_exempt(path: str) -> bool:
+    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+
+
+def substantive_size(files: list[dict]) -> tuple[int, int]:
+    """(changed lines, file count) over the files that count toward the size ceiling."""
+    counted = [f for f in files if not is_size_exempt(f["filename"])]
+    return sum(f["additions"] + f["deletions"] for f in counted), len(counted)
+
+
+# ── Tier assignment ──────────────────────────────────────────────
 
 
 def assign_tier(

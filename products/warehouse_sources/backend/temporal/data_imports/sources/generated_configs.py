@@ -219,7 +219,8 @@ class AlpacaBrokerAPISourceConfig(config.Config):
 
 @config.config
 class AlphaVantageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
@@ -300,7 +301,7 @@ class AppfiguresSourceConfig(config.Config):
 
 @config.config
 class AppfollowSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -362,7 +363,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -620,7 +621,8 @@ class ChargedeskSourceConfig(config.Config):
 
 @config.config
 class ChargifySourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
@@ -1104,7 +1106,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1222,7 +1224,7 @@ class FlexportSourceConfig(config.Config):
 
 @config.config
 class FloatAppSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1252,7 +1254,8 @@ class FreshBooksSourceConfig(config.Config):
 
 @config.config
 class FreshcallerSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1285,7 +1288,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FulcrumSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1295,12 +1298,19 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
@@ -1548,7 +1558,7 @@ class HoorayHRSourceConfig(config.Config):
 
 @config.config
 class HubplannerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1632,7 +1642,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1647,7 +1657,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1657,7 +1667,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1702,7 +1713,8 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -1712,7 +1724,8 @@ class JustSiftSourceConfig(config.Config):
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
@@ -1727,7 +1740,7 @@ class KafkaSourceConfig(config.Config):
 
 @config.config
 class KatanaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1811,7 +1824,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1853,7 +1866,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2095,7 +2108,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2136,12 +2150,14 @@ class NewYorkTimesSourceConfig(config.Config):
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2238,7 +2254,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2248,12 +2264,14 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
@@ -2427,7 +2445,7 @@ class PersistIqSourceConfig(config.Config):
 
 @config.config
 class PersonaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2456,7 +2474,8 @@ class PhylloSourceConfig(config.Config):
 
 @config.config
 class PicqerSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key: str
 
 
 @config.config
