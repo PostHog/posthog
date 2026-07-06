@@ -71,10 +71,6 @@ class DashboardTile(models.Model):
         related_name="dashboard_tiles",
         null=True,
     )
-    # button_tile_id is NULL for every non-button tile (the overwhelming majority), so the
-    # lookup index is a partial index (declared in Meta.indexes below) built concurrently in
-    # migration 0013. db_index=False stops Django from also expecting a full FK index, keeping
-    # state and DB in sync (mirrors `widget` and `team`).
     button_tile = models.ForeignKey(
         "dashboards.ButtonTile",
         on_delete=models.CASCADE,
