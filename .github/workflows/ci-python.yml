@@ -70,7 +70,7 @@ jobs:
                         - 'tools/query-performance-ai/**'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
-                        - 'products/*/AGENT_POLICIES.md'
+                        - '**/AGENT_POLICIES.md'
 
     code-quality:
         needs: changes

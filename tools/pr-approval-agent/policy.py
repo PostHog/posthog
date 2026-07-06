@@ -7,10 +7,10 @@ policy, resolves the effective policy for a given set of changed files, and
 owns the untrusted-text sanitizer shared with the reviewer prompt.
 
 Security posture (see .stamphog/README.md):
-- All files are read from the checked-out working tree — the repo root is
+- All files are read from the checked-out working tree - the repo root is
   resolved from this module's own location, never from cwd. In CI the workflow
   checks out `ref: master`, so the working tree IS the trusted ref.
-- A malformed global policy hard-fails at load (fail closed — the tool crashes
+- A malformed global policy hard-fails at load (fail closed - the tool crashes
   rather than approving with a half-loaded policy).
 - Folder overrides are a positive allow-list: only explicitly delegated keys
   are read, within contract ceilings. Any invalid folder file is ignored in
@@ -20,6 +20,7 @@ Security posture (see .stamphog/README.md):
 """
 
 import re
+import functools
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -29,7 +30,7 @@ import yaml
 
 # ── Untrusted-text sanitizer (shared with reviewer.py) ───────────
 
-# Strip only invisible characters — the prompt-smuggling vectors: C0/C1
+# Strip only invisible characters - the prompt-smuggling vectors: C0/C1
 # controls, bidi overrides, zero-width chars, and the Unicode tags block
 # (invisible ASCII). Visible unicode must survive: reviewer bots express
 # verdicts as 👍/👀 in review bodies, and stripping emoji garbles those
@@ -43,7 +44,7 @@ _INVISIBLE_CHARS_RE = re.compile(
     "\u2028\u2029"  # line/paragraph separators
     "\u202a-\u202e\u2066-\u2069"  # bidi embedding/override/isolate controls
     "\u2060\ufeff"  # word joiner, BOM
-    "\U000e0000-\U000e007f]"  # tags block — invisible ASCII smuggling
+    "\U000e0000-\U000e007f]"  # tags block - invisible ASCII smuggling
 )
 
 
@@ -55,11 +56,14 @@ def _sanitize_untrusted(text: str, max_len: int = 200) -> str:
 # ── Repo-root resolution ─────────────────────────────────────────
 
 
+@functools.lru_cache(maxsize=1)
 def repo_root() -> Path:
     """Locate the repo root by walking up from this module's own location.
 
     Deterministic and cwd-independent: the policy files must be read from the
     same checked-out tree as this script, never from wherever the process runs.
+    The single resolver for the whole tool; cached, the tree never moves
+    mid-process.
     """
     here = Path(__file__).resolve().parent
     for parent in [here, *here.parents]:
@@ -135,7 +139,7 @@ class FamiliarityModerate:
 class FamiliarityPolicy:
     """Band thresholds for the author-familiarity signal (judgment layer only).
 
-    Non-delegable by construction — absent from the `overrides` contract, so a
+    Non-delegable by construction - absent from the `overrides` contract, so a
     folder file can never grant or tune it.
     """
 
@@ -174,7 +178,7 @@ class EffectivePolicy:
 
 
 class PolicyError(ValueError):
-    """Raised when the global policy is malformed — fail closed at load time."""
+    """Raised when the global policy is malformed - fail closed at load time."""
 
 
 # ── Global policy loading + validation ───────────────────────────
@@ -223,7 +227,7 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             )
             values = list(patterns)
             # Splice the code-derived lockfile names ahead of the literal
-            # patterns — they stay code-sourced (see DEPENDENCY_ECOSYSTEMS).
+            # patterns - they stay code-sourced (see DEPENDENCY_ECOSYSTEMS).
             if category == "deps_toolchain" and scope == "paths":
                 values = lockfile_patterns + values
             for pattern in values:
@@ -241,6 +245,13 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
         )
 
     _assert_self_governance(deny)
+    if lockfile_patterns:
+        # Same fail-closed posture as self-governance: renaming or splitting
+        # the category must break loudly, not silently drop lockfile coverage.
+        _require(
+            "deps_toolchain" in deny,
+            "deny: missing 'deps_toolchain' category (the code-derived lockfile patterns splice into it)",
+        )
     return deny
 
 
@@ -431,7 +442,7 @@ def _nearest_common_ancestor(changed_files: Iterable[str]) -> PurePosixPath:
     """Deepest directory containing every changed file (`.` for repo root).
 
     A single stray root-level file collapses the ancestor to the repo root,
-    so a folder override stops applying — the fail direction is stricter.
+    so a folder override stops applying - the fail direction is stricter.
     """
     dirs = [PurePosixPath(f).parent for f in changed_files]
     if not dirs:

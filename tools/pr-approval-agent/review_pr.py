@@ -5,6 +5,7 @@
 #     "claude-agent-sdk",
 #     "anthropic",
 #     "posthoganalytics",
+#     "pyyaml",
 # ]
 # ///
 # ruff: noqa: T201
@@ -24,7 +25,6 @@ import os
 import json
 import time
 import argparse
-import tempfile
 import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -55,7 +55,7 @@ from gates import (
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
-from policy import EffectivePolicy, resolve
+from policy import EffectivePolicy, repo_root, resolve
 from reviewer import Reviewer
 
 try:
@@ -69,16 +69,7 @@ except ImportError:
 
 # ── Repo root detection ──────────────────────────────────────────
 
-
-def _repo_root() -> Path:
-    here = Path(__file__).resolve().parent
-    for parent in [here, *here.parents]:
-        if (parent / ".git").exists():
-            return parent
-    raise RuntimeError("Cannot find git repo root from script location")
-
-
-REPO_ROOT = _repo_root()
+REPO_ROOT = repo_root()
 CODEOWNERS_SOFT = REPO_ROOT / ".github" / "CODEOWNERS-soft"
 
 
@@ -189,6 +180,7 @@ class Pipeline:
         self.pr: PRData | None = None
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
+        self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
         self.final_verdict: str = ""
@@ -222,8 +214,12 @@ class Pipeline:
                 if self._only_pending_migration_check():
                     return self._refuse_pending_migration_check()
 
-        self._maybe_compute_familiarity()
-        self._llm_review(gate_verdict)
+        try:
+            self._maybe_compute_familiarity()
+            self._llm_review(gate_verdict)
+        finally:
+            if self._diff_path is not None:
+                self._diff_path.unlink(missing_ok=True)
         return self.final_verdict
 
     def _classify_and_gate(self) -> str:
@@ -439,14 +435,14 @@ class Pipeline:
             "folder_policy_prose": self.effective_policy.folder_prose,
             # Judgment-layer signal, filled in later only for the T1-agent path
             # (see _maybe_compute_familiarity). None here keeps every other path
-            # — and the reviewer prompt — byte-identical to before.
+            # - and the reviewer prompt - byte-identical to before.
             "familiarity": None,
         }
 
     def _maybe_compute_familiarity(self) -> None:
         """Attach the author-familiarity signal for the T1-agent path only.
 
-        Judgment layer only — never touches gates, and any failure leaves the
+        Judgment layer only - never touches gates, and any failure leaves the
         signal absent (None) so behavior stays exactly as before. T0 skips the
         LLM and T2 is a deny, so neither benefits from the signal.
         """
@@ -456,15 +452,12 @@ class Pipeline:
 
     def _compute_familiarity(self) -> AuthorFamiliarity | None:
         pr = self.pr
-        fd, name = tempfile.mkstemp(prefix="stamphog-familiarity-", suffix=".patch")
-        os.close(fd)
-        diff_path = Path(name)
         try:
-            write_pr_diff(pr.base_sha, pr.head_sha, diff_path, REPO_ROOT)
             return compute_familiarity(
                 author_login=pr.author,
-                diff_path=diff_path,
+                diff_path=self._ensure_diff_path(),
                 base_sha=pr.base_sha,
+                head_sha=pr.head_sha,
                 repo=self.repo,
                 repo_root=REPO_ROOT,
                 thresholds=POLICY.familiarity,
@@ -472,8 +465,18 @@ class Pipeline:
         except Exception as exc:
             print(_warn(f"familiarity computation failed ({exc}); continuing without the signal"))
             return None
-        finally:
-            diff_path.unlink(missing_ok=True)
+
+    def _ensure_diff_path(self) -> Path:
+        """Write the PR diff once per run; familiarity and the reviewer share it.
+
+        One producer keeps the two consumers grading the same diff. run() owns
+        cleanup so the file never lingers in the repo working tree.
+        """
+        if self._diff_path is None:
+            self._diff_path = write_pr_diff(
+                self.pr.base_sha, self.pr.head_sha, REPO_ROOT / ".pr-review-diff.patch", REPO_ROOT
+            )
+        return self._diff_path
 
     def _run_gates(self) -> None:
         print(_bold("Gates"))
@@ -591,6 +594,9 @@ class Pipeline:
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         reviewer = Reviewer(REPO_ROOT, verbose=self.verbose)
+        # Outside the retry loop: a diff-write hiccup must not masquerade as a
+        # retryable reviewer failure and burn the backoff budget.
+        diff_path = self._ensure_diff_path()
 
         gate_context = {
             "gate_verdict": gate_verdict,
@@ -606,6 +612,7 @@ class Pipeline:
                     self.pr,
                     self.classification,
                     gate_context,
+                    diff_path=diff_path,
                 )
                 break
             except Exception as e:

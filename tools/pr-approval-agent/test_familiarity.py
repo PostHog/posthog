@@ -108,6 +108,7 @@ def test_strong_band_from_blame_overlap(tmp_path: Path, monkeypatch: pytest.Monk
         author_login="authora",
         diff_path=diff_path,
         base_sha=base_sha,
+        head_sha="HEAD",
         repo="PostHog/posthog",
         repo_root=repo,
         thresholds=_THRESHOLDS,
@@ -131,12 +132,13 @@ def test_none_band_for_author_without_matching_history(tmp_path: Path, monkeypat
     diff_path = tmp_path / "pr.diff"
     diff_path.write_text(_git(repo, "diff").stdout)
 
-    # A stranger with no merged PRs — gh returns an empty list, not a failure.
+    # A stranger with no merged PRs - gh returns an empty list, not a failure.
     _patch_gh(monkeypatch, pr_numbers=set())
     fam = compute_familiarity(
         author_login="stranger",
         diff_path=diff_path,
         base_sha=base_sha,
+        head_sha="HEAD",
         repo="PostHog/posthog",
         repo_root=repo,
         thresholds=_THRESHOLDS,
@@ -161,6 +163,7 @@ def test_gh_failure_yields_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         author_login="authora",
         diff_path=diff_path,
         base_sha=base_sha,
+        head_sha="HEAD",
         repo="PostHog/posthog",
         repo_root=repo,
         thresholds=_THRESHOLDS,
@@ -184,6 +187,7 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
         author_login="authora",
         diff_path=diff_path,
         base_sha=base_sha,
+        head_sha="HEAD",
         repo="PostHog/posthog",
         repo_root=repo,
         thresholds=_THRESHOLDS,
@@ -321,7 +325,6 @@ def _fam(band: str, top_authors: tuple[str, ...]) -> AuthorFamiliarity:
         modified_lines_total=40,
         prior_prs_in_paths=0,
         days_since_last_touch=None,
-        files_prev_frac=0.0,
         files_prev_count=0,
         files_total=3,
         capped=False,

@@ -1,7 +1,9 @@
 """Deterministic gate logic for PR approval classification.
 
-Handles deny-lists, allow-lists, CODEOWNERS-soft ownership,
-tier assignment, and file classification. No external dependencies.
+Handles deny-lists, allow-lists, CODEOWNERS-soft ownership, tier assignment,
+and file classification. Policy data loads from .stamphog/policy.yml at import
+via policy.py, which needs PyYAML: any uv-run script that imports this module
+must declare pyyaml in its PEP 723 dependencies block.
 """
 
 import re
@@ -137,7 +139,7 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 # populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS (and
 # DISMISS_TIME_LOCKFILES below) stay code-derived; the loader splices the
 # lockfile names into the deps_toolchain deny paths. A malformed policy raises
-# at import — fail closed, the tool crashes rather than gating on a half-loaded
+# at import - fail closed, the tool crashes rather than gating on a half-loaded
 # policy.
 POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES)
 
@@ -195,7 +197,7 @@ DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
 # Compiled path patterns for stamphog's own policy/engine files. A dismiss-time
 # guard consults these so a retained approval can't silently absorb a policy
-# edit — .md is otherwise blanket-trivial and AGENT_POLICIES.md would slip in.
+# edit - .md is otherwise blanket-trivial and AGENT_POLICIES.md would slip in.
 _STAMPHOG_POLICY_PATH_PATTERNS = DENY_PATTERNS["stamphog_policy"]["paths"]
 
 ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
@@ -238,7 +240,7 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
     bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
     anything else that can execute or alter build/CI behavior.
     """
-    # Stamphog's own policy/engine files are never trivial at dismiss time —
+    # Stamphog's own policy/engine files are never trivial at dismiss time -
     # otherwise a retained approval would let a post-approval policy edit land
     # unreviewed (AGENT_POLICIES.md is .md, which is blanket-trivial below).
     if any(rx.search(path) for rx in _STAMPHOG_POLICY_PATH_PATTERNS):
@@ -346,7 +348,7 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # Per-category path prefixes exempt from deny matching, sourced from each deny
 # category's `exempt_path_prefixes` in the policy file. Categories without an
-# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
+# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere - connector
 # code that stores customer API keys still deserves the crypto gate. Code under
 # the warehouse-connector trees performs auth/OAuth/billing-API handshakes as
 # part of its normal job, so it legitimately mentions auth, oauth, stripe,

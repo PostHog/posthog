@@ -8,7 +8,7 @@ like owning-team membership.
 Security / safety posture:
 - This is a judgment-layer signal ONLY. It never touches the deterministic
   gates (deny, size, dismiss, tier assignment). Absence of the signal leaves
-  behavior exactly as before — a one-way ratchet.
+  behavior exactly as before - a one-way ratchet.
 - Every external call (the single `gh` call, each `git blame`/`git log`) is
   timed out and failure-tolerant. A gh failure returns None (signal absent).
   A per-file git failure degrades that file to nothing, never a crash.
@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 
 from policy import FamiliarityPolicy
 
-# Bounds — keep the work predictable on large PRs.
+# Bounds - keep the work predictable on large PRs.
 _GH_TIMEOUT_SECONDS = 30
 _GIT_TIMEOUT_SECONDS = 30
 _MAX_CHANGED_LINES_PER_FILE = 2000
@@ -56,12 +56,11 @@ class AuthorFamiliarity:
     modified_lines_total: int
     prior_prs_in_paths: int
     days_since_last_touch: int | None
-    files_prev_frac: float
     files_prev_count: int
     files_total: int
     capped: bool
     # Display-only hint: top prior authors of the modified lines, by git author
-    # name (not login) — used to suggest reviewers when the LLM escalates.
+    # name (not login) - used to suggest reviewers when the LLM escalates.
     top_prior_authors: tuple[str, ...]
 
 
@@ -76,7 +75,6 @@ def familiarity_evidence(fam: AuthorFamiliarity | None) -> dict | None:
         "modified_lines_total": fam.modified_lines_total,
         "prior_prs_in_paths": fam.prior_prs_in_paths,
         "days_since_last_touch": fam.days_since_last_touch,
-        "files_prev_frac": round(fam.files_prev_frac, 2),
         "files_prev_count": fam.files_prev_count,
         "files_total": fam.files_total,
         "capped": fam.capped,
@@ -159,7 +157,7 @@ def _parse_diff(diff_text: str) -> list[_FileDiff]:
     """Parse a unified diff into per-file base-side modified line numbers.
 
     Only base-side lines the PR deletes/replaces (unified-diff `-` lines) count:
-    a pure addition has no base-side lines to blame, which is correct — blame
+    a pure addition has no base-side lines to blame, which is correct - blame
     overlap measures how much of the code the PR *changes* the author wrote.
     """
     files: list[_FileDiff] = []
@@ -222,7 +220,7 @@ def _select_considered_files(file_diffs: list[_FileDiff]) -> tuple[list[_FileDif
     """Bound the blame work: drop binaries, skip huge files, cap at 30 (largest first).
 
     Returns (considered, capped) where capped is True when work was dropped for
-    a bound (an oversize file or the 30-file cap) — binaries don't count as
+    a bound (an oversize file or the 30-file cap) - binaries don't count as
     capping, they carry no reviewable lines.
     """
     eligible = [f for f in file_diffs if not f.is_binary and f.changed_lines <= _MAX_CHANGED_LINES_PER_FILE]
@@ -253,11 +251,34 @@ def _parse_blame_porcelain(text: str) -> list[tuple[str | None, str | None]]:
     return entries
 
 
-def _blame_range(
-    base_sha: str, path: str, start: int, end: int, repo_root: Path
+def _merge_base(base_sha: str, head_sha: str, repo_root: Path) -> str | None:
+    """The commit the PR's diff line numbers are relative to.
+
+    The pipeline diffs three-dot (base...head), whose old-side line numbers are
+    relative to merge-base(base, head), not the base branch tip. Blame must run
+    against the same commit or -L ranges point at shifted lines whenever the
+    base branch advanced after the PR branched. None on any error (skip blame).
+    """
+    cmd = ["git", "merge-base", base_sha, head_sha]
+    try:
+        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _blame_file(
+    blame_sha: str, path: str, ranges: list[tuple[int, int]], repo_root: Path
 ) -> list[tuple[str | None, str | None]] | None:
-    """Blame one base-side range; None on any error (degrade this range)."""
-    cmd = ["git", "blame", base_sha, "-L", f"{start},{end}", "--line-porcelain", "--", path]
+    """Blame all of one file's base-side ranges in a single invocation.
+
+    git blame accepts repeated -L flags, so the subprocess count is one per
+    file, not one per hunk. None on any error (degrade this file).
+    """
+    range_flags = [flag for start, end in ranges for flag in ("-L", f"{start},{end}")]
+    cmd = ["git", "blame", blame_sha, *range_flags, "--line-porcelain", "--", path]
     try:
         result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
@@ -268,7 +289,7 @@ def _blame_range(
 
 
 def _blame_overlap(
-    considered: list[_FileDiff], base_sha: str, author_prs: set[int], repo_root: Path
+    considered: list[_FileDiff], blame_sha: str, author_prs: set[int], repo_root: Path
 ) -> tuple[int, int, tuple[str, ...]]:
     """(owned lines, total blamed lines, top prior author names)."""
     owned = 0
@@ -278,19 +299,21 @@ def _blame_overlap(
         blame_path = file_diff.old_path
         if not blame_path:
             continue
-        for start, end in _coalesce(file_diff.base_modified_lines):
-            entries = _blame_range(base_sha, blame_path, start, end, repo_root)
-            if entries is None:
-                continue
-            for author_name, summary in entries:
-                total += 1
-                pr_number = _extract_pr_number(summary or "")
-                if pr_number is not None and pr_number in author_prs:
-                    owned += 1
-                elif author_name:
-                    # Reviewer-suggestion hint: count only lines the PR author
-                    # does NOT own — suggesting the author to themselves is noise.
-                    author_line_counts[author_name] += 1
+        ranges = _coalesce(file_diff.base_modified_lines)
+        if not ranges:
+            continue
+        entries = _blame_file(blame_sha, blame_path, ranges, repo_root)
+        if entries is None:
+            continue
+        for author_name, summary in entries:
+            total += 1
+            pr_number = _extract_pr_number(summary or "")
+            if pr_number is not None and pr_number in author_prs:
+                owned += 1
+            elif author_name:
+                # Reviewer-suggestion hint: count only lines the PR author does
+                # NOT own, since suggesting the author to themselves is noise.
+                author_line_counts[author_name] += 1
     top_authors = tuple(name for name, _ in author_line_counts.most_common(_TOP_PRIOR_AUTHORS))
     return owned, total, top_authors
 
@@ -344,24 +367,32 @@ def _prior_prs_in_paths(paths: list[str], author_prs: set[int], repo_root: Path,
 
 
 def _files_previously_modified(paths: list[str], author_prs: set[int], repo_root: Path) -> tuple[int, int]:
-    """(changed files the author previously modified, total changed files considered)."""
+    """(changed files the author previously modified, total changed files considered).
+
+    One batched `git log --name-only` over all paths instead of a subprocess
+    per file; the author "previously modified" a file when any of their merged
+    PRs touched it within the log window.
+    """
     if not paths:
         return 0, 0
-    count = 0
-    for path in paths:
-        cmd = ["git", "log", "-n", "50", "--format=%s", "--", path]
-        try:
-            result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if result.returncode != 0:
-            continue
-        for subject in result.stdout.splitlines():
-            pr_number = _extract_pr_number(subject)
-            if pr_number is not None and pr_number in author_prs:
-                count += 1
-                break
-    return count, len(paths)
+    cmd = ["git", "log", f"--since={_LOG_SINCE}", "--format=%x01%s", "--name-only", "--", *paths]
+    try:
+        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return 0, len(paths)
+    if result.returncode != 0:
+        return 0, len(paths)
+
+    wanted = set(paths)
+    owned_files: set[str] = set()
+    current_is_authors = False
+    for line in result.stdout.splitlines():
+        if line.startswith("\x01"):
+            pr_number = _extract_pr_number(line[1:])
+            current_is_authors = pr_number is not None and pr_number in author_prs
+        elif line and current_is_authors and line in wanted:
+            owned_files.add(line)
+    return len(owned_files), len(paths)
 
 
 # ── Band ─────────────────────────────────────────────────────────
@@ -401,6 +432,7 @@ def compute_familiarity(
     author_login: str,
     diff_path: Path,
     base_sha: str,
+    head_sha: str,
     repo: str,
     repo_root: Path,
     thresholds: FamiliarityPolicy,
@@ -409,7 +441,7 @@ def compute_familiarity(
 ) -> AuthorFamiliarity | None:
     """Compute the author's familiarity with the code the PR modifies.
 
-    Returns None only when the signal is genuinely absent (the gh call failed) —
+    Returns None only when the signal is genuinely absent (the gh call failed);
     every other degradation yields a populated result (possibly band NONE), so
     the reviewer sees either a trustworthy fact or nothing at all.
     """
@@ -422,12 +454,15 @@ def compute_familiarity(
     considered, capped = _select_considered_files(file_diffs)
     considered_paths = [f.path for f in considered if f.path]
 
-    owned, total, top_authors = _blame_overlap(considered, base_sha, author_prs, repo_root)
+    blame_sha = _merge_base(base_sha, head_sha, repo_root)
+    if blame_sha is not None:
+        owned, total, top_authors = _blame_overlap(considered, blame_sha, author_prs, repo_root)
+    else:
+        owned, total, top_authors = 0, 0, ()
     blame_overlap_pct = (100.0 * owned / total) if total else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, repo_root, now)
     files_prev_count, files_total = _files_previously_modified(considered_paths, author_prs, repo_root)
-    files_prev_frac = (files_prev_count / files_total) if files_total else 0.0
 
     band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
 
@@ -438,7 +473,6 @@ def compute_familiarity(
         modified_lines_total=total,
         prior_prs_in_paths=prior_prs,
         days_since_last_touch=days_since,
-        files_prev_frac=files_prev_frac,
         files_prev_count=files_prev_count,
         files_total=files_total,
         capped=capped,

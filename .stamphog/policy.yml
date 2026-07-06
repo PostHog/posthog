@@ -1,4 +1,4 @@
-# Stamphog merge-gate policy — see .stamphog/README.md for how changes are
+# Stamphog merge-gate policy - see .stamphog/README.md for how changes are
 # proposed and reviewed. Keep pattern scalars single-quoted so regex
 # backslashes survive YAML parsing.
 version: 1
@@ -55,7 +55,7 @@ deny:
                 - '\.pem'
     migrations:
         description: 'Database and schema migrations.'
-        rationale: 'The migrations/ substring is load-bearing — it also catches rust *_migrations/ dirs applied by sqlx at deploy.'
+        rationale: 'The migrations/ substring is load-bearing - it also catches rust *_migrations/ dirs applied by sqlx at deploy.'
         match:
             paths:
                 - 'migrations/'
@@ -106,7 +106,7 @@ deny:
         rationale: "All path-only literal filenames. Manifests deliberately don't hard-deny: without a lockfile change they cannot pull in third-party code, and manifest scripts/hooks are guarded by the reviewer prompt and kept out of the T0 fast path. requirements.txt stays (pins installed code directly). .nvmrc/.tool-versions stay (they change the runtime for every CI job). Makefile/Dockerfile stay (they execute)."
         # NOTE: partially code-sourced. The lockfile-name path patterns are derived
         # in the loader from DEPENDENCY_ECOSYSTEMS (re.escape over every ecosystem's
-        # lockfiles) and spliced in ahead of the literals below — do not copy them
+        # lockfiles) and spliced in ahead of the literals below - do not copy them
         # here. Only the non-derived literal patterns live in this file.
         match:
             paths:
@@ -117,7 +117,7 @@ deny:
                 - '\.nvmrc'
     stamphog_policy:
         description: "Stamphog's own policy files and engine."
-        rationale: "Changes to the merge gate's own policy or engine always require human review — the gate cannot be trusted to approve edits to itself."
+        rationale: "Changes to the merge gate's own policy or engine always require human review - the gate cannot be trusted to approve edits to itself."
         match:
             paths:
                 - '\.stamphog/'
@@ -185,7 +185,7 @@ dismiss:
 overrides:
     'size_gate.max_files':
         ceiling: 50
-# Author-familiarity signal — judgment layer only, never a gate. Non-delegable
+# Author-familiarity signal - judgment layer only, never a gate. Non-delegable
 # (absent from `overrides`). STRONG = blame overlap ≥ min_blame_overlap_pct;
 # MODERATE = both of its keys satisfied; else NONE.
 # Rationale: calibrated against 120 days of refused/escalated verdict outcomes

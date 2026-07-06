@@ -5,8 +5,8 @@ The engine loads these files from the checked-out working tree at run time.
 
 ## What lives here
 
-- `policy.yml` — the global machine policy: deny categories, allow-list, size gate, tier thresholds, dismiss-time triviality rules, and the folder delegation contract. Trusted data. Each rule's `rationale` records why the rule became what it is (which false positives drove an exclusion, and when) — historical justification like a commit message, not a claim about the present.
-- `review-guidance.md` — the trusted review-norms prose injected into the reviewer's system prompt. Ordinary repo-formatted markdown. Editing it changes the production prompt directly, so update deliberately — the `stamphog_policy` deny guarantees a human reviews every change.
+- `policy.yml` - the global machine policy: deny categories, allow-list, size gate, tier thresholds, dismiss-time triviality rules, and the folder delegation contract. Trusted data. Each rule's `rationale` records why the rule became what it is (which false positives drove an exclusion, and when) - historical justification like a commit message, not a claim about the present.
+- `review-guidance.md` - the trusted review-norms prose injected into the reviewer's system prompt. Ordinary repo-formatted markdown. Editing it changes the production prompt directly, so update deliberately - the `stamphog_policy` deny guarantees a human reviews every change.
 
 ## Proposing a policy change
 
@@ -20,7 +20,7 @@ A folder may carry an `AGENT_POLICIES.md` with a `stamphog:` frontmatter block p
 Resolution:
 
 - Overrides apply to a PR only when the nearest such file sits at or above the common ancestor of every changed file. This walks up from the deepest shared directory of the PR's files.
-- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file — frontmatter and prose — and the strict global policy applies.
+- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose - and the strict global policy applies.
 - The prose is untrusted advisory guidance. It is sanitized, length-capped, and injected inside the reviewer prompt's untrusted region; it can never override the deny rules or the refusal criteria.
 
 ### The stray-file gotcha
@@ -33,4 +33,4 @@ The fail direction is always stricter.
 ## Delegation contract
 
 The set of keys a folder file may override lives under `overrides` in `policy.yml` (currently just `size_gate.max_files`, ceiling 50).
-deny, allow, dismiss, tiers, and `size_gate.max_lines` are non-delegable by construction — they are absent from the contract and cannot be granted from a folder file.
+deny, allow, dismiss, tiers, and `size_gate.max_lines` are non-delegable by construction - they are absent from the contract and cannot be granted from a folder file.

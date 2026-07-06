@@ -24,8 +24,8 @@ _LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
 # Migration guards: these pin the extraction to the exact pre-extraction values
 # so a YAML transcription slip (a mangled regex escape, a dropped entry) cannot
 # pass silently. The first INTENTIONAL policy change must update the frozen copy
-# here in the same PR — that is by design: machine-policy edits always touch two
-# human-reviewed files. (The prose guidance file is deliberately NOT frozen —
+# here in the same PR - that is by design: machine-policy edits always touch two
+# human-reviewed files. (The prose guidance file is deliberately NOT frozen -
 # wording changes are governed by human review via the stamphog_policy deny.)
 
 OLD_DENY_PATTERN_DEFS = {
@@ -202,6 +202,10 @@ def _out_of_contract_delegation(d: dict) -> None:
     d["overrides"]["deny"] = {"ceiling": 1}
 
 
+def _rename_deps_toolchain(d: dict) -> None:
+    d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -210,6 +214,7 @@ def _out_of_contract_delegation(d: dict) -> None:
         _invalid_regex,
         _drop_self_governance,
         _out_of_contract_delegation,
+        _rename_deps_toolchain,
     ],
 )
 def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
