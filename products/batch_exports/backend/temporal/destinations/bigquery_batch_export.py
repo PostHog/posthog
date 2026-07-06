@@ -1062,11 +1062,13 @@ class BigQueryClient:
                     raise
                 try:
                     field_name = str(err).split(" ")[2]
-                except:
+                except IndexError:
                     field_name = "unknown"
 
                 self.external_logger.warning(
-                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table.",
+                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
+                    " Consider updating your table's schema so that the field is not REQUIRED."
+                    " Tables created automatically by the batch export always use non-REQUIRED fields.",
                     field_name,
                     error_code=err.code,
                     exc_info=True,
