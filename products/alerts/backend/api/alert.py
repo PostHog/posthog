@@ -65,18 +65,6 @@ def _validate_interval_entitlement(
         raise ValidationError({"calculation_interval": [error]})
 
 
-def _validate_real_time_interval(
-    *,
-    calculation_interval: str | AlertCalculationInterval | None,
-    organization,
-) -> None:
-    if error := AlertConfiguration.real_time_interval_validation_error(
-        calculation_interval=calculation_interval,
-        organization=organization,
-    ):
-        raise ValidationError({"calculation_interval": [error]})
-
-
 def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
     # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
     # explicitly — alert write/simulate access must not expose a restricted insight's results.
@@ -668,10 +656,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         organization = self.context["get_organization"]()
         _validate_interval_entitlement(
-            calculation_interval=calculation_interval,
-            organization=organization,
-        )
-        _validate_real_time_interval(
             calculation_interval=calculation_interval,
             organization=organization,
         )

@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { IconClock } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
@@ -10,10 +12,13 @@ import {
     supportsTimeWindow,
 } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AvailableFeature } from '~/types'
 
 import {
     cadenceFinerThanInsightInterval,
@@ -27,10 +32,6 @@ export interface AlertIntervalRowProps {
     creatingNewAlert: boolean
     alert: AlertType | null | undefined
     trendInterval: string | null | undefined
-    hasHighFrequencyAlertsEntitlement: boolean
-    hasRealTimeAlertsEntitlement: boolean
-    realTimeAlertsEnabled: boolean
-    guardAvailableFeature: GuardAvailableFeatureFn
     nextPlannedEvaluationStale: boolean
     canCheckOngoingInterval: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
@@ -41,14 +42,15 @@ export function AlertIntervalRow({
     creatingNewAlert,
     alert,
     trendInterval,
-    hasHighFrequencyAlertsEntitlement,
-    hasRealTimeAlertsEntitlement,
-    realTimeAlertsEnabled,
-    guardAvailableFeature,
     nextPlannedEvaluationStale,
     canCheckOngoingInterval,
     onSetAlertFormValue,
 }: AlertIntervalRowProps): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+    const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
+    const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
     const hogqlEvaluation = isHogQLAlertConfig(alertForm.config) ? alertForm.config.evaluation : null
     const hogqlEvaluatedText =
         hogqlEvaluation === 'any_row'
@@ -85,7 +87,8 @@ export function AlertIntervalRow({
                                         if (
                                             cadenceFinerThanInsightInterval(selected, trendInterval) &&
                                             canCheckOngoingInterval &&
-                                            supportsOngoingInterval(alertForm.config)
+                                            supportsOngoingInterval(alertForm.config) &&
+                                            alertForm.config.check_ongoing_interval === undefined
                                         ) {
                                             onSetAlertFormValue('config', {
                                                 ...alertForm.config,

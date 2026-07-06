@@ -5,7 +5,6 @@ import { useCallback, useMemo } from 'react'
 import { IconCalendar, IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,11 +17,10 @@ import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
@@ -136,12 +134,6 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-    const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
-    const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -307,10 +299,6 @@ export function EditAlertModal({
                                         creatingNewAlert={creatingNewAlert}
                                         alert={alert}
                                         trendInterval={trendInterval}
-                                        hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
-                                        hasRealTimeAlertsEntitlement={hasRealTimeAlertsEntitlement}
-                                        realTimeAlertsEnabled={realTimeAlertsEnabled}
-                                        guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
                                         canCheckOngoingInterval={can_check_ongoing_interval}
                                         onSetAlertFormValue={setAlertFormValue}

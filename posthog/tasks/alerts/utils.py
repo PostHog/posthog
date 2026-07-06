@@ -46,9 +46,8 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
-# Also encoded in the cadence duration maps in products/alerts/backend/evaluation/validation.py
-# and its frontend twin, and calibrated against the timeouts in posthog/temporal/alerts/retry_policy.py.
 REAL_TIME_CADENCE_MINUTES = 2
+EVERY_15_MINUTES_CADENCE_MINUTES = 15
 
 # Cheaper, more time-sensitive checks get workers first when the due batch is large.
 # Single source for both the Python ordering and the ORM Case in
@@ -77,7 +76,7 @@ def alert_calculation_interval_to_relativedelta(alert_calculation_interval: Aler
         case AlertCalculationInterval.REAL_TIME:
             return relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
         case AlertCalculationInterval.EVERY_15_MINUTES:
-            return relativedelta(minutes=15)
+            return relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
         case AlertCalculationInterval.HOURLY:
             return relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
