@@ -31,6 +31,7 @@ from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
     apply_trigram_search,
+    drop_similar_when_exact_exists,
     normalize_search_term,
 )
 from posthog.models import OrganizationMembership
@@ -248,6 +249,9 @@ class OrganizationMemberViewSet(
                     queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
