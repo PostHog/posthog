@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from html import escape
-from typing import Union
+from typing import Any, Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from django.apps import apps
@@ -25,13 +25,14 @@ from django.views.decorators.http import require_http_methods
 import structlog
 from opentelemetry import trace
 
+from posthog.api.capture import capture_internal
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
@@ -497,6 +498,44 @@ def api_key_search_view(request: HttpRequest):
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
+def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_ids: list[str], source: str) -> None:
+    """
+    Emit $workflows_email_unsubscribed engagement events into the customer's project.
+
+    Mirrors the plugin-server's $workflows_email_* engagement events (email-tracking.service.ts),
+    gated on the same capture_workflows_engagement_events team flag. The unsubscribe token only
+    carries team_id + identifier, so this event is email-level: distinct_id is the recipient's
+    email, and no workflow/action id is available. Best-effort — never fails the unsubscribe flow.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        if not team.workflows_config.capture_workflows_engagement_events:
+            return
+
+        for category_id in category_ids:
+            properties: dict[str, Any] = {
+                "$email": identifier,
+                "category": category_id,
+                "source": source,
+            }
+            result = capture_internal(
+                token=team.api_token,
+                event_name="$workflows_email_unsubscribed",
+                event_source="workflows_unsubscribe",
+                distinct_id=identifier,
+                properties=properties,
+            )
+            if not result.succeeded():
+                logger.error(
+                    "workflows_email_unsubscribed_capture_failed",
+                    team_id=team_id,
+                    category=category_id,
+                    error=result.error,
+                )
+    except Exception as e:
+        capture_exception(e)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
@@ -532,6 +571,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         recipient.save(update_fields=["preferences"])
 
         sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+
+        report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
         if request.method == "POST":
             return HttpResponse(status=200)
@@ -601,6 +642,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
 
     try:
+        prior_preferences = dict(recipient.preferences or {})
         preferences = request.POST.getlist("preferences[]")
         # Convert to dict of category_id: status
         preferences_dict = {}
@@ -627,6 +669,16 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         recipient.save()
 
         sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+
+        # Only genuine opt-out transitions count, so repeated saves don't double-emit
+        newly_opted_out = [
+            category_id
+            for category_id, status in preferences_dict.items()
+            if status == PreferenceStatus.OPTED_OUT.value
+            and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
+        ]
+        if newly_opted_out:
+            report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
 
         return JsonResponse({"success": True})
 

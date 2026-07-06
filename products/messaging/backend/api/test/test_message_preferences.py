@@ -190,6 +190,90 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
 
+    def _enable_engagement_events(self):
+        config = self.team.workflows_config
+        config.capture_workflows_engagement_events = True
+        config.save()
+
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_one_click_unsubscribe_emits_unsubscribed_event(
+        self, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        self._enable_engagement_events()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}),
+            {"one_click_unsubscribe": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$workflows_email_unsubscribed",
+            event_source="workflows_unsubscribe",
+            distinct_id=self.recipient.identifier,
+            properties={
+                "$email": self.recipient.identifier,
+                "category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "source": "one_click",
+            },
+        )
+
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_update_preferences_emits_only_for_newly_opted_out(
+        self, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        self._enable_engagement_events()
+        # category is already opted out, so only category2 and $all are genuine transitions
+        self.recipient.preferences = {
+            str(self.category.id): PreferenceStatus.OPTED_OUT.value,
+            str(self.category2.id): PreferenceStatus.OPTED_IN.value,
+        }
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        data = {"token": self.token, "preferences[]": [f"{self.category.id}:false", f"{self.category2.id}:false"]}
+        response = self.client.post(reverse("message_preferences_update"), data)
+
+        self.assertEqual(response.status_code, 200)
+        emitted_categories = [call.kwargs["properties"]["category"] for call in mock_capture_internal.call_args_list]
+        self.assertEqual(
+            sorted(emitted_categories), sorted([str(self.category2.id), ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
+        )
+        for call in mock_capture_internal.call_args_list:
+            self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
+
+    @parameterized.expand(["one_click", "preferences_form"])
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_no_unsubscribed_event_when_flag_off(
+        self, save_point, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        if save_point == "one_click":
+            response = self.client.get(
+                reverse("message_preferences", kwargs={"token": self.token}),
+                {"one_click_unsubscribe": "1"},
+            )
+        else:
+            response = self.client.post(
+                reverse("message_preferences_update"),
+                {"token": self.token, "preferences[]": [f"{self.category.id}:false"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_not_called()
+
 
 class TestMessagePreferencesAPIViewSet(APIBaseTest):
     def setUp(self):
