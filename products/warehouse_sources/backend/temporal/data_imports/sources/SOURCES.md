@@ -104,6 +104,7 @@ the row lists both.
 | coinmarketcap           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools           | HTTP                        | requests                                                        | ✅                          |
 | concord                 | HTTP                        | requests                                                        | ✅                          |
+| configcat               | HTTP                        | requests                                                        | ✅                          |
 | confluence              | HTTP                        | requests                                                        | ✅                          |
 | chartmogul              | HTTP                        | requests                                                        | ✅                          |
 | circleci                | HTTP                        | requests                                                        | ✅                          |
@@ -407,7 +408,6 @@ doesn't conflict with concurrent PRs.
 - cloudbeds
 - coassemble
 - cockroachdb
-- configcat
 - constant_contact
 - copper
 - cosmosdb
