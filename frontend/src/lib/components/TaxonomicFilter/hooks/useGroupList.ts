@@ -76,7 +76,7 @@ export interface UseGroupListInput {
     selectFirstItem?: boolean
     /** Set only when this is the filter's sole substantive group (no separate Recent/Pinned
      *  tabs lead the filter). Floats these recent (most-recent first) then pinned items to
-     *  the top of the un-searched list. Mirrors legacy infiniteListLogic's `soleGroupValueKeyer`
+     *  the top of the un-searched list. Mirrors legacy infiniteListLogic's `soleGroupHasGetValue`
      *  path. */
     promoteRecentItemsToTop?: TaxonomicDefinitionTypes[]
     promotePinnedItemsToTop?: TaxonomicDefinitionTypes[]
@@ -365,7 +365,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         }
         // Sole substantive group: float its own recent/pinned items to the top of the
         // un-searched list (keyword shortcuts only appear while searching, so they're
-        // never displaced). Mirrors legacy infiniteListLogic's `soleGroupValueKeyer` path.
+        // never displaced). Mirrors legacy infiniteListLogic's `soleGroupHasGetValue` path.
         if (!trimmedSearch && (promoteRecentItemsToTop?.length || promotePinnedItemsToTop?.length)) {
             const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
                 groupItemKey(group.type, group.getValue?.(item) ?? null)
