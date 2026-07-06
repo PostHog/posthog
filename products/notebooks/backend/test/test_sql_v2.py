@@ -3,6 +3,11 @@ import json
 import math
 import tarfile
 import datetime
+import threading
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -23,6 +28,8 @@ from products.notebooks.backend.sandbox.kernel import (
 )
 from products.notebooks.backend.sandbox.kernel.data_plane import DataPlaneError, decode_arrow_stream
 from products.notebooks.backend.sql_v2 import (
+    SQLV2KernelNotRunning,
+    ensure_sql_v2_server,
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
@@ -156,6 +163,88 @@ class TestSQLV2Run(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).first()
         assert run is not None
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
+
+
+class _RecordingSandbox:
+    """Stands in for the docker/Modal sandbox: records control-plane calls."""
+
+    def __init__(self):
+        self.files: dict[str, bytes] = {}
+        self.commands: list[str] = []
+
+    def write_file(self, path: str, payload: bytes) -> None:
+        self.files[path] = payload
+
+    def execute(self, command: str, timeout_seconds: int | None = None) -> None:
+        self.commands.append(command)
+
+    def get_connect_credentials(self):
+        return SimpleNamespace(url="http://localhost:45678", token="connect-tok")
+
+
+class TestSQLV2EnsureServer(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbens01")
+        self.sandbox = _RecordingSandbox()
+
+    def _create_runtime(self, server_url: str | None = None) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url=server_url or "",
+        )
+
+    def _ensure(self, reported_version: str | None):
+        sandbox_class = SimpleNamespace(get_by_id=lambda _id: self.sandbox)
+        with (
+            patch("products.notebooks.backend.sql_v2._server_version", return_value=reported_version),
+            patch("products.notebooks.backend.sql_v2.get_sandbox_class_for_backend", return_value=sandbox_class),
+            patch("products.notebooks.backend.sql_v2._wait_for_server_ready"),
+        ):
+            return ensure_sql_v2_server(self.notebook, self.user)
+
+    def test_current_server_is_reused_without_control_plane_calls(self):
+        # A redeploy on every run would restart the server and wipe the result cache.
+        runtime = self._create_runtime(server_url="http://localhost:1")
+        result = self._ensure(reported_version=kernel_package_bytes_and_hash()[1])
+        self.assertEqual(result.id, runtime.id)
+        self.assertEqual(self.sandbox.commands, [])
+        self.assertEqual(self.sandbox.files, {})
+
+    def test_stale_server_is_redeployed(self):
+        # Missing this redeploy strands sandboxes on old kernel code.
+        runtime = self._create_runtime(server_url="http://localhost:1")
+        result = self._ensure(reported_version="some-old-version")
+        package, _version = kernel_package_bytes_and_hash()
+        self.assertEqual(self.sandbox.files["/tmp/nb_kernel.tar.gz"], package)
+        self.assertEqual(self.sandbox.files["/tmp/nb_sql_v2_secret"], kernel_server_secret(str(runtime.id)).encode())
+        self.assertEqual(len(self.sandbox.commands), 1)
+        self.assertEqual(result.server_url, "http://localhost:45678")
+        self.assertEqual(result.server_connect_token, "connect-tok")
+
+    def test_launch_command_shape_regressions(self):
+        # Two bugs shipped from this one string: pkill -f of our own module name matches
+        # the launch command's shell and kills the deploy; and backgrounding a compound
+        # command records a wrapper subshell PID so later redeploys kill nothing.
+        self._create_runtime(server_url="http://localhost:1")
+        self._ensure(reported_version="some-old-version")
+        launch = self.sandbox.commands[0]
+        self.assertNotRegex(launch, r"pkill[^;&]*[^\[]nb_kernel")
+        self.assertIn("echo $! > /tmp/nb_kernel_server.pid", launch)
+        # The backgrounded segment must be a single simple command (no cd &&-chain).
+        backgrounded = launch.rsplit(";", 1)[-1].split("&")[0]
+        self.assertNotIn("&&", backgrounded)
+        self.assertIn("nb_kernel.server", backgrounded)
+
+    def test_no_running_runtime_raises(self):
+        with self.assertRaises(SQLV2KernelNotRunning):
+            self._ensure(reported_version=None)
 
 
 class TestSQLV2RunResult(APIBaseTest):
@@ -356,6 +445,52 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def test_unknown_notebook_returns_404(self):
         response = self._post({"query": "select 1"}, token=self._token(short_id="nope999"))
         self.assertEqual(response.status_code, 404)
+
+
+class TestSQLV2KernelServerHTTP(SimpleTestCase):
+    # The kernel HTTP layer (routing + command-token auth) has no other CI coverage —
+    # it only runs inside the sandbox. Loopback-only, stubbed runner.
+    def test_routes_auth_and_dispatch(self):
+        from products.notebooks.backend.sandbox.kernel import server as kernel_server
+
+        original_config = dict(kernel_server._config)
+        kernel_server._config.update({"secret": "test-secret", "version": "vtest"})
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), kernel_server.KernelServerHandler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def post(path: str, token: str):
+            request = urllib.request.Request(
+                f"{base}{path}",
+                data=json.dumps({"run_id": "run-1"}).encode(),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            return urllib.request.urlopen(request, timeout=5)
+
+        token = mint_command_token("test-secret", "run-1")
+        try:
+            with urllib.request.urlopen(f"{base}/health", timeout=5) as response:
+                self.assertEqual(json.loads(response.read())["version"], "vtest")
+
+            with self.assertRaises(urllib.error.HTTPError) as forged:
+                post("/run", token="forged")
+            self.assertEqual(forged.exception.code, 401)
+
+            ran = threading.Event()
+            with patch.object(kernel_server, "execute_run", side_effect=lambda _p: ran.set()):
+                with post("/run", token=token) as response:
+                    self.assertEqual(response.status, 202)
+                self.assertTrue(ran.wait(5))  # the run must execute off the request thread
+
+            with self.assertRaises(urllib.error.HTTPError) as unknown:
+                post("/nope", token=token)
+            self.assertEqual(unknown.exception.code, 404)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            kernel_server._config.clear()
+            kernel_server._config.update(original_config)
 
 
 class TestSQLV2KernelPackage(SimpleTestCase):

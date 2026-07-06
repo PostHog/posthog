@@ -191,13 +191,16 @@ def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package:
     # The pkill lines only clear pre-package servers (distinct names, safe to
     # match) from sandboxes that predate the PID file; drop them once those age out.
     # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    # The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
+    # no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
+    # would record the wrapper's PID and the next redeploy would kill nothing.
     # Prefer the notebook venv python (has pyarrow).
     launch = (
         f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
         "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
         f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
         'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
-        f"cd {_PACKAGE_ROOT} && nohup $PY -m {SANDBOX_PACKAGE_NAME}.server "
+        f'PYTHONPATH={_PACKAGE_ROOT} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
         f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
         f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
     )
