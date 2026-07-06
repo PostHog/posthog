@@ -51,12 +51,8 @@ class TestGetRows:
             return []
 
         # Patch on the module so get_rows uses the fake, bypassing the network.
-        original = height._fetch_list
-        height._fetch_list = fake_fetch  # type: ignore[assignment]
-        try:
+        with mock.patch.object(height, "_fetch_list", fake_fetch):
             list(get_rows(api_key="secret_key", endpoint=endpoint, logger=MagicMock()))
-        finally:
-            height._fetch_list = original  # type: ignore[assignment]
 
         assert captured["path"] == HEIGHT_ENDPOINTS[endpoint].path
 
