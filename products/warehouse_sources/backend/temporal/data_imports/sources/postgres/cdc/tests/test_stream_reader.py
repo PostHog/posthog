@@ -5,6 +5,7 @@ from unittest.mock import patch
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
+    _SLOT_READ_MAX_ATTEMPTS,
     PgCDCConnectionParams,
     PgCDCStreamReader,
 )
@@ -164,6 +165,74 @@ class TestPgCDCStreamReaderReadChanges:
 
         assert on_row_calls == len(rows)
         assert reader.last_rows_consumed == len(rows)
+
+
+class TestPgCDCStreamReaderReadChangesSlotInUse:
+    def _reader_reading(self, params, iter_side_effect):
+        reader = PgCDCStreamReader(params)
+        fake_cursor = mock.MagicMock()
+        fake_cursor.__iter__.side_effect = iter_side_effect
+        reader._conn = mock.MagicMock()
+        reader._conn.cursor.return_value.__enter__.return_value = fake_cursor
+        # Isolate the read mechanics (retry + row count) from pgoutput decoding.
+        reader._decoder = mock.MagicMock()
+        reader._decoder.decode_message.return_value = []
+        return reader, fake_cursor
+
+    def test_read_changes_retries_slot_in_use_then_succeeds(self, params):
+        # A prior run's connection is still releasing the slot on the first fetch; the next
+        # attempt self-heals instead of failing the whole extraction.
+        rows = [("0/1", 1, b"a"), ("0/2", 1, b"b")]
+        reader, fake_cursor = self._reader_reading(
+            params,
+            [
+                psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 2999'),
+                iter(rows),
+            ],
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+        ) as sleep:
+            list(reader.read_changes(upto_nchanges=10))
+
+        assert fake_cursor.__iter__.call_count == 2
+        assert reader.last_rows_consumed == len(rows)
+        # First backoff is 0.5 * 2**0 — asserting the value locks the multiplier.
+        sleep.assert_called_once_with(0.5)
+        reader._conn.rollback.assert_called_once()
+
+    def test_read_changes_reraises_when_slot_stays_in_use(self, params):
+        # A slot that never frees exhausts the in-process retries and re-raises, so the run still
+        # surfaces as the retryable SLOT_IN_USE classification rather than looping or silently
+        # returning no changes.
+        reader, fake_cursor = self._reader_reading(
+            params,
+            psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 2999'),
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+        ) as sleep:
+            with pytest.raises(psycopg.errors.ObjectInUse):
+                list(reader.read_changes(upto_nchanges=10))
+
+        assert fake_cursor.__iter__.call_count == _SLOT_READ_MAX_ATTEMPTS
+        assert sleep.call_count == _SLOT_READ_MAX_ATTEMPTS - 1
+
+    def test_read_changes_does_not_retry_unrelated_object_in_use(self, params):
+        # A different SQLSTATE 55006 (not the transient slot handoff) is re-raised immediately,
+        # never retried, so an unrelated failure isn't silently delayed.
+        reader, fake_cursor = self._reader_reading(
+            params,
+            psycopg.errors.ObjectInUse("database is being accessed by other users"),
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+        ) as sleep:
+            with pytest.raises(psycopg.errors.ObjectInUse):
+                list(reader.read_changes(upto_nchanges=10))
+
+        assert fake_cursor.__iter__.call_count == 1
+        sleep.assert_not_called()
 
 
 class TestPgCDCStreamReaderConfirmPosition:
