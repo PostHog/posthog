@@ -214,12 +214,10 @@ from products.tasks.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
-from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
-    ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
-    WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    load_all_sources,
 )
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,

@@ -111,7 +111,10 @@ The heart of the surface:
 - **SSE connection** — a `fetch` body reader pumped through `eventsource-parser`; a reconnect resumes after
   the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap).
 - **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few synthetic
-  client entries) is appended, never keyed or per-entry deduped.
+  client entries) is appended, never keyed or per-entry deduped — with one exception: superseded
+  `tool_call_update` frames are field-wise merged per `toolCallId` (`appendToRunLog`). Each update carries
+  the full accumulated `rawOutput`/`content` snapshot, so retaining every one balloons memory by orders of
+  magnitude while the fold only ever renders the merged latest.
 - **Pure projection** `foldLogToThread(entries) → { threadItems, toolInvocations }`, memoized on `log`
   identity, derives the rendered thread.
 - **Keyed by `streamKey`** so concurrent streams stay independent.
