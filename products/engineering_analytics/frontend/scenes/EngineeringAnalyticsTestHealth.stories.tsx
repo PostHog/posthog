@@ -85,7 +85,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-02',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
-        pageUrl: urls.engineeringAnalyticsTestHealth(),
         testOptions: {
             // A per-row quarantine button only renders once the leaderboard has data rows.
             waitForSelector: '[data-attr="eng-analytics-flaky-quarantine"]',
@@ -117,4 +116,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const FlakyTestLeaderboard: Story = { render: () => <App /> }
+export const FlakyTestLeaderboard: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+}
