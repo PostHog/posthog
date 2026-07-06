@@ -77,6 +77,8 @@ export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickh
 
 // Warehouse source webhook ingestion
 export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}data_warehouse_source_webhooks${suffix}`
+// Webhook delivery outcomes (status + reason) → ClickHouse, read by the data import pipeline
+export const KAFKA_WAREHOUSE_WEBHOOK_DELIVERY_STATUS = `${prefix}clickhouse_warehouse_webhook_delivery_status${suffix}`
 
 // Logs ingestion topics
 export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`

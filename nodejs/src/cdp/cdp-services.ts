@@ -41,6 +41,7 @@ import { HogInvocationResultsService } from './services/monitoring/hog-invocatio
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
+import { WarehouseWebhookStatusService } from './services/warehouse/warehouse-webhook-status.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
 
@@ -164,6 +165,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_TOPIC'
+        | 'CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -437,11 +440,13 @@ export function createCdpCoreServices(
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
+    const warehouseWebhookStatusService = new WarehouseWebhookStatusService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
+        warehouseWebhookStatusService,
         capturedEventsService,
         messageAssetsService
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncGenerator, Callable
+from datetime import timedelta
 from typing import Optional, TypeVar
 
 from django.conf import settings
@@ -11,13 +12,28 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from asgiref.sync import sync_to_async
 from structlog.types import FilteringBoundLogger
 
+from posthog.clickhouse.client import sync_execute
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+
+# Statuses that indicate the webhook sender's request was rejected for a reason
+# the user must fix (e.g. a bad signing secret). 5xx (our fault), 429 (hog-watcher
+# disabled) and 404 (function deleted) are deliberately excluded — they are not
+# user-actionable signing-secret problems and must not disable a schema.
+_NON_RETRYABLE_WEBHOOK_STATUSES = {400, 401, 403}
+# Number of consecutive recent failures required before we fail the run — guards
+# against a single transient rejection.
+_MIN_CONSECUTIVE_WEBHOOK_FAILURES = 3
+# Leading phrase of the raised error. Must stay byte-equal to the key registered
+# in `Any_Source_Errors` (substring match) so the run is classified non-retryable.
+WEBHOOK_DELIVERY_FAILING_ERROR = "Webhook delivery is failing"
 
 T = TypeVar("T")
 
@@ -114,12 +130,90 @@ class WebhookSourceManager:
                 await self._logger.adebug("webhook_folder_not_found", prefix=prefix)
                 return []
 
+    async def _webhook_failure_lookback_seconds(self) -> int:
+        """Window to look back for failures — one sync interval plus a buffer.
+
+        The buffer covers run duration, scheduler delay and ClickHouse ingest lag.
+        The schedule jitter we add is a one-time start-time offset, so inter-run
+        spacing stays ~one interval; the buffer does not need to absorb it.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(
+            id=self._inputs.schema_id, team_id=self._inputs.team_id
+        )
+        interval = schema.sync_frequency_interval or timedelta(hours=6)
+        buffer = max(interval * 0.2, timedelta(minutes=5))
+        return int((interval + buffer).total_seconds())
+
+    async def _persistent_webhook_failure_reason(self) -> Optional[str]:
+        """Return a reason string when recent deliveries are persistently failing
+        with a non-retryable (auth/signature) status, else ``None``.
+
+        A bad signing secret is rejected before per-event schema mapping, so those
+        failures carry an empty ``schema_id`` (source-level). We match both this
+        schema's rows and source-level rows.
+        """
+        window_seconds = await self._webhook_failure_lookback_seconds()
+        rows = await sync_to_async(sync_execute)(
+            """
+            SELECT http_status, ok, reason
+            FROM warehouse_webhook_delivery_status
+            WHERE team_id = %(team_id)s
+              AND source_id = %(source_id)s
+              AND (schema_id = %(schema_id)s OR schema_id = '')
+              AND timestamp > now() - toIntervalSecond(%(window_seconds)s)
+            ORDER BY timestamp DESC
+            LIMIT 50
+            """,
+            {
+                "team_id": self._inputs.team_id,
+                "source_id": str(self._inputs.source_id),
+                "schema_id": str(self._inputs.schema_id),
+                "window_seconds": window_seconds,
+            },
+        )
+        return self._classify_webhook_failure(rows)
+
+    @staticmethod
+    def _classify_webhook_failure(rows: list[tuple]) -> Optional[str]:
+        # Rows are newest-first. Count the leading run of non-retryable failures;
+        # a success (recovery) or any other status (transient) breaks the run.
+        consecutive = 0
+        latest_reason: Optional[str] = None
+        for http_status, ok, reason in rows:
+            if ok == 1 or http_status not in _NON_RETRYABLE_WEBHOOK_STATUSES:
+                break
+            if latest_reason is None:
+                latest_reason = reason or f"HTTP {http_status}"
+            consecutive += 1
+
+        if consecutive >= _MIN_CONSECUTIVE_WEBHOOK_FAILURES:
+            return latest_reason
+        return None
+
+    async def _raise_on_persistent_webhook_failure(self) -> None:
+        reason = await self._persistent_webhook_failure_reason()
+        if reason is None:
+            return
+
+        await self._logger.awarning("webhook_delivery_persistently_failing", reason=reason)
+        raise NonRetryableException(
+            f"{WEBHOOK_DELIVERY_FAILING_ERROR}: {reason}. "
+            "Check your webhook configuration (e.g. signing secret) in the source settings, "
+            "then re-enable syncing."
+        )
+
     async def get_items(
         self,
         table_transformer: Optional[Callable[[pa.Table], pa.Table]] = None,
         batch_row_limit: int = 5000,
         batch_byte_limit: int = 200 * 1024 * 1024,
     ) -> AsyncGenerator[pa.Table]:
+        # Fail fast (non-retryably) if recent deliveries are persistently rejected
+        # so the user is told to fix the webhook instead of silently importing 0 rows.
+        await self._raise_on_persistent_webhook_failure()
+
         files = await self._list_webhook_parquet_files()
 
         await self._logger.adebug(f"Webhook source reading {len(files)} files")

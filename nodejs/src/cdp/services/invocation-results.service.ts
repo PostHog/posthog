@@ -5,6 +5,7 @@ import { CapturedEventsService } from './captured-events/captured-events.service
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
+import { WarehouseWebhookStatusService } from './warehouse/warehouse-webhook-status.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
 /**
@@ -15,6 +16,8 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
  * - `HogInvocationResultsService`  — per-invocation lifecycle row in ClickHouse
  *                                    (powers the new runs UI + rerun path)
  * - `WarehouseWebhooksService`    — warehouse source webhook payloads
+ * - `WarehouseWebhookStatusService` — warehouse source webhook delivery outcomes
+ *                                    (status + reason) read by the data import pipeline
  * - `CapturedEventsService`       — PostHog events emitted via posthog.capture()
  * - `MessageAssetsService`        — rendered-email snapshots for the workflow
  *                                    Assets tab
@@ -30,6 +33,7 @@ export class InvocationResultsService {
         public readonly monitoringService: HogFunctionMonitoringService,
         public readonly invocationResultsRowsService: HogInvocationResultsService,
         public readonly warehouseWebhooksService: WarehouseWebhooksService,
+        public readonly warehouseWebhookStatusService: WarehouseWebhookStatusService,
         public readonly capturedEventsService: CapturedEventsService,
         public readonly messageAssetsService: MessageAssetsService
     ) {}
@@ -39,6 +43,7 @@ export class InvocationResultsService {
             this.monitoringService.queueInvocationResults(results)
             this.invocationResultsRowsService.queueInvocationResults(results)
             this.warehouseWebhooksService.queueInvocationResults(results)
+            this.warehouseWebhookStatusService.queueInvocationResults(results)
             this.messageAssetsService.queueInvocationResults(results)
             await this.capturedEventsService.queueInvocationResults(results)
         })
@@ -49,6 +54,7 @@ export class InvocationResultsService {
             this.monitoringService.flush(),
             this.invocationResultsRowsService.flush(),
             this.warehouseWebhooksService.flush(),
+            this.warehouseWebhookStatusService.flush(),
             this.capturedEventsService.flush(),
             this.messageAssetsService.flush(),
         ])

@@ -70,6 +70,7 @@ KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFF
 KAFKA_DWH_CDP_RAW_TABLE = f"{KAFKA_PREFIX}cdp_data_warehouse_source_table{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ = f"{KAFKA_PREFIX}data_warehouse_source_webhooks_dlq{SUFFIX}"
+KAFKA_WAREHOUSE_WEBHOOK_DELIVERY_STATUS = f"{KAFKA_PREFIX}clickhouse_warehouse_webhook_delivery_status{SUFFIX}"
 
 KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
 

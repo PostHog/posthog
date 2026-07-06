@@ -15,3 +15,6 @@ export type PrecalculatedPersonPropertiesOutput = typeof PRECALCULATED_PERSON_PR
 
 export const WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT = 'warehouse_source_webhooks' as const
 export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT
+
+export const WAREHOUSE_WEBHOOK_DELIVERY_STATUS_OUTPUT = 'warehouse_webhook_delivery_status' as const
+export type WarehouseWebhookDeliveryStatusOutput = typeof WAREHOUSE_WEBHOOK_DELIVERY_STATUS_OUTPUT

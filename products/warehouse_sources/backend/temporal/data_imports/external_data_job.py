@@ -106,6 +106,14 @@ Any_Source_Errors: dict[str, str | None] = {
     # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
     # volatile `_ssl.c:NNNN` suffix or per-request host.
     "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
+    # Raised by WebhookSourceManager — keep the key byte-equal to
+    # `WEBHOOK_DELIVERY_FAILING_ERROR` in sources/common/webhook_s3.py.
+    "Webhook delivery is failing": (
+        "Your webhook is failing to deliver — PostHog rejected recent deliveries. "
+        "Check your signing secret and webhook configuration in the source settings, "
+        "then re-enable syncing."
+    ),
+
 }
 
 

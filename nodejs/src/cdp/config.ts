@@ -7,6 +7,7 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+    KAFKA_WAREHOUSE_WEBHOOK_DELIVERY_STATUS,
 } from '~/common/config/kafka-topics'
 import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 
@@ -121,6 +122,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
+    CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_TOPIC: string
+    CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_PRODUCER: CdpProducerName
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -251,6 +254,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
+        // ClickHouse consumes this topic from the warpstream_cyclotron named
+        // collection, so the producer must target the same cluster.
+        CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_TOPIC: KAFKA_WAREHOUSE_WEBHOOK_DELIVERY_STATUS,
+        CDP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

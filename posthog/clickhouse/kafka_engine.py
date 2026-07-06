@@ -18,6 +18,7 @@ CONSUMER_GROUP_SESSION_REPLAY_FEATURES = "clickhouse_session_replay_features" if
 CONSUMER_GROUP_LOG_ENTRIES = "clickhouse_log_entries_v3" if _US else "clickhouse_log_entries"
 CONSUMER_GROUP_HOG_INVOCATION_RESULTS = "clickhouse_hog_invocation_results"
 CONSUMER_GROUP_MESSAGE_ASSETS = "clickhouse_message_assets"
+CONSUMER_GROUP_WAREHOUSE_WEBHOOK_DELIVERY_STATUS = "clickhouse_warehouse_webhook_delivery_status"
 CONSUMER_GROUP_DOCUMENT_EMBEDDINGS = "clickhouse_document_embeddings2" if _US else "clickhouse_document_embeddings"
 CONSUMER_GROUP_HEATMAPS = "clickhouse_heatmaps" if _US else "group1"
 CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US else "clickhouse_prefiltered_events"

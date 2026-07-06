@@ -740,6 +740,24 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_warehouse_webhook_delivery_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_warehouse_webhook_delivery_status
+  (
+      team_id Int64,
+      source_id String,
+      schema_id String,
+      http_status UInt16,
+      ok UInt8,
+      reason String,
+      timestamp DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_warehouse_webhook_delivery_status_test', kafka_group_name = 'clickhouse_warehouse_webhook_delivery_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[ai_events]
   '''
   
@@ -2627,6 +2645,24 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_warehouse_webhook_delivery_status]
+  '''
+
+  CREATE TABLE IF NOT EXISTS kafka_warehouse_webhook_delivery_status
+  (
+      team_id Int64,
+      source_id String,
+      schema_id String,
+      http_status UInt16,
+      ok UInt8,
+      reason String,
+      timestamp DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_warehouse_webhook_delivery_status_test', kafka_group_name = 'clickhouse_warehouse_webhook_delivery_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+
+  '''
+# ---
 # name: test_create_table_query[log_attributes2]
   '''
   
@@ -2653,7 +2689,7 @@
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
-  
+
   '''
 # ---
 # name: test_create_table_query[log_attributes3]
@@ -7585,6 +7621,73 @@
   
   '''
 # ---
+# name: test_create_table_query[warehouse_webhook_delivery_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS warehouse_webhook_delivery_status
+  (
+      team_id Int64,
+      source_id String,
+      schema_id String,
+      http_status UInt16,
+      ok UInt8,
+      reason String,
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'warehouse_webhook_delivery_status_data')
+  
+  '''
+# ---
+# name: test_create_table_query[warehouse_webhook_delivery_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS warehouse_webhook_delivery_status_data
+  (
+      team_id Int64,
+      source_id String,
+      schema_id String,
+      http_status UInt16,
+      ok UInt8,
+      reason String,
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.warehouse_webhook_delivery_status_data', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, source_id, schema_id, timestamp)
+  
+  
+  '''
+# ---
+# name: test_create_table_query[warehouse_webhook_delivery_status_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS warehouse_webhook_delivery_status_mv
+  TO warehouse_webhook_delivery_status_data
+  AS SELECT
+      team_id,
+      source_id,
+      schema_id,
+      http_status,
+      ok,
+      reason,
+      timestamp,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_warehouse_webhook_delivery_status
+  
+  '''
+# ---
 # name: test_create_table_query[web_bounces_dimensional_preaggregated]
   '''
   
@@ -11963,6 +12066,31 @@
   ORDER BY (team_id, job_id, time_window_start, path)
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[warehouse_webhook_delivery_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS warehouse_webhook_delivery_status_data
+  (
+      team_id Int64,
+      source_id String,
+      schema_id String,
+      http_status UInt16,
+      ok UInt8,
+      reason String,
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.warehouse_webhook_delivery_status_data', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, source_id, schema_id, timestamp)
+  
   
   '''
 # ---
