@@ -186,6 +186,7 @@ the row lists both.
 | hubplanner              | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
+| huntr                   | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
 | instatus                | HTTP                        | requests                                                        | ✅                          |
@@ -484,7 +485,6 @@ doesn't conflict with concurrent PRs.
 - hubplanner
 - hugging_face
 - humanitix
-- huntr
 - ikas
 - illumina_basespace
 - imagga

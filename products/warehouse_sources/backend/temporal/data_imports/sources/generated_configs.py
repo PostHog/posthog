@@ -1580,7 +1580,7 @@ class HumanitixSourceConfig(config.Config):
 
 @config.config
 class HuntrSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
