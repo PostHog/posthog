@@ -703,9 +703,8 @@ class TeamAdmin(admin.ModelAdmin):
                 f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
             )
         else:
-            # Audit the actor on real credits only; an idempotent replay moved no
-            # money and the failure path already logs a warning. item_id is the
-            # ledger entry_id, so this record joins back to the gateway movement.
+            # Audit real credits only: a replay moved no money, failures already warn.
+            # item_id = ledger entry_id, joining this record to the gateway movement.
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
@@ -788,12 +787,13 @@ class TeamAdmin(admin.ModelAdmin):
     def ai_gateway_credit_history(self, team: Team):
         if not team.pk:
             return "-"
-        # Local ActivityLog read (not a gateway call), so render inline. The gateway
-        # ledger records the money movement; the actor lives here, joined by
-        # entry_id == ActivityLog.item_id.
-        entries = ActivityLog.objects.filter(
-            scope="AIGatewayCredit", team_id=team.pk, activity="credit_added"
-        ).order_by("-created_at")[:20]
+        # Local ActivityLog read (no gateway call), so render inline. The ledger
+        # records the movement; the actor lives here, joined by item_id == entry_id.
+        entries = (
+            ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=team.pk, activity="credit_added")
+            .select_related("user")
+            .order_by("-created_at")[:20]
+        )
         if not entries:
             return format_html("<em>(no top-ups recorded)</em>")
         rows = format_html_join(

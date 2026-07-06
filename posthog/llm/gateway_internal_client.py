@@ -8,9 +8,8 @@ import httpx
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
-# Ledger provenance tag (meta.source) marking a credit as admin-originated, distinct
-# from the billing path's "billing". The acting human is audited in PostHog's
-# ActivityLog, not here.
+# Ledger provenance tag (meta.source): admin-originated vs the billing path's
+# "billing". The acting human is audited in ActivityLog, not here.
 ADMIN_ACTOR = "posthog-admin"
 
 

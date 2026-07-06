@@ -235,6 +235,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_changed_password", "User", "changed_password", False, False),
             # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
+            # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
+            ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -264,6 +266,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created_staff_bypass", "User", "created", False, False),
             # Staff can also see InstanceSetting updates (allow_staff=True)
             ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
+            # Staff can also see AI-gateway top-ups (allow_staff=True)
+            ("ai_gateway_credit_added_staff_bypass", "AIGatewayCredit", "credit_added", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
