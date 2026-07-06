@@ -106,9 +106,8 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_sampling_is_consistent(self):
-        teams = []
         for i in range(100):
-            teams.append(Team.objects.create(organization=self.organization, name=f"Team {i}"))
+            Team.objects.create(organization=self.organization, name=f"Team {i}")
 
         call_command(
             "set_recorder_script",
@@ -116,15 +115,13 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        # Assert against the sampling contract (hash of team id) instead of a statistical
-        # band: sample_on_property over sequential ids is far from uniform, so the count
-        # depends on where the test DB's id sequence happens to be.
-        expected_team_ids = {team.id for team in teams if sample_on_property(str(team.id), 0.5)}
-        updated_team_ids = set(
-            Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True)
-        )
+        # Sampling is deterministic on team id, so the command must update exactly the teams
+        # that hash into the sample. Asserting a rough proportion is flaky: consecutive ids hash
+        # into a narrow band, so the count lands near 0 or near 100 rather than around 50.
+        expected_ids = {team.id for team in Team.objects.all() if sample_on_property(str(team.id), 0.5)}
+        updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
 
-        assert updated_team_ids == expected_team_ids
+        assert updated_ids == expected_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
