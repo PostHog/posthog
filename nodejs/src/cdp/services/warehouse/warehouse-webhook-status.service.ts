@@ -1,6 +1,7 @@
 import { Gauge } from 'prom-client'
 
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { WAREHOUSE_WEBHOOK_DELIVERY_STATUS_OUTPUT, WarehouseWebhookDeliveryStatusOutput } from '../../outputs/outputs'
