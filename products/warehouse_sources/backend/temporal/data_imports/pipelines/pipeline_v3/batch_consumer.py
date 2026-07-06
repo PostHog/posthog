@@ -247,7 +247,6 @@ class BatchConsumer:
             connect_timeout=self._config.connect_timeout_seconds,
         )
 
-
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
 
@@ -305,9 +304,6 @@ class BatchConsumer:
         )
 
         try:
-            # Liveness must be reporting before the startup sweep runs: the sweep
-            # scans the whole queue and can outlast the health server's startup
-            # grace window, and a pod liveness-killed mid-sweep can never boot.
             # Liveness must be reporting before the startup sweep runs: the sweep
             # scans the whole queue and can outlast the health server's startup
             # grace window, and a pod liveness-killed mid-sweep can never boot.
@@ -785,7 +781,6 @@ class BatchConsumer:
 
             try:
                 await self._recovery_sweep_with_timeout()
-                await self._recovery_sweep_with_timeout()
             except Exception as e:
                 logger.exception(self._event("recovery_sweep_error"))
                 capture_exception(e)
@@ -806,14 +801,13 @@ class BatchConsumer:
                     logger.exception(self._event("reconcile_sweep_error"))
                     capture_exception(e)
 
-
     async def _recovery_sweep_with_timeout(self) -> None:
         """Run the recovery sweep under the sweep timeout; a sweep that never returns must not stall the consumer."""
         try:
             async with asyncio.timeout(self._config.sweep_timeout_seconds):
                 await self._recovery_sweep()
         except TimeoutError:
-            logger.exception(
+            logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
                 self._event("recovery_sweep_timed_out"),
                 timeout_seconds=self._config.sweep_timeout_seconds,
             )
