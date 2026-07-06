@@ -9,6 +9,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
+import { LogsTransactions } from 'products/logs/frontend/components/LogsTransactions/LogsTransactions'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
@@ -122,6 +123,7 @@ function LogsViewerContent({
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
+    const showTransactionsView = useFeatureFlag('LOGS_TRANSACTIONS')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -348,16 +350,23 @@ function LogsViewerContent({
         </>
     )
 
-    // Patterns is a mode of the Viewer, not a separate tab: it swaps only the results region
-    // and reuses the same filter bar / FacetRail / date range (shared via logsViewerFiltersLogic).
-    // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
-    // of the (non-persisted) viewMode state.
+    // Patterns and Transactions are modes of the Viewer, not separate tabs: they swap only the
+    // results region and reuse the same filter bar / FacetRail / date range (shared via
+    // logsViewerFiltersLogic). Gate on the flags too, so the flagged views stay unreachable when
+    // their flag is off regardless of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    const resultsRegion = inPatternsMode ? <LogsPatterns id={id} /> : logList
+    const inTransactionsMode = showTransactionsView && viewMode === 'transactions'
+    const resultsRegion = inPatternsMode ? (
+        <LogsPatterns id={id} />
+    ) : inTransactionsMode ? (
+        <LogsTransactions />
+    ) : (
+        logList
+    )
 
     // Both layouts share the same results column; only the results bar above it differs (the facet-rail
-    // layout adds the rail toggle). The bar owns the Logs⇄Patterns switch and hides its Logs-only tools
-    // in Patterns mode, so it renders in both modes — keeping the frame (toggle, count) persistent.
+    // layout adds the rail toggle). The bar owns the view-mode switch and hides its Logs-only tools
+    // outside Logs mode, so it renders in every mode — keeping the frame (toggle, count) persistent.
     const resultsColumn = (bar: JSX.Element): JSX.Element => (
         <>
             {bar}

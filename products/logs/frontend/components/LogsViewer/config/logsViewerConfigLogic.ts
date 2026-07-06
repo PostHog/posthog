@@ -22,7 +22,7 @@ export const DEFAULT_SPARKLINE_BREAKDOWN_BY: LogsSparklineBreakdownBy = 'severit
 
 export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 
-export type LogsViewerViewMode = 'logs' | 'patterns'
+export type LogsViewerViewMode = 'logs' | 'patterns' | 'transactions'
 export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
 
 export interface LogsViewerConfigProps {

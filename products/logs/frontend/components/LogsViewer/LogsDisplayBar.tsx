@@ -21,8 +21,9 @@ export interface LogsDisplayBarProps {
 /**
  * The bar above the results, grouped by scope rather than by widget kind:
  *
- *  - persistent-left "frame": controls that belong to the results region in *both* lenses —
- *    the filters toggle, the Logs⇄Patterns switch, and a lens-aware count indicator.
+ *  - persistent-left "frame": controls that belong to the results region in *all* lenses —
+ *    the filters toggle, the view-mode switch (Logs / Patterns / Transactions), and a lens-aware
+ *    count indicator.
  *  - contextual-right: the Logs-only presentation tools (sort, wrap, timezone, export, shortcuts),
  *    hidden entirely in Patterns mode where none of them apply.
  *
@@ -36,8 +37,11 @@ export const LogsDisplayBar = ({
     const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
+    const showTransactionsView = useFeatureFlag('LOGS_TRANSACTIONS')
 
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
+    const inTransactionsMode = showTransactionsView && viewMode === 'transactions'
+    const inLogsMode = !inPatternsMode && !inTransactionsMode
 
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -52,27 +56,26 @@ export const LogsDisplayBar = ({
                         {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
                     </LemonButton>
                 )}
-                {showPatternsView && (
+                {(showPatternsView || showTransactionsView) && (
                     <LemonSegmentedButton
                         size="small"
                         value={viewMode}
                         onChange={setViewMode}
                         options={[
-                            { value: 'logs', label: 'Logs' },
-                            { value: 'patterns', label: 'Patterns' },
+                            { value: 'logs' as const, label: 'Logs' },
+                            ...(showPatternsView ? [{ value: 'patterns' as const, label: 'Patterns' }] : []),
+                            ...(showTransactionsView
+                                ? [{ value: 'transactions' as const, label: 'Transactions' }]
+                                : []),
                         ]}
                     />
                 )}
-                {inPatternsMode ? (
-                    <PatternsCountIndicator id={id} />
-                ) : (
-                    totalLogsCount !== undefined &&
-                    totalLogsCount > 0 && (
-                        <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
-                    )
+                {inPatternsMode && <PatternsCountIndicator id={id} />}
+                {inLogsMode && totalLogsCount !== undefined && totalLogsCount > 0 && (
+                    <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                 )}
             </div>
-            {!inPatternsMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
+            {inLogsMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
         </div>
     )
 }
