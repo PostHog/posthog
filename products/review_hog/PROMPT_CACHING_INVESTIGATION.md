@@ -47,7 +47,7 @@ Intra-session caching demonstrably works through the gateway.
 Two prior experiments are directly relevant precedent:
 
 - **C5 warm per-perspective sessions** (chunks as sequential turns): built, evaluated, **rejected** — anchoring made later turns near-silent; ~half the "saving" was the anchoring itself; wall-clock +3–4 min.
-- **"Shared repo-orientation pre-pass artefact"**: **rejected** — measured turn-1 cache_read = 0 meant no cross-sandbox cache existed, so a shared pre-pass was pure added payload per unit, plus an anchoring device.
+- **"Shared repo-orientation pre-pass artefact"**: **rejected** — measured turn-1 `cache_read` = 0 meant no cross-sandbox cache existed, so a shared pre-pass was pure added payload per unit, plus an anchoring device.
   _The fork idea investigated here is that idea with the cache economics actually attached — which is why it deserves the re-look, gated on eval._
 
 ## Why cross-sandbox sharing fails today — three violations
