@@ -325,7 +325,7 @@ class TestSQLV2PageDispatch(APIBaseTest):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbpgd01")
         with team_scope(self.team.id):
-            self.run = NotebookNodeRun.objects.create(
+            self.node_run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
                 node_id="n1",
@@ -347,14 +347,14 @@ class TestSQLV2PageDispatch(APIBaseTest):
 
     def test_raises_without_running_kernel(self):
         with self.assertRaises(SQLV2KernelNotRunning):
-            fetch_sql_v2_page(self.notebook, self.user, self.run, offset=50, limit=50)
+            fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=50, limit=50)
 
     @patch("products.notebooks.backend.sql_v2.requests.post")
     def test_posts_run_code_and_paging_to_kernel(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
         self._create_runtime()
-        fetch_sql_v2_page(self.notebook, self.user, self.run, offset=100, limit=25)
+        fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=100, limit=25)
         self.assertIn("/page", mock_post.call_args.args[0])
         payload = mock_post.call_args.kwargs["json"]
         # The kernel must page the code that produced the result, not whatever the editor holds now.
@@ -378,7 +378,7 @@ class TestSQLV2PageDispatch(APIBaseTest):
         mock_post.return_value.json.return_value = body
         self._create_runtime()
         with self.assertRaises(expected_exception):
-            fetch_sql_v2_page(self.notebook, self.user, self.run, offset=0, limit=50)
+            fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=0, limit=50)
 
 
 class TestSQLV2RunResult(APIBaseTest):

@@ -948,7 +948,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
             raise Http404()
 
         serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
