@@ -6,6 +6,13 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
 
+/** The minimal per-element shape this step needs to resolve a session's key. */
+type ResolveKeyStepInput = {
+    team: TeamForReplay
+    headers: SessionReplayHeaders
+    retentionPeriod: RetentionPeriod
+} & NewSessionFlag
+
 /**
  * Record-phase per-session step: resolve a session's encryption key, off the S3 write path. Wired under
  * a `groupBy(session)` so it runs once per distinct session and the memory-cached keystore fans the key
@@ -26,13 +33,9 @@ import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipelin
  * {@link createTrackAndGateStep} guarantees the new-vs-existing input here is correct or absent (its
  * hasSeen also fails hard), so this step never fetches a key for a genuinely-new session.
  */
-export function createResolveKeyStep<
-    T extends {
-        team: TeamForReplay
-        headers: SessionReplayHeaders
-        retentionPeriod: RetentionPeriod
-    } & NewSessionFlag,
->(keyStore: KeyStore): ProcessingStep<Gated<T>, Resolved<T>> {
+export function createResolveKeyStep<T extends ResolveKeyStepInput>(
+    keyStore: KeyStore
+): ProcessingStep<Gated<T>, Resolved<T>> {
     return async function resolveKeyStep(value) {
         if (value.status === 'blocked') {
             return ok(value)
