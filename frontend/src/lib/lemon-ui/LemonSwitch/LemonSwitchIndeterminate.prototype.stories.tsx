@@ -59,7 +59,7 @@ const VARIANTS: {
     {
         key: 'I',
         name: 'Centered handle with dash (neutral track)',
-        description: 'Like A — centered handle on a neutral track — but the handle carries the minus glyph.',
+        description: 'Like A — centered handle on a neutral track — but the handle carries a gray minus glyph.',
         Component: VariantICenteredHandleDashNeutral,
     },
     {

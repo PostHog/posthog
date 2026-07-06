@@ -19,8 +19,8 @@
  *       width and sits on a gray-to-accent gradient track (C), carrying the minus glyph (B).
  *   H — Same as D, but the full-width handle is filled with the active accent blue and the
  *       dash is white.
- *   I — Same as A (centered handle on a neutral track), but the handle carries the minus
- *       glyph.
+ *   I — Same as A (centered handle on a neutral track), but the handle carries a gray
+ *       minus glyph.
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -106,13 +106,13 @@ export function VariantACenteredHandle(props: PrototypeSwitchProps): JSX.Element
     return <SwitchShell {...props} handleStyle={{ transform: CENTERED_TRANSLATE }} />
 }
 
-/** I — like A, but the centered handle carries the minus glyph. */
+/** I — like A, but the centered handle carries a gray minus glyph. */
 export function VariantICenteredHandleDashNeutral(props: PrototypeSwitchProps): JSX.Element {
     return (
         <SwitchShell
             {...props}
             handleStyle={{ transform: CENTERED_TRANSLATE }}
-            handleContent={<Dash color="var(--color-accent)" width="55%" />}
+            handleContent={<Dash color="var(--color-text-secondary)" width="55%" />}
         />
     )
 }
