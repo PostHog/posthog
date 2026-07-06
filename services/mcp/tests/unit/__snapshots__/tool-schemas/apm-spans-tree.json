@@ -93,6 +93,10 @@
                     },
                     "type": "array"
                 },
+                "personId": {
+                    "description": "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId').",
+                    "type": "string"
+                },
                 "serviceName": {
                     "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
                     "type": "string"

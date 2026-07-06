@@ -71,6 +71,10 @@
                     },
                     "type": "array"
                 },
+                "personId": {
+                    "description": "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId').",
+                    "type": "string"
+                },
                 "rootSpans": {
                     "default": true,
                     "description": "When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.",

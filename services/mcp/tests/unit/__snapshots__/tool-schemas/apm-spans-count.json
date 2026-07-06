@@ -71,6 +71,10 @@
                     },
                     "type": "array"
                 },
+                "personId": {
+                    "description": "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId').",
+                    "type": "string"
+                },
                 "serviceNames": {
                     "description": "Filter by service names.",
                     "items": {

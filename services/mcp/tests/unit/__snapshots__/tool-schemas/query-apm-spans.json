@@ -105,6 +105,10 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
+                "personId": {
+                    "description": "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId').",
+                    "type": "string"
+                },
                 "prefetchSpans": {
                     "description": "Number of child spans to prefetch per trace (1-100).",
                     "type": "number"
