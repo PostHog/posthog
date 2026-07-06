@@ -88,7 +88,12 @@ export function copyIndexHtml(
                 console.error('Error loading chunk: "' + file + '"')
                 console.error(error)
                 if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
-                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                    try {
+                        await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                    } catch (fallbackError) {
+                        console.error('Error loading fallback chunk: "' + ${JSON.stringify(jsFileFallback)} + '"')
+                        console.error(fallbackError)
+                    }
                 }
             }
         }
@@ -687,7 +692,12 @@ export function startServer(opts = {}) {
             const filePath = path.resolve(absWorkingDir, 'dist', pathFromUrl)
             // protect against "/../" urls
             if (filePath.startsWith(path.resolve(absWorkingDir, 'dist'))) {
-                res.sendFile(filePath.split('?')[0])
+                const cleanPath = filePath.split('?')[0]
+                // Safari refuses to run modules served with an empty Content-Type, so set it explicitly
+                if (cleanPath.endsWith('.js') || cleanPath.endsWith('.mjs')) {
+                    res.type('text/javascript')
+                }
+                res.sendFile(cleanPath)
                 return
             }
         }
