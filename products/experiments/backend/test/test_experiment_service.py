@@ -3300,6 +3300,34 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.filters == original_filters
         assert experiment.is_exposure_frozen is False
 
+    def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(self):
+        experiment = self._create_running_experiment(name="Freeze Insert Fail", feature_flag_key="freeze-insert-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # A transient store failure mid-insert is swallowed by the cohort batching helper unless the
+        # caller opts into raise_on_error. Fail the innermost batch write (not the public method) so
+        # the real swallow path runs: the freeze must surface the failure and leave nothing behind,
+        # never narrow the flag to a partially populated snapshot.
+        with (
+            patch.object(
+                ExperimentService,
+                "_fetch_exposed_person_uuids",
+                return_value=["00000000-0000-0000-0000-000000000001"],
+            ),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort._insert_batch_via_personhog",
+                side_effect=RuntimeError("clickhouse insert failed"),
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The partially populated snapshot cohort was cleaned up; the flag and experiment are untouched.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
     def test_freeze_exposure_not_blocked_by_flag_approval_policy(self):
         experiment = self._create_running_experiment(name="Freeze Policy", feature_flag_key="freeze-policy-flag")
 

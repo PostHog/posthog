@@ -27,7 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.cohort import CohortSerializer
@@ -1848,6 +1848,11 @@ class ExperimentService:
                         "start_date": ast.Constant(value=start_date),
                     },
                     settings=HogQLGlobalSettings(max_execution_time=FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS),
+                    # Under the default LimitContext.QUERY the printer clamps any top-level LIMIT to
+                    # MAX_SELECT_RETURNED_ROWS (50k), which would silently truncate the snapshot and
+                    # keep the over-cap guard below from ever firing. COHORT_CALCULATION disables the
+                    # clamp so our explicit LIMIT (cap + 1) is what actually runs.
+                    limit_context=LimitContext.COHORT_CALCULATION,
                 )
         except ClickHouseQueryTimeOut:
             raise ValidationError(
@@ -1876,7 +1881,9 @@ class ExperimentService:
             created_by=self.user,
         )
         try:
-            cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id)
+            # raise_on_error: the batching helper otherwise swallows mid-batch failures and returns
+            # normally, and a partially populated snapshot would evict every user missing from it.
+            cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id, raise_on_error=True)
         except Exception:
             # The cohort row exists but isn't referenced by anything yet — drop it so a failed
             # population doesn't leave an empty static cohort behind.
