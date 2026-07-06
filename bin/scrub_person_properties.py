@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """Scrub person properties from every person that has them in a PostHog project.
 
-Finds all persons with any of the given properties set (via the paginated persons API,
-https://posthog.com/docs/api/persons), then removes those properties either by:
+Finds all persons carrying any of the given properties, then removes those properties.
+
+Discovery runs one paginated JSONHas scan through the query API
+(https://posthog.com/docs/api/queries), which matches a property key regardless of its
+value - including null and empty values. On projects too large for that scan (the query
+API rejects it with a resource-limit error), it falls back to one paginated `is_set` scan
+per property through the persons API (https://posthog.com/docs/api/persons); that fallback
+can miss persons whose only target properties hold null values.
+
+Scrubbing happens either by:
 
   - events mode (default, fewest requests): sends `$delete_person_property` capture events
     with `$unset` through the batch endpoint - one event per person covers all matched
@@ -14,7 +22,7 @@ Scrubbing is processed by the ingestion pipeline, so it is eventually consistent
 can keep showing the property for a short while after the script finishes.
 
 Usage:
-  export POSTHOG_PERSONAL_API_KEY=phx_...   # needs person:read (+ person:write for api mode)
+  export POSTHOG_PERSONAL_API_KEY=phx_...   # needs query:read and person:read (+ person:write for api mode)
   export POSTHOG_PROJECT_API_KEY=phc_...    # only needed for events mode
   python bin/scrub_person_properties.py my_secret_prop other_prop \\
       --host eu --project-id 123 --dry-run
@@ -53,10 +61,12 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def request_with_retries(session: requests.Session, method: str, url: str, **kwargs: Any) -> requests.Response:
+def request_with_retries(
+    session: requests.Session, method: str, url: str, max_retries: int = MAX_RETRIES, **kwargs: Any
+) -> requests.Response:
     """Issue a request, retrying on 429 (honoring Retry-After) and 5xx with backoff."""
     last_error = ""
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(max_retries):
         try:
             response = session.request(method, url, timeout=60, **kwargs)
         except requests.RequestException as err:
@@ -73,7 +83,28 @@ def request_with_retries(session: requests.Session, method: str, url: str, **kwa
             time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
             continue
         return response
-    raise ScrubError(f"{method} {url} failed after {MAX_RETRIES} attempts: {last_error}")
+    raise ScrubError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
+
+
+def run_hogql_query(
+    session: requests.Session, host: str, project_id: str, query: str, max_retries: int = MAX_RETRIES
+) -> list[list[Any]]:
+    """Run a HogQL query through the query API and return its result rows."""
+    response = request_with_retries(
+        session,
+        "POST",
+        f"{host}/api/projects/{project_id}/query/",
+        max_retries=max_retries,
+        json={"query": {"kind": "HogQLQuery", "query": query}},
+    )
+    if response.status_code != 200:
+        raise ScrubError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
+    return response.json()["results"]
+
+
+def hogql_string_literal(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
 
 
 def iter_persons(
@@ -94,14 +125,72 @@ def iter_persons(
         url = data.get("next")
 
 
-def find_affected_persons(
+def make_record(uuid: str, distinct_ids: list[str], matched: list[str]) -> dict[str, Any]:
+    return {"uuid": uuid, "distinct_ids": distinct_ids, "matched_properties": matched}
+
+
+def find_affected_persons_hogql(
     session: requests.Session, host: str, project_id: str, properties: list[str], page_size: int
 ) -> dict[str, dict[str, Any]]:
-    """Return affected persons keyed by uuid, each annotated with the target properties it has.
+    """Find affected persons with one paginated JSONHas scan over all properties.
 
-    Runs one paginated `is_set` scan per property; persons matching several properties are
-    deduped so they are only scrubbed once. Matched properties are recomputed from each
-    returned person object, since it carries the person's full current property set.
+    JSONHas matches a key regardless of its value, so properties holding null or an empty
+    string are found too - the persons API `is_set` filter misses those.
+    """
+    condition = " OR ".join(f"JSONHas(properties, {hogql_string_literal(p)})" for p in properties)
+    log(f"Scanning persons where any of the properties exist (JSONHas): {', '.join(properties)}")
+    affected: dict[str, dict[str, Any]] = {}
+    offset = 0
+    page = 0
+    while True:
+        rows = run_hogql_query(
+            session,
+            host,
+            project_id,
+            f"SELECT id, properties FROM persons WHERE {condition} ORDER BY id ASC LIMIT {page_size} OFFSET {offset}",
+            # Resource-limit failures on huge projects are deterministic; fail fast to the fallback
+            max_retries=2,
+        )
+        page += 1
+        log(f"  page {page}: {len(rows)} persons")
+        for row_uuid, properties_json in rows:
+            if isinstance(properties_json, dict):
+                person_properties = properties_json
+            else:
+                person_properties = json.loads(properties_json) if properties_json else {}
+            matched = sorted(p for p in properties if p in person_properties)
+            if matched:
+                affected[str(row_uuid)] = make_record(str(row_uuid), [], matched)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+
+    # One distinct_id per person is enough to address scrub events; fetch them in bulk
+    uuids = list(affected)
+    for start in range(0, len(uuids), page_size):
+        chunk = uuids[start : start + page_size]
+        id_list = ", ".join(f"toUUID({hogql_string_literal(u)})" for u in chunk)
+        rows = run_hogql_query(
+            session,
+            host,
+            project_id,
+            f"SELECT person_id, any(distinct_id) FROM person_distinct_ids "
+            f"WHERE person_id IN ({id_list}) GROUP BY person_id",
+            max_retries=2,
+        )
+        for person_id, distinct_id in rows:
+            affected[str(person_id)]["distinct_ids"] = [distinct_id]
+    return affected
+
+
+def find_affected_persons_api(
+    session: requests.Session, host: str, project_id: str, properties: list[str], page_size: int
+) -> dict[str, dict[str, Any]]:
+    """Find affected persons with one paginated persons-API `is_set` scan per property.
+
+    Persons matching several properties are deduped, and matched properties are recomputed
+    from each returned person object since it carries the person's full current property set
+    (so null-valued keys are scrubbed too, as long as some scan surfaced the person).
     """
     affected: dict[str, dict[str, Any]] = {}
     for prop in properties:
@@ -112,17 +201,25 @@ def find_affected_persons(
             if not matched:
                 continue  # ClickHouse/Postgres lag - property was just unset
             record = affected.setdefault(
-                person["uuid"],
-                {
-                    "id": person.get("id"),
-                    "uuid": person["uuid"],
-                    "name": person.get("name"),
-                    "distinct_ids": person.get("distinct_ids") or [],
-                    "matched_properties": [],
-                },
+                person["uuid"], make_record(person["uuid"], person.get("distinct_ids") or [], [])
             )
             record["matched_properties"] = sorted(set(record["matched_properties"]) | set(matched))
     return affected
+
+
+def find_affected_persons(
+    session: requests.Session, host: str, project_id: str, properties: list[str], page_size: int
+) -> dict[str, dict[str, Any]]:
+    """Return affected persons keyed by uuid, each annotated with the target properties it has."""
+    try:
+        return find_affected_persons_hogql(session, host, project_id, properties, page_size)
+    except ScrubError as err:
+        log(f"WARNING: JSONHas scan via the query API failed: {err}")
+        log(
+            "Falling back to per-property is_set scans via the persons API. "
+            "Persons whose only target properties hold null values may be missed."
+        )
+        return find_affected_persons_api(session, host, project_id, properties, page_size)
 
 
 def scrub_via_events(
