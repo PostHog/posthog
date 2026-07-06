@@ -31,7 +31,13 @@
    so the "naive $87-101/run" from the model round maps to **~$18-21/run true**. Bucket split moved vs the opus-era
    42/36/18/4: sonnet-5 review is ~37% writes / **43% reads** / 17% output / 3% fresh — cache reads are now the largest
    true-cost bucket. `eval/scripts/dump_result.py` cannot see any of this (it sums `$ai_input_tokens` undifferentiated,
-   lines ~50-61), which is why metrology is Gate 0 for every $ gate below.
+lines ~50-61), which is why metrology is Gate 0 for every $ gate below.
+**2026-07-06 update (Gate-0 session 1): the metrology SHIPPED** (`dump_result.py`cache-aware split) and validated
+live — naive $47.52 vs true $9.90 on the PR #68749 publish run, reproducing the 4.8× exactly; whole-run split
+43% reads / 33% writes / 19% output / 5% fresh. **The probe's +28% gw-vs-list discrepancy is RESOLVED as a probe
+artifact** (per-gen LiteLLM costs match list to the cent; LiteLLM's`input_cost` field is the whole input side,
+   cache included — the old back-calc misread it). Same day the local DB was nuked: the archived 07-03 arm events are
+   GONE, so corrected baselines accumulate from fresh runs.
 2. **Cross-sandbox cache sharing is PARTIALLY live** (revised 2026-07-06 after the harness smoke run, superseding
    the July "exactly zero / median = 0" measurement, which is stale on the current agent/SDK): two of three fresh wave
    sandboxes read an identical 27,618-token [tools + system-preset] segment written by the jitter-elected leader unit —
@@ -40,6 +46,9 @@
    append included) **and T3**. Bonus live evidence: the gateway shares one Anthropic cache across distinct sandbox
    processes (Spike 1's existential question has a production PASS), and the wave->blind-spot gap measured 10 min on a
    single-chunk PR (TTL expired), confirming the fork's per-chunk-sequencing requirement.
+   **2026-07-06 update: reproduced on a full publish run** (PR #68749, not a smoke): leader wrote 73.2K, 2/3 wave units
+   read the identical 27,618-token prefix at +1s/+19s, blind-spot at +12.5 min rewrote in full — see
+   `runs/gate0-run1-pr68749-publish.md` (the turn-1 distribution is now a standing section of every dump).
 3. For the record (measured, direction vetoed): one-shot direct calls would have removed most of the sandbox-loop cost,
    and the audit scored two such candidates at ~$7-8/run. The veto stands regardless: those calls cannot investigate,
    and quality is the moat. Recorded here so the economics aren't re-derived and the veto isn't re-litigated by a future
@@ -71,6 +80,9 @@ cache-aware after Gate 0 rather than trusted as written.
 ### 1. `cache-aware-metrology` — cache-aware cost attribution + corrected baseline + T1 re-quantification
 
 DEP: none (offline). Direct saving: $0 (decision value only; conditional T1 EV ~$0.1-0.15/run). Verdicts: modify + modify.
+**Status 2026-07-06: instrument SHIPPED and validated (Δ +0.0% vs gateway LiteLLM on every bucket and side);
+discrepancy sub-task RESOLVED (probe artifact); archived-arm recompute DEAD (DB nuke — baseline accumulates from
+fresh runs); T1 re-quantification and the #4-#10 re-anchor remain OPEN pending fresh-run data. See PLAN.md status.**
 
 Extend `eval/scripts/dump_result.py` to split every gen into fresh / cache_write (1.25x) / cache_read (0.1x) / output
 per (model x stage), plus `long_ctx_gens` (>200K prompt, premium tier) and a per-unit **turn-1 cache_read median**

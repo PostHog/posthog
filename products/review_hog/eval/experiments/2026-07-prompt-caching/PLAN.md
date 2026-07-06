@@ -10,6 +10,21 @@
 > every review unit stays a full sandbox agent. The warm-up+fork family (#8) is the flagship, which promotes #3 into this round.**
 > Later rounds (skill splice, pre-pack, the warm-up+fork ladder) get their own PLAN when greenlit — do NOT start them from here.
 
+## Status after session 1 (2026-07-06 — user scope-narrowed it to "one PR review + fix the spend calculation"; START HERE next session)
+
+Branch `signals/reviewhog-exp-caching-gate0`, commits `1ed24313ca0` + doc sync; details in the run log at the bottom.
+
+- **Part 1 instrument: DONE, validated live.** `dump_result.py` emits the cache-aware split, `true_usd`/`gw_usd`, the per-side cost cross-check, `>200K` count, and the per-unit turn-1 cache-read distribution. Validation anchor (task 1) passed beyond spec: **every priced bucket and every side matches LiteLLM to the cent (Δ +0.0%)**, opus and sonnet both.
+- **Task 2 (+28% sonnet discrepancy): RESOLVED — it never existed.** Per-gen LiteLLM costs match the list back-calc exactly; the July probe's own back-calc was at fault (hypothesis (e): per-path token-accounting — it summed `$ai_input_tokens`, which is the WHOLE prompt, as if fresh). Trap recorded for future readers: LiteLLM's `input_cost` breakdown field is the whole input side (fresh + cache read + cache write), not fresh-only.
+- **Task 3 (archived-arm recompute): DEAD — the urgency note fired.** The local DB was nuked 2026-07-06; the 07-03 arm events are gone. The corrected sonnet-era baseline accumulates from fresh runs instead. First data point (`runs/gate0-run1-pr68749-publish.md`, single-chunk publish run on PR #68749): true $9.90 vs naive $47.52 (4.8×, matching the probe-era ratio), bucket split 43% cache reads / 33% writes / 19% output / 5% fresh.
+- **Task 4 (T1 detector): NOT RUN** — no archived data; run it over fresh runs as they accumulate. **Task 5 (re-anchor CANDIDATES.md $): NOT RUN** — needs the fresh-run baseline.
+- **Part 2 (gateway probe): NOT STARTED.**
+- **Part 3 (fork-sizing): NOT STARTED**, and its data source changed: archived ACP logs died with the DB, so `s`/warmth compute from fresh runs' events + ACP logs. The PR #68749 run is single-chunk (usable for one chunk's 3-wave-unit overlap, useless for cross-chunk warmth); the large multi-chunk runs the locked priority demands still need to be generated.
+- Bonus live evidence from a real publish run (not a smoke): 2/3 wave units read the leader's identical 27,618-token [tools+preset] prefix at turn 1; the blind-spot fired 12.5 min after the wave and rewrote everything — third independent confirmation of the TTL/per-chunk-sequencing requirement.
+- Ops lessons for anyone running this locally are in `HARNESS.md` → "Smoke-run lessons" (mid-run `products/**/*.py` edits kill the run via nodemon; DB-nuke integration restore; buffered CLI stdout).
+
+**Next experiment session = the Gate-0 remainder: Part 2 (gateway cache probe) + Part 3 (fork-sizing spikes), which now starts by generating fresh run data on large multi-chunk PRs (2 runs double as the corrected-baseline controls and the T1-detector corpus for tasks 3-5).**
+
 ## Goal
 
 Three deliverables, in priority order:

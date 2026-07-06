@@ -174,3 +174,19 @@ Reading of the evidence:
 - **Smoke run 1 failed for an environmental reason**: sample PR #63625 merged 2026-07-03 and its branch was deleted;
   branch-ref checkout (the known unpinned-SHA issue) fails on merged-and-deleted PRs. RUN_LOG.md updated; use a live
   non-fork PR (or the still-open frozen eval PR #62096) for smokes.
+- **Never edit `products/**/\*.py`while a run is in flight** (learned 2026-07-06 the expensive way): nodemon respawns
+the temporal worker on any watched-file change, killing in-flight sandbox activities; repeated edits exhaust the
+2-attempt retries and fail the whole`review-pr`workflow. Temporal then retries the workflow, and it RESUMES from
+persisted (pass, chunk) results at the same head — the killed wave was not re-paid, only the unfinished blind-spot
+re-ran. Sequence watched-file edits strictly before/after runs; check state with`temporal workflow list --address localhost:7233 -q "ExecutionStatus='Running'"`.
+- **DB-nuke recovery for `run_review`**: team 1 / user 1 re-seed automatically, the GitHub integration row does NOT —
+  the workflow fails fast on it. Restore in `manage.py shell`:
+  `GitHubIntegration.integration_from_installation_id("143741024", team_id=1, created_by=User.objects.get(pk=1))`
+  (the "posthog-local-dev" app installation persists on GitHub's side). A nuke also deletes archived `$ai_generation`
+  events and ACP logs — plan measurement windows accordingly.
+- **`run_review` stdout is block-buffered when piped** — the `ReviewHog ▶ starting` banner and the result line flush
+  only at process exit. Watch live progress in the temporal-worker log (stage banners) or via `temporal workflow list`.
+- **Tripwire reproduced on a full publish run** (PR #68749, 2026-07-06, single chunk): leader wrote 73.2K at turn 1;
+  two followers read the identical 27,618-token [tools+preset] segment at +1s/+19s; the blind-spot fired +12.5 min
+  after the wave and rewrote everything (TTL bust). Full table: `runs/gate0-run1-pr68749-publish.md` — the turn-1
+  distribution is now a standing section of every `dump_result.py` dump.

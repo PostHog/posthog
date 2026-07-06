@@ -197,6 +197,14 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    the Gate-0 measurement pack (cache-aware `dump_result.py` split + gateway cache probe + fork-sizing
    spikes, ~$0) is greenlit with a run-ready `PLAN.md` in the same folder — experiments run iteratively,
    in isolation, one per branch, per the working mode locked 2026-07-06.
+   **Gate-0 session 1 executed 2026-07-06** (branch `signals/reviewhog-exp-caching-gate0`, scope-narrowed
+   by the user to metrology + one publish run): the cache-aware `dump_result.py` split SHIPPED and
+   validated live — Δ +0.0% vs gateway LiteLLM costs on every bucket, naive = 4.8× true confirmed on a
+   published PR #68749 review ($9.90 true), and the probe-era "+28% sonnet discrepancy" resolved as a
+   measurement artifact. The same-day local-DB nuke deleted the archived arm events, so corrected
+   baselines accumulate from fresh runs. **Remaining Gate-0 (the next experiment): gateway cache probe +
+   fork-sizing spikes, starting with fresh large multi-chunk run data — entry point is `PLAN.md`'s
+   status block.**
 
 ### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
 
