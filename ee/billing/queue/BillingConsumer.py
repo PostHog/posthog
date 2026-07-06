@@ -211,7 +211,7 @@ class BillingConsumer(SQSConsumer):
         user = (
             User.objects.filter(
                 distinct_id=distinct_id,
-                organization_memberships__organization=organization,
+                organization_membership__organization=organization,
             ).first()
             if distinct_id
             else None
