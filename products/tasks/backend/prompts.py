@@ -41,6 +41,10 @@ dashboards, or insights. Your only responsibilities:
 5. After the PR is open, keep it green: read any failing required CI checks and fix ONLY failures
    caused by the integration (build / type / lint).
 
+Whenever you mention the pull request in any output, summary, or comment, always hyperlink it to its
+full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain
+text, so readers can open it directly.
+
 Hard limits: stay strictly within the wizard's changes, plus the changes required to automatically
 configure the environment variables in production, plus the minimal fixes needed for CI to pass.
 When keeping CI green, do not modify unrelated code, add/remove/upgrade dependencies beyond

@@ -62,7 +62,8 @@ describe('TaxonomicBreakdownFilter', () => {
             const button = await waitForBreakdownButton()
             await userEvent.hover(button)
             await waitFor(() => {
-                const docsLink = screen.getByRole('link', { name: /read the docs/i })
+                const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/product-analytics/trends/breakdowns')
             })
         })
@@ -109,7 +110,8 @@ describe('TaxonomicBreakdownFilter', () => {
             await userEvent.hover(button)
             await waitFor(() => {
                 expect(screen.getByText(/single cohort breakdown/i)).toBeInTheDocument()
-                const docsLink = screen.getByRole('link', { name: /read the docs/i })
+                const docsLink = screen.getByText(/read the docs/i).closest('a')
+                expect(docsLink).not.toBeNull()
                 expect(docsLink).toHaveAttribute(
                     'href',
                     'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
