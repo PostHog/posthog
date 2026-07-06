@@ -30,7 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import CohortSerializer
+from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
@@ -114,6 +114,9 @@ DEFAULT_VARIANTS = [
 # populate path).
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
 FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+# Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
+# cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
+FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -1968,7 +1971,7 @@ class ExperimentService:
         """
         cohort = Cohort.objects.create(
             team=self.team,
-            name=f'Exposure snapshot for experiment "{experiment.name}"'[:400],
+            name=f'{FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX}"{experiment.name}"'[:400],
             is_static=True,
             created_by=self.user,
         )
@@ -2056,8 +2059,32 @@ class ExperimentService:
         return {**current_filters, "groups": new_groups}, list(dict.fromkeys(cohort_ids))
 
     def _delete_orphaned_snapshot_cohorts(self, cohort_ids: list[int]) -> None:
-        """Soft-delete freeze snapshot cohorts whose flag reference was just removed."""
+        """Soft-delete freeze snapshot cohorts whose flag reference was just removed.
+
+        The ids come from the EXPOSURE_FROZEN_COHORT_KEY stamps in the flag's filters, which
+        round-trip through the flag API and are therefore user-editable — treat them as claims,
+        not facts. Only delete a cohort verifiable as an orphaned freeze snapshot: named like one,
+        and no longer referenced by any active flag (the same protection the cohort API enforces
+        on delete). Anything failing verification is skipped rather than fatal — a leftover
+        cohort is cheaper than a blocked lifecycle action or a hijacked deletion.
+        """
         for cohort in Cohort.objects.filter(team=self.team, pk__in=cohort_ids, is_static=True, deleted=False):
+            if not cohort.name.startswith(FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX):
+                logger.warning(
+                    "experiment_freeze_snapshot_cleanup_skipped",
+                    cohort_id=cohort.pk,
+                    team_id=self.team.pk,
+                    reason="not_a_freeze_snapshot_name",
+                )
+                continue
+            if get_active_flags_using_cohort(cohort):
+                logger.warning(
+                    "experiment_freeze_snapshot_cleanup_skipped",
+                    cohort_id=cohort.pk,
+                    team_id=self.team.pk,
+                    reason="still_referenced_by_active_flags",
+                )
+                continue
             cohort.deleted = True
             cohort.save(update_fields=["deleted"])
 

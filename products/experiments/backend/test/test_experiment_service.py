@@ -3611,6 +3611,46 @@ class TestExperimentService(APIBaseTest):
         cohort.refresh_from_db()
         assert cohort.deleted is True
 
+    @parameterized.expand(
+        [
+            ("referenced_by_another_flag", 'Exposure snapshot for experiment "Victim"'),
+            ("not_a_snapshot_name", "Payment-tier customers"),
+        ]
+    )
+    def test_reset_does_not_delete_stamped_foreign_cohorts(self, case: str, victim_name: str):
+        experiment = self._create_running_experiment(name=f"Reset Stamp {case}", feature_flag_key=f"rs-{case}-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The freeze stamps round-trip through the flag API, so a flag editor can point them at
+        # any cohort. Cleanup must verify ownership instead of deleting whatever id is stamped.
+        victim = Cohort.objects.create(team=self.team, name=victim_name, is_static=True, created_by=self.user)
+        if case == "referenced_by_another_flag":
+            FeatureFlag.objects.create(
+                team=self.team,
+                key=f"other-flag-{case}",
+                created_by=self.user,
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": victim.pk, "operator": "in"}],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+        flag = frozen.feature_flag
+        tampered = deepcopy(flag.filters)
+        tampered["groups"][0][EXPOSURE_FROZEN_COHORT_KEY] = victim.pk
+        flag.filters = tampered
+        flag.save()
+
+        self._service().reset_experiment(frozen, request=self._make_request())
+
+        victim.refresh_from_db()
+        assert victim.deleted is False
+
     def test_reset_draft_experiment_raises(self):
         experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
 
