@@ -93,8 +93,9 @@ function TestAccountFiltersConfig(): JSX.Element {
                             property - use the full <code>email</code>.
                         </li>
                         <li>
-                            No email to filter on? Exclude the auto-created <strong>Internal / Test users</strong> cohort
-                            (with a <i>not in</i> operator), or filter the <code>$internal_or_test_user</code> property.
+                            No email to filter on? Exclude the auto-created <strong>Internal / Test users</strong>{' '}
+                            cohort (with a <i>not in</i> operator), or filter the <code>$internal_or_test_user</code>{' '}
+                            property.
                         </li>
                         {currentTeam?.anonymize_ips && (
                             <li>
