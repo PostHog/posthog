@@ -52,4 +52,22 @@ describe('attachedContextLogic', () => {
             logic.actions.registerContext('p', [{ type: 'insight' }, { type: 'text', value: 'keep me' }])
         }).toMatchValues({ contextItems: [{ type: 'text', value: 'keep me' }] })
     })
+
+    it('dismissal hides an item, survives provider re-registration, and undismiss restores it', async () => {
+        const item = { type: 'insight', key: 'x', label: 'X' }
+
+        await expectLogic(logic, () => {
+            logic.actions.registerContext('bridge', [item])
+            logic.actions.dismissContext('insight:x')
+        }).toMatchValues({ contextItems: [] })
+
+        // A provider upsert (e.g. the scene bridge re-reading the scene) must not resurrect the chip.
+        await expectLogic(logic, () => {
+            logic.actions.registerContext('bridge', [item])
+        }).toMatchValues({ contextItems: [] })
+
+        await expectLogic(logic, () => {
+            logic.actions.undismissContext('insight:x')
+        }).toMatchValues({ contextItems: [item] })
+    })
 })

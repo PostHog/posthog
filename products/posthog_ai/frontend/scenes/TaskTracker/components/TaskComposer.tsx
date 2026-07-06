@@ -11,6 +11,7 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
@@ -64,7 +65,8 @@ export function TaskComposer(): JSX.Element {
                                         data-attr="task-composer-input"
                                     />
                                 </Composer.Field>
-                                <Composer.Footer>
+                                <Composer.Footer className="flex flex-wrap items-center justify-between gap-2">
+                                    <AttachedContextBar />
                                     <ComposerModelEffortPickers
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
