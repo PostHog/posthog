@@ -376,7 +376,7 @@ class RetryResponseSerializer(serializers.Serializer):
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
-# JSONB-backed sort keys; numeric values (`result_score`, `result_confidence`, `scanner_version`) need a numeric cast in the filter.
+# JSONB-backed sort keys. Numeric values (result_score, result_confidence, scanner_version) need a numeric cast.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "result_confidence", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
