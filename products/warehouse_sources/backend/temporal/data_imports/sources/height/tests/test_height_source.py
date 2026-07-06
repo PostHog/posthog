@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HeightSourceConfig
@@ -65,55 +67,36 @@ class TestHeightSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.height.app/users",
-            "403 Client Error: Forbidden for url: https://api.height.app/lists",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.height.app/users",),
+            ("403 Client Error: Forbidden for url: https://api.height.app/lists",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.height.app/users",
-            "429 Client Error: Too Many Requests for url: https://api.height.app/lists",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.height.app/users",),
+            ("429 Client Error: Too Many Requests for url: https://api.height.app/lists",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Height API key"),
-            (403, False, "Invalid Height API key"),
-            (500, False, "Height returned HTTP 500"),
-            (0, False, "Could not connect to Height: boom"),
-        ],
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.height.source._height_validate_credentials"
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.source.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "Height returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Height: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
+    def test_validate_credentials_delegates_to_height(self, mock_validate: mock.MagicMock) -> None:
+        # The status/message mapping is owned by height.validate_credentials (covered in test_height.py);
+        # here we only assert the source extracts the api key and returns the delegate's result unchanged.
+        mock_validate.return_value = (False, "Invalid Height API key")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("secret_key")
+        assert result == (False, "Invalid Height API key")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.source.height_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

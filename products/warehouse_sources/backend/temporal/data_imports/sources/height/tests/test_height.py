@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest import mock
 from unittest.mock import MagicMock
 
 import requests
@@ -115,22 +116,29 @@ class TestCheckAccess:
         monkeypatch.setattr(height, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
             (200, True, 200, None),
             (401, False, 401, None),
             (403, False, 403, None),
             (500, False, 500, "Height returned HTTP 500"),
-        ],
+        ]
     )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.height.make_tracked_session")
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self,
+        status: int,
+        ok: bool,
+        expected_status: int,
+        expected_message: str | None,
+        mock_make_session: mock.MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
+        session = MagicMock()
+        session.get.return_value = response
+        mock_make_session.return_value = session
         assert check_access("secret_key") == (expected_status, expected_message)
 
     def test_authorization_header_uses_api_key_scheme(self, monkeypatch: Any) -> None:
@@ -155,22 +163,28 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
             (200, True, None),
             (401, False, "Invalid Height API key"),
             (403, False, "Invalid Height API key"),
             (500, False, "Height returned HTTP 500"),
-        ],
+        ]
     )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.height.height.make_tracked_session")
     def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
+        self,
+        status: int,
+        expected_valid: bool,
+        expected_message: str | None,
+        mock_make_session: mock.MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = status < 400
-        self._patch_session(monkeypatch, response)
+        session = MagicMock()
+        session.get.return_value = response
+        mock_make_session.return_value = session
         assert validate_credentials("secret_key") == (expected_valid, expected_message)
 
 

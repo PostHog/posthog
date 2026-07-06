@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HeightSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import check_access, height_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import (
+    height_source,
+    validate_credentials as _height_validate_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.settings import ENDPOINTS, HEIGHT_ENDPOINTS
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -102,12 +105,7 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         self, config: HeightSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Height API key"
-        return False, message or "Could not validate Height API key"
+        return _height_validate_credentials(config.api_key)
 
     def source_for_pipeline(self, config: HeightSourceConfig, inputs: SourceInputs) -> SourceResponse:
         if inputs.schema_name not in HEIGHT_ENDPOINTS:
