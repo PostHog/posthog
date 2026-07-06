@@ -88,42 +88,6 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     return result
 
 
-def enable_scim_for_domain(domain: OrganizationDomain) -> str:
-    """
-    Enable SCIM for an OrganizationDomain and generate a new bearer token.
-    Returns the plain text token (only shown once).
-    """
-    plain_token, hashed_token = generate_scim_token()
-
-    domain._scim_enabled = True
-    domain._scim_bearer_token = hashed_token
-    domain.save()
-
-    return plain_token
-
-
-def disable_scim_for_domain(domain: OrganizationDomain) -> None:
-    """
-    Disable SCIM for an OrganizationDomain.
-    """
-    domain._scim_enabled = False
-    domain._scim_bearer_token = None
-    domain.save()
-
-
-def regenerate_scim_token(domain: OrganizationDomain) -> str:
-    """
-    Regenerate SCIM bearer token for a domain.
-    Returns the new plain text token (only shown once).
-    """
-    plain_token, hashed_token = generate_scim_token()
-
-    domain._scim_bearer_token = hashed_token
-    domain.save()
-
-    return plain_token
-
-
 def enable_scim_for_config(config: IdentityProviderConfig) -> str:
     """
     Enable SCIM for an IdentityProviderConfig and generate a new bearer token.

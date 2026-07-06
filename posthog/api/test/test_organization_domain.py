@@ -15,9 +15,7 @@ from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
-from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
-from posthog.models.identity_provider_config import IdentityProviderConfig
 
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_request_log import SCIMRequestLog
@@ -108,7 +106,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                     "verification_challenge": "123",  # ignore me
                     "jit_provisioning_enabled": True,  # ignore me
                     "sso_enforcement": "saml",  # ignore me
-                    "scim_enabled": True,  # ignore me
                 },
             )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -116,7 +113,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response_data["domain"], "the.posthog.com")
         self.assertEqual(response_data["verified_at"], None)
         self.assertEqual(response_data["jit_provisioning_enabled"], False)
-        self.assertEqual(response_data["scim_enabled"], False)
         self.assertRegex(response_data["verification_challenge"], r"[0-9A-Za-z_-]{32}")
 
         instance = OrganizationDomain.objects.get(id=response_data["id"])
@@ -124,7 +120,6 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.verified_at, None)
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
-        self.assertEqual(instance._scim_enabled, False)
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -532,282 +527,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
         self.another_domain.refresh_from_db()
 
-    # SCIM configuration
-
-    def test_can_enable_scim(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
-        self.assertIsNotNone(response.json()["scim_bearer_token"])
-        self.assertIn("scim_base_url", response.json())
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain._scim_enabled, True)
-        self.assertIsNotNone(self.domain._scim_bearer_token)
-
-    def test_enabling_scim_while_linking_new_config_writes_token_to_new_config_only(self):
-        # Regression: enabling SCIM in the same request that links a new config must mirror the
-        # token to the newly linked config, never to the previously linked one.
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        old_config = IdentityProviderConfig.objects.create(organization=self.organization, name="old")
-        new_config = IdentityProviderConfig.objects.create(organization=self.organization, name="new")
-        self.domain.identity_provider_config = old_config
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"identity_provider_config": str(new_config.id), "scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        old_config.refresh_from_db()
-        new_config.refresh_from_db()
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain.identity_provider_config_id, new_config.id)
-        self.assertTrue(new_config.scim_enabled)
-        self.assertIsNotNone(new_config.scim_bearer_token)
-        self.assertFalse(old_config.scim_enabled)
-        self.assertIsNone(old_config.scim_bearer_token)
-
-    def test_cannot_enable_scim_without_available_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not available", response.json()["detail"].lower())
-
-    def test_cannot_enable_scim_on_unverified_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "scim_enabled",
-            },
-        )
-
-    def test_can_disable_scim(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # First enable SCIM
-        enable_response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
-
-        # Then disable it
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": False},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], False)
-        self.assertIsNone(response.json()["scim_bearer_token"])
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain._scim_enabled, False)
-        self.assertIsNone(self.domain._scim_bearer_token)
-
-    def test_can_regenerate_scim_token(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
-        self.organization_membership.save()
-        self.organization.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # First enable SCIM
-        enable_response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"scim_enabled": True},
-        )
-        self.assertEqual(enable_response.status_code, status.HTTP_200_OK)
-        original_token = enable_response.json()["scim_bearer_token"]
-
-        # Regenerate token
-        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["scim_enabled"], True)
-        new_token = response.json()["scim_bearer_token"]
-        self.assertIsNotNone(new_token)
-        self.assertNotEqual(original_token, new_token)
-
-    def test_cannot_regenerate_scim_token_without_available_feature(self):
-        from ee.api.scim.auth import generate_scim_token
-
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-
-        # Manually enable SCIM (bypassing validation)
-        plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
-        self.domain.save()
-
-        # Remove feature
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    # ID-JAG (XAA) configuration
-
-    def test_can_configure_id_jag(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
-        ]
-        self.organization.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {
-                "id_jag_issuer_url": "https://example.com/",
-                "id_jag_jwks_url": "https://example.com/keys.json",
-                "id_jag_allowed_clients": ["client-a", "client-b"],
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data["id_jag_issuer_url"], "https://example.com")
-        self.assertEqual(response_data["id_jag_jwks_url"], "https://example.com/keys.json")
-        self.assertEqual(response_data["id_jag_allowed_clients"], ["client-a", "client-b"])
-        self.assertTrue(response_data["has_id_jag"])
-
-        self.domain.refresh_from_db()
-        self.assertEqual(self.domain._id_jag_issuer_url, "https://example.com")
-        self.assertEqual(self.domain._id_jag_jwks_url, "https://example.com/keys.json")
-        self.assertEqual(self.domain._id_jag_allowed_clients, ["client-a", "client-b"])
-
-    def test_cannot_configure_id_jag_without_available_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "https://example.com"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "feature_not_available",
-                "detail": "XAA (ID-JAG) is not available for this organization.",
-                "attr": "id_jag_issuer_url",
-            },
-        )
-
-    def test_can_clear_id_jag_configuration(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain._id_jag_issuer_url = "https://example.com"
-        self.domain.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "", "id_jag_jwks_url": "", "id_jag_allowed_clients": []},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["has_id_jag"])
-        self.assertIsNone(response.json()["id_jag_issuer_url"])
-
-        self.domain.refresh_from_db()
-        self.assertIsNone(self.domain._id_jag_issuer_url)
-
-    def test_cannot_configure_id_jag_on_unverified_domain(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "https://example.com"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "verification_required",
-                "detail": "This attribute cannot be updated until the domain is verified.",
-                "attr": "id_jag_issuer_url",
-            },
-        )
-
-    def test_rejects_disallowed_id_jag_urls(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.domain.verified_at = timezone.now()
-        self.domain.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
-        ]
-        self.organization.save()
-
-        response = self.client.patch(
-            f"/api/organizations/@current/domains/{self.domain.id}/",
-            {"id_jag_issuer_url": "http://127.0.0.1"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "URL is not allowed: Local/Loopback host not allowed",
-                "attr": "id_jag_issuer_url",
-            },
-        )
+    # SAML, SCIM, and ID-JAG (XAA) configuration are written exclusively through
+    # IdentityProviderConfigViewSet now — see TestIdentityProviderConfigAPI in
+    # posthog/api/test/test_identity_provider_config.py. This domain endpoint no longer declares
+    # those fields at all, so writes to them are silently dropped rather than persisted.
 
 
 class TestSCIMRequestLogsAPI(APILicensedTest):
@@ -819,7 +542,6 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
             organization=self.organization,
             domain="logs-test.com",
             verified_at=timezone.now(),
-            _scim_enabled=True,
         )
 
     def _create_log(self, **kwargs):

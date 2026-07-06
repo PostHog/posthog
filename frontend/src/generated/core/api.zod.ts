@@ -30,42 +30,10 @@ export const domainsCreateBodyDomainMax = 128
 
 export const domainsCreateBodySsoEnforcementMax = 28
 
-export const domainsCreateBodySamlEntityIdMax = 512
-
-export const domainsCreateBodySamlAcsUrlMax = 512
-
-export const domainsCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -78,42 +46,10 @@ export const domainsUpdateBodyDomainMax = 128
 
 export const domainsUpdateBodySsoEnforcementMax = 28
 
-export const domainsUpdateBodySamlEntityIdMax = 512
-
-export const domainsUpdateBodySamlAcsUrlMax = 512
-
-export const domainsUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsUpdateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -126,101 +62,10 @@ export const domainsPartialUpdateBodyDomainMax = 128
 
 export const domainsPartialUpdateBodySsoEnforcementMax = 28
 
-export const domainsPartialUpdateBodySamlEntityIdMax = 512
-
-export const domainsPartialUpdateBodySamlAcsUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsPartialUpdateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsPartialUpdateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsPartialUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
-})
-
-/**
- * Regenerate SCIM bearer token.
- */
-export const domainsScimTokenCreateBodyDomainMax = 128
-
-export const domainsScimTokenCreateBodySsoEnforcementMax = 28
-
-export const domainsScimTokenCreateBodySamlEntityIdMax = 512
-
-export const domainsScimTokenCreateBodySamlAcsUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagAllowedClientsItemMax = 256
-
-export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
-    domain: zod.string().max(domainsScimTokenCreateBodyDomainMax),
-    jit_provisioning_enabled: zod.boolean().optional(),
-    sso_enforcement: zod.string().max(domainsScimTokenCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsScimTokenCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsScimTokenCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()
@@ -233,46 +78,10 @@ export const domainsVerifyCreateBodyDomainMax = 128
 
 export const domainsVerifyCreateBodySsoEnforcementMax = 28
 
-export const domainsVerifyCreateBodySamlEntityIdMax = 512
-
-export const domainsVerifyCreateBodySamlAcsUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod
-        .string()
-        .max(domainsVerifyCreateBodySamlEntityIdMax)
-        .nullish()
-        .describe('SAML IdP entity ID (issuer).'),
-    saml_acs_url: zod
-        .string()
-        .max(domainsVerifyCreateBodySamlAcsUrlMax)
-        .nullish()
-        .describe('SAML single sign-on (ACS) URL.'),
-    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
-    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsVerifyCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
     identity_provider_config: zod
         .uuid()
         .nullish()

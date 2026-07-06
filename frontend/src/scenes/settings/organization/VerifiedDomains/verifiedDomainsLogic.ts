@@ -13,19 +13,18 @@ import {
     identityProviderConfigsCreate,
     identityProviderConfigsDestroy,
     identityProviderConfigsPartialUpdate,
+    identityProviderConfigsRetrieve,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
+import { IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs } from '~/types'
 
 import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 
 /**
  * Resolve the `IdentityProviderConfig` id that backs a domain, creating and linking an empty
- * config first if the domain doesn't have one yet. The config is the source of truth for
- * SAML/SCIM/ID-JAG settings, so all IdP-config CRUD targets it rather than the domain.
- *
- * We link the (still empty) config to the domain *before* populating any fields, so the
- * domain→config mirror that runs on the link's domain save sees no divergence to clobber.
+ * config first if the domain doesn't have one yet. The config is the sole read/write interface
+ * for SAML/SCIM/ID-JAG settings, so all IdP-config CRUD targets it rather than the domain.
  * If linking fails, the freshly created config is deleted so we don't leave an orphan behind.
  */
 async function ensureIdpConfigId(organizationId: string, domain: OrganizationDomainType): Promise<string> {
@@ -44,7 +43,18 @@ async function ensureIdpConfigId(organizationId: string, domain: OrganizationDom
     return config.id
 }
 
-/** Re-fetch a single domain and replace it in local state, reflecting reverse-synced IdP columns. */
+/** Fetch the IdP config linked to a domain, or null if none is linked yet. */
+async function fetchLinkedConfig(
+    organizationId: string,
+    domain: OrganizationDomainType
+): Promise<IdentityProviderConfigApi | null> {
+    if (!domain.identity_provider_config) {
+        return null
+    }
+    return identityProviderConfigsRetrieve(organizationId, domain.identity_provider_config)
+}
+
+/** Re-fetch a single domain and replace it in local state (e.g. after linking/updating its IdP config). */
 async function refreshDomain(
     organizationId: string,
     domainId: string,
@@ -61,18 +71,20 @@ export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'id'>
 
 export type SAMLConfigType = Partial<
-    Pick<OrganizationDomainType, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> & { id: string }
 >
 
 export type SCIMConfigType = Partial<
-    Pick<OrganizationDomainType, 'scim_enabled' | 'scim_base_url' | 'scim_bearer_token'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'scim_enabled' | 'scim_bearer_token'> & {
+        id: string
+        scim_base_url: string | null
+    }
 >
 
 export type IdJagConfigType = Partial<
-    Pick<OrganizationDomainType, 'id_jag_issuer_url' | 'id_jag_jwks_url' | 'id_jag_allowed_clients'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'id_jag_issuer_url' | 'id_jag_jwks_url' | 'id_jag_allowed_clients'> & {
+        id: string
+    }
 >
 
 export const isSecureURL = (url: string): boolean => {
@@ -230,9 +242,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 loadScimConfig: async (domainId: string) => {
                     const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    const config = domain
+                        ? await fetchLinkedConfig(values.currentOrganizationId as string, domain)
+                        : null
                     return {
                         id: domainId,
-                        scim_enabled: domain?.scim_enabled ?? false,
+                        scim_enabled: config?.scim_enabled ?? false,
                         scim_base_url: domain?.scim_base_url,
                     }
                 },
@@ -244,7 +259,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     }
                     const configId = await ensureIdpConfigId(orgId, domain)
                     const config = await identityProviderConfigsPartialUpdate(orgId, configId, { scim_enabled: true })
-                    // Refresh the domain so its SCIM base URL (per-domain, reverse-synced) is current.
+                    // Refresh the domain so its SCIM base URL and identity_provider_config link are current.
                     const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM enabled successfully!')
                     return {
@@ -322,24 +337,31 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        setConfigureSAMLModalId: ({ id }) => {
+        setConfigureSAMLModalId: async ({ id }) => {
             const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (id && domain) {
-                const { saml_acs_url, saml_entity_id, saml_x509_cert } = domain
-                actions.setSamlConfigValues({ saml_acs_url, saml_entity_id, saml_x509_cert, id })
+            if (!id || !domain) {
+                return
             }
+            const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
+            actions.setSamlConfigValues({
+                id,
+                saml_acs_url: config?.saml_acs_url ?? '',
+                saml_entity_id: config?.saml_entity_id ?? '',
+                saml_x509_cert: config?.saml_x509_cert ?? '',
+            })
         },
-        setConfigureIdJagModalId: ({ id }) => {
+        setConfigureIdJagModalId: async ({ id }) => {
             const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (id && domain) {
-                const { id_jag_issuer_url, id_jag_jwks_url, id_jag_allowed_clients } = domain
-                actions.setIdJagConfigValues({
-                    id,
-                    id_jag_issuer_url: id_jag_issuer_url ?? '',
-                    id_jag_jwks_url: id_jag_jwks_url ?? '',
-                    id_jag_allowed_clients: id_jag_allowed_clients ?? [],
-                })
+            if (!id || !domain) {
+                return
             }
+            const config = await fetchLinkedConfig(values.currentOrganizationId as string, domain)
+            actions.setIdJagConfigValues({
+                id,
+                id_jag_issuer_url: config?.id_jag_issuer_url ?? '',
+                id_jag_jwks_url: config?.id_jag_jwks_url ?? '',
+                id_jag_allowed_clients: config?.id_jag_allowed_clients ?? [],
+            })
         },
         setConfigureSCIMModalId: ({ id }) => {
             if (id) {

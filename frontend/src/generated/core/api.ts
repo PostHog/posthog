@@ -349,27 +349,6 @@ export const domainsScimLogsRetrieve = async (
     })
 }
 
-export const getDomainsScimTokenCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/token/`
-}
-
-/**
- * Regenerate SCIM bearer token.
- */
-export const domainsScimTokenCreate = async (
-    organizationId: string,
-    id: string,
-    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimTokenCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomainApi),
-    })
-}
-
 export const getDomainsVerifyCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/domains/${id}/verify/`
 }

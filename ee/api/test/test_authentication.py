@@ -20,6 +20,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.authentication import CustomGoogleOAuth2
@@ -304,9 +305,12 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             verified_at=timezone.now(),
             organization=cls.organization,
             jit_provisioning_enabled=True,
-            _saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
-            _saml_acs_url="https://idp.hogflix.io/saml",
-            _saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+        )
+        cls.organization_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+            organization=cls.organization,
+            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            saml_acs_url="https://idp.hogflix.io/saml",
+            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
     A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
     MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
     ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
@@ -324,6 +328,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
     5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
+        cls.organization_domain.save()
 
     def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
         """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
@@ -596,7 +601,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
-        self.organization_domain._saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
+        config = self.organization_domain.identity_provider_config
+        config.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
 UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
 CwwCVVMxCzAJBgNVBAMMAlVTMREwDwYJKoZIhvcNAQkBFgJVUzAeFw0yMTA4MjYw
 MDAxMzNaFw0zMTA4MjYwMDAxMzNaMGExCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJV
@@ -614,7 +620,7 @@ AQB8ytXAmU4oYjANiEJVVO5LZUCx3OrY/P1OX73eoXi624yj7xvhaa7whlk1SSL/
 yh4jGarFborxwACgg6fCiMbHVq8qlcSkRvSW03u89s3Y4mxhMX3F4AZb56ddyfMk
 LERK8jfXCMVmWPTy830CtQaZX2AJyBwHG4ElP2BOZNbFAvGzrKaBmK2Ym/OJxkhx
 YotAcSbU3p5bzd11wpyebYHB"""
-        self.organization_domain.save()
+        config.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -864,10 +870,15 @@ YotAcSbU3p5bzd11wpyebYHB"""
             verified_at=timezone.now(),
             organization=other_org,
             jit_provisioning_enabled=True,
-            _saml_entity_id=self.organization_domain._saml_entity_id,
-            _saml_acs_url=self.organization_domain._saml_acs_url,
-            _saml_x509_cert=self.organization_domain._saml_x509_cert,
         )
+        my_config = self.organization_domain.identity_provider_config
+        other_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+            organization=other_org,
+            saml_entity_id=my_config.saml_entity_id,
+            saml_acs_url=my_config.saml_acs_url,
+            saml_x509_cert=my_config.saml_x509_cert,
+        )
+        other_domain.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -1030,9 +1041,6 @@ class TestSSOEnforcement(APILicensedTest):
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="saml",
-            _saml_entity_id="http://www.okta.com/test",
-            _saml_acs_url="https://idp.test.io/saml",
-            _saml_x509_cert="test_cert",
         )
 
         # Test that Google OAuth2 is blocked
@@ -1099,9 +1107,12 @@ class TestSSOEnforcement(APILicensedTest):
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-            _saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
-            _saml_acs_url="https://my.posthog.app/complete/saml/",
-            _saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+        )
+        org_domain_saml.identity_provider_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            saml_acs_url="https://my.posthog.app/complete/saml/",
+            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
 A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
 MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
 ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
@@ -1119,6 +1130,7 @@ jSjV4Oxsv3ogajnnGYGv22iBgS1qccK/cg41YkpgfP36HbiwA10xjUMv5zs97Ljep4ejp6yoKrGL
 dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
 5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
+        org_domain_saml.save()
 
         # Set the SAML state in session (required for SAML authentication)
         _session = self.client.session

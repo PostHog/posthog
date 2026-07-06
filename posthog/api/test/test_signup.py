@@ -23,6 +23,7 @@ from posthog.api.signup import _save_session_with_recovery, process_social_invit
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -992,13 +993,16 @@ class TestSignupAPI(APIBaseTest):
         with self.is_cloud(True):
             mock_sso_providers.return_value = {"google-oauth2": True}
             new_org = Organization.objects.create(name="Test org")
-            OrganizationDomain.objects.create(
+            domain = OrganizationDomain.objects.create(
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                _scim_enabled=True,
                 organization=new_org,
             )
+            domain.identity_provider_config = IdentityProviderConfig.objects.create(
+                organization=new_org, scim_enabled=True
+            )
+            domain.save()
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1035,13 +1039,16 @@ class TestSignupAPI(APIBaseTest):
 
             mock_sso_providers.return_value = {"google-oauth2": True}
             new_org = Organization.objects.create(name="Test org")
-            OrganizationDomain.objects.create(
+            domain = OrganizationDomain.objects.create(
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                _scim_enabled=True,
                 organization=new_org,
             )
+            domain.identity_provider_config = IdentityProviderConfig.objects.create(
+                organization=new_org, scim_enabled=True
+            )
+            domain.save()
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))

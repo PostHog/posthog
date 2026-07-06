@@ -573,17 +573,10 @@ export interface OrganizationDomainType {
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
     has_saml: boolean
-    saml_entity_id: string
-    saml_acs_url: string
-    saml_x509_cert: string
-    scim_enabled?: boolean
+    has_scim?: boolean
     scim_base_url?: string
-    scim_bearer_token?: string
     has_id_jag?: boolean
-    id_jag_issuer_url?: string | null
-    id_jag_jwks_url?: string | null
-    id_jag_allowed_clients?: string[]
-    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
     identity_provider_config?: string | null
 }
 
