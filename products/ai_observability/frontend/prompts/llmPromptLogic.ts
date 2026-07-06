@@ -308,7 +308,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             base_version: currentPrompt.latest_version,
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
-                        lemonToast.success('Prompt version published successfully')
+                        lemonToast.success(`Published v${savedPrompt.version}`)
 
                         const optimisticVersions = [
                             buildPromptVersionSummary(savedPrompt, true),
@@ -383,6 +383,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         isHistoricalVersion: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? !prompt.is_latest : false)],
+
+        nextVersion: [
+            (s) => [s.prompt],
+            (prompt): number | null => (isPrompt(prompt) ? (prompt.latest_version ?? prompt.version) + 1 : null),
+        ],
 
         promptVariables: [
             (s) => [s.promptForm],

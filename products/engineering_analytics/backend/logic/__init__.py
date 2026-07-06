@@ -52,6 +52,7 @@ from products.engineering_analytics.backend.logic.queries.pr_lifecycle import qu
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
+from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -264,6 +265,21 @@ def build_repo_overview(
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+
+
+def build_repo_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> WorkflowRunActivity:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        # No branch given: collapse the repo's default branch, as observed in the window.
+        resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_repo_run_activity(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
 
 
 def build_master_failures(

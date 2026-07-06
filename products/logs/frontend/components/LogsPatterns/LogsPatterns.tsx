@@ -7,9 +7,64 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
+import type { LogMessage } from '~/queries/schema/schema-general'
+
+import { LogTag } from 'products/logs/frontend/components/LogTag'
 import type { _LogPatternApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsPatternsLogic } from './logsPatternsLogic'
+
+// Most-severe-first, so ties in sample counts resolve to the stronger signal.
+const SEVERITY_RANK: LogMessage['severity_text'][] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace']
+
+// Non-canonical spellings services emit (Python's default "warning", syslog's "err"/"crit", …),
+// folded onto the OTel-canonical level so their counts aren't silently dropped from the Level column.
+const SEVERITY_ALIASES: Record<string, LogMessage['severity_text']> = {
+    warning: 'warn',
+    err: 'error',
+    critical: 'fatal',
+    crit: 'fatal',
+    alert: 'fatal',
+    emerg: 'fatal',
+    emergency: 'fatal',
+    panic: 'fatal',
+    notice: 'info',
+    verbose: 'trace',
+}
+
+function canonicalSeverity(raw: string): LogMessage['severity_text'] | null {
+    if ((SEVERITY_RANK as string[]).includes(raw)) {
+        return raw as LogMessage['severity_text']
+    }
+    return SEVERITY_ALIASES[raw] ?? null
+}
+
+// Dominant severity by sample count. Non-canonical spellings are folded onto their canonical
+// level; genuinely unknown levels keep their raw key so they still surface (rather than showing
+// "-"). Ties break toward the more severe level.
+function dominantSeverity(severityCounts: Record<string, number>): string | null {
+    const folded: Record<string, number> = {}
+    for (const [raw, count] of Object.entries(severityCounts)) {
+        if (count <= 0) {
+            continue
+        }
+        const key = canonicalSeverity(raw) ?? raw
+        folded[key] = (folded[key] ?? 0) + count
+    }
+    let best: string | null = null
+    let bestCount = 0
+    let bestRank = SEVERITY_RANK.length
+    for (const [key, count] of Object.entries(folded)) {
+        const canonical = canonicalSeverity(key)
+        const rank = canonical ? SEVERITY_RANK.indexOf(canonical) : SEVERITY_RANK.length
+        if (count > bestCount || (count === bestCount && rank < bestRank)) {
+            best = key
+            bestCount = count
+            bestRank = rank
+        }
+    }
+    return best
+}
 
 // Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
 // `<hex>`, …) the runner emits — see _MASKING_INSTRUCTIONS in
@@ -55,6 +110,19 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     }
 
     const columns: LemonTableColumns<_LogPatternApi> = [
+        {
+            title: 'Level',
+            key: 'severity',
+            width: 0,
+            render: (_, row) => {
+                const severity = dominantSeverity(row.severity_counts)
+                if (!severity) {
+                    return <span className="text-muted">-</span>
+                }
+                const canonical = canonicalSeverity(severity)
+                return canonical ? <LogTag level={canonical} /> : <LemonTag>{severity}</LemonTag>
+            },
+        },
         {
             title: 'Pattern',
             dataIndex: 'pattern',
@@ -132,7 +200,8 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                               1
                           )}% of the window`
                         : ''}
-                    . Counts are estimates for the full window — hover a count for the underlying sample figure.
+                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
+                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
                 </LemonBanner>
             )}
             <LemonTable
