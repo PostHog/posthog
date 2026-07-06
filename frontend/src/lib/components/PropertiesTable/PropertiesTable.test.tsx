@@ -203,4 +203,30 @@ describe('PropertiesTable inline editor', () => {
             expect(screen.getByText('London')).toBeInTheDocument()
         })
     })
+
+    describe('collapsible complex values', () => {
+        const renderWith = (collapsible: boolean): void => {
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Person}
+                        properties={{ tags: ['a', 'b', 'c'] }}
+                        collapsible={collapsible}
+                    />
+                </Provider>
+            )
+        }
+
+        // The expanded array table renders an "array" type tag in its header; the collapsed
+        // JSON viewer does not — so its absence is a reliable proxy for "not expanded".
+        it('expands array property values into a table by default', () => {
+            renderWith(false)
+            expect(screen.getByText('array')).toBeInTheDocument()
+        })
+
+        it('collapses array property values when collapsible', () => {
+            renderWith(true)
+            expect(screen.queryByText('array')).not.toBeInTheDocument()
+        })
+    })
 })
