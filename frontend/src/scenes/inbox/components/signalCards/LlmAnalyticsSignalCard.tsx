@@ -8,11 +8,13 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import type { LlmEvalReportSignalExtra, LlmEvalSignalExtra } from '~/queries/schema/schema-signals'
-
 import { LLMProviderIcon } from 'products/ai_observability/frontend/LLMProviderIcon'
 import { normalizeLLMProvider } from 'products/ai_observability/frontend/settings/llmProviderKeysLogic'
 import { formatLLMCost, formatLLMLatency, formatTokens } from 'products/ai_observability/frontend/utils'
+import type {
+    LlmEvalReportSignalExtraApi,
+    LlmEvalSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxLlmTraceLogic } from './inboxLlmTraceLogic'
 import { SignalCardShell } from './SignalCardShell'
@@ -20,15 +22,19 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 
 // ── Type guards ──────────────────────────────────────────────────────────────────
 
-export function isLlmEvalTraceExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & LlmEvalSignalExtra {
+export function isLlmEvalTraceExtra(value: unknown): value is Record<string, unknown> & LlmEvalSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return 'evaluation_id' in extra && 'trace_id' in extra
 }
 
-export function isLlmEvalReportExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & LlmEvalReportSignalExtra {
+export function isLlmEvalReportExtra(value: unknown): value is Record<string, unknown> & LlmEvalReportSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return 'evaluation_id' in extra && 'report_run_id' in extra
 }
 
@@ -54,7 +60,7 @@ function ModelProviderLine({ model, provider }: { model?: string; provider?: str
 // ── Trace card (source_type: evaluation) ──────────────────────────────────────────
 
 /** Metric strip rendered once the trace loads. Each metric is guarded — missing fields are skipped. */
-function TraceMetricStrip({ extra }: { extra: LlmEvalSignalExtra }): JSX.Element | null {
+function TraceMetricStrip({ extra }: { extra: LlmEvalSignalExtraApi }): JSX.Element | null {
     const { trace, traceLoading } = useValues(inboxLlmTraceLogic)
 
     if (traceLoading) {
@@ -62,10 +68,10 @@ function TraceMetricStrip({ extra }: { extra: LlmEvalSignalExtra }): JSX.Element
     }
 
     if (!trace) {
-        return <ModelProviderLine model={extra.model} provider={extra.provider} />
+        return <ModelProviderLine model={extra.model ?? undefined} provider={extra.provider ?? undefined} />
     }
 
-    const provider = normalizeLLMProvider(extra.provider)
+    const provider = normalizeLLMProvider(extra.provider ?? undefined)
     const metrics: React.ReactNode[] = []
 
     if (typeof trace.totalLatency === 'number') {
@@ -143,7 +149,13 @@ function stringifyState(state: unknown): string {
     }
 }
 
-function LlmEvalTraceSignalCardBody({ signal, extra }: { signal: SignalNode; extra: LlmEvalSignalExtra }): JSX.Element {
+function LlmEvalTraceSignalCardBody({
+    signal,
+    extra,
+}: {
+    signal: SignalNode
+    extra: LlmEvalSignalExtraApi
+}): JSX.Element {
     return (
         <SignalCardShell signal={signal}>
             {signal.content && (
@@ -157,7 +169,7 @@ function LlmEvalTraceSignalCardBody({ signal, extra }: { signal: SignalNode; ext
 
             <div className="flex items-center gap-3 mt-2">
                 <ExternalSignalLink
-                    to={urls.aiObservabilityTrace(extra.trace_id, { event: extra.target_event_id })}
+                    to={urls.aiObservabilityTrace(extra.trace_id, { event: extra.target_event_id ?? undefined })}
                     label="View trace"
                 />
                 <ExternalSignalLink to={urls.aiObservabilityEvaluation(extra.evaluation_id)} label="View evaluation" />
@@ -167,7 +179,7 @@ function LlmEvalTraceSignalCardBody({ signal, extra }: { signal: SignalNode; ext
 }
 
 export function LlmEvalTraceSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as unknown as LlmEvalSignalExtra
+    const extra = signal.extra as unknown as LlmEvalSignalExtraApi
     return (
         <BindLogic logic={inboxLlmTraceLogic} props={{ traceId: extra.trace_id }}>
             <LlmEvalTraceSignalCardBody signal={signal} extra={extra} />
@@ -178,7 +190,7 @@ export function LlmEvalTraceSignalCard({ signal }: SignalCardProps): JSX.Element
 // ── Report card (source_type: evaluation_report) ──────────────────────────────────
 
 export function LlmEvalReportSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as unknown as LlmEvalReportSignalExtra
+    const extra = signal.extra as unknown as LlmEvalReportSignalExtraApi
 
     return (
         <SignalCardShell signal={signal}>
