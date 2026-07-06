@@ -807,7 +807,6 @@ class BatchQueue:
         *,
         team_id: int | None = None,
         schema_ids: list[str] | None = None,
-        source_ids: list[str] | None = None,
         run_uuid: str | None = None,
         only_pending: bool = True,
     ) -> list[ActiveRunRef]:
@@ -818,9 +817,7 @@ class BatchQueue:
         an operator can still act on. ``only_pending=False`` is for direct
         ``run_uuid`` lookups where a fully-terminal run should still be visible.
         """
-        scope_sql, params = _scope_filters(
-            team_id=team_id, schema_ids=schema_ids, source_ids=source_ids, run_uuid=run_uuid
-        )
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
         having = "HAVING COUNT(*) FILTER (WHERE s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing')) > 0"
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -971,7 +968,6 @@ def _scope_filters(
     *,
     team_id: int | None = None,
     schema_ids: list[str] | None = None,
-    source_ids: list[str] | None = None,
     run_uuid: str | None = None,
     alias: str = "b",
 ) -> tuple[str, dict[str, Any]]:
@@ -984,9 +980,6 @@ def _scope_filters(
     if schema_ids is not None:
         clauses.append(f"AND {alias}.schema_id = ANY(%(scope_schema_ids)s)")
         params["scope_schema_ids"] = schema_ids
-    if source_ids is not None:
-        clauses.append(f"AND {alias}.source_id = ANY(%(scope_source_ids)s)")
-        params["scope_source_ids"] = source_ids
     if run_uuid is not None:
         clauses.append(f"AND {alias}.run_uuid = %(scope_run_uuid)s")
         params["scope_run_uuid"] = run_uuid

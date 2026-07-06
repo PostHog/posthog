@@ -578,10 +578,11 @@ class Command(BaseCommand):
         if scope.source_type:
             runs = self._filter_runs_by_source_type(runs, scope.source_type)
 
-        # For source-type-only scoping, narrow the remaining sections to the schemas
-        # the filtered runs actually touch (the summary query can't join source_type).
+        # For source-type-only and run-uuid scoping, narrow the remaining sections
+        # to the schemas the filtered runs actually touch (the summary query can't
+        # join source_type, and a run-uuid lookup must not report fleet-wide state).
         summary_schema_ids = scope.schema_ids
-        if scope.source_type and summary_schema_ids is None:
+        if summary_schema_ids is None and (scope.source_type or scope.run_uuid):
             summary_schema_ids = sorted({r.schema_id for r in runs})
 
         self.stdout.write(self.style.MIGRATE_HEADING("Queue summary (within retention window)"))
@@ -611,7 +612,11 @@ class Command(BaseCommand):
             self.stdout.write(f"  ... and {len(runs) - PRINT_LIMIT} more")
 
         known_job_ids = {r.job_id for r in runs}
-        orphan_jobs = [j for j in self._running_v3_jobs(scope) if str(j.id) not in known_job_ids]
+        # A run-uuid scope carries no team/schema constraint, so _running_v3_jobs
+        # would return every Running V3 job in the fleet — skip the section.
+        orphan_jobs = (
+            [] if scope.run_uuid else [j for j in self._running_v3_jobs(scope) if str(j.id) not in known_job_ids]
+        )
         if orphan_jobs:
             self.stdout.write(
                 self.style.MIGRATE_HEADING(
