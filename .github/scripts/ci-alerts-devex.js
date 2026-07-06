@@ -75,26 +75,18 @@ const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 't
 // or we hit a bounded cap.
 async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { freshAsOf = null, sleep = defaultSleep } = {}) {
     for (let attempt = 0; ; attempt++) {
-        const { settled, newestRawCreatedAt } = await fetchSettledRuns(github, owner, repo, workflowFile, perPage)
-        const lagMins =
-            freshAsOf && newestRawCreatedAt
-                ? (new Date(freshAsOf).getTime() - new Date(newestRawCreatedAt).getTime()) / 60000
-                : 0
-        // An empty page while master has commits is the same anomaly as a lagging one — every
-        // gating workflow has master-push history, so its absence is unreadable, not "no failures".
-        const pageStale = Boolean(freshAsOf) && (newestRawCreatedAt === null || lagMins > RUN_INDEX_MAX_LAG_MINUTES)
-        if (!pageStale) return settled // NaN dates fall through to fresh, as before
-        if (attempt >= STALE_PAGE_RETRIES) {
-            throw new Error(`stale runs index: newest run ${newestRawCreatedAt} trails newest master commit ${freshAsOf}`)
+        try {
+            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf)
+        } catch (err) {
+            if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) throw err
+            await sleep(STALE_PAGE_RETRY_DELAY_MS)
         }
-        await sleep(STALE_PAGE_RETRY_DELAY_MS)
     }
 }
 
-async function fetchSettledRuns(github, owner, repo, workflowFile, perPage) {
+async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf) {
     const MAX_PAGES = 5
     const settled = []
-    let newestRawCreatedAt = null
     for (let page = 1; page <= MAX_PAGES; page++) {
         const { data } = await github.rest.actions.listWorkflowRuns({
             owner,
@@ -105,8 +97,23 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage) {
             per_page: perPage,
             page,
         })
-        // The raw page-1 head (any status) is the index's freshest claim — what the staleness check judges.
-        if (page === 1 && data.workflow_runs.length > 0) newestRawCreatedAt = data.workflow_runs[0].created_at
+        // Judge index freshness on the raw page-1 head (any status) before paging deeper. An empty
+        // page while master has commits is the same anomaly as a lagging one — every gating
+        // workflow has master-push history, so its absence is unreadable, not "no failures".
+        if (page === 1 && freshAsOf) {
+            const head = data.workflow_runs[0]
+            // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
+            const lagMins = head
+                ? (new Date(freshAsOf).getTime() - new Date(head.created_at).getTime()) / 60000
+                : Infinity
+            if (lagMins > RUN_INDEX_MAX_LAG_MINUTES) {
+                const err = new Error(
+                    `stale runs index: newest run ${head?.created_at || 'absent'} trails newest master commit ${freshAsOf}`
+                )
+                err.staleIndex = true
+                throw err
+            }
+        }
         for (const run of data.workflow_runs) {
             // In-progress/queued must neither count as nor break a failure streak (mirroring how
             // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
@@ -127,7 +134,7 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage) {
         const streakBounded = settled.some((r) => !isFailure(r))
         if (streakBounded || data.workflow_runs.length < perPage) break
     }
-    return { settled, newestRawCreatedAt }
+    return settled
 }
 
 function countConsecutiveFailures(runs) {
@@ -405,28 +412,34 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
+    // The Slack incident read (the source of truth for whether an incident is open) depends on
+    // nothing — start it first so it overlaps the GitHub reads.
+    const activePromise = findActiveIncident(slack, channel)
+
     // Commits come from the strongly-consistent Git backend, so they anchor the runs-index
-    // freshness check — fetch them first. null (not []) on failure: unknown must never read as green.
+    // freshness check — fetch them before any runs read. null (not []) on failure: without the
+    // anchor no runs page is verifiable, so every workflow is unreadable this tick rather than
+    // trusted unverified (a stale page could otherwise open a phantom via the streak-count arm).
     const commits = await fetchRecentCommits(github, owner, repo, commitsToFetch).catch((err) => {
         core.warning(`Failed to fetch commits: ${err.message}`)
         return null
     })
     const freshAsOf = commits?.[0]?.date || null
 
-    // Recompute master health and read the Slack incident state (the source of truth for
-    // whether an incident is open) — independent network calls, run concurrently. A workflow
-    // whose runs can't be read (API error or a persistently stale page) is null: unreadable,
-    // distinct from "no failures".
+    // A workflow whose runs can't be read (API error or a persistently stale page) is null:
+    // unreadable, distinct from "no failures".
     const [fetchedRuns, active] = await Promise.all([
-        Promise.all(
-            workflowFiles.map((wf) =>
-                fetchWorkflowRuns(github, owner, repo, wf, perPage, { freshAsOf, sleep }).catch((err) => {
-                    core.warning(`No usable runs for ${wf}: ${err.message}`)
-                    return null
-                })
-            )
-        ),
-        findActiveIncident(slack, channel),
+        commits === null
+            ? workflowFiles.map(() => null)
+            : Promise.all(
+                  workflowFiles.map((wf) =>
+                      fetchWorkflowRuns(github, owner, repo, wf, perPage, { freshAsOf, sleep }).catch((err) => {
+                          core.warning(`No usable runs for ${wf}: ${err.message}`)
+                          return null
+                      })
+                  )
+              ),
+        activePromise,
     ])
     const knownRuns = fetchedRuns.filter((runs) => runs !== null)
     // Complete = every read succeeded and passed the freshness check. Reconciling an open
