@@ -163,12 +163,14 @@ class TestListActiveTemplates(BaseTest):
         assert [template.name for template in list_active_templates()] == ["Visible"]
 
     # connect_via_redirect decides whether a Slack Connect button can finish the install from a
-    # bare browser GET; misclassifying DCR/api-key templates sends users into a 400 dead end.
+    # bare browser GET; misclassifying api-key templates sends users into a 400 dead end, while
+    # misclassifying OAuth ones bounces them through the store UI for no reason.
     @parameterized.expand(
         [
             ("shared_creds_oauth", "oauth", {"client_id": "c"}, True, True),
-            ("dcr_oauth_no_client", "oauth", {}, True, False),
-            ("oauth_missing_metadata", "oauth", {"client_id": "c"}, False, False),
+            ("dcr_registers_at_connect_time", "oauth", {}, True, True),
+            ("dcr_discovers_metadata_at_connect_time", "oauth", {}, False, True),
+            ("shared_creds_missing_metadata", "oauth", {"client_id": "c"}, False, False),
             ("api_key", "api_key", {}, False, False),
         ]
     )

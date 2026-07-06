@@ -83,8 +83,12 @@ def list_active_templates() -> list[TemplateInfo]:
             icon_key=template.icon_key,
             connect_via_redirect=(
                 template.auth_type == "oauth"
-                and bool((template.oauth_credentials or {}).get("client_id"))
-                and bool(template.oauth_metadata)
+                and (
+                    # DCR templates (no shared client) discover metadata and register a
+                    # per-user client at connect time; shared-creds templates need their
+                    # admin-seeded metadata present.
+                    not (template.oauth_credentials or {}).get("client_id") or bool(template.oauth_metadata)
+                )
             ),
         )
         for template in templates

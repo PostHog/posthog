@@ -500,8 +500,8 @@ _MAX_CONNECT_BUTTONS_PER_SCOUT = 3
 def _connect_button(
     team_id: int, spec: ScoutSpec, template: TemplateInfo, workspace_id: str, slack_user_id: str
 ) -> dict:
-    # Shared-creds OAuth templates connect straight from the browser and return through Slack;
-    # API-key and DCR templates need the store UI, so their button deep-links to the detail panel.
+    # OAuth templates connect straight from the browser and return through Slack; API-key
+    # templates need the store UI, so their button deep-links to the detail panel instead.
     if template.connect_via_redirect:
         state = sign_connect_state(workspace_id, slack_user_id, spec.readiness_key, template.name)
         url = mcp_connect_url(team_id, template.id, state)

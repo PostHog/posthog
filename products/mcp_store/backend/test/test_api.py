@@ -550,6 +550,37 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "status=success" in location
 
     @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value=("dcr-client-id", None, "none"),
+    )
+    def test_authorize_registers_dcr_client_for_fresh_template_install(self, _mock_dcr, mock_discover, _allow):
+        """A DCR template's Connect button is a bare browser GET with no prior installation —
+        authorize must run the same discovery + per-user registration as the install flow
+        instead of bouncing the user to the store UI."""
+        mock_discover.return_value = {
+            "issuer": "https://auth.example.com",
+            "authorization_endpoint": "https://auth.example.com/authorize",
+            "token_endpoint": "https://auth.example.com/token",
+            "registration_endpoint": "https://auth.example.com/register",
+        }
+        template = self._create_template(
+            url="https://mcp.dcr-fresh.example.com", oauth_credentials={}, oauth_metadata={}
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"template_id": str(template.id), "install_source": "slack"},
+        )
+
+        assert response.status_code == 302, response.content
+        assert response["Location"].startswith("https://auth.example.com/authorize?")
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=template.url)
+        assert installation.sensitive_configuration["dcr_client_id"] == "dcr-client-id"
+        assert installation.oauth_metadata == mock_discover.return_value
+
+    @ALLOW_URL
     def test_authorize_accepts_slack_install_source(self, _allow):
         """The Slack Connect buttons are bare browser GETs — the authorize endpoint must take
         install_source=slack with a same-origin callback and 302 to the provider."""

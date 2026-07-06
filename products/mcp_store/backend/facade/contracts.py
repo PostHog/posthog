@@ -28,5 +28,6 @@ class TemplateInfo:
     auth_type: str
     icon_key: str
     # True when a browser GET to the authorize endpoint can complete the connect on its own
-    # (shared-credentials OAuth). API-key and DCR templates need the store UI instead.
+    # (OAuth — shared credentials, or DCR registered at connect time). API-key templates
+    # need the store UI instead.
     connect_via_redirect: bool
