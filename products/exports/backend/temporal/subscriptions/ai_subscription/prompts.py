@@ -125,7 +125,7 @@ are common LLM mistakes that HogQL rejects:
 - Do NOT nest `WITH … AS (…)` CTEs inside subqueries, FROM clauses, or scalar/IN comparisons.
   The pattern `WHERE event = (SELECT … FROM (WITH cte AS (…) SELECT …))` fails to parse. If you
   reach for a CTE, rewrite the whole query as one flat SELECT with conditional aggregation
-  (see the first-half vs second-half growth example below).
+  (`countIf`/`sumIf`/`uniqIf`) — see the reference patterns below.
 - Do NOT use window functions (`ROW_NUMBER() OVER`, `LAG`, `LEAD`, `RANK`). Use `argMax`/`argMin`
   or `ORDER BY … LIMIT N` instead.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
@@ -155,20 +155,6 @@ Top events across the window:
   WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
   GROUP BY event
   ORDER BY count DESC
-  LIMIT 50
-
-First-half vs second-half growth in ONE flat query (USE THIS PATTERN INSTEAD OF NESTED CTES) — split
-the window at its midpoint instead of guessing a `now()`-relative cutoff; compute the midpoint inline:
-  SELECT
-    event,
-    countIf(timestamp >= toDateTime('<start>') + (toDateTime('<end>') - toDateTime('<start>')) / 2) AS recent,
-    countIf(timestamp <  toDateTime('<start>') + (toDateTime('<end>') - toDateTime('<start>')) / 2) AS earlier,
-    (recent - earlier) / nullIf(earlier, 0) AS growth_rate
-  FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
-  GROUP BY event
-  HAVING earlier > 0 OR recent > 0
-  ORDER BY growth_rate DESC
   LIMIT 50
 
 Daily time series for a single event:

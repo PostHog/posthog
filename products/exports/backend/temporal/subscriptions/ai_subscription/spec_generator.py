@@ -42,6 +42,10 @@ PROMPT_MAX_LENGTH: int = int(SubscriptionAIPromptMaxLength.model_fields["root"].
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25
+# "Dormant" is a fixed, long-horizon signal independent of the report window: an event not seen in this
+# many days is worth flagging so the planner doesn't fabricate it, regardless of how short a given run's
+# analysis window is.
+NO_DATA_LOOKBACK_DAYS = 30
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
 # The top-events list is volume-ranked, so a targeted request ("how are exports doing?") never surfaces
@@ -80,11 +84,6 @@ class ReportWindow:
 
     start: datetime
     end: datetime
-    # Cutoff for the "events with no data" dormancy check, decoupled from `start`. A gap-free re-fire
-    # makes `start` recent (minutes ago), which would flag every recently-active event as dormant;
-    # `compute_report_window` floors this to a full cadence back so "dormant" stays a long-horizon
-    # signal. `None` (direct construction) falls back to `start` via `dormancy_cutoff`.
-    no_data_cutoff: Optional[datetime] = None
 
     @property
     def start_literal(self) -> str:
@@ -93,10 +92,6 @@ class ReportWindow:
     @property
     def end_literal(self) -> str:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def dormancy_cutoff(self) -> datetime:
-        return self.no_data_cutoff if self.no_data_cutoff is not None else self.start
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -117,9 +112,6 @@ def compute_report_window(
     "since last send"), falling back to `end - window_days` when there's no prior successful
     delivery. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
     it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
-
-    `no_data_cutoff` (for the dormant-events hint) is floored to `min(start, end - window_days)` so a
-    short gap-free re-fire doesn't reclassify a cadence's worth of recently-active events as dormant.
     """
     tz = team.timezone_info
     end = _in_tz(now, tz)
@@ -136,7 +128,7 @@ def compute_report_window(
     else:
         start = end - timedelta(days=window_days)
 
-    return ReportWindow(start=start, end=end, no_data_cutoff=min(start, end - timedelta(days=window_days)))
+    return ReportWindow(start=start, end=end)
 
 
 def sanitize_prompt(raw: str | None) -> str:
@@ -166,12 +158,14 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
-def _no_data_event_names(team: Team, cutoff: datetime, limit: int) -> list[str]:
+def _no_data_event_names(team: Team, limit: int) -> list[str]:
     # Ground truth for "events with no data" lives in the event-definitions taxonomy, not the events
-    # table (which only contains events that fired). An event whose `last_seen_at` predates the window
-    # start (`cutoff`) — or was never seen — had no data in it. `last_seen_at` is maintained on ingestion
-    # so it can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
-    # plausible list of dormant events from its general knowledge of PostHog event names.
+    # table (which only contains events that fired). An event whose `last_seen_at` predates the dormancy
+    # cutoff — or was never seen — is treated as dormant. `last_seen_at` is maintained on ingestion so it
+    # can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
+    # plausible list of dormant events from its general knowledge of PostHog event names. The cutoff is a
+    # fixed lookback, decoupled from the report window: dormancy is a property of the event, not the run.
+    cutoff = datetime.now(tz=UTC) - timedelta(days=NO_DATA_LOOKBACK_DAYS)
     names = (
         EventDefinition.objects.filter(team_id=team.pk)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
@@ -341,9 +335,12 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, window.dormancy_cutoff, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = _no_data_event_names(team, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
-        lines.append("- Events defined but with no data since the window start: " + ", ".join(no_data_events))
+        lines.append(
+            f"- Events defined but with no data in the last {NO_DATA_LOOKBACK_DAYS} day(s): "
+            + ", ".join(no_data_events)
+        )
 
     person_properties = _person_property_names(team, PERSON_PROPERTY_NAMES_LIMIT)
     if person_properties:

@@ -33,8 +33,7 @@ _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_gene
 
 
 def _window(days: int = 7) -> ReportWindow:
-    # A fixed-ish window for context-blob tests: end = now, start = now - days. The dormant-event
-    # cases below rely on start being recent enough that a 30-day-old event predates it.
+    # A simple window for context-blob tests: end = now, start = now - days.
     end = datetime.now(tz=UTC)
     return ReportWindow(start=end - timedelta(days=days), end=end)
 
@@ -66,13 +65,14 @@ class TestSanitizePrompt:
 
 class TestNoDataEventNames(APIBaseTest):
     def test_returns_dormant_and_never_seen_events_excluding_recent(self) -> None:
+        # Dormancy is a fixed NO_DATA_LOOKBACK_DAYS (30) lookback: seen-recently is excluded, older-than
+        # the cutoff or never-seen is included. Guards the filter direction and the fixed-lookback choice.
         now = datetime.now(tz=UTC)
-        cutoff = now - timedelta(days=7)
         EventDefinition.objects.create(team=self.team, name="recent_event", last_seen_at=now - timedelta(days=1))
-        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
+        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=45))
         EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
 
-        names = _no_data_event_names(self.team, cutoff=cutoff, limit=25)
+        names = _no_data_event_names(self.team, limit=25)
 
         assert "recent_event" not in names
         assert "dormant_event" in names
@@ -81,9 +81,9 @@ class TestNoDataEventNames(APIBaseTest):
     def test_respects_limit(self) -> None:
         now = datetime.now(tz=UTC)
         for i in range(5):
-            EventDefinition.objects.create(team=self.team, name=f"dormant_{i}", last_seen_at=now - timedelta(days=30))
+            EventDefinition.objects.create(team=self.team, name=f"dormant_{i}", last_seen_at=now - timedelta(days=45))
 
-        assert len(_no_data_event_names(self.team, cutoff=now - timedelta(days=7), limit=2)) == 2
+        assert len(_no_data_event_names(self.team, limit=2)) == 2
 
 
 class TestPersonPropertyNames(APIBaseTest):
@@ -280,33 +280,6 @@ class TestComputeReportWindow:
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
-    def test_dormancy_cutoff_floored_to_cadence_on_short_refire(self) -> None:
-        # A gap-free re-fire 10 min after a successful send: window.start is recent, but the dormancy
-        # cutoff must stay a full cadence back so recently-active events aren't flagged "no data".
-        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        last = datetime(2026, 6, 29, 15, 50, tzinfo=UTC)
-
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
-
-        assert window.start == last
-        assert window.dormancy_cutoff == now - timedelta(days=1)
-
-    def test_dormancy_cutoff_follows_start_on_long_gap(self) -> None:
-        # Prior delivery 10 days ago, weekly cadence: cutoff is the earlier of start and end-7d, i.e.
-        # start — so an event that fired 8 days ago (inside the window) is not misclassified as dormant.
-        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
-
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
-
-        assert window.dormancy_cutoff == last
-
-    def test_dormancy_cutoff_falls_back_to_start_for_direct_construction(self) -> None:
-        # Direct construction (no factory) leaves no_data_cutoff unset; dormancy_cutoff falls back to start.
-        window = ReportWindow(start=datetime(2026, 6, 22, tzinfo=UTC), end=datetime(2026, 6, 29, tzinfo=UTC))
-
-        assert window.dormancy_cutoff == window.start
-
 
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
@@ -339,39 +312,17 @@ class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_includes_no_data_person_and_group_lines(self, _mock_top: object, _mock_groups: object) -> None:
         now = datetime.now(tz=UTC)
-        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
+        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=45))
         PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
 
         blob = build_context_blob(self.team, _window(7))
 
-        assert "Events defined but with no data since the window start:" in blob
+        assert "Events defined but with no data in the last 30 day(s):" in blob
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
         assert "Group/account types (reference as group_<index>.properties.<name>" in blob
         assert "group_0 = organization" in blob
-
-    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
-    @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_no_data_line_uses_floored_dormancy_cutoff_on_short_refire(
-        self, _mock_top: object, _mock_groups: object
-    ) -> None:
-        # A gap-free re-fire minutes after a successful daily send: window.start is minutes ago, but the
-        # dormancy cutoff floors to a full day back. An event seen 12h ago is still active for the cadence
-        # and must NOT be listed as "no data" — only the genuinely dormant one should appear. Guards
-        # build_context_blob keying off window.dormancy_cutoff rather than window.start.
-        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        EventDefinition.objects.create(team=self.team, name="active_today", last_seen_at=now - timedelta(hours=12))
-        EventDefinition.objects.create(team=self.team, name="truly_dormant", last_seen_at=now - timedelta(days=30))
-        window = compute_report_window(
-            self.team, last_successful_delivery_at=now - timedelta(minutes=10), now=now, window_days=1
-        )
-
-        blob = build_context_blob(self.team, window)
-
-        assert "truly_dormant" in blob
-        # Without the floor (cutoff == window.start, minutes ago), active_today would be flagged dormant.
-        assert "active_today" not in blob
 
     @parameterized.expand(
         [
