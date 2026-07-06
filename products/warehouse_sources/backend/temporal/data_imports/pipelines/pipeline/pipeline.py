@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
     reset_rows_synced_if_needed,
+    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -176,7 +177,13 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
-        self._batcher = Batcher(self._logger)
+        # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
+        # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        self._batcher = Batcher(
+            self._logger,
+            chunk_size=source_response.chunk_size,
+            chunk_size_bytes=source_response.chunk_size_bytes,
+        )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
@@ -221,6 +228,16 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._table is None
+
+            # Defensive pre-write compaction so a sync that arrived at a fragmented
+            # Delta target (e.g. earlier attempts that failed before reaching
+            # `_post_run_operations`) cleans up before adding more small files. Skipped
+            # cheaply when the table is healthy. Shared implementation lives in
+            # `extract.run_pre_write_defensive_compact` so the v3 pipeline matches.
+            if not is_first_ever_sync:
+                await run_pre_write_defensive_compact(
+                    self._delta_table_helper, self._schema, self._resource, self._logger
+                )
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None

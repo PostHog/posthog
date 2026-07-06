@@ -16,12 +16,14 @@ from .provision_sandbox import (
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
+    InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
+    invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
@@ -31,6 +33,7 @@ from .refresh_sandbox_credentials import (
     refresh_sandbox_credentials,
 )
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .start_agent_server import (
     MarkRepoReadyInput,
@@ -58,10 +61,12 @@ __all__ = [
     "CreateSandboxForRepositoryInput",
     "CreateSandboxForRepositoryOutput",
     "InjectFreshTokensOnResumeInput",
+    "InvalidateResumeSnapshotInput",
     "PostSlackUpdateInput",
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
+    "RunWizardInput",
     "RefreshSandboxCredentialsInput",
     "RefreshSandboxCredentialsOutput",
     "MarkRepoReadyInput",
@@ -83,10 +88,12 @@ __all__ = [
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
+    "invalidate_resume_snapshot",
     "post_slack_update",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "refresh_sandbox_credentials",
+    "run_wizard",
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",

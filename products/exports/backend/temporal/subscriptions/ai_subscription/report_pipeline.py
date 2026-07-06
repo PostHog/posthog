@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
     HogQLFix,
     QueryPlanStep,
@@ -52,6 +53,13 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
+# Total result budget across all steps entering the synthesis prompt: without it, the per-step backstop
+# alone would let MAX_QUERY_PLAN_STEPS x _QUERY_RESULT_MAX_CHARS into one synthesis call. `per_step_cap`
+# derives from this — the outer min() lets small plans keep the full per-step backstop, while the floor
+# (the budget split evenly across a full-size plan) guarantees each step a minimum so a max-size plan
+# can't starve any single step. Deriving the floor from the cap keeps the total within budget at any cap.
+_SYNTHESIS_RESULTS_CHAR_BUDGET = 200_000
+_MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 
 # The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
@@ -60,9 +68,15 @@ QUERY_FAILED_PREFIX = "Query failed to run"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
-# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
+# run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently, bounded by
+# _MAX_CONCURRENT_STEPS.
 _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
+
+# The planner may emit up to MAX_QUERY_PLAN_STEPS steps; bound how many run their ClickHouse query at
+# once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
+# queue and run as slots free up — every step still executes.
+_MAX_CONCURRENT_STEPS = 5
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
 # failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
@@ -282,6 +296,15 @@ async def _run_steps(
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
+    # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
+    step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
+
+    # Scale each step's result cap so the combined results stay within the synthesis budget even at the
+    # max plan size; a small plan still gets the full per-step backstop.
+    per_step_cap = min(
+        _QUERY_RESULT_MAX_CHARS,
+        max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
+    )
 
     async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
         current_hogql = step.hogql
@@ -297,7 +320,7 @@ async def _run_steps(
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
+                safe_formatted = strip_llm_framing_markers(formatted, per_step_cap)
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
                     QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
@@ -351,7 +374,12 @@ async def _run_steps(
             ),
         )
 
-    step_results = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+        # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
+        async with step_semaphore:
+            return await run_step(step)
+
+    step_results = await asyncio.gather(*(run_step_bounded(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
     diagnostics = [diag for _, diag in step_results]
     failed_count = sum(1 for diag in diagnostics if not diag.ok)

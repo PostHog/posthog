@@ -491,32 +491,18 @@ export function SubscriptionDeliveryHistory({
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
                     <h2 className="text-lg font-semibold">Delivery history</h2>
-                    {showTable && (showStatusFilter || onTestDelivery) ? (
+                    {showTable && showStatusFilter ? (
                         <div className="flex flex-wrap items-center gap-3 shrink-0">
-                            {onTestDelivery ? (
-                                <LemonButton
-                                    type="tertiary"
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-secondary">Status</span>
+                                <LemonSelect<DeliveryListStatusFilter | null>
                                     size="small"
-                                    onClick={onTestDelivery}
-                                    loading={testDeliveryLoading}
-                                    disabledReason={testDeliveryLoading ? 'Sending test delivery…' : null}
-                                    data-attr="subscription-detail-manual-deliver"
-                                >
-                                    Test delivery
-                                </LemonButton>
-                            ) : null}
-                            {showStatusFilter ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-secondary">Status</span>
-                                    <LemonSelect<DeliveryListStatusFilter | null>
-                                        size="small"
-                                        options={DELIVERY_STATUS_FILTER_OPTIONS}
-                                        value={deliveryStatusFilter}
-                                        onChange={onDeliveryStatusFilterChange}
-                                        data-attr="subscription-deliveries-status-filter"
-                                    />
-                                </div>
-                            ) : null}
+                                    options={DELIVERY_STATUS_FILTER_OPTIONS}
+                                    value={deliveryStatusFilter}
+                                    onChange={onDeliveryStatusFilterChange}
+                                    data-attr="subscription-deliveries-status-filter"
+                                />
+                            </div>
                         </div>
                     ) : null}
                 </div>

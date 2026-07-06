@@ -3,6 +3,8 @@ import datetime as dt
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
@@ -18,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
     _credentials,
+    _get_integration,
     _initial_start_date,
     _is_daily_quota_error,
     _is_quota_error,
@@ -138,6 +141,46 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
 
     assert calls == ["close_old_connections", "Integration.objects.get"]
     assert creds.refresh_token == "refresh-token"
+
+
+def test_get_integration_rides_out_pool_wait_timeout_then_succeeds(monkeypatch):
+    # A saturated connection pooler rejects the query with `query_wait_timeout`; the short
+    # backoff lets the pool drain so a later attempt on a fresh connection succeeds.
+    integration = mock.MagicMock()
+    get = mock.Mock(
+        side_effect=[
+            OperationalError("query_wait_timeout"),
+            OperationalError("query_wait_timeout"),
+            integration,
+        ]
+    )
+
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = _get_integration(integration_id=1, team_id=2)
+
+    assert result is integration
+    assert get.call_count == 3
+    assert sleeps == [2, 4]
+
+
+def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
+    get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: None)
+    monkeypatch.setattr(gsc.Integration.objects, "get", get)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    with pytest.raises(OperationalError):
+        _get_integration(integration_id=1, team_id=2)
+
+    # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+    assert get.call_count == 4
+    assert sleeps == [2, 4, 6]
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):

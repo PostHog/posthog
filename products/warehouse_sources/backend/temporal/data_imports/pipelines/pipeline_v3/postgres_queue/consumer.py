@@ -54,6 +54,7 @@ class DeltaBatchConsumerAdapter:
     executing_state: str = SourceBatchStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
+    per_group_connections: bool = True
 
     async def fetch_and_lock(
         self,

@@ -73,6 +73,9 @@ describe('cohortEditLogic', () => {
     }
 
     beforeEach(async () => {
+        // Persisted column selection lives in localStorage keyed by cohort id — clear it so
+        // column state doesn't leak between tests that reuse the same cohort id.
+        window.localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
@@ -1084,6 +1087,50 @@ describe('cohortEditLogic', () => {
 
             // Custom columns should still be preserved after save
             expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+        })
+
+        const defaultColumns = ['person_display_name -- Person', 'id', 'created_at']
+        const customColumns = [...defaultColumns, 'properties.$browser']
+
+        it.each([
+            ['the same cohort restores the persisted columns', 1, customColumns],
+            ["another cohort ignores the first cohort's columns and uses defaults", 2, defaultColumns],
+        ])('after a refresh (remount), %s', async (_name, remountId, expectedSelect) => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
+                } as DataTableNode)
+            }).toDispatchActions(['setQuery'])
+
+            // Simulate a refresh: tear down and rebuild the logic
+            logic.unmount()
+            logic = cohortEditLogic({ id: remountId })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(expectedSelect)
+        })
+
+        it('does not carry columns from one unsaved draft cohort over to the next', async () => {
+            await initCohortLogic({ id: 'new' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
+                } as DataTableNode)
+            }).toDispatchActions(['setQuery'])
+
+            // Abandon the draft and start a fresh one — both share the 'new' logic key
+            logic.unmount()
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect((logic.values.effectiveQuery.source as ActorsQuery).select).toEqual(defaultColumns)
         })
     })
 

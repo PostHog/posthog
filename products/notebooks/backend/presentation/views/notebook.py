@@ -5,7 +5,7 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
 from django.utils.timezone import now
 
 import structlog
@@ -28,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.streaming import _release_request_connections
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -830,14 +830,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 payload_json = renderer.render(payload).decode()
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
-        _release_request_connections()
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        response = StreamingHttpResponse(
-            streaming_content=streaming_content, content_type=ServerSentEventRenderer.media_type
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -1104,20 +1098,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
-        _release_request_connections()
-        response = StreamingHttpResponse(
-            streaming_content=(
-                collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-                if SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(
-                    lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-                )
+        return sse_streaming_response(
+            collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+            if SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(
+                lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
             ),
-            content_type=ServerSentEventRenderer.media_type,
+            endpoint="notebook_collab",
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

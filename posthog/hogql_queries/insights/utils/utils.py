@@ -81,5 +81,8 @@ def get_response_hogql(
 
     response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
+    # This only prints the query for the response payload — it never executes — and access to the
+    # underlying warehouse tables is already enforced on the insight's executed query. Bypass warehouse
+    # access control so building the printer's database doesn't fail closed in userless contexts.
     with timings.measure("printing_hogql_for_response"):
-        return to_printed_hogql(response_hogql_query, team, modifiers)
+        return to_printed_hogql(response_hogql_query, team, modifiers, bypass_warehouse_access_control=True)

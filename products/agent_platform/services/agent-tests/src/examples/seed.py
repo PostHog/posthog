@@ -57,10 +57,13 @@ Exit codes:
 
 from __future__ import annotations
 
+import io
 import os
+import re
 import sys
 import json
 import hashlib
+import zipfile
 import subprocess
 import urllib.error
 import urllib.request
@@ -126,6 +129,41 @@ def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
         headers={
             "Authorization": f"Bearer {PAT}",
             "Content-Type": "application/json",
+        },
+    )
+    try:
+        # Example seed script — API base is a trusted dev/CI env var, not user input.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req) as r:
+            payload = r.read().decode() or "{}"
+            return r.status, json.loads(payload)
+    except urllib.error.HTTPError as e:
+        response_body = e.read().decode() if e.fp else ""
+        try:
+            return e.code, json.loads(response_body)
+        except json.JSONDecodeError:
+            return e.code, {"raw": response_body}
+
+
+def _req_multipart(path: str, filename: str, content: bytes, content_type: str) -> tuple[int, dict]:
+    """POST a single-file multipart/form-data body (form field `file`). The skill
+    store's `import` endpoint takes a zip this way; urllib has no multipart helper
+    so we frame the body by hand with a fixed boundary."""
+    boundary = "----seedpyboundary7MA4YWxkTrZu0gW"
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode()
+    body = head + content + f"\r\n--{boundary}--\r\n".encode()
+    url = f"{API}/api/projects/{PROJECT_ID}{path}"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {PAT}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
         },
     )
     try:
@@ -349,6 +387,125 @@ def ensure_dummy_secrets(slug: str, app_id: str, rev_id: str, spec: dict) -> Non
 
 
 # ---------------------------------------------------------------------------
+# Store skills
+#
+# The skill store is canonical: a frozen revision pulls each skill from the
+# `llm_skills` store via `skill_refs`, and freeze REFUSES inline skills that
+# aren't backed by a store reference. So before freeze we mirror every bundle
+# skill into the store (idempotent, by name) and set the draft's `skill_refs`.
+# The store name and the bundle folder id (the ref `alias`) are both the spec
+# skill id — example skill ids are unique across bundles.
+# ---------------------------------------------------------------------------
+
+
+_FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
+
+
+def skill_md_for_store(skill_id: str, description: str, body: str) -> str:
+    """The SKILL.md text to import, guaranteed to carry a `name` (the store
+    requires it). Three cases across the example bundles:
+      - no frontmatter (starts at a heading) → synthesise the whole block;
+      - frontmatter with a `description` but no `name` → inject `name`;
+      - frontmatter with both → use verbatim.
+    Synthesised values come from the spec (skill id + ref description) and are
+    JSON-encoded — valid YAML double-quoted scalars — so colons / em-dashes in
+    descriptions can't break the block."""
+    match = _FRONTMATTER_RE.match(body)
+    if match is None:
+        return f"---\nname: {json.dumps(skill_id)}\ndescription: {json.dumps(description)}\n---\n\n{body}"
+    if re.search(r"(?m)^name:[ \t]*\S", match.group(0)):
+        return body
+    # Frontmatter present but unnamed — inject `name` right after the opening `---`.
+    return body.replace("---\n", f"---\nname: {json.dumps(skill_id)}\n", 1)
+
+
+def build_skill_zip(skill_id: str, skill_md: str, companions: dict[str, str]) -> bytes:
+    """A spec-compliant skill zip: `<id>/SKILL.md` plus any companion files under
+    the same folder. `parse_skill_zip` finds the single SKILL.md and collects its
+    siblings."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{skill_id}/SKILL.md", skill_md)
+        for rel_path, content in companions.items():
+            archive.writestr(f"{skill_id}/{rel_path}", content)
+    return buf.getvalue()
+
+
+def _post_frontmatter_body(body: str) -> str:
+    """The body the store keeps (frontmatter stripped), for drift comparison."""
+    match = _FRONTMATTER_RE.match(body)
+    return (body[match.end() :] if match else body).strip()
+
+
+def ensure_store_skill(slug: str, skill_id: str, description: str, body: str, companions: dict[str, str]) -> str:
+    """Find-or-create the bundle skill in the `llm_skills` store, publishing a new
+    version when its body/description has drifted — freeze pulls the store copy, so
+    a stale store skill would ship instead of the bundle's. Returns the store name."""
+    want_body = _post_frontmatter_body(body)
+    want_desc = (description or "").strip()
+    status, existing = _req("GET", f"/llm_skills/name/{skill_id}/")
+    if status == 200:
+        if (existing.get("body") or "").strip() == want_body and (
+            existing.get("description") or ""
+        ).strip() == want_desc:
+            return skill_id
+        ver = existing.get("version")
+        status, payload = _req(
+            "PATCH",
+            f"/llm_skills/name/{skill_id}/",
+            {"base_version": ver, "body": want_body, "description": want_desc},
+        )
+        if status not in (200, 201):
+            raise SeedError(f"skill update failed for '{skill_id}': {status} {payload}")
+        log(slug, f"updated store skill '{skill_id}' (v{ver} → v{payload.get('version', '?')})")
+        return skill_id
+    skill_md = skill_md_for_store(skill_id, description, body)
+    zip_bytes = build_skill_zip(skill_id, skill_md, companions)
+    status, payload = _req_multipart("/llm_skills/import/", f"{skill_id}.zip", zip_bytes, "application/zip")
+    if status in (200, 201):
+        return str(payload.get("name") or skill_id)
+    # A name conflict means a concurrent/prior run already created it — reuse.
+    if status == 400 and "already exists" in json.dumps(payload):
+        return skill_id
+    raise SeedError(f"skill import failed for '{skill_id}': {status} {payload}")
+
+
+def set_skill_refs(slug: str, app_id: str, rev_id: str, refs: list[dict]) -> None:
+    """Full-replace the draft's store-skill references (resolved + materialised at
+    freeze). No-op when the bundle has no skills."""
+    if not refs:
+        return
+    log(slug, f"setting {len(refs)} skill ref(s): {', '.join(r['alias'] for r in refs)}")
+    status, payload = _req("PUT", f"/agent_applications/{app_id}/revisions/{rev_id}/skill_refs/", {"skill_refs": refs})
+    if status != 200:
+        raise SeedError(f"set skill_refs failed for {slug}: {status} {payload}")
+
+
+def seed_store_skills(slug: str, app_id: str, rev_id: str, spec: dict, bundle_root: Path) -> None:
+    """Mirror every bundle skill into the store and pin the draft's `skill_refs`,
+    so freeze can resolve them. `from_template` is the store name; `alias` is the
+    bundle folder id — both the spec skill id here."""
+    refs: list[dict] = []
+    for skill_ref in spec.get("skills", []) or []:
+        skill_id = skill_ref.get("id")
+        if not skill_id:
+            continue
+        rel = skill_ref.get("path", f"skills/{skill_id}.md")
+        skill_md_path = bundle_root / rel
+        body = skill_md_path.read_text() if skill_md_path.is_file() else ""
+        # Companions: every sibling file in the skill's folder except SKILL.md.
+        companions: dict[str, str] = {}
+        skill_dir = skill_md_path.parent
+        if skill_dir.is_dir() and skill_dir != bundle_root:
+            for f in sorted(skill_dir.rglob("*")):
+                if f.is_file() and f != skill_md_path:
+                    companions[f.relative_to(skill_dir).as_posix()] = f.read_text()
+        store_name = ensure_store_skill(slug, skill_id, skill_ref.get("description", ""), body, companions)
+        refs.append({"from_template": store_name, "alias": skill_id})
+    set_skill_refs(slug, app_id, rev_id, refs)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -498,6 +655,9 @@ def seed_bundle(bundle_root: Path) -> None:
     rev_id = create_draft(slug, app_id, parent=live_rev, spec=spec)
     push_bundle(slug, app_id, rev_id, files, spec)
     patch_spec(slug, app_id, rev_id, spec)
+    # Mirror bundle skills into the store + pin skill_refs BEFORE freeze — the
+    # freeze gate refuses inline skills that lack a store reference.
+    seed_store_skills(slug, app_id, rev_id, spec, bundle_root)
     if SEED_DUMMY_SECRETS:
         ensure_dummy_secrets(slug, app_id, rev_id, spec)
     validate(slug, app_id, rev_id)

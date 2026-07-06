@@ -11,15 +11,17 @@ credentials.
 from __future__ import annotations
 
 import math
+import time
 import typing
 import contextlib
 import collections
 import collections.abc
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
@@ -29,6 +31,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
+from google.cloud.bigquery.table import RowIterator
 from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
@@ -53,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -76,10 +80,12 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 
 __all__ = [
     "BIGQUERY_DATASET_NOT_FOUND_ERROR",
+    "BIGQUERY_INVALID_IDENTIFIER_ERROR",
     "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryCredentialsRejectedError",
     "BigQueryDatasetNotFoundError",
     "BigQueryImplementation",
+    "BigQueryInvalidIdentifierError",
     "BigQueryTokenRefreshError",
     "bigquery_client",
     "bigquery_storage_read_client",
@@ -105,6 +111,18 @@ BIGQUERY_DATASET_NOT_FOUND_ERROR = (
     "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or "
     "it may live in a different region — verify your dataset and table names, and set the dataset "
     "region in your source configuration if it isn't in the US."
+)
+
+# User-facing message for a syntactically invalid project/dataset ID (e.g. a value carrying
+# parentheses or other characters BigQuery forbids). Raised below and matched in
+# `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data (the offending id).
+# Kept generic across project vs dataset: the raw 400 can be either ("Invalid project ID" /
+# "Invalid dataset ID"), and the two have different allowed character sets (dataset IDs allow
+# underscores but not dashes; project IDs allow dashes but not underscores), so naming a specific
+# allowlist or only one field would mislead half the cases.
+BIGQUERY_INVALID_IDENTIFIER_ERROR = (
+    "Your BigQuery Project ID or Dataset ID contains characters BigQuery doesn't allow. "
+    "Please check the Project ID and Dataset ID in your source configuration."
 )
 
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
@@ -133,6 +151,17 @@ class BigQueryDatasetNotFoundError(Exception):
     "404 Not found: Dataset ... was not found in location US ... Job ID: ..." — BigQuery job
     internals the user can't act on, which would otherwise leak straight to the create/validate
     response. We re-raise it with the same actionable wording we map this condition to during syncs.
+    """
+
+
+class BigQueryInvalidIdentifierError(Exception):
+    """Raised when schema discovery is given a syntactically invalid project/dataset ID.
+
+    `client.query()` raises a `google.api_core.exceptions.BadRequest` whose `str()` is a raw
+    `400 Invalid dataset ID "..."` / `Invalid project ID "..."` carrying the offending value plus
+    job internals (location, job id) — none of which the user can act on. A value like `(default)`
+    fails because parentheses aren't allowed. We re-raise it with actionable wording instead of
+    leaking the raw 400 to the create/validate response. Deterministic config error — non-retryable.
     """
 
 
@@ -249,6 +278,16 @@ def bigquery_client(
         location=location,
         credentials=credentials,
         _http=authed_session,
+    )
+    # `_connection.API_BASE_URL` is the endpoint the client will actually call (it honors
+    # api_endpoint overrides and universe-domain hosts), so the logged host can't drift.
+    # It's a private attribute, so read it fail-soft: a library rename must degrade the log
+    # field, not crash the sync.
+    api_base_url: str = getattr(getattr(client, "_connection", None), "API_BASE_URL", None) or "bigquery.googleapis.com"
+    log_connection_open(
+        db_host=urlparse(api_base_url).hostname or api_base_url,
+        via="vendor_https",
+        project_id=project_id,
     )
 
     try:
@@ -370,11 +409,15 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
-        except (Forbidden, NotFound) as e:
+        except (Forbidden, NotFound, RefreshError) as e:
             # Best-effort cleanup. If the service account has lost permission to list/delete
-            # tables, or the dataset no longer exists, there's nothing to recover here — log
-            # quietly rather than capturing an expected, non-actionable condition that would
-            # otherwise fire on every sync for an affected source.
+            # tables, the dataset no longer exists, or a token refresh fails for any reason
+            # (rejected credentials from a rotated/revoked key — `RefreshError: invalid_grant` — or
+            # a transient refresh error), there's nothing to recover here. Rejected credentials, the
+            # common case, are already surfaced with an actionable message on the main sync path via
+            # `get_non_retryable_errors`; a transient refresh failure just leaves temp tables to be
+            # cleaned up on the next run. Log quietly rather than capturing an expected,
+            # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:
@@ -503,6 +546,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+# Stable wording BigQuery puts in a `resourcesExceeded` query failure's message. Shared between
+# `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
+# stay in lockstep if BigQuery ever adjusts the phrasing.
+BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
+
+
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """True for BigQuery's `resourcesExceeded` query failures.
 
@@ -513,7 +562,7 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     crash.
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
-    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+    return "resourcesExceeded" in reasons or BIGQUERY_RESOURCES_EXCEEDED_ERROR in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
@@ -585,9 +634,7 @@ def _get_rows_to_sync(
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
         job_config = QueryJobConfig(query_parameters=query_parameters)
-        job = client.query(query, job_config=job_config, project=table.project)
-
-        rows = job.result(page_size=1)
+        rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project, page_size=1)
         row = next(rows, None)
 
         if row and len(row) > 0 and row[0] is not None:
@@ -691,6 +738,38 @@ def _bq_row_filter_conditions(
     return conditions, parameters
 
 
+def _format_incremental_cursor_literal(
+    last_value: datetime | date,
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    bq_table: bigquery.Table,
+) -> str:
+    """Render the incremental cursor bound as a SQL literal matching the column's live type.
+
+    The `incremental_field_type` recorded at source setup can lag the column's actual BigQuery
+    type — a column retyped in BigQuery after schema discovery — so drive formatting off the live
+    schema, falling back to the stored type when the column isn't in it:
+      - DATE: date component only. A datetime literal (`1970-01-01T00:00:00`) can't be cast to DATE.
+      - DATETIME: timezone-naive. The type is tz-naive and rejects an offset literal.
+      - TIMESTAMP: keep the offset. The type is timezone-aware.
+    """
+    column_field_types = {field.name: field.field_type for field in bq_table.schema}
+    actual_type = _BQ_FIELD_TYPE_NORMALIZATION.get(column_field_types.get(incremental_field, "").upper())
+
+    if isinstance(last_value, datetime):
+        if actual_type == "DATE":
+            return f"'{last_value.date().isoformat()}'"
+        naive = actual_type == "DATETIME" or (
+            actual_type is None and incremental_field_type == IncrementalFieldType.DateTime
+        )
+        if naive and last_value.tzinfo is not None:
+            last_value = last_value.replace(tzinfo=None)
+        return f"'{last_value.isoformat()}'"
+
+    # A plain `date` cursor casts cleanly to DATE, DATETIME, and TIMESTAMP alike.
+    return f"'{last_value.isoformat()}'"
+
+
 def _get_query(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
@@ -714,17 +793,10 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime):
-            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
-            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
-            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
-            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
-            # keep it.
-            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
-                last_value = last_value.replace(tzinfo=None)
-            last_value = f"'{last_value.isoformat()}'"
-        elif isinstance(last_value, date):
-            last_value = f"'{last_value.isoformat()}'"
+        if isinstance(last_value, date):
+            last_value = _format_incremental_cursor_literal(
+                last_value, incremental_field, incremental_field_type, bq_table
+            )
 
         operator = incremental_type_to_operator(incremental_field_type)
         conditions = [f"`{incremental_field}` {operator} {last_value}", *filter_conditions]
@@ -739,6 +811,105 @@ def _get_query(
         return f"SELECT {select_clause} FROM {table_ref} WHERE {' AND '.join(filter_conditions)}", query_parameters
 
     return f"SELECT {select_clause} FROM {table_ref}", query_parameters
+
+
+# BigQuery's job-metadata store is eventually consistent: `client.query()` inserts a job and then
+# reads it straight back. When the auto-retried `jobs.insert` loses its first response, the retry
+# hits a 409 whose recovery `get_job` momentarily 404s for the job it just created (surfacing as
+# `NotFound: ... Not found: Job <project>:<id>`). The race clears within moments, so retry a few
+# times before surfacing the error.
+_JOB_NOT_FOUND_MAX_ATTEMPTS = 4
+_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS = 0.5
+
+_T = typing.TypeVar("_T")
+
+
+def _is_transient_job_not_found(error: NotFound) -> bool:
+    """True for BigQuery's transient "Job ... not found" lookup race.
+
+    Must be distinguished from a genuine `NotFound` — a missing dataset/table, or a dataset absent
+    from the queried region — that no retry can fix (and which is deliberately treated as
+    non-retryable elsewhere), so match only the job-lookup wording, never "Not found: Dataset" /
+    "Not found: Table" / "was not found in location".
+    """
+    message = str(error)
+    return "Not found: Job" in message or "Job not found" in message
+
+
+def _with_job_not_found_retry(operation: Callable[[], _T]) -> _T:
+    """Run `operation`, retrying BigQuery's transient job-metadata race.
+
+    `client.query()` inserts a job and reads it straight back (its post-insert `get_job` reload, or
+    the reload `job.result()` does while awaiting completion), and that read can momentarily 404 for
+    the job it just created. The race clears within moments, so retry a few times. A genuine
+    `NotFound` (missing dataset/table) is not the race and surfaces immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except NotFound as e:
+            attempt += 1
+            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
+                raise
+            structlog.get_logger().warning(
+                "Retrying BigQuery query after transient job-not-found (attempt %s/%s): %s",
+                attempt,
+                _JOB_NOT_FOUND_MAX_ATTEMPTS,
+                e,
+            )
+            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
+
+
+def _run_destination_query_with_job_retry(
+    client: bigquery.Client,
+    query: str,
+    *,
+    destination_table: bigquery.Table,
+    query_parameters: list[bigquery.ScalarQueryParameter],
+    project: str,
+) -> None:
+    """Run a copy-into-temp-table query, retrying BigQuery's transient job-metadata race.
+
+    The 404 is raised from inside `client.query()` (its post-insert `get_job` reload), so recovering
+    means creating a fresh job — retrying `job.result()` alone can't. Re-running writes the same
+    temp table, so `WRITE_TRUNCATE` keeps a retry — or a stale table left behind by a lost first
+    attempt — idempotent instead of tripping the default empty-table check.
+    """
+    job_config = QueryJobConfig(
+        destination=destination_table,
+        query_parameters=query_parameters,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+
+    def _run() -> None:
+        job = client.query(query, job_config=job_config, project=project)
+        job.result()
+
+    _with_job_not_found_retry(_run)
+
+
+def _query_result_with_job_retry(
+    client: bigquery.Client,
+    query: str,
+    *,
+    job_config: QueryJobConfig,
+    project: str,
+    page_size: int | None = None,
+) -> RowIterator:
+    """Run a read-only query and return its row iterator, retrying the transient job-metadata race.
+
+    The read-path counterpart to `_run_destination_query_with_job_retry`: the same post-insert
+    `get_job` 404 can hit any `client.query()`, so a plain COUNT can fail with `NotFound: ... Not
+    found: Job ...` the same way the copy queries do. Re-running a read-only query just inserts a
+    fresh job, so retrying is safe; row fetching on the returned iterator stays lazy.
+    """
+
+    def _run() -> RowIterator:
+        job = client.query(query, job_config=job_config, project=project)
+        return job.result(page_size=page_size)
+
+    return _with_job_not_found_retry(_run)
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
@@ -805,6 +976,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 "BigQuery dataset '%s' not found during schema discovery: %s", config.dataset_id, e
             )
             raise BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR) from e
+        except BadRequest as e:
+            # A bad project/dataset ID surfaces as "400 Invalid project ID ..." / "Invalid dataset ID
+            # ...". Convert it to an actionable message; anything else is a genuine BadRequest we leave
+            # to propagate (including the transient job-internal-error the query retry predicate covers).
+            if "Invalid dataset ID" not in str(e) and "Invalid project ID" not in str(e):
+                raise
+            structlog.get_logger().warning(
+                "BigQuery rejected an invalid project/dataset ID during schema discovery: %s", e
+            )
+            raise BigQueryInvalidIdentifierError(BIGQUERY_INVALID_IDENTIFIER_ERROR) from e
         except TypeError as e:
             # See `BigQueryTokenRefreshError`: google-auth raises an opaque
             # `TypeError: string indices must be integers` when the OAuth token endpoint
@@ -1103,9 +1284,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
-                    _ = job.result()
+                    _run_destination_query_with_job_retry(
+                        bq_client,
+                        query,
+                        destination_table=destination_table,
+                        query_parameters=query_parameters,
+                        project=bq_table.project,
+                    )
 
                     bq_table = bq_client.get_table(destination_table)
 
@@ -1126,9 +1311,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
-                    _ = job.result()
+                    _run_destination_query_with_job_retry(
+                        bq_client,
+                        query,
+                        destination_table=destination_table,
+                        query_parameters=query_parameters,
+                        project=bq_table.project,
+                    )
 
                     bq_table = bq_client.get_table(destination_table)
 

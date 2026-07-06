@@ -193,7 +193,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("table", response.json()["error"].lower())
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_materialize_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -236,7 +236,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args[0][0], "data-modeling-run")
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_materialize_uses_materialize_view_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -250,7 +250,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_materialize_uses_run_workflow_when_v2_disabled(self, mock_sync_connect, mock_feature_flag):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -417,6 +417,59 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
         self.assertNotEqual(self.view_node.name, foreign_sq.name)
 
+    def _create_managed_node(self) -> Node:
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        sq = DataWarehouseSavedQuery.objects.create(
+            name="managed_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        return Node.objects.create(
+            team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW, description="orig"
+        )
+
+    def test_cannot_delete_node_in_managed_dag(self):
+        node = self._create_managed_node()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Node.objects.filter(id=node.id).exists())
+
+    def test_cannot_patch_node_in_managed_dag(self):
+        node = self._create_managed_node()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/",
+            data={"description": "changed"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        node.refresh_from_db()
+        self.assertEqual(node.description, "orig")
+
+    @parameterized.expand(["post", "patch"])
+    def test_cannot_add_or_move_node_into_managed_dag(self, method):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+
+        if method == "post":
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/",
+                data={"name": "sneaky", "type": NodeType.TABLE, "dag": str(managed_dag.id)},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Node.objects.filter(name="sneaky", dag=managed_dag).exists())
+            return
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/",
+            data={"dag": str(managed_dag.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.dag_id, self.dag.id)
+
 
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
@@ -521,3 +574,33 @@ class TestEdgeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    def _create_managed_edge(self) -> Edge:
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        source = Node.objects.create(team=self.team, dag=managed_dag, name="m_events", type=NodeType.TABLE)
+        sq = DataWarehouseSavedQuery.objects.create(
+            name="m_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        target = Node.objects.create(team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW)
+        return Edge.objects.create(team=self.team, dag=managed_dag, source=source, target=target, properties={"a": 1})
+
+    def test_cannot_delete_edge_in_managed_dag(self):
+        edge = self._create_managed_edge()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Edge.objects.filter(id=edge.id).exists())
+
+    def test_cannot_patch_edge_in_managed_dag(self):
+        edge = self._create_managed_edge()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/",
+            data={"properties": {"a": 2}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {"a": 1})

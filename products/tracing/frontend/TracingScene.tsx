@@ -76,7 +76,6 @@ function TracingSceneContents(): JSX.Element {
         durationHistogramLoading,
         visibleRowDurationRange,
         isDurationMode,
-        expandedSpanIds,
         activeTracingTab,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
@@ -91,7 +90,6 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         loadMoreTraceSpans,
         setVisibleRowRange,
-        toggleExpandSpan,
         setSort,
         setActiveTracingTab,
     } = useActions(tracingSceneLogic())
@@ -221,8 +219,6 @@ function TracingSceneContents(): JSX.Element {
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
                                 onVisibleRowRangeChange={setVisibleRowRange}
-                                expandedSpanIds={expandedSpanIds}
-                                onToggleExpand={toggleExpandSpan}
                                 orderBy={filters.orderBy}
                                 orderDirection={filters.orderDirection}
                                 onSort={(column) =>

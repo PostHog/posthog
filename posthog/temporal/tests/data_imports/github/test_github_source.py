@@ -11,7 +11,7 @@ import requests
 from parameterized import parameterized
 from tenacity import Future, RetryCallState
 
-from posthog.models.integration import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
@@ -625,7 +625,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -637,7 +637,7 @@ class TestGetRowsResume:
                 )
             )
 
-        first_url = mock_get.return_value.get.call_args_list[0].args[0]
+        first_url = mock_get.return_value.request.call_args_list[0].args[1]
         assert first_url.startswith("https://api.github.com/repos/owner/repo/releases")
         manager.load_state.assert_not_called()
 
@@ -659,7 +659,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -671,7 +671,7 @@ class TestGetRowsResume:
                 )
             )
 
-        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_url
+        assert mock_get.return_value.request.call_args_list[0].args[1] == saved_url
         manager.load_state.assert_called_once()
 
     def test_empty_first_page_ends_loop(self) -> None:
@@ -682,7 +682,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [_make_response(body=[], link="")]
+            mock_get.return_value.request.side_effect = [_make_response(body=[], link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -707,7 +707,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [_make_response(body=[{"id": 1}], link="")]
+            mock_get.return_value.request.side_effect = [_make_response(body=[{"id": 1}], link="")]
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -721,7 +721,7 @@ class TestGetRowsResume:
 
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args.args[0]
-        assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
+        assert saved.next_url == mock_get.return_value.request.call_args_list[0].args[1]
 
     def test_empty_repository_409_syncs_zero_rows(self) -> None:
         """An empty repo returns 409 "Git Repository is empty." on the commits
@@ -736,7 +736,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [empty_repo_409]
+            mock_get.return_value.request.side_effect = [empty_repo_409]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -767,7 +767,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [other_409]
+            mock_get.return_value.request.side_effect = [other_409]
             with pytest.raises(requests.HTTPError):
                 list(
                     get_rows(
@@ -790,7 +790,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            mock_get.return_value.request.side_effect = [_make_response(body=envelope, link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -815,7 +815,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            mock_get.return_value.request.side_effect = [_make_response(body=envelope, link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -861,7 +861,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -876,8 +876,8 @@ class TestGetRowsResume:
             )
 
         assert [row["id"] for row in rows] == [3, 2, 1]
-        assert mock_get.return_value.get.call_count == 2
-        first_url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert mock_get.return_value.request.call_count == 2
+        first_url = mock_get.return_value.request.call_args_list[0].args[1]
         assert "created=" not in first_url
         assert "since=" not in first_url
         assert "/actions/runs" in first_url
@@ -911,7 +911,7 @@ class TestGetRowsResume:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -927,7 +927,7 @@ class TestGetRowsResume:
         # the next-page URL — otherwise item 3 (batched but not yet yielded)
         # would be skipped on resume.
         first_save = manager.save_state.call_args_list[0].args[0]
-        assert first_save.next_url == mock_get.return_value.get.call_args_list[0].args[0]
+        assert first_save.next_url == mock_get.return_value.request.call_args_list[0].args[1]
         assert first_save.next_url != "https://api.github.com/repos/owner/repo/releases?page=2"
 
 
@@ -1057,7 +1057,7 @@ class _RoutingSession:
         self._jobs_by_run = jobs_by_run
         self.calls: list[str] = []
 
-    def get(self, url: str, headers: Any = None, timeout: Any = None) -> Any:
+    def request(self, method: str, url: str, headers: Any = None, timeout: Any = None, **kwargs: Any) -> Any:
         self.calls.append(url)
         if "/jobs" in url:
             run_id = int(urlparse(url).path.split("/")[-2])
@@ -1318,7 +1318,7 @@ class TestIterPages:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
         ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
 
         assert [items for items, _url in pages] == [[{"id": 1}], [{"id": 2}]]
@@ -1334,7 +1334,7 @@ class TestIterPages:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
         ) as mock_get:
-            mock_get.return_value.get.side_effect = [_make_response(body=body, link="")]
+            mock_get.return_value.request.side_effect = [_make_response(body=body, link="")]
             pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
 
         assert pages == []
@@ -1349,7 +1349,7 @@ class TestIterPages:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
         ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             pages = list(
                 _iter_pages(
                     "https://api.github.com/x",
@@ -1378,11 +1378,11 @@ class TestIterPages:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
         ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
+            mock_get.return_value.request.side_effect = responses
             jobs = list(_iter_jobs_for_run("owner/repo", 1001, {}, logger, config))
 
         assert [job["id"] for job in jobs] == [1]
-        url = mock_get.return_value.get.call_args_list[0].args[0]
+        url = mock_get.return_value.request.call_args_list[0].args[1]
         assert "/repos/owner/repo/actions/runs/1001/jobs" in url
         assert "filter=all" in url
         # Cap of 1 page reached (a next link exists) → warning emitted.
@@ -1635,12 +1635,12 @@ class TestFetchPageRateLimit:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
             ) as mock_get,
         ):
-            mock_get.return_value.get.return_value = resp
+            mock_get.return_value.request.return_value = resp
             with pytest.raises(GitHubRateLimitError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         # stop_after_attempt(5): the rate limit is retried, not treated as fatal on first hit.
-        assert mock_get.return_value.get.call_count == 5
+        assert mock_get.return_value.request.call_count == 5
 
     def test_recovers_when_rate_limit_clears(self) -> None:
         rate_limited = _rate_limited_response(429, "Too Many Requests", {"retry-after": "1"})
@@ -1652,11 +1652,11 @@ class TestFetchPageRateLimit:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
             ) as mock_get,
         ):
-            mock_get.return_value.get.side_effect = [rate_limited, ok]
+            mock_get.return_value.request.side_effect = [rate_limited, ok]
             response = _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert response is ok
-        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.request.call_count == 2
 
     def test_permission_403_is_fatal_not_retried(self) -> None:
         # A 403 with no rate-limit body is a real permission error: surface it
@@ -1668,11 +1668,11 @@ class TestFetchPageRateLimit:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.return_value = resp
+            mock_get.return_value.request.return_value = resp
             with pytest.raises(requests.HTTPError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
-        assert mock_get.return_value.get.call_count == 1
+        assert mock_get.return_value.request.call_count == 1
 
     def test_disables_adapter_retries_so_cap_is_authoritative(self) -> None:
         # The tracked session's default adapter retries 429/5xx and honors Retry-After
@@ -1683,7 +1683,7 @@ class TestFetchPageRateLimit:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.return_value = ok
+            mock_get.return_value.request.return_value = ok
             _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         retry = mock_get.call_args.kwargs["retry"]

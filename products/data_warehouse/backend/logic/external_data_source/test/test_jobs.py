@@ -7,6 +7,7 @@ from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 
 pytestmark = [
     pytest.mark.django_db,
@@ -264,6 +265,40 @@ class TestUpdateExternalJobStatus:
         assert db_job.status == first_status
         expected_error = "first error" if first_status == ExternalDataJob.Status.FAILED else None
         assert db_job.latest_error == expected_error
+
+    def test_completed_after_lock_takeover_failure_is_allowed(self):
+        # A job force-failed by lock takeover while the loader was still working its run
+        # must accept the loader's completion instead of rejecting Failed -> Completed.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with patch(
+            "products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"
+        ) as mock_emit:
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error=LOCK_TAKEOVER_LATEST_ERROR,
+            )
+
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        assert updated.status == ExternalDataJob.Status.COMPLETED
+        assert updated.latest_error is None
+        assert updated.finished_at is not None
+        # Success metrics must be emitted even though the takeover already stamped finished_at.
+        assert mock_emit.call_count == 2
+        assert mock_emit.call_args.args[0].status == ExternalDataJob.Status.COMPLETED
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+        assert schema.latest_error is None
 
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()

@@ -1,9 +1,12 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     AiReportStageError,
     QueryStepDiagnostic,
@@ -276,6 +279,32 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # (not just the type) for the delivery viewer to show.
     assert diagnostics[0].error_type == "ExposedHogQLError"
     assert diagnostics[0].error_message == "bad query"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: MagicMock) -> None:
+    # The planner can emit many steps; they must not all hit ClickHouse at once. With more steps than
+    # the cap, no more than _MAX_CONCURRENT_STEPS run their query simultaneously (a regression that drops
+    # the semaphore would let every step fan out at once).
+    concurrent = 0
+    max_concurrent = 0
+    saturated = asyncio.Event()
+
+    async def _track(_query: object) -> tuple[str, None]:
+        nonlocal concurrent, max_concurrent
+        concurrent += 1
+        max_concurrent = max(max_concurrent, concurrent)
+        if concurrent >= _MAX_CONCURRENT_STEPS:
+            saturated.set()  # cap reached — release the held steps so the rest can run
+        await saturated.wait()
+        concurrent -= 1
+        return ("formatted", None)
+
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_track)
+
+    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), None)
+
+    assert max_concurrent == _MAX_CONCURRENT_STEPS
 
 
 def _wrap(

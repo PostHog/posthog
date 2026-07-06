@@ -71,7 +71,7 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> BatchConsumer:
     )
     mock_process = AsyncMock()
     consumer = BatchConsumer(config=config, process_batch=mock_process)
-    consumer._conn = _make_healthy_conn()
+    consumer._poll_conn = _make_healthy_conn()
     consumer._recovery_conn = _make_healthy_conn()
     return consumer
 
@@ -177,6 +177,7 @@ class TestProcessGroup:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -205,6 +206,7 @@ class TestProcessGroup:
                 return_value=True,
             ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -238,6 +240,7 @@ class TestProcessGroup:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -272,6 +275,7 @@ class TestProcessGroup:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -381,7 +385,9 @@ class TestFailRun:
                 side_effect=Exception("the connection is closed"),
             ),
         ):
-            await consumer._fail_run(batch, reason="max retries exceeded: the connection is closed")
+            await consumer._fail_run(
+                batch, reason="max retries exceeded: the connection is closed", conn=consumer._poll_conn
+            )
 
         mock_fail_run.assert_called_once()  # queue batches still marked failed
 
@@ -400,7 +406,7 @@ class TestFailRun:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
             ) as mock_status,
         ):
-            await consumer._fail_run(batch, reason="boom")
+            await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         mock_status.assert_called_once()
 
@@ -490,14 +496,14 @@ class TestConnectionRecovery:
         ids=["healthy", "closed", "broken"],
     )
     @pytest.mark.asyncio
-    async def test_ensure_main_conn_reconnects_only_when_dead(self, closed, broken, expect_reconnect):
+    async def test_ensure_poll_conn_reconnects_only_when_dead(self, closed, broken, expect_reconnect):
         consumer = _make_consumer()
         original = _make_healthy_conn(closed=closed, broken=broken)
-        consumer._conn = original
+        consumer._poll_conn = original
         fresh = _make_healthy_conn()
 
         with patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh) as mock_connect:
-            conn = await consumer._ensure_main_conn()
+            conn = await consumer._ensure_poll_conn()
 
         if expect_reconnect:
             mock_connect.assert_awaited_once()
@@ -507,10 +513,9 @@ class TestConnectionRecovery:
             assert conn is original
 
     @pytest.mark.asyncio
-    async def test_concurrent_ensure_main_conn_dials_only_once(self):
-        # All concurrent groups hitting a dead conn must share one reconnect, not dial N connections.
+    async def test_concurrent_ensure_poll_conn_dials_only_once(self):
         consumer = _make_consumer()
-        consumer._conn = _make_healthy_conn(closed=True)
+        consumer._poll_conn = _make_healthy_conn(closed=True)
         fresh = _make_healthy_conn()
 
         async def slow_connect() -> AsyncMock:
@@ -518,7 +523,7 @@ class TestConnectionRecovery:
             return fresh
 
         with patch.object(consumer, "_connect", side_effect=slow_connect) as mock_connect:
-            conns = await asyncio.gather(*[consumer._ensure_main_conn() for _ in range(5)])
+            conns = await asyncio.gather(*[consumer._ensure_poll_conn() for _ in range(5)])
 
         assert mock_connect.call_count == 1
         assert all(conn is fresh for conn in conns)
@@ -537,7 +542,6 @@ class TestConnectionRecovery:
 
     @pytest.mark.asyncio
     async def test_process_group_does_not_raise_when_unlock_fails(self):
-        # An unlock failure must not crash the gather() running every concurrent group.
         consumer = _make_consumer()
         consumer._process_batch = AsyncMock()
 
@@ -556,6 +560,7 @@ class TestConnectionRecovery:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), [_make_batch()])
 
@@ -574,6 +579,7 @@ class TestConnectionRecovery:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), [_make_batch(), _make_batch(batch_index=1)])
 
@@ -598,6 +604,117 @@ class TestConnectionRecovery:
 
         mock_get_stale.assert_awaited_once()
         assert mock_get_stale.call_args[0][0] is fresh
+
+
+class TestPerGroupConnectionIsolation:
+    @pytest.mark.asyncio
+    async def test_each_group_gets_distinct_connection(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+        conns_seen: list[Any] = []
+
+        group_conn_a = _make_healthy_conn()
+        group_conn_b = _make_healthy_conn()
+        connect_returns = iter([group_conn_a, group_conn_b])
+
+        async def mock_connect():
+            return next(connect_returns)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", side_effect=mock_connect),
+        ):
+            batch_a = _make_batch(team_id=1, schema_id="a")
+            batch_b = _make_batch(team_id=1, schema_id="b")
+
+            original_process_single = consumer._process_single
+
+            async def track_conn(batch, lock_conn=None):
+                conns_seen.append(lock_conn)
+                return await original_process_single(batch, lock_conn=lock_conn)
+
+            consumer._process_single = track_conn  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+            await consumer._process_group((1, "a"), [batch_a])
+            await consumer._process_group((1, "b"), [batch_b])
+
+        assert conns_seen[0] is group_conn_a
+        assert conns_seen[1] is group_conn_b
+        assert conns_seen[0] is not conns_seen[1]
+
+    @pytest.mark.asyncio
+    async def test_group_connection_not_shared_with_poll(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+        group_conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=group_conn),
+        ):
+            conn_used = None
+            original = consumer._process_single
+
+            async def capture_conn(batch, lock_conn=None):
+                nonlocal conn_used
+                conn_used = lock_conn
+                return await original(batch, lock_conn=lock_conn)
+
+            consumer._process_single = capture_conn  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            await consumer._process_group((1, "schema-1"), [_make_batch()])
+
+        assert conn_used is group_conn
+        assert conn_used is not consumer._poll_conn
+
+    @pytest.mark.asyncio
+    async def test_group_connection_closed_after_processing(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+        group_conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=group_conn),
+        ):
+            await consumer._process_group((1, "schema-1"), [_make_batch()])
+
+        group_conn.close.assert_awaited_once()
 
 
 class TestGroupByKey:
@@ -699,7 +816,7 @@ class TestLogContextBinding:
 
     @pytest.mark.asyncio
     async def test_process_single_handles_missing_workflow_ids_in_metadata(self):
-        """Old batches enqueued before this change have no workflow ids in metadata — must not crash."""
+        """Old batches enqueued before this change have no workflow ids in metadata -- must not crash."""
         consumer = _make_consumer()
         consumer._process_batch = AsyncMock()
 
@@ -793,6 +910,7 @@ class TestOwnershipVerification:
                 new_callable=AsyncMock,
                 side_effect=[True, True, False],
             ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -807,7 +925,6 @@ class TestOwnershipVerification:
         batch = _make_batch(latest_attempt=0)
 
         dead_conn = _make_healthy_conn(closed=True)
-        consumer._conn = dead_conn
 
         with (
             patch(
@@ -905,7 +1022,7 @@ class TestShutdown:
     async def test_close_releases_owned_leases(self):
         consumer = _make_consumer()
         main_conn = _make_healthy_conn()
-        consumer._conn = main_conn
+        consumer._poll_conn = main_conn
         consumer._recovery_conn = _make_healthy_conn()
 
         with patch(
@@ -916,3 +1033,64 @@ class TestShutdown:
 
         mock_release.assert_awaited_once_with(main_conn, owner_token=consumer._owner_token)
         main_conn.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_close_drains_in_flight_tasks(self):
+        consumer = _make_consumer()
+        consumer._poll_conn = _make_healthy_conn()
+        consumer._recovery_conn = _make_healthy_conn()
+        drained = asyncio.Event()
+
+        async def slow_group():
+            await asyncio.sleep(0.01)
+            drained.set()
+
+        task = asyncio.create_task(slow_group())
+        consumer._in_flight[(1, "schema-1")] = task
+        consumer._metrics.active_groups.inc()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+            new_callable=AsyncMock,
+        ):
+            await consumer._close()
+
+        assert drained.is_set()
+        assert len(consumer._in_flight) == 0
+
+
+class TestDispatchGroups:
+    def test_fetch_limit_caps_to_free_slots_and_poll_limit(self):
+        consumer = _make_consumer(max_concurrency=16, poll_limit=50)
+        # 1 free slot must not lease a whole 50-batch window (orphaned-lease regression).
+        assert consumer._fetch_limit(1) == 3
+        assert consumer._fetch_limit(4) == 12
+        assert consumer._fetch_limit(16) == 48
+        wide = _make_consumer(max_concurrency=64, poll_limit=50)
+        assert wide._fetch_limit(64) == 50
+
+    @pytest.mark.asyncio
+    async def test_undispatched_groups_release_their_leases_in_the_same_cycle(self):
+        consumer = _make_consumer(max_concurrency=2)
+        consumer._in_flight[(1, "schema-0")] = AsyncMock()
+
+        dispatched = _make_batch(id="00000000-0000-0000-0000-00000000000a", schema_id="schema-1", run_uuid="run-1")
+        dropped_1 = _make_batch(id="00000000-0000-0000-0000-00000000000b", schema_id="schema-2", run_uuid="run-2")
+        dropped_2 = _make_batch(
+            id="00000000-0000-0000-0000-00000000000c", schema_id="schema-2", run_uuid="run-2", batch_index=1
+        )
+
+        with patch.object(consumer._adapter, "unlock", new=AsyncMock()) as mock_unlock:
+            await consumer._dispatch_groups(_make_healthy_conn(), [dispatched, dropped_1, dropped_2])
+
+            # One free slot: schema-1 dispatched; schema-2's lease must be released now,
+            # not left dark until the 300s TTL expires (the fleet-throughput regression).
+            assert (1, "schema-1") in consumer._in_flight
+            assert (1, "schema-2") not in consumer._in_flight
+            released = mock_unlock.call_args.kwargs["batches"]
+            assert {b.id for b in released} == {dropped_1.id, dropped_2.id}
+
+        task = consumer._in_flight.pop((1, "schema-1"))
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

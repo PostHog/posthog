@@ -47,6 +47,7 @@ describe('SessionConsoleLogRecorder', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled,
+            aiTrainingOptedIn: true,
         },
         message: {
             distinct_id: distinctId,

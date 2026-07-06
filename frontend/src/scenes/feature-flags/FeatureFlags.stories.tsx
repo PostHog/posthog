@@ -108,6 +108,12 @@ const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featu
             if (!logic) {
                 throw new Error('featureFlagLogic({ id: "new" }) not yet mounted')
             }
+            // The new-flag loader awaits default release conditions, so wait for it to settle —
+            // otherwise loadFeatureFlagSuccess resets the flag to NEW_FLAG after a play function
+            // configures it below.
+            if (logic.values.featureFlagLoading) {
+                throw new Error('feature flag loader still pending')
+            }
             return logic
         },
         { timeout: 5000 }
@@ -172,8 +178,6 @@ export const NewRemoteConfigFlagPayloadError: Story = {
 
         logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
         logic.actions.setFeatureFlagValue('is_remote_configuration', true)
-        // Yield to let React flush the state updates before triggering validation.
-        await new Promise((resolve) => setTimeout(resolve, 50))
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
         logic.actions.submitFeatureFlag()

@@ -17,6 +17,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { formatDate } from 'lib/utils/datetime'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    BehavioralFilterKey,
     CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -118,7 +119,12 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const propertyType = props.criteria?.type
+    const definitionType =
+        propertyType === BehavioralFilterKey.PersonMetadata
+            ? PropertyDefinitionType.PersonMetadata
+            : PropertyDefinitionType.Person
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, definitionType) : null
     const isDateTime = propDef?.property_type === PropertyType.DateTime
 
     const fieldOptionGroupTypes = isDateTime

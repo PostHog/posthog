@@ -48,6 +48,9 @@ pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_di
 /// Detail tag for events dropped by the event restriction service.
 pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 
+/// Detail tag for events dropped due to uncoercible options fields.
+pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
+
 // ---------------------------------------------------------------------------
 // Validation limits
 // ---------------------------------------------------------------------------
