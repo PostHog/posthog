@@ -19,8 +19,6 @@ import pytest_asyncio
 from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
@@ -29,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSLRequiredError,
     _get_sslmode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
