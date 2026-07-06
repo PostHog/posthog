@@ -54,8 +54,12 @@ START_ACTION_ID = "persona_onboarding_start"
 PERSONA_SELECT_ACTION_ID = "persona_onboarding_select"  # values: "csm" | "engineer" | "other"
 SKIP_ACTION_ID = "persona_onboarding_skip"
 CHANNEL_SELECT_ACTION_ID = "persona_onboarding_channel_select"
+CHANNEL_CONFIRM_ACTION_ID = "persona_onboarding_channel_confirm"
 CHANNEL_CREATE_ACTION_ID = "persona_onboarding_channel_create"
 CHANNEL_VERIFY_ACTION_ID = "persona_onboarding_channel_verify"
+# The confirm button reads the dropdown's current selection out of payload["state"]["values"],
+# which Slack keys by block_id — so the selector's block needs a stable one.
+CHANNEL_SELECT_BLOCK_ID = "persona_onboarding_channel_block"
 # URL buttons — clicks open the browser but still emit a block_action that must be acked.
 CONNECT_SOURCE_ACTION_ID = "persona_onboarding_connect_source"
 
@@ -272,7 +276,7 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
             ),
             readiness_key="account_pulse",
             recommended_servers=("Salesforce", "HubSpot"),
-            gap_line="works best with account data — PostHog customer analytics accounts or a connected CRM.",
+            gap_line="works best with account data like PostHog customer analytics accounts or a connected CRM.",
         ),
         ScoutSpec(
             skill_name="signals-scout-csm-support-watch",
@@ -293,7 +297,7 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
             ),
             readiness_key="revenue_watch",
             recommended_servers=("Stripe",),
-            gap_line="works best with billing data — connect Stripe or PostHog revenue analytics.",
+            gap_line="works best with billing data like Stripe or PostHog revenue analytics.",
         ),
     ),
 }
@@ -308,6 +312,9 @@ class CsmDataReadiness:
     support_watch: bool
     revenue_watch: bool
     accounts_count: int
+    # readiness_key -> human phrase for the data source that made the scout ready (e.g. "your
+    # PostHog customer analytics accounts"), so the reveal can say what's used by default.
+    ready_details: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -335,8 +342,8 @@ def _connected_mcp_server_names(team_id: int, posthog_user_id: int | None) -> se
     return names
 
 
-def _recommended_server_connected(spec: ScoutSpec, connected_names: set[str]) -> bool:
-    return any(name.lower() in connected_names for name in spec.recommended_servers)
+def _first_connected_recommended(spec: ScoutSpec, connected_names: set[str]) -> str | None:
+    return next((name for name in spec.recommended_servers if name.lower() in connected_names), None)
 
 
 def check_csm_data_readiness(team_id: int, posthog_user_id: int | None = None) -> CsmDataReadiness:
@@ -376,18 +383,38 @@ def check_csm_data_readiness(team_id: int, posthog_user_id: int | None = None) -
 
     specs_by_key = {spec.readiness_key: spec for spec in PERSONA_SCOUT_CATALOG[PERSONA_CSM]}
 
-    def mcp_ready(readiness_key: str) -> bool:
-        return _recommended_server_connected(specs_by_key[readiness_key], mcp_connected)
+    def resolve(readiness_key: str, posthog_detail: str | None, source_matches: tuple[str, ...]) -> str | None:
+        """First data source that makes the scout ready, as a human phrase — PostHog-native data
+        wins so users see they don't need to connect anything."""
+        if posthog_detail:
+            return posthog_detail
+        source_kind = next((kind for kind in source_matches if kind in source_kinds), None)
+        if source_kind:
+            return f"your {source_kind} data synced into PostHog"
+        server_name = _first_connected_recommended(specs_by_key[readiness_key], mcp_connected)
+        if server_name:
+            return f"your connected {server_name} MCP server"
+        return None
 
+    details = {
+        "account_pulse": resolve(
+            "account_pulse",
+            "your PostHog customer analytics accounts" if accounts_count > 0 else None,
+            _CRM_SOURCE_KINDS,
+        ),
+        "support_watch": resolve(
+            "support_watch",
+            "your PostHog conversations tickets" if tickets_exist else None,
+            _SUPPORT_SOURCE_KINDS,
+        ),
+        "revenue_watch": resolve("revenue_watch", None, ("Stripe",)),
+    }
     return CsmDataReadiness(
-        account_pulse=accounts_count > 0
-        or any(kind in source_kinds for kind in _CRM_SOURCE_KINDS)
-        or mcp_ready("account_pulse"),
-        support_watch=tickets_exist
-        or any(kind in source_kinds for kind in _SUPPORT_SOURCE_KINDS)
-        or mcp_ready("support_watch"),
-        revenue_watch="Stripe" in source_kinds or mcp_ready("revenue_watch"),
+        account_pulse=details["account_pulse"] is not None,
+        support_watch=details["support_watch"] is not None,
+        revenue_watch=details["revenue_watch"] is not None,
         accounts_count=accounts_count,
+        ready_details={key: detail for key, detail in details.items() if detail},
     )
 
 
@@ -523,6 +550,7 @@ def build_fleet_reveal_blocks(
     slack_user_id: str,
 ) -> list[dict]:
     templates_by_name = {template.name.lower(): template for template in templates}
+    ready_details = readiness.get("ready_details") or {}
     blocks: list[dict] = [
         _section(
             "Great — I'm going to create a few scouts for you. Scouts are little agents that patrol "
@@ -530,10 +558,21 @@ def build_fleet_reveal_blocks(
             f"(<{SCOUTS_DOC_URL}|here's how they work>)."
         )
     ]
+    if any(not readiness.get(spec.readiness_key) for spec in PERSONA_SCOUT_CATALOG[PERSONA_CSM]):
+        blocks.append(
+            _context(
+                "Scouts use your PostHog data by default — product usage, revenue analytics, and "
+                "customer analytics are already in reach. Connecting a tool below is optional; it "
+                "just gives them more signal."
+            )
+        )
     for index, spec in enumerate(PERSONA_SCOUT_CATALOG[PERSONA_CSM], start=1):
         blocks.append(_section(f"*{index}. {spec.title}*\n{spec.description}"))
         if readiness.get(spec.readiness_key):
-            blocks.append(_context("✅ Ready — I can see the data this needs."))
+            detail = ready_details.get(spec.readiness_key)
+            blocks.append(
+                _context(f"✅ Ready — I'll use {detail}." if detail else "✅ Ready — I can see the data this needs.")
+            )
             continue
         candidates = [
             templates_by_name[name.lower()] for name in spec.recommended_servers if name.lower() in templates_by_name
@@ -573,33 +612,39 @@ def build_fleet_reveal_blocks(
                     ],
                 }
             )
-    blocks.append(_context("Don't worry — I'll create these now and they activate themselves as data shows up."))
+    blocks.append(_context("Don't worry, I'll create these now and they activate themselves as data shows up."))
     return blocks
 
 
 def build_channel_prompt_blocks(can_create_channel: bool) -> list[dict]:
-    elements: list[dict] = [
+    # Picking from the dropdown is easy to fat-finger, so it does nothing on its own —
+    # the explicit Add PostHog button next to it is what commits the choice.
+    select_row: list[dict] = [
         {
             "type": "conversations_select",
             "action_id": CHANNEL_SELECT_ACTION_ID,
             "placeholder": {"type": "plain_text", "text": "Pick a channel"},
             # Never offer external-shared channels — these alerts carry account intel.
             "filter": {"include": ["public"], "exclude_external_shared_channels": True, "exclude_bot_users": True},
-        }
+        },
+        _button("Add PostHog", CHANNEL_CONFIRM_ACTION_ID, style="primary"),
     ]
+    secondary_row: list[dict] = []
     if can_create_channel:
-        elements.append(_button("Create #posthog-inbox", CHANNEL_CREATE_ACTION_ID))
+        secondary_row.append(_button("Create #posthog-inbox", CHANNEL_CREATE_ACTION_ID))
     # Skip is a bail-out at every step: without it a CSM who can't (or won't) pick a channel
     # is wedged, since the DM intercept hijacks every message while onboarding_state is set.
-    elements.append(_button("Skip for now", SKIP_ACTION_ID))
+    secondary_row.append(_button("Skip for now", SKIP_ACTION_ID))
     return [
         _section(
             "One more thing: this works best if you add me to a channel where I can post findings. "
-            "Pick one, or I can create #posthog-inbox for you."
+            "Pick one and tap Add PostHog, or I can create #posthog-inbox for you."
             if can_create_channel
-            else "One more thing: this works best if you add me to a channel where I can post findings. Pick one below."
+            else "One more thing: this works best if you add me to a channel where I can post findings. "
+            "Pick one below and tap Add PostHog."
         ),
-        {"type": "actions", "elements": elements},
+        {"type": "actions", "block_id": CHANNEL_SELECT_BLOCK_ID, "elements": select_row},
+        {"type": "actions", "elements": secondary_row},
     ]
 
 
@@ -667,6 +712,7 @@ OTHER_COMPLETION_TEXT = (
     "Thanks! Message me here any time — ask about your product data, dashboards, or anything PostHog."
 )
 SKIP_TEXT = "No problem — skipping setup. Message me whenever; settings live in my Home tab."
+PICK_CHANNEL_FIRST_TEXT = "Pick a channel from the dropdown first, then tap Add PostHog."
 NUDGE_PERSONA_TEXT = "One quick thing first — tap one of the buttons above (or Skip) and then I'm all yours."
 NUDGE_CHANNEL_TEXT = (
     "Almost there — pick a channel for account alerts above (or Skip), then send me that message again."
@@ -936,7 +982,9 @@ def handle_block_action(payload: dict, action: dict) -> HttpResponse:
         elif action_id == SKIP_ACTION_ID:
             _handle_skip(payload)
         elif action_id == CHANNEL_SELECT_ACTION_ID:
-            _handle_channel_select(payload, action)
+            pass  # picking from the dropdown is inert — Add PostHog commits the choice
+        elif action_id == CHANNEL_CONFIRM_ACTION_ID:
+            _handle_channel_confirm(payload)
         elif action_id == CHANNEL_CREATE_ACTION_ID:
             _handle_channel_create(payload)
         elif action_id == CHANNEL_VERIFY_ACTION_ID:
@@ -1150,15 +1198,18 @@ def _channel_name_best_effort(slack: SlackIntegration, channel_id: str) -> str:
         return channel_id
 
 
-def _handle_channel_select(payload: dict, action: dict) -> None:
+def _handle_channel_confirm(payload: dict) -> None:
     ctx = _load_context(payload)
     if ctx is None:
         return
     if ctx.state.get("step") != STEP_AWAITING_CHANNEL:
         _repost_current_step(ctx)
         return
-    channel_id = str(action.get("selected_conversation") or "")
+    values = (payload.get("state") or {}).get("values") or {}
+    select_state = (values.get(CHANNEL_SELECT_BLOCK_ID) or {}).get(CHANNEL_SELECT_ACTION_ID) or {}
+    channel_id = str(select_state.get("selected_conversation") or "")
     if not channel_id:
+        _post(ctx, [_section(PICK_CHANNEL_FIRST_TEXT)], PICK_CHANNEL_FIRST_TEXT)
         return
     channel_name = _channel_name_best_effort(ctx.slack, channel_id)
     _attempt_channel_setup(ctx, channel_id, channel_name, method="selected")
@@ -1197,11 +1248,13 @@ def _handle_channel_verify(payload: dict, action: dict) -> None:
     _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", invite_required=True)
 
 
-def _attempt_channel_setup(
-    ctx: _FlowContext, channel_id: str, channel_name: str, *, method: str, invite_required: bool = False
-) -> None:
-    # The hello post doubles as the membership probe — the only check that works with the
-    # scopes we actually hold (no channels:read / channels:join / chat:write.public).
+# Membership-shaped hello failures that the /invite-then-Verify flow can recover from.
+_INVITE_FALLBACK_ERRORS = ("not_in_channel", "channel_not_found", "is_archived", "restricted_action")
+
+
+def _post_channel_hello(ctx: _FlowContext, channel_id: str) -> str | None:
+    """Post the channel hello; it doubles as the membership probe. Returns the Slack error
+    string for membership-shaped failures, None on success; anything else raises."""
     try:
         ctx.slack.client.chat_postMessage(
             channel=channel_id,
@@ -1210,14 +1263,39 @@ def _attempt_channel_setup(
                 "First patrol is already underway."
             ),
         )
+        return None
     except SlackApiError as exc:
-        error = (getattr(exc, "response", None) or {}).get("error", "")
-        if error in ("not_in_channel", "channel_not_found", "is_archived", "restricted_action"):
-            ctx.state.update({"pending_channel_id": channel_id, "pending_channel_name": channel_name})
-            _save_state(ctx.row, ctx.state)
-            _post(ctx, build_invite_needed_blocks(channel_id, channel_name), "Invite me to the channel, then verify.")
-            return
+        error = str((getattr(exc, "response", None) or {}).get("error", ""))
+        if error in _INVITE_FALLBACK_ERRORS:
+            return error
         raise
+
+
+def _try_join_channel(slack: SlackIntegration, channel_id: str) -> bool:
+    try:
+        slack.client.conversations_join(channel=channel_id)
+        return True
+    except SlackApiError as exc:
+        logger.warning(
+            "persona_onboarding_channel_join_failed",
+            channel_id=channel_id,
+            error=(getattr(exc, "response", None) or {}).get("error"),
+        )
+        return False
+
+
+def _attempt_channel_setup(
+    ctx: _FlowContext, channel_id: str, channel_name: str, *, method: str, invite_required: bool = False
+) -> None:
+    error = _post_channel_hello(ctx, channel_id)
+    if error == "not_in_channel" and _try_join_channel(ctx.slack, channel_id):
+        # Public channel and we hold channels:join — add ourselves instead of asking for /invite.
+        error = _post_channel_hello(ctx, channel_id)
+    if error is not None:
+        ctx.state.update({"pending_channel_id": channel_id, "pending_channel_name": channel_name})
+        _save_state(ctx.row, ctx.state)
+        _post(ctx, build_invite_needed_blocks(channel_id, channel_name), "Invite me to the channel, then verify.")
+        return
     capture_slack_event(
         ctx.integration,
         EVENT_CHANNEL_CONFIGURED,

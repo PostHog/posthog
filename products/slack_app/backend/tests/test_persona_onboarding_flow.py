@@ -287,7 +287,13 @@ class TestPersonaSelection(_FlowTestBase):
         assert row.onboarded_at is None
         state = row.onboarding_state
         assert state["step"] == persona_onboarding.STEP_AWAITING_CHANNEL
-        assert set(state["readiness"]) == {"account_pulse", "support_watch", "revenue_watch", "accounts_count"}
+        assert set(state["readiness"]) == {
+            "account_pulse",
+            "support_watch",
+            "revenue_watch",
+            "accounts_count",
+            "ready_details",
+        }
         assert state["detected_tools"] == []
         # The post-OAuth return leg needs this pointer to flip the reveal's ⚠️ lines to ✅.
         assert state["fleet_message_ts"] == "111.222"
@@ -384,8 +390,18 @@ class TestChannelStep(_FlowTestBase):
         ]
 
     def _select_channel(self) -> None:
-        action = {"action_id": persona_onboarding.CHANNEL_SELECT_ACTION_ID, "selected_conversation": PICKED_CHANNEL}
-        persona_onboarding.handle_block_action(self._payload(action), action)
+        # Selection is committed by the Add PostHog button; the picked channel rides along in
+        # the message's input state, like Slack sends it.
+        action = {"action_id": persona_onboarding.CHANNEL_CONFIRM_ACTION_ID}
+        payload = self._payload(action)
+        payload["state"] = {
+            "values": {
+                persona_onboarding.CHANNEL_SELECT_BLOCK_ID: {
+                    persona_onboarding.CHANNEL_SELECT_ACTION_ID: {"selected_conversation": PICKED_CHANNEL}
+                }
+            }
+        }
+        persona_onboarding.handle_block_action(payload, action)
 
     @patch(PROVISION)
     @patch(WEBCLIENT)
@@ -427,6 +443,78 @@ class TestChannelStep(_FlowTestBase):
 
     @patch(PROVISION)
     @patch(WEBCLIENT)
+    def test_selecting_a_channel_alone_does_nothing(self, mock_webclient, mock_provision):
+        # The dropdown fires a block action on every selection — acting on it directly is how
+        # a mis-click used to add the bot to the wrong channel.
+        client = self._client(mock_webclient)
+        row = self._seed_channel_state()
+        action = {"action_id": persona_onboarding.CHANNEL_SELECT_ACTION_ID, "selected_conversation": PICKED_CHANNEL}
+
+        response = persona_onboarding.handle_block_action(self._payload(action), action)
+
+        assert response.status_code == 200
+        mock_provision.assert_not_called()
+        client.chat_postMessage.assert_not_called()
+        row.refresh_from_db()
+        assert row.onboarding_state["step"] == persona_onboarding.STEP_AWAITING_CHANNEL
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
+    def test_confirm_without_selection_asks_for_a_channel(self, mock_webclient, mock_provision):
+        client = self._client(mock_webclient)
+        self._seed_channel_state()
+        action = {"action_id": persona_onboarding.CHANNEL_CONFIRM_ACTION_ID}
+
+        persona_onboarding.handle_block_action(self._payload(action), action)
+
+        mock_provision.assert_not_called()
+        assert persona_onboarding.PICK_CHANNEL_FIRST_TEXT in self._posted_text(client)
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
+    def test_confirm_joins_public_channel_before_asking_for_invite(self, mock_webclient, mock_provision):
+        client = self._client(mock_webclient)
+        mock_provision.return_value = self._results()
+        row = self._seed_channel_state()
+        joined = False
+
+        def reject_until_joined(channel=None, **kwargs):
+            if channel == PICKED_CHANNEL and not joined:
+                raise SlackApiError("not_in_channel", {"error": "not_in_channel"})
+            return {"ok": True, "ts": "1.3"}
+
+        def join(channel=None, **kwargs):
+            nonlocal joined
+            joined = True
+            return {"ok": True}
+
+        client.chat_postMessage.side_effect = reject_until_joined
+        client.conversations_join.side_effect = join
+
+        self._select_channel()
+
+        client.conversations_join.assert_called_once_with(channel=PICKED_CHANNEL)
+        mock_provision.assert_called_once()
+        row.refresh_from_db()
+        assert row.onboarded_at is not None
+
+    def test_channel_prompt_keeps_confirm_next_to_selector(self):
+        blocks = persona_onboarding.build_channel_prompt_blocks(True)
+        select_row = next(
+            block for block in blocks if block.get("block_id") == persona_onboarding.CHANNEL_SELECT_BLOCK_ID
+        )
+        assert [element.get("action_id") for element in select_row["elements"]] == [
+            persona_onboarding.CHANNEL_SELECT_ACTION_ID,
+            persona_onboarding.CHANNEL_CONFIRM_ACTION_ID,
+        ]
+        other_rows = [block for block in blocks if block.get("type") == "actions" and block is not select_row]
+        assert [element.get("action_id") for row in other_rows for element in row["elements"]] == [
+            persona_onboarding.CHANNEL_CREATE_ACTION_ID,
+            persona_onboarding.SKIP_ACTION_ID,
+        ]
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
     def test_channel_prompt_and_invite_offer_a_skip(self, mock_webclient, mock_provision):
         assert any(
             element.get("action_id") == persona_onboarding.SKIP_ACTION_ID
@@ -464,6 +552,8 @@ class TestChannelStep(_FlowTestBase):
             return {"ok": True, "ts": "1.3"}
 
         client.chat_postMessage.side_effect = reject_picked_channel
+        # Joining isn't possible either (e.g. missing channels:join) — only /invite can recover.
+        client.conversations_join.side_effect = SlackApiError("missing_scope", {"error": "missing_scope"})
         self._select_channel()
 
         mock_provision.assert_not_called()
@@ -614,6 +704,18 @@ class TestFleetRevealConnectButtons:
         intercom = buttons["Connect Intercom"]
         assert "/settings/mcp-servers?mcp=tmpl-intercom" in intercom["url"]
 
+    def test_ready_scouts_name_their_default_data_source(self):
+        # Users shouldn't feel obligated to connect a tool when PostHog already has the data —
+        # ready scouts say what they'll use, and gapped ones say connecting is optional.
+        readiness = {
+            "revenue_watch": True,
+            "ready_details": {"revenue_watch": "your Stripe data synced into PostHog"},
+        }
+        blocks = persona_onboarding.build_fleet_reveal_blocks(1, readiness, [], [], WORKSPACE, SLACK_USER)
+        text = str(blocks)
+        assert "I'll use your Stripe data synced into PostHog." in text
+        assert "Connecting a tool below is optional" in text
+
     def test_without_matching_templates_offers_store_browse(self):
         blocks = persona_onboarding.build_fleet_reveal_blocks(1, {}, [], [], WORKSPACE, SLACK_USER)
         buttons = [
@@ -640,6 +742,8 @@ class TestCsmReadinessWithMcpInstallations(_FlowTestBase):
         with patch.object(persona_onboarding, "get_active_installations", return_value=[installation]):
             readiness = persona_onboarding.check_csm_data_readiness(self.team.id, self.user.id)
         assert getattr(readiness, readiness_key) is True
+        # The reveal names the data source so users know what powers the scout by default.
+        assert server_name in readiness.ready_details[readiness_key]
         others = {"account_pulse", "support_watch", "revenue_watch"} - {readiness_key}
         assert not any(getattr(readiness, key) for key in others)
 
