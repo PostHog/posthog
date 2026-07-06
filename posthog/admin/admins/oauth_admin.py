@@ -236,4 +236,3 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     @admin.display(description="First party", boolean=True, ordering="is_first_party")
     def first_party(self, obj: OAuthApplication):
         return obj.is_first_party
-
