@@ -42,19 +42,19 @@ class TestSQLV2Callback(APIBaseTest):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbcb123")
         with team_scope(self.team.id):
-            self.run = NotebookNodeRun.objects.create(
+            self.node_run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
                 node_id="node-1",
                 status=NotebookNodeRun.Status.RUNNING,
             )
-        self.url = f"/internal/notebooks/runs/{self.run.id}/result/"
+        self.url = f"/internal/notebooks/runs/{self.node_run.id}/result/"
         self.envelope = {
             "status": "ok",
             "columns": ["count"],
             "row_count": 1,
             "first_page": [[42]],
-            "result_id": str(self.run.id),
+            "result_id": str(self.node_run.id),
         }
 
     def _post(self, token: str, envelope=None):
@@ -66,22 +66,22 @@ class TestSQLV2Callback(APIBaseTest):
         )
 
     def _reload_run(self) -> NotebookNodeRun:
-        return NotebookNodeRun.objects.for_team(self.team.id).get(id=self.run.id)
+        return NotebookNodeRun.objects.for_team(self.team.id).get(id=self.node_run.id)
 
     def test_valid_token_stores_result(self):
-        token = mint_callback_token(str(self.run.id), self.team.id)
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
         response = self._post(token)
         self.assertEqual(response.status_code, 200)
         run = self._reload_run()
         self.assertEqual(run.status, NotebookNodeRun.Status.DONE)
         self.assertEqual(run.envelope["first_page"], [[42]])
-        self.assertEqual(str(run.result_id), str(self.run.id))
+        self.assertEqual(str(run.result_id), str(self.node_run.id))
 
     def test_redelivery_is_idempotent(self):
-        token = mint_callback_token(str(self.run.id), self.team.id)
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
         self._post(token)
         self._post(token)
-        count = NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.run.id).count()
+        count = NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.node_run.id).count()
         self.assertEqual(count, 1)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.DONE)
 

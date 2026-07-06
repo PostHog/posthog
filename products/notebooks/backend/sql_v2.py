@@ -44,7 +44,7 @@ DISPLAY_PAGE_LIMIT = 50
 # The container port the sandbox already exposes (mapped to a host port at create
 # time). Mirrors docker_sandbox.AGENT_SERVER_PORT (47821) and
 # modal_sandbox.AGENT_SERVER_PORT (8080) — the kernel-server binds it inside the sandbox.
-_CONTAINER_PORT_BY_BACKEND = {
+_CONTAINER_PORT_BY_BACKEND: dict[str, int] = {
     KernelRuntime.Backend.DOCKER: 47821,
     KernelRuntime.Backend.MODAL: 8080,
 }
@@ -63,7 +63,7 @@ class SQLV2KernelNotRunning(Exception):
 
 
 def is_sql_v2_enabled(user: User | None) -> bool:
-    if user is None or not getattr(user, "distinct_id", None):
+    if user is None or not user.distinct_id:
         return False
     kwargs: dict = {"only_evaluate_locally": False, "send_feature_flag_events": False}
     org = getattr(user, "organization", None)
@@ -220,6 +220,7 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
         return runtime
 
     sandbox_class = get_sandbox_class_for_backend(runtime.backend)
+    assert runtime.sandbox_id  # _find_running_runtime only returns runtimes with a sandbox
     sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
     _deploy_kernel_server(sandbox, runtime, package, version)
 
@@ -238,6 +239,7 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
     Returns as soon as the server accepts (202); the result arrives via the callback.
     """
     runtime = ensure_sql_v2_server(notebook, user)
+    assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     response = requests.post(

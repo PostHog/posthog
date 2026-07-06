@@ -912,7 +912,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # The node short-polls this durable read to learn when its run finishes. One indexed
         # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
             raise Http404()
 
         # Scope to the notebook (via get_object → per-notebook access control), not just the
