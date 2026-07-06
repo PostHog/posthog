@@ -222,3 +222,6 @@ posthog/hogql/scripts/.local/
 # RocksDB state store created at runtime by cohort-stream-processor
 rust/cohort-store/
 rust/cohort-stream-processor/cohort-store/
+
+# Local TLS certs (e.g. mkcert) — never commit private keys
+*.pem
