@@ -44,6 +44,17 @@ GROUP_TYPES_FETCH_FAILURES = Counter(
     labelnames=["operation", "source", "error_type"],
 )
 
+# A project the eventual (replica) batch read returned empty for despite a populated
+# last-known-good. The `outcome` records what the strong (primary) re-read found:
+# "primary_had_rows" (replica silently dropped it, corrected), "confirmed_empty"
+# (genuinely empty now), or "primary_unavailable_used_stale" (primary read failed,
+# served last-known-good rather than an unconfirmed empty).
+GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES = Counter(
+    "posthog_group_types_replica_empty_discrepancies",
+    "Projects the eventual batch read returned empty for despite a populated last-known-good",
+    labelnames=["operation", "outcome"],
+)
+
 
 class GroupTypesUnavailable(HyperCacheDependencyUnavailable):
     """Raised by the batch fetch when group types cannot be loaded and no
@@ -242,15 +253,19 @@ def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> 
 
 
 def _fetch_group_types_for_projects_via_personhog(
-    client: PersonHogClient, project_ids: list[int]
+    client: PersonHogClient, project_ids: list[int], *, consistency: ReadConsistency = "eventual"
 ) -> dict[int, list[dict[str, Any]]]:
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdsRequest
 
+    read_options = consistency_to_read_options(consistency)
     result: dict[int, list[dict[str, Any]]] = {}
     for i in range(0, len(project_ids), settings.PERSONHOG_BATCH_SIZE):
         resp = client.get_group_type_mappings_by_project_ids(
-            GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE])
+            GetGroupTypeMappingsByProjectIdsRequest(
+                project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE],
+                read_options=read_options,
+            )
         )
         for batch in resp.results:
             mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
@@ -338,11 +353,82 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
     return recovered
 
 
+def _reconfirm_emptied_projects_against_primary(
+    result: dict[int, list[dict[str, Any]]], project_ids: list[int], *, caller_tag: str | None = None
+) -> dict[int, list[dict[str, Any]]]:
+    """Guard against a lagging or inconsistent replica silently dropping a project's
+    group types.
+
+    The batch fetch reads at eventual consistency (the replica pool), which can return
+    an empty mapping for a project that authoritatively has group types. That silent
+    empty is what makes the downstream flag-cache write try to erase a populated
+    mapping. When a project reads empty but has a populated last-known-good (stale key),
+    re-read just those projects from the primary at strong consistency and trust that
+    answer — the primary is authoritative for both "was dropped" and "genuinely empty
+    now" (e.g. the last group type was deleted).
+
+    Projects that read empty with no last-known-good are treated as genuinely having no
+    group types (the common case). They are not re-confirmed, so this adds no primary
+    load on the hot path unless a real drop is detected. The write-side guard remains the
+    backstop for that cold-cache edge.
+    """
+    suspect_ids = [
+        pid
+        for pid in project_ids
+        if not result.get(pid) and get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}") is not None
+    ]
+    if not suspect_ids:
+        return result
+
+    try:
+        client = require_personhog_client()
+        confirmed = personhog_call(
+            "get_group_types_for_projects_reconfirm",
+            lambda: _fetch_group_types_for_projects_via_personhog(client, suspect_ids, consistency="strong"),
+            caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}/reconfirm",
+            reraise_as=DatabaseError,
+        )
+    except DatabaseError:
+        # Primary confirmation failed. Serve each project's last-known-good rather than
+        # the replica's unconfirmed empty, so we never hand back a silent [] over data
+        # we know was populated.
+        for pid in suspect_ids:
+            stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+            if stale:
+                result[pid] = stale
+                GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                    operation="get_group_types_for_projects", outcome="primary_unavailable_used_stale"
+                ).inc()
+        return result
+
+    for pid in suspect_ids:
+        primary_rows = confirmed.get(pid) or []
+        if primary_rows:
+            result[pid] = primary_rows
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="primary_had_rows"
+            ).inc()
+            logger.warning(
+                "group_types_replica_returned_empty_primary_had_rows",
+                project_id=pid,
+                row_count=len(primary_rows),
+            )
+        else:
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="confirmed_empty"
+            ).inc()
+    return result
+
+
 def get_group_types_for_projects(
     project_ids: list[int], *, caller_tag: str | None = None
 ) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
     the per-project stale cache on failure.
+
+    The batch read is at eventual consistency; any project that reads empty despite a
+    populated last-known-good is re-confirmed against the primary so a lagging replica
+    cannot silently return an empty mapping for a project that has group types.
 
     Raises GroupTypesUnavailable if personhog is unavailable and any requested
     project has no cached last-known-good, rather than returning an all-empty
@@ -366,6 +452,7 @@ def get_group_types_for_projects(
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
 
+    result = _reconfirm_emptied_projects_against_primary(result, project_ids, caller_tag=caller_tag)
     _populate_projects_stale_cache(result)
     return result
 
