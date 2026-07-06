@@ -253,6 +253,7 @@ class _SpanAggregationMixin:
         # TeamTracingConfig read; neither changes mid-request. Cache it so the two
         # compare-window threads (see `_run_with_compare`) reuse one expansion instead
         # of each recomputing it. Only reached when `self.query.personId` is set.
+        assert self.query.personId is not None
         return person_scope_expr(self.team, self.query.personId)
 
     # --- subclass hooks ---
