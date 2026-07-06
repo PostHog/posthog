@@ -82,8 +82,9 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_not_called()
 
+    @patch("products.conversations.backend.slack.get_slack_client")
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
-    def test_top_level_message_passes_channel_detail(self, mock_create_or_update):
+    def test_top_level_message_passes_channel_detail(self, mock_create_or_update, mock_get_client):
         handle_support_message(
             {
                 "type": "message",
@@ -99,6 +100,9 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
         assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is False
+        # Confirm-before-ticket is off by default: the ticket is created directly,
+        # never a nudge prompt.
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
 
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_bot_mention_passes_channel_detail(self, mock_create_or_update):
