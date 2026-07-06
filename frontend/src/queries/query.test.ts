@@ -127,6 +127,23 @@ describe('query', () => {
         expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
     })
 
+    it('does not emit "query failed" when the request is aborted', async () => {
+        // Aborted/superseded requests are cancellations, not real failures - they shouldn't inflate the metric
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const abortError = Object.assign(new Error('Aborted'), { name: 'AbortError' })
+        const querySpy = jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+        captureSpy.mockClear()
+        await expect(performQuery(q)).rejects.toBe(abortError)
+        const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+        expect(queryFailedCalls).toHaveLength(0)
+        querySpy.mockRestore()
+    })
+
     describe('waitForPageVisible', () => {
         const originalVisibilityState = document.visibilityState
 

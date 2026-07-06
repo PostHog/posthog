@@ -23,6 +23,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.errors import InternalCHQueryError
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.test.persons import create_person
@@ -474,6 +475,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
             ).json()
             assert response["results"] == []
+
+    def test_event_property_values_degrades_gracefully_on_clickhouse_error(self):
+        # A ClickHouse failure on the property-value picker should degrade to an empty suggestion list
+        # instead of returning a raw 500 that replaces the dropdown with an error banner.
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            side_effect=InternalCHQueryError("boom", code_name="unknown_identifier"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [], "refreshing": False}
 
     @parameterized.expand(
         [

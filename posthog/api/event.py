@@ -35,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
@@ -419,14 +420,21 @@ class EventViewSet(
 
         refresh = refresh_requested_by_client(request)
 
-        if key == "custom_event":
-            return self._custom_event_values(query_params)
-        else:
-            # Check if this property is hidden (enterprise feature) or restricted by field-level access control
-            if self._is_property_hidden(key, team) or self._is_property_restricted(key, team):
-                return self._return_with_short_cache([], refreshing=False)
+        try:
+            if key == "custom_event":
+                return self._custom_event_values(query_params)
+            else:
+                # Check if this property is hidden (enterprise feature) or restricted by field-level access control
+                if self._is_property_hidden(key, team) or self._is_property_restricted(key, team):
+                    return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params, refresh=refresh)
+                return self._event_property_values(query_params, refresh=refresh)
+        except InternalCHQueryError as e:
+            # The property-value picker is a non-critical enhancement hit from every filter across the
+            # app. Degrade to an empty suggestion list on a ClickHouse failure instead of surfacing a
+            # raw 500 that replaces the dropdown with an error banner.
+            capture_exception(e)
+            return self._return_with_short_cache([], refreshing=False)
 
     def _event_property_values(
         self,

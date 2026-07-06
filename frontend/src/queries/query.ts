@@ -1,6 +1,7 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
+import { shouldCancelQuery } from 'lib/utils/requests'
 
 import {
     DashboardFilter,
@@ -263,12 +264,17 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            ...logParams,
-        })
+        // Aborted (superseded/navigated-away) and timed-out requests are cancellations, not real
+        // failures. Don't record them as 'query failed' - it inflates the metric and mislabels the
+        // large share of the volume that is just in-flight requests being replaced.
+        if (!shouldCancelQuery(e)) {
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                ...logParams,
+            })
+        }
         throw e
     }
 }

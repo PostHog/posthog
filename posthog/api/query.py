@@ -280,7 +280,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")
+            raise APIException(self._internal_ch_error_message(e))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
@@ -399,6 +399,17 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except Exception as e:
             capture_exception(e)
             raise
+
+    def _internal_ch_error_message(self, error: InternalCHQueryError) -> str:
+        # Surface the ClickHouse error code (a safe, non-sensitive identifier) plus guidance instead
+        # of a bare "ClickHouse error", so the message the user sees is specific and actionable.
+        code_name = getattr(error, "code_name", None)
+        detail = (
+            f"ClickHouse error while executing query ({code_name})."
+            if code_name
+            else "ClickHouse error while executing query."
+        )
+        return f"{detail} This is often transient; retry, and if it persists, narrow the query's time range or filters."
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

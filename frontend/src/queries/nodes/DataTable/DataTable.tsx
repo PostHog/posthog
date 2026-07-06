@@ -9,6 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -171,6 +172,10 @@ export function DataTable({
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         limitContext: context?.limitContext,
+        // Keep the previous rows visible if a reload fails, so the table doesn't blank out and swap in
+        // a full-screen error banner (a jarring layout shift). The error is surfaced as an inline
+        // banner above the table instead - see below.
+        keepDataOnError: true,
     }
     const {
         response,
@@ -893,6 +898,17 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <div className="relative">
+                            {responseError && !queryCancelled && (dataTableRows?.length ?? 0) > 0 ? (
+                                // A reload failed but we still have the previous rows - surface the error
+                                // inline instead of replacing the whole table with a full-screen error state.
+                                <LemonBanner
+                                    type="error"
+                                    className="mb-2"
+                                    action={{ children: 'Retry', onClick: () => loadData('force_blocking') }}
+                                >
+                                    {response && 'error' in response ? (response.error as string) : responseError}
+                                </LemonBanner>
+                            ) : null}
                             {usedWebAnalyticsLazyPrecompute ? (
                                 <PreAggregatedBadge
                                     variant="precomputed"
