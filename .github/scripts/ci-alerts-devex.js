@@ -40,11 +40,9 @@ const RESOLVED_COLOR = '#2EB67D'
 // Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
 // wide between kept failures, so it can't anchor to a stale run.
 const STREAK_MAX_GAP_MINUTES = 180
-// Freshness bound for the runs-list index (see fetchWorkflowRuns): every gating workflow runs on
-// every master push, so a fresh page's newest run trails the newest master commit by minutes.
-// Generous enough to absorb supersede-cancelled bursts and webhook lag; stale pages trail by days.
+// Runs-index freshness bound (see fetchWorkflowRuns): fresh pages trail master's newest commit by
+// minutes, stale ones by days. Staleness is per-request, so retry before giving up.
 const RUN_INDEX_MAX_LAG_MINUTES = 180
-// Staleness is per-request (a fresh read seconds later succeeds), so retry before giving up.
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
 
@@ -57,22 +55,18 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // The single definition of a "red" run conclusion, shared by the streak and commit checks.
 const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 'timed_out'
 
-// The freshest settled runs for a workflow, newest-first.
+// The freshest settled runs for a workflow, newest-first; throws (staleIndex) when the page can't
+// be trusted.
 //
-// The runs-list API is served from an eventually-consistent index that intermittently returns a
-// page anchored hours/days in the past — the alerter then reads an ancient failure as the newest
-// run and backdates a phantom multi-day outage (opened+resolved in seconds, "red for 141h").
-// Dropping `status: 'completed'` was not enough: the branch/event filters hit the same index, and
-// the same stale page came back. So freshness is now *verified*, not assumed: every gating workflow
-// runs on every master push, so a fresh page's newest raw run tracks the newest master commit
-// within minutes. A page whose newest run trails `freshAsOf` (the newest commit's push time, from
-// the strongly-consistent Git backend) by more than RUN_INDEX_MAX_LAG_MINUTES is stale — retry,
-// then throw so the caller treats this workflow as unreadable this tick, never as green.
+// The runs-list index is eventually consistent and intermittently serves pages anchored days back —
+// trusting it produced the "red 70h"/"red 141h" phantom incidents, and dropping status=completed
+// didn't fix it (the branch/event filters hit the same index). So freshness is verified against
+// `freshAsOf` (master's newest commit, strongly consistent): every gating workflow runs on every
+// master push, so a page head trailing it by more than RUN_INDEX_MAX_LAG_MINUTES is stale —
+// retry, then unreadable, never green.
 //
-// The catch: `per_page` truncates the raw page BEFORE our client-side filter, so a head full of
-// in-progress/cancelled runs could push real completed failures off a single page and silently miss
-// an incident. So we page until the leading streak is settled (a kept non-failure bounds the walk)
-// or we hit a bounded cap.
+// Paging: `per_page` truncates the raw page BEFORE the client-side filter, so page until the
+// leading streak is settled (a kept non-failure bounds the walk) or the cap.
 async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { freshAsOf = null, sleep = defaultSleep } = {}) {
     for (let attempt = 0; ; attempt++) {
         try {
@@ -97,9 +91,8 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, fres
             per_page: perPage,
             page,
         })
-        // Judge index freshness on the raw page-1 head (any status) before paging deeper. An empty
-        // page while master has commits is the same anomaly as a lagging one — every gating
-        // workflow has master-push history, so its absence is unreadable, not "no failures".
+        // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
+        // page is the same anomaly — every gating workflow has master-push history.
         if (page === 1 && freshAsOf) {
             const head = data.workflow_runs[0]
             // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
@@ -196,8 +189,8 @@ async function fetchRecentCommits(github, owner, repo, perPage) {
         html_url: c.html_url,
         message: (c.commit?.message || '').split('\n')[0],
         author: c.author?.login || c.commit?.author?.name || 'unknown',
-        // Committer date = push/merge time. The author date on a squash merge is the branch's
-        // first commit — days old, which would suppress the activity gate and backdate durations.
+        // Committer date = push time; squash-merge author dates can be days older and would
+        // suppress the activity gate and backdate durations.
         date: c.commit?.committer?.date || c.commit?.author?.date || null,
     }))
 }
@@ -412,22 +405,18 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
-    // The Slack incident read (the source of truth for whether an incident is open) depends on
-    // nothing — start it first so it overlaps the GitHub reads.
+    // Slack read is independent — start it first to overlap the GitHub reads.
     const activePromise = findActiveIncident(slack, channel)
 
-    // Commits come from the strongly-consistent Git backend, so they anchor the runs-index
-    // freshness check — fetch them before any runs read. null (not []) on failure: without the
-    // anchor no runs page is verifiable, so every workflow is unreadable this tick rather than
-    // trusted unverified (a stale page could otherwise open a phantom via the streak-count arm).
+    // Commits (strongly consistent) anchor the runs freshness check, so fetch them first. null
+    // (not []) on failure: with no anchor nothing is verifiable → every workflow is unreadable.
     const commits = await fetchRecentCommits(github, owner, repo, commitsToFetch).catch((err) => {
         core.warning(`Failed to fetch commits: ${err.message}`)
         return null
     })
     const freshAsOf = commits?.[0]?.date || null
 
-    // A workflow whose runs can't be read (API error or a persistently stale page) is null:
-    // unreadable, distinct from "no failures".
+    // null = unreadable (API error or persistently stale page), distinct from "no failures".
     const [fetchedRuns, active] = await Promise.all([
         commits === null
             ? workflowFiles.map(() => null)
@@ -442,8 +431,8 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
         activePromise,
     ])
     const knownRuns = fetchedRuns.filter((runs) => runs !== null)
-    // Complete = every read succeeded and passed the freshness check. Reconciling an open
-    // incident on less would let a stale page or failed fetch masquerade as recovery.
+    // Reconciling an open incident on incomplete reads would let a stale page or a failed fetch
+    // masquerade as recovery.
     const dataComplete = commits !== null && knownRuns.length === fetchedRuns.length
 
     const failing = buildFailingMap(knownRuns)
@@ -493,8 +482,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const shouldWriteAnchor = active ? unhealthy : shouldOpen
 
     if (active && !dataComplete) {
-        // Hold: with any workflow unreadable this tick we can't tell recovery from a stale read,
-        // and an anchor update would misreport the failing set. The next tick reconciles.
+        // Unreadable data can't distinguish recovery from a stale read — hold; next tick reconciles.
         core.warning('Incomplete CI data with an open incident — holding, no reconcile this tick')
         action = 'hold'
     } else if (shouldWriteAnchor) {

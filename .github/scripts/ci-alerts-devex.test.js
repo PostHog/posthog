@@ -567,10 +567,8 @@ describe('ci-alerts-devex', () => {
     })
 
     it('a stale runs page anchored days back cannot open a phantom incident (regression)', async () => {
-        // Even without status=completed, the branch/event-filtered index intermittently serves a
-        // page anchored days back ("red 141h 45m", pinned to the same ancient run as the earlier
-        // 70h phantom). Master's newest commit is minutes old, so the page provably trails
-        // reality: retry, then treat the workflow as unreadable — never as failing.
+        // The "red 141h 45m" phantom: even without status=completed, the branch/event-filtered
+        // index served a days-old page while master's newest commit was minutes old.
         let backendReads = 0
         const github = brokenBackendGithub(
             () => Promise.resolve({ data: { workflow_runs: stalePage() } }),
