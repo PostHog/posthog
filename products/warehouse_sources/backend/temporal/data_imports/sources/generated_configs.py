@@ -3025,7 +3025,7 @@ class SimpleCastSourceConfig(config.Config):
 
 @config.config
 class SimplesatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
