@@ -62,19 +62,26 @@ describe('warehouseProvisioningLogic', () => {
         }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
     })
 
-    it('removes the org record once teardown reports the warehouse deleted', async () => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({ state: 'deleted' } as any)
+    it('removes the org record once teardown reports the warehouse deleted, then stops polling', async () => {
+        // Teardown reports `deleted` once; after delete-org the record is gone so status 404s.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
         const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
 
         logic = warehouseProvisioningLogic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', 'deleteOrg'])
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete', 'stopPolling'])
         expect(deleteOrg).toHaveBeenCalledTimes(1)
+        expect(logic.values.pollingActive).toBe(false)
     })
 
     it('retries removing the org record when the first delete-org attempt fails', async () => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({ state: 'deleted' } as any)
+        // First status read is `deleted`; the successful retry then 404s, stopping the poll loop.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
         const deleteOrg = jest
             .spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy')
             .mockRejectedValueOnce({ message: 'boom' })
