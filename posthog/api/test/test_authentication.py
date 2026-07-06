@@ -245,25 +245,27 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user, None)
 
+    @parameterized.expand(
+        [
+            # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
+            # verification link can resume the flow.
+            ("safe_relative_next", "/oauth/authorize/?client_id=x", "/oauth/authorize/?client_id=x"),
+            # An off-origin `next` must be dropped.
+            ("unsafe_off_origin_next", "https://evil.example.com/steal", None),
+        ]
+    )
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    def test_email_verification_link_carries_safe_next(self, mock_send_email_verification, mock_is_email_available):
-        # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
-        # verification link can resume the flow; an off-origin `next` must be dropped.
+    def test_email_verification_link_carries_safe_next(
+        self, _name, next_input, expected, mock_send_email_verification, mock_is_email_available
+    ):
         self.user.is_email_verified = False
         self.user.save()
         self.client.post(
             "/api/login",
-            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "/oauth/authorize/?client_id=x"},
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": next_input},
         )
-        mock_send_email_verification.assert_called_once_with(self.user, "/oauth/authorize/?client_id=x")
-
-        mock_send_email_verification.reset_mock()
-        self.client.post(
-            "/api/login",
-            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "https://evil.example.com/steal"},
-        )
-        mock_send_email_verification.assert_called_once_with(self.user, None)
+        mock_send_email_verification.assert_called_once_with(self.user, expected)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
