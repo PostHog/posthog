@@ -6303,6 +6303,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
+    supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
 }
 
