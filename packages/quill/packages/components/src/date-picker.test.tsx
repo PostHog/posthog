@@ -42,7 +42,7 @@ describe('DatePicker', () => {
         const onApply = jest.fn()
         render(<DatePicker value={VALUE} maxDate={MAX} showTime onApply={onApply} />)
 
-        // nosemgrep: jest-no-byrole-name-queries — small DOM, asserts accessibility contract of the toggle
+        // nosemgrep: jest-no-byrole-name-queries - small DOM, asserts accessibility contract of the toggle
         await userEvent.click(screen.getByRole('switch', { name: 'Include time' })) // turn time off
         await userEvent.click(screen.getByLabelText('Apply date'))
 
@@ -58,7 +58,7 @@ describe('DatePicker', () => {
     ])('renders the include-time toggle %s', (_name, props, expected) => {
         render(<DatePicker value={VALUE} maxDate={MAX} onApply={jest.fn()} {...props} />)
 
-        expect(!!screen.queryByRole('switch', { name: 'Include time' })).toBe(expected) // nosemgrep: jest-no-byrole-name-queries — small DOM, asserts accessibility contract of the toggle
+        expect(!!screen.queryByRole('switch', { name: 'Include time' })).toBe(expected) // nosemgrep: jest-no-byrole-name-queries - small DOM, asserts accessibility contract of the toggle
     })
 
     it('keeps time with no toggle when showTimeToggle is false', async () => {
@@ -84,7 +84,7 @@ describe('DatePicker', () => {
             />
         )
 
-        await userEvent.click(screen.getByRole('switch', { name: 'Include time' })) // nosemgrep: jest-no-byrole-name-queries — small DOM, asserts accessibility contract of the toggle
+        await userEvent.click(screen.getByRole('switch', { name: 'Include time' })) // nosemgrep: jest-no-byrole-name-queries - small DOM, asserts accessibility contract of the toggle
 
         expect(onIncludeTimeChange).toHaveBeenCalledWith(false)
     })
