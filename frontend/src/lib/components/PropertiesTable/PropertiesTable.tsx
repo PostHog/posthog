@@ -349,9 +349,13 @@ export function PropertiesTable({
 
     if (Array.isArray(properties)) {
         // When collapsible, render the whole array in a collapsed JSON viewer instead of an
-        // expanded table of items — expandable on demand.
+        // expanded table of items — expandable on demand. Mask it from capture like scalar values.
         if (collapsible && properties.length) {
-            return <JSONViewer src={properties} collapsed={true} />
+            return (
+                <div className="ph-no-capture">
+                    <JSONViewer src={properties} collapsed={true} />
+                </div>
+            )
         }
         return (
             <div>
@@ -435,7 +439,11 @@ export function PropertiesTable({
                     const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
 
                     if (isComplexStructure && collapsible) {
-                        return <JSONViewer src={item[1]} collapsed={true} />
+                        return (
+                            <div className="ph-no-capture">
+                                <JSONViewer src={item[1]} collapsed={true} />
+                            </div>
+                        )
                     }
                     return (
                         <PropertiesTable

@@ -205,8 +205,8 @@ describe('PropertiesTable inline editor', () => {
     })
 
     describe('collapsible complex values', () => {
-        const renderWith = (collapsible: boolean): void => {
-            render(
+        const renderWith = (collapsible: boolean): ReturnType<typeof render> => {
+            return render(
                 <Provider>
                     <PropertiesTable
                         type={PropertyDefinitionType.Person}
@@ -229,5 +229,12 @@ describe('PropertiesTable inline editor', () => {
                 expect(!!screen.queryByText('array')).toBe(expectArrayTag)
             }
         )
+
+        // Complex values render through JSONViewer, which unlike ValueDisplay applies no masking —
+        // so the collapsed path must be wrapped in ph-no-capture to keep PII out of session replay.
+        it('masks collapsed complex values from capture', () => {
+            const { container } = renderWith(true)
+            expect(container.querySelector('.ph-no-capture')).not.toBeNull()
+        })
     })
 })
