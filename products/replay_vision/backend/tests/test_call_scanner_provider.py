@@ -2,14 +2,18 @@ from typing import Any, cast
 
 import pytest
 
+from google.genai.errors import ServerError
 from pydantic import BaseModel
+from temporalio.testing import ActivityEnvironment
 
+from products.replay_vision.backend.temporal.activities import call_scanner_provider as module
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
     _run_steps,
     _step_config,
+    call_scanner_provider_activity,
 )
-from products.replay_vision.backend.temporal.errors import ScannerFailureError
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.scanners.base import MissionStep
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -189,6 +193,19 @@ async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_cl
     assert "summary" in out and "signals" in out and "facets" not in out
     # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed facets turn rolled back.
     assert len(client.models.calls[-1]["contents"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_gemini_server_error_is_classified_as_provider_transient(monkeypatch: Any) -> None:
+    # A Gemini 5xx (e.g. a 503) that escapes the scanner run must surface as a retryable provider_transient failure.
+    # Without this it would propagate raw and the workflow would misclassify it as internal_error.
+    async def _boom(_inputs: Any) -> Any:
+        raise ServerError(503, {"error": {"message": "The service is currently unavailable"}})
+
+    monkeypatch.setattr(module, "_call_scanner_provider", _boom)
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await ActivityEnvironment().run(call_scanner_provider_activity, cast(Any, None))
+    assert exc_info.value.kind == FailureKind.PROVIDER_TRANSIENT
 
 
 @pytest.mark.asyncio

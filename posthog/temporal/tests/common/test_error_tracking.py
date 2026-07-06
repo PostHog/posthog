@@ -11,10 +11,38 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ActivityError, ApplicationError, ApplicationErrorCategory, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_benign_application_error
+
+
+def _activity_error(cause: BaseException) -> ActivityError:
+    err = ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="t",
+        activity_id="a",
+        retry_state=None,
+    )
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    "exc, expected",
+    [
+        (ApplicationError("x", category=ApplicationErrorCategory.BENIGN), True),
+        (ApplicationError("x"), False),
+        (ValueError("y"), False),
+        (_activity_error(ApplicationError("x", category=ApplicationErrorCategory.BENIGN)), True),
+        (_activity_error(ApplicationError("x")), False),
+    ],
+)
+def test_is_benign_application_error(exc: BaseException, expected: bool):
+    assert _is_benign_application_error(exc) is expected
 
 
 @dataclass
@@ -90,6 +118,24 @@ class CancelledActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             cancelled_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def benign_activity(inputs: OptionallyFailingInputs) -> None:
+    raise ApplicationError("provider outage", category=ApplicationErrorCategory.BENIGN)
+
+
+@workflow.defn
+class BenignActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            benign_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -197,6 +243,34 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "CancelledActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_benign_application_error_is_not_captured(temporal_client: Client):
+    """An activity failure explicitly marked BENIGN (e.g. a transient provider outage) is an expected failure,
+    so the interceptor must re-raise without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[BenignActivityWorkflow],
+            activities=[benign_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "BenignActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

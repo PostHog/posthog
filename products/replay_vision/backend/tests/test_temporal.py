@@ -18,6 +18,7 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    ApplicationErrorCategory,
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
@@ -2029,6 +2030,20 @@ class TestWorkflowErrorHelpers:
     def test_extract_failure_kind_returns_none_for_unrelated_application_error(self) -> None:
         err = ApplicationError("something broke", type="RuntimeError", non_retryable=True)
         assert _extract_kind_for_type(err, SCANNER_FAILURE_ERROR_TYPE) is None
+
+    @parameterized.expand(
+        [
+            ("retryable", FailureKind.PROVIDER_TRANSIENT, ApplicationErrorCategory.BENIGN, False),
+            ("non_retryable", FailureKind.VALIDATION_FAILED, ApplicationErrorCategory.UNSPECIFIED, True),
+        ]
+    )
+    def test_scanner_failure_marks_only_retryable_kinds_benign(
+        self, _label: str, kind: FailureKind, expected_category: ApplicationErrorCategory, expected_non_retryable: bool
+    ) -> None:
+        # BENIGN keeps expected provider outages out of error tracking; a real defect kind must stay reportable.
+        err = ScannerFailureError("boom", kind=kind)
+        assert err.category == expected_category
+        assert err.non_retryable is expected_non_retryable
 
     def test_root_cause_message_strips_temporal_wrapper(self) -> None:
         leaf = ApplicationError("Gemini file files/abc reached state FAILED", type="RuntimeError")

@@ -14,10 +14,25 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.errors import unwrap_temporal_cause
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_benign_application_error(e: BaseException) -> bool:
+    """Whether ``e`` (or the ApplicationError it wraps) was explicitly marked BENIGN by the raising code.
+
+    BENIGN is Temporal's own signal for an expected, non-defect failure — a known-transient provider outage that
+    retries recover, for instance. We honour it the way we honour cancellations: an expected failure is not a defect,
+    so it should not be reported to error tracking.
+    """
+    cause = unwrap_temporal_cause(e) or e
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError)
+        and cause.category == temporalio.exceptions.ApplicationErrorCategory.BENIGN
+    )
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -69,6 +84,9 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # control flow, not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
+            # Likewise for failures the raising code explicitly marked BENIGN (e.g. a transient provider outage).
+            if _is_benign_application_error(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -103,6 +121,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if _is_benign_application_error(e):
+                raise  # Explicitly marked BENIGN by the raising code — an expected failure, not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

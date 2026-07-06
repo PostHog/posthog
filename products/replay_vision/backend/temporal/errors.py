@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
@@ -27,7 +27,10 @@ class _KindedApplicationError(ApplicationError):
     """
 
     def __init__(self, message: str, *, kind: StrEnum, type: str, non_retryable: bool = True) -> None:
-        super().__init__(message, str(kind), type=type, non_retryable=non_retryable)
+        # A retryable kind (a transient provider outage) is an expected, non-defect failure: mark it BENIGN so
+        # Temporal logs it at DEBUG and the PostHog interceptor skips reporting it to error tracking.
+        category = ApplicationErrorCategory.UNSPECIFIED if non_retryable else ApplicationErrorCategory.BENIGN
+        super().__init__(message, str(kind), type=type, non_retryable=non_retryable, category=category)
         self.kind = kind
 
 

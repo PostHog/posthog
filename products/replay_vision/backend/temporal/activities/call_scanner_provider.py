@@ -19,6 +19,7 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
+from google.genai.errors import ServerError
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -69,7 +70,15 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
     # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
     async with Heartbeater(factor=4):
-        return await _call_scanner_provider(inputs)
+        try:
+            return await _call_scanner_provider(inputs)
+        except ServerError as exc:
+            # A Gemini 5xx (e.g. a 503 "service unavailable") that survives the in-activity retries is a transient
+            # provider outage, not a scanner defect. Classify it as provider_transient so Temporal retries and, if
+            # retries still exhaust, the observation is labeled retryable rather than falling through to internal_error.
+            raise ScannerFailureError(
+                f"Gemini provider error {exc.code}: {exc.message}", kind=FailureKind.PROVIDER_TRANSIENT
+            ) from exc
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
