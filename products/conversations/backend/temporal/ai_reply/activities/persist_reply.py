@@ -40,17 +40,14 @@ def _persist_reply_sync(
     auto_publishable: bool = False,
 ) -> None:
     is_private = True
-    # Only how_to replies may be published. diagnostic/account_billing draw on project data and
-    # must stay private regardless of the team's ai_reply_modes — guards against stale settings
-    # since validation now rejects bot_reply for those types. Controlled by team-level opt-in.
-    if allow_bot_reply and auto_publishable and ticket_type in PUBLISHABLE_TICKET_TYPES:
+    if allow_bot_reply and ticket_type in PUBLISHABLE_TICKET_TYPES:
         ticket = Ticket.objects.select_related("team").filter(team_id=team_id, id=ticket_id).first()
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}
             modes = settings_dict.get("ai_reply_modes") or {}
             channel_modes = modes.get(ticket.channel_source) or {}
             mode = channel_modes.get(ticket_type, "private_note")
-            if mode == "bot_reply":
+            if _should_publish_reply(allow_bot_reply, auto_publishable, ticket_type, mode):
                 is_private = False
 
     Comment.objects.create(
@@ -65,3 +62,9 @@ def _persist_reply_sync(
             "confidence": confidence,
         },
     )
+
+
+def _should_publish_reply(allow_bot_reply: bool, auto_publishable: bool, ticket_type: str, mode: str) -> bool:
+    # Both gates are required: draft-time snapshot prevents settings flips from publishing a
+    # diagnostic-scoped draft, while live mode still lets admins turn bot replies off immediately.
+    return allow_bot_reply and auto_publishable and ticket_type in PUBLISHABLE_TICKET_TYPES and mode == "bot_reply"
