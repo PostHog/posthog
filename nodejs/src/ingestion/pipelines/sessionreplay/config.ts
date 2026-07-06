@@ -69,6 +69,9 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    // Per-command timeout on the session-recording Redis client, so a slow/unavailable Redis fails
+    // fast instead of blocking the pipeline; the retention service falls back to the team service.
+    SESSION_RECORDING_REDIS_TIMEOUT_MS: number
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
     SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
@@ -128,6 +131,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
+        SESSION_RECORDING_REDIS_TIMEOUT_MS: 200,
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
         SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000,

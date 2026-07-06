@@ -2068,6 +2068,25 @@ mod tests {
         )
     }
 
+    /// Like [`dispatcher_with_buffer`] but with a per-partition event-intake `cap`, so a test can trip
+    /// the event budget while the mpsc slots stay free.
+    fn dispatcher_with_intake_cap(
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+        buffer: usize,
+        cap: usize,
+    ) -> EventDispatcher {
+        let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        EventDispatcher::new(
+            PartitionRouter::with_intake_cap(buffer, cap),
+            Arc::new(OffsetTracker::new()),
+            store.clone(),
+            catalog,
+            sink,
+            MergeWorkerDeps::capture(),
+        )
+    }
+
     fn held_offsets(messages: &[ShuffleMessage]) -> Vec<i64> {
         messages
             .iter()
@@ -2123,6 +2142,46 @@ mod tests {
         assert_eq!(
             dispatcher.tracker().committable_offsets().get(&0),
             Some(&106)
+        );
+    }
+
+    #[tokio::test]
+    async fn nonblocking_dispatch_holds_on_the_event_cap_while_slots_stay_free() {
+        let (_dir, store) = temp_store();
+        // 16 mpsc slots but a one-event budget: the event cap, not the slots, is what holds batch B.
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1);
+        dispatcher.assign_partition(0);
+        let mut rx = dispatcher.router.add_partition(0).unwrap();
+        let no_held = HashSet::new();
+
+        // Batch A fills the one-event budget and raises the ceiling to 105.
+        assert!(dispatcher
+            .dispatch_events_nonblocking(vec![consumed(person(1), 0, 104)], &no_held)
+            .is_empty());
+        // Batch B is refused by the event cap even though 15 slots remain free.
+        let mut full =
+            dispatcher.dispatch_events_nonblocking(vec![consumed(person(2), 0, 105)], &no_held);
+        let held = full.remove(&0).expect("partition 0 held on the event cap");
+        assert_eq!(held_offsets(&held), vec![105]);
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::CappedAheadOfDispatch,
+            "the held event stays above the dispatch ceiling",
+        );
+
+        // Drain A and step past it so the budget frees (release lands on the next recv), then B flushes.
+        let _a = rx.recv().await.unwrap();
+        assert!(
+            rx.try_recv().is_err(),
+            "channel drained; the recv released A's budget",
+        );
+        assert!(
+            dispatcher.redispatch_held(vec![(0, held)]).is_empty(),
+            "the held batch flushes once the event budget frees",
+        );
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::WithinDispatch,
         );
     }
 

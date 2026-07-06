@@ -41,9 +41,11 @@ from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -85,6 +87,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -1184,11 +1187,22 @@ class SignalReportViewSet(
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
 
+        # Both lookups are best-effort decorative metadata (source-product badges, scout names, PR
+        # urls). The serializer degrades to empty values when a map is missing, so a ClickHouse or
+        # backend hiccup in either must not 500 the whole inbox load — fall back to empty and log.
         with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
-            signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            try:
+                signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            except Exception:
+                logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
+                signal_meta_map = {}
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
-            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            try:
+                implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            except Exception:
+                logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
+                implementation_pr_url_map = {}
 
         context = {
             **self.get_serializer_context(),
@@ -1299,7 +1313,11 @@ class SignalReportViewSet(
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List a report's signals",
+        description="Fetch all signals for a report from ClickHouse, including full metadata.",
+        responses={200: ReportSignalsResponseSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
@@ -2031,7 +2049,10 @@ class SignalReportArtefactViewSet(
         # repository: a report's work legitimately spans multiple repos (cross-repo fixes, stacked
         # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
-        github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
         if github is None:
             return Response(
                 {"error": f"No GitHub integration can access '{repository}'."},
@@ -2043,6 +2064,8 @@ class SignalReportArtefactViewSet(
             # commit was recorded — e.g. after PR babysitting or customer tweaks.
             base_branch = github.get_default_branch(repository)
             result = github.get_diff(repository, target_branch=str(branch), base_branch=base_branch)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(
                 "signals branch diff fetch errored",

@@ -225,8 +225,20 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     selectedCategory === ALL_SOURCES_CATEGORY
                         ? base
                         : base.filter((item) => item.category === selectedCategory)
-                // Keep fuzzy-search relevance order when searching; otherwise sort by name.
-                return trimmed ? filtered : [...filtered].sort((a, b) => a.label.localeCompare(b.label))
+                // Keep fuzzy-search relevance order when searching. When browsing, lead with the
+                // sources the user can connect right now (alphabetically), then "Coming soon" ones,
+                // so the catalog doesn't open on a wall of unavailable tiles.
+                if (trimmed) {
+                    return filtered
+                }
+                return [...filtered].sort((a, b) => {
+                    const aComingSoon = a.status === 'coming_soon'
+                    const bComingSoon = b.status === 'coming_soon'
+                    if (aComingSoon !== bComingSoon) {
+                        return aComingSoon ? 1 : -1
+                    }
+                    return a.label.localeCompare(b.label)
+                })
             },
         ],
     }),

@@ -673,8 +673,8 @@ class TestBuildEmitExtra:
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
-        — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsScoutSignalInput
+        — this is the contract `emit_signal` checks via `SIGNAL_VARIANT_LOOKUP`."""
+        from products.signals.backend.contracts import SignalsScoutSignalInput
 
         extra = self._minimal()
         extra["tags"] = ["cost-spike"]
@@ -852,6 +852,8 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
 
     assert result.emitted is False
     assert result.skipped_reason == "ai_processing_not_approved"
+    # The skip must carry an actionable next step so the scout isn't blocked with a dead end.
+    assert result.remediation and "AI data processing" in result.remediation
     mock_emit.assert_not_called()
 
 

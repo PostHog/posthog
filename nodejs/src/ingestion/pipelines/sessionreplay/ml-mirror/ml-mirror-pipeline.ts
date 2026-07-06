@@ -15,9 +15,12 @@ import {
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
 import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymize-step'
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
+import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
+import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
 export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
     /** Shared, immutable scrub context (allow lists + tunables). */
@@ -39,6 +42,7 @@ export function createMlMirrorReplayPipeline(
         overflowEnabled,
         promiseScheduler,
         teamService,
+        retentionService,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -60,10 +64,18 @@ export function createMlMirrorReplayPipeline(
                                 preservePartitionLocality: true,
                             })
                         )
+                        .pipe(createValidateSessionReplayHeadersStep())
                         .pipe(createTeamFilterStep(teamService))
                         // Mirror only data from orgs that opted into AI training.
                         .pipe(createAiTrainingOptInFilterStep())
                 )
+                // Resolve retention up front (before parse), keyed on the (validated) session_id
+                // header; drop unresolvable sessions.
+                .gather()
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
                 .filterMap(
                     (element) => ({
                         result: element.result,
@@ -76,41 +88,50 @@ export function createMlMirrorReplayPipeline(
                         b
                             .teamAware((b) =>
                                 b
-                                    .sequentially((b) =>
-                                        b
-                                            .pipe(
-                                                topHogWrapper(createParseMessageStep(), [
-                                                    timer('parse_time_ms_by_session_id', (input) => ({
-                                                        token: input.headers.token ?? 'unknown',
-                                                        session_id: input.headers.session_id ?? 'unknown',
-                                                    })),
-                                                ])
-                                            )
-                                            // Anonymize before recording so derived metadata is scrubbed too.
-                                            .pipe(createAnonymizeStep({ scrubContext }))
-                                            .pipe(
-                                                topHogWrapper(
-                                                    createRecordSessionEventStep({
-                                                        sessionBatchManager,
-                                                        isDebugLoggingEnabled,
-                                                    }),
-                                                    [
-                                                        sum(
-                                                            'message_size_by_session_id',
-                                                            (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            }),
-                                                            (input) => input.parsedMessage.metadata.rawSize
-                                                        ),
-                                                        timer('consume_time_ms_by_session_id', (input) => ({
+                                    .sequentially((b) => {
+                                        // The Rust native path fuses parse+anonymize in one step
+                                        const parsed = scrubContext.useRustAnonymizer
+                                            ? b.pipe(
+                                                  topHogWrapper(createParseAndAnonymizeMessageStep(), [
+                                                      timer('parse_time_ms_by_session_id', (input) => ({
+                                                          token: input.headers.token ?? 'unknown',
+                                                          session_id: input.headers.session_id ?? 'unknown',
+                                                      })),
+                                                  ])
+                                              )
+                                            : b
+                                                  .pipe(
+                                                      topHogWrapper(createParseMessageStep(), [
+                                                          timer('parse_time_ms_by_session_id', (input) => ({
+                                                              token: input.headers.token ?? 'unknown',
+                                                              session_id: input.headers.session_id ?? 'unknown',
+                                                          })),
+                                                      ])
+                                                  )
+                                                  .pipe(createAnonymizeStep({ scrubContext }))
+                                        return parsed.pipe(
+                                            topHogWrapper(
+                                                createRecordSessionEventStep({
+                                                    sessionBatchManager,
+                                                    isDebugLoggingEnabled,
+                                                }),
+                                                [
+                                                    sum(
+                                                        'message_size_by_session_id',
+                                                        (input) => ({
                                                             token: input.parsedMessage.token ?? 'unknown',
                                                             session_id: input.parsedMessage.session_id,
-                                                        })),
-                                                    ]
-                                                )
+                                                        }),
+                                                        (input) => input.parsedMessage.metadata.rawSize
+                                                    ),
+                                                    timer('consume_time_ms_by_session_id', (input) => ({
+                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                        session_id: input.parsedMessage.session_id,
+                                                    })),
+                                                ]
                                             )
-                                    )
+                                        )
+                                    })
                                     .gather()
                             )
                             .handleIngestionWarnings(outputs)

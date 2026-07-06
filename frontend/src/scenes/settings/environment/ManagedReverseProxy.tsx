@@ -346,7 +346,7 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                   {
                       label: 'Diagnosis',
                       key: 'diagnosis',
-                      content: <DiagnosticReportContent report={report} record={record} />,
+                      content: <DiagnosticReportContent report={report} />,
                   },
               ]
             : []),
@@ -487,27 +487,20 @@ const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
     }
 }
 
-function DiagnosticReportContent({ report, record }: { report: DiagnosticReport; record: ProxyRecord }): JSX.Element {
+function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
             <div className="flex flex-col gap-2">
                 {report.checks.map((check) => (
-                    <DiagnosticCheckRow key={check.id} check={check} record={record} />
+                    <DiagnosticCheckRow key={check.id} check={check} />
                 ))}
             </div>
         </div>
     )
 }
 
-// A proxy that's provisioning or being torn down can't be retried — mirror the backend guard so the
-// button can't kick off a workflow that would race the in-flight one.
-const RETRY_BLOCKING_STATUSES: ProxyRecord['status'][] = ['waiting', 'issuing', 'deleting']
-
-function DiagnosticCheckRow({ check, record }: { check: DiagnosticCheckResult; record: ProxyRecord }): JSX.Element {
-    const { retryRecord } = useActions(proxyLogic)
-    const retryBlocked = RETRY_BLOCKING_STATUSES.includes(record.status)
-
+function DiagnosticCheckRow({ check }: { check: DiagnosticCheckResult }): JSX.Element {
     return (
         <div className="border rounded p-3 flex flex-col gap-2 bg-surface-secondary">
             <div className="flex items-center gap-2">
@@ -526,19 +519,6 @@ function DiagnosticCheckRow({ check, record }: { check: DiagnosticCheckResult; r
                                     {`${dnsRecord.name}\t${dnsRecord.type}\t${dnsRecord.value}`}
                                 </CodeSnippet>
                             ))}
-                        </div>
-                    )}
-                    {check.remediation.type === 'retry' && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                loading={retryBlocked}
-                                disabledReason={retryBlocked ? 'A retry is already in progress' : undefined}
-                                onClick={() => retryRecord(record.id)}
-                            >
-                                Retry
-                            </LemonButton>
                         </div>
                     )}
                 </div>

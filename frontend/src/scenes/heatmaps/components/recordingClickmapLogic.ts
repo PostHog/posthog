@@ -1,0 +1,276 @@
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { RefObject } from 'react'
+
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
+import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ElementsEventType } from '~/toolbar/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { elementsStatsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import type {
+    ElementStatsResponseApi,
+    ElementsStatsRetrieveParams,
+} from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { heatmapsBrowserLogic, isUrlPattern } from './heatmapsBrowserLogic'
+import type { recordingClickmapLogicType } from './recordingClickmapLogicType'
+
+export interface ClickmapBox {
+    top: number
+    left: number
+    width: number
+    height: number
+    count: number
+}
+
+export type RecordingClickmapLogicProps = {
+    iframeRef?: RefObject<HTMLIFrameElement | null>
+}
+
+const CLICKMAP_STATS_LIMIT = 500
+
+function currentUrlProperty(href: string, isPattern: boolean): Record<string, unknown> {
+    return isPattern
+        ? {
+              key: '$current_url',
+              value: `^${href.split('*').map(escapeUnescapedRegex).join('.*')}$`,
+              operator: PropertyOperator.Regex,
+              type: PropertyFilterType.Event,
+          }
+        : {
+              key: '$current_url',
+              value: href,
+              operator: PropertyOperator.Exact,
+              type: PropertyFilterType.Event,
+          }
+}
+
+export function buildElementStatsParams(
+    href: string,
+    isPattern: boolean,
+    commonFilters: {
+        date_from?: string | null
+        date_to?: string | null
+        filter_test_accounts?: boolean
+        cohort_ids?: number[]
+    },
+    dataAttributes: string[]
+): ElementsStatsRetrieveParams {
+    const properties: Record<string, unknown>[] = [currentUrlProperty(href, isPattern)]
+    for (const cohortId of commonFilters.cohort_ids ?? []) {
+        properties.push({
+            type: PropertyFilterType.Cohort,
+            key: 'id',
+            value: cohortId,
+            operator: PropertyOperator.In,
+        })
+    }
+    // properties and filter_test_accounts are parsed by the endpoint but missing from its
+    // generated schema, hence the widening cast - see the stats action in posthog/api/element.py
+    return {
+        properties: JSON.stringify(properties),
+        date_from: commonFilters.date_from,
+        date_to: commonFilters.date_to,
+        filter_test_accounts: commonFilters.filter_test_accounts,
+        include: ['$autocapture'],
+        limit: CLICKMAP_STATS_LIMIT,
+        data_attributes: dataAttributes.join(','),
+    } as unknown as ElementsStatsRetrieveParams
+}
+
+export function computeClickmapBoxes(
+    statsRows: ElementStatsResponseApi['results'],
+    snapshotDocument: Document,
+    snapshotWindow: { scrollX: number; scrollY: number } | null,
+    dataAttributes: string[]
+): ClickmapBox[] {
+    const pageElements = collectAllElementsDeep('*', snapshotDocument) as HTMLElement[]
+    const domIndex = buildDOMIndex(pageElements)
+    const countsByElement = new Map<HTMLElement, number>()
+    for (const row of statsRows) {
+        const match = matchEventToElementUsingIndex(
+            row as unknown as ElementsEventType,
+            dataAttributes,
+            false,
+            domIndex
+        )
+        if (match) {
+            countsByElement.set(match.element, (countsByElement.get(match.element) ?? 0) + row.count)
+        }
+    }
+
+    const scrollX = snapshotWindow?.scrollX ?? 0
+    const scrollY = snapshotWindow?.scrollY ?? 0
+    const boxes: ClickmapBox[] = []
+    countsByElement.forEach((count, element) => {
+        const rect = element.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+            boxes.push({
+                top: rect.top + scrollY,
+                left: rect.left + scrollX,
+                width: rect.width,
+                height: rect.height,
+                count,
+            })
+        }
+    })
+    return boxes.sort((a, b) => b.count - a.count)
+}
+
+export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
+    path(['scenes', 'heatmaps', 'components', 'recordingClickmapLogic']),
+    props({} as RecordingClickmapLogicProps),
+    connect(() => ({
+        values: [
+            heatmapDataLogic({ context: 'in-app' }),
+            ['commonFilters'],
+            heatmapsBrowserLogic,
+            ['replayIframeData'],
+            teamLogic,
+            ['currentTeam'],
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+        actions: [
+            heatmapsBrowserLogic,
+            ['onIframeLoad', 'setReplayIframeData', 'setReplayIframeDataURL'],
+            heatmapDataLogic({ context: 'in-app' }),
+            ['setCommonFilters', 'setWindowWidthOverride'],
+        ],
+    })),
+    actions({
+        setClickmapEnabled: (enabled: boolean) => ({ enabled }),
+        loadElementStats: true,
+        maybeLoadElementStats: true,
+        recomputeClickmap: true,
+        setClickmapBoxes: (boxes: ClickmapBox[]) => ({ boxes }),
+    }),
+    reducers({
+        clickmapEnabled: [
+            true,
+            {
+                setClickmapEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        clickmapBoxes: [
+            [] as ClickmapBox[],
+            {
+                setClickmapBoxes: (_, { boxes }) => boxes,
+                setClickmapEnabled: (state, { enabled }) => (enabled ? state : []),
+                setReplayIframeData: () => [],
+                setReplayIframeDataURL: () => [],
+            },
+        ],
+        // the loader keeps stale stats across recording changes otherwise, and
+        // onIframeLoad would repaint the old recording's counts onto the new snapshot
+        elementStats: {
+            setReplayIframeData: () => null,
+            setReplayIframeDataURL: () => null,
+        },
+    }),
+    loaders(({ values }) => ({
+        elementStats: [
+            null as ElementStatsResponseApi | null,
+            {
+                loadElementStats: async (_, breakpoint) => {
+                    await breakpoint(150)
+                    // heatmapDataLogic's href gets clobbered to '' by onIframeLoad in this scene,
+                    // so the replay payload's URL is the stable source of truth here
+                    const url = values.replayIframeData?.url?.trim()
+                    if (!url) {
+                        return null
+                    }
+                    const params = buildElementStatsParams(
+                        url,
+                        isUrlPattern(url),
+                        values.commonFilters,
+                        values.wantedDataAttributes
+                    )
+                    const response = await elementsStatsRetrieve(String(values.currentProjectId), params)
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+    })),
+    selectors({
+        clickmapAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEATMAPS_RECORDING_CLICKMAP],
+        ],
+        clickmapActive: [
+            (s) => [s.clickmapAvailable, s.clickmapEnabled],
+            (clickmapAvailable, clickmapEnabled): boolean => clickmapAvailable && clickmapEnabled,
+        ],
+        wantedDataAttributes: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => Array.from(new Set(['data-attr', ...(currentTeam?.data_attributes ?? [])])),
+        ],
+        highestClickCount: [
+            (s) => [s.clickmapBoxes],
+            (clickmapBoxes) => clickmapBoxes.reduce((max, box) => Math.max(max, box.count), 0),
+        ],
+    }),
+    listeners(({ actions, values, props }) => ({
+        setClickmapEnabled: ({ enabled }) => {
+            posthog.capture('in-app heatmap clickmap toggled', { enabled })
+            if (enabled) {
+                actions.maybeLoadElementStats()
+            }
+        },
+        maybeLoadElementStats: () => {
+            if (values.clickmapActive && values.replayIframeData?.url?.trim()) {
+                actions.loadElementStats()
+            }
+        },
+        setReplayIframeData: () => actions.maybeLoadElementStats(),
+        setReplayIframeDataURL: () => actions.maybeLoadElementStats(),
+        setCommonFilters: () => actions.maybeLoadElementStats(),
+        setWindowWidthOverride: () => actions.recomputeClickmap(),
+        onIframeLoad: () => {
+            if (values.elementStats) {
+                actions.recomputeClickmap()
+            } else {
+                actions.maybeLoadElementStats()
+            }
+        },
+        loadElementStatsSuccess: () => actions.recomputeClickmap(),
+        recomputeClickmap: async (_, breakpoint) => {
+            if (!values.clickmapActive || !values.replayIframeData?.url?.trim()) {
+                return
+            }
+            await breakpoint(50)
+            const iframe = props.iframeRef?.current
+            const snapshotDocument = iframe?.contentDocument
+            const statsRows = values.elementStats?.results
+            if (!snapshotDocument?.body || !statsRows?.length) {
+                actions.setClickmapBoxes([])
+                return
+            }
+
+            const boxes = computeClickmapBoxes(
+                statsRows,
+                snapshotDocument,
+                iframe?.contentWindow ?? null,
+                values.wantedDataAttributes
+            )
+            posthog.capture('in-app heatmap clickmap rendered', {
+                stats_rows: statsRows.length,
+                matched_elements: boxes.length,
+                has_more: !!values.elementStats?.next,
+            })
+            actions.setClickmapBoxes(boxes)
+        },
+    })),
+])

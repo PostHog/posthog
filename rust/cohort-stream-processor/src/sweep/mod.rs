@@ -15,4 +15,4 @@ pub mod scheduler;
 
 pub use dispatch::DispatchSweeper;
 pub use eviction_queue::EvictionQueue;
-pub use scheduler::{due_before_ms, run_sweep_loop, Sweeper};
+pub use scheduler::{due_before_ms, run_sweep_loop, run_sweep_loop_delayed, Sweeper};

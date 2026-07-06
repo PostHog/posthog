@@ -324,11 +324,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
-        description="Retry provisioning of a reverse proxy. "
-        "Available for any proxy that isn't currently being provisioned or deleted "
-        "(i.e. not in 'waiting', 'issuing', or 'deleting' status). This includes 'valid' "
-        "proxies whose diagnostics detected drift (e.g. the Cloudflare custom hostname went "
-        "missing). Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+        description="Retry provisioning a failed reverse proxy. "
+        "Only available for proxies in 'erroring' or 'timed_out' status. "
+        "Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
         request=None,
     )
     @action(methods=["POST"], detail=True)
@@ -338,13 +336,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         except ProxyRecord.DoesNotExist:
             raise NotFound()
 
-        # Retry re-runs the idempotent create-proxy workflow to re-provision. Block only the
-        # transitional states where a re-run would race the in-flight provision/delete; every
-        # settled state (valid/warning/erroring/timed_out) can be re-provisioned to recover drift.
-        if record.status in (
-            ProxyRecord.Status.WAITING,
-            ProxyRecord.Status.ISSUING,
-            ProxyRecord.Status.DELETING,
+        if record.status not in (
+            ProxyRecord.Status.ERRORING,
+            ProxyRecord.Status.TIMED_OUT,
         ):
             return Response(
                 {"detail": f"Cannot retry proxy in {record.status} state."},

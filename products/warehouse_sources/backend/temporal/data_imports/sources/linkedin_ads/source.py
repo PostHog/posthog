@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -97,7 +98,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(
