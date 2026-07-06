@@ -105,6 +105,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
     def _create_context(self, issue_id: str, issue_name: str | None = None) -> ErrorTrackingIssueContext:
         return ErrorTrackingIssueContext(
             team=self.team,
+            user=self.user,
             issue_id=issue_id,
             issue_name=issue_name,
         )
