@@ -16,8 +16,10 @@ can keep showing the property for a short while after the script finishes.
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs person:read (+ person:write for api mode)
   export POSTHOG_PROJECT_API_KEY=phc_...    # only needed for events mode
-  bin/scrub_person_properties.py my_secret_prop other_prop \\
-      --host https://us.posthog.com --project-id 123 --dry-run
+  python bin/scrub_person_properties.py my_secret_prop other_prop \\
+      --host eu --project-id 123 --dry-run
+
+--host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
 """
 
 # ruff: noqa: T201 allow print statements in this CLI script
@@ -35,6 +37,12 @@ import requests
 
 MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 2.0
+REGION_HOSTS = {"us": "https://us.posthog.com", "eu": "https://eu.posthog.com"}
+
+
+def resolve_host(value: str) -> str:
+    """Map a region shorthand ('us'/'eu', any case) to its Cloud host; pass explicit hosts through."""
+    return REGION_HOSTS.get(value.strip().lower(), value).rstrip("/")
 
 
 class ScrubError(Exception):
@@ -182,7 +190,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("properties", nargs="+", help="Person property keys to scrub")
     # Env-backed args resolve after parsing so --help never prints API keys from the environment
     parser.add_argument(
-        "--host", default=None, help="PostHog instance URL (env: POSTHOG_HOST, else https://us.posthog.com)"
+        "--host",
+        default=None,
+        help="PostHog instance URL, or region shorthand 'us'/'eu' for PostHog Cloud "
+        "(env: POSTHOG_HOST, else https://us.posthog.com)",
     )
     parser.add_argument("--project-id", default=None, help="Numeric project ID (env: POSTHOG_PROJECT_ID)")
     parser.add_argument(
@@ -209,7 +220,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
-    args.host = (args.host or os.environ.get("POSTHOG_HOST") or "https://us.posthog.com").rstrip("/")
+    args.host = resolve_host(args.host or os.environ.get("POSTHOG_HOST") or "https://us.posthog.com")
     args.project_id = args.project_id or os.environ.get("POSTHOG_PROJECT_ID")
     args.personal_api_key = args.personal_api_key or os.environ.get("POSTHOG_PERSONAL_API_KEY")
     args.project_api_key = args.project_api_key or os.environ.get("POSTHOG_PROJECT_API_KEY")
