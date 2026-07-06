@@ -27,7 +27,7 @@ from posthog.renderers import ServerSentEventRenderer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -631,6 +631,10 @@ class ReplayObservationViewSet(
         required_scopes=["replay_scanner:write", "session_recording:read"],
     )
     def label(self, request: Request, **kwargs: Any) -> Response:
+        # Viewset-level permissions cover all observation reads, so the quality sub-flag is checked
+        # here instead of in permission_classes; 404 (not 403) to match the flag permission classes.
+        if not is_replay_vision_quality_enabled(cast(User, request.user), self.team):
+            raise NotFound()
         observation = self.get_object()
         # Editing the shared label needs edit access, not just the viewer access reading needs.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):

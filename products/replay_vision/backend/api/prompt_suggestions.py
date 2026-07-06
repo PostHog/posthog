@@ -19,7 +19,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.feature_flag import (
+    ReplayVisionEnabledPermission,
+    ReplayVisionQualityEnabledPermission,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
@@ -97,7 +100,7 @@ class ReplayScannerPromptSuggestionViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission]
+    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionQualityEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
 
