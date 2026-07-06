@@ -147,6 +147,8 @@ def job_switchers_to_clay(
         team=team,
         query_type="job_switchers_query",
         limit_context=LimitContext.SAVED_QUERY,
+        # Internal billing DAG runs without a user; bypass warehouse ACL for this trusted ETL read.
+        bypass_warehouse_access_control=True,
     )
     results = response.results
 

@@ -3,13 +3,16 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
 
 class _VisionActionAPITestCase(APIBaseTest):
@@ -251,3 +254,170 @@ class TestVisionActionCrossTeamIDOR(_VisionActionAPITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
+
+
+class TestVisionActionRunViewSet(_VisionActionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="daily-summary")
+
+    def runs_url(self, action_id: str | None = None) -> str:
+        return f"/api/projects/{self.team.id}/vision/actions/{action_id or self.action.id}/runs/"
+
+    def _create_run(self, action: VisionAction | None = None, **overrides: Any) -> VisionActionRun:
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "vision_action": action or self.action,
+            "idempotency_key": f"key-{VisionActionRun.all_teams.count()}",
+            "status": VisionActionRunStatus.COMPLETED,
+        }
+        defaults.update(overrides)
+        return VisionActionRun.all_teams.create(**defaults)
+
+    def _create_observation(
+        self,
+        session_id: str,
+        *,
+        summary: str = "churned",
+        title: str | None = "Checkout",
+        email: str | None = "user@example.com",
+        scanner: ReplayScanner | None = None,
+    ) -> ReplayObservation:
+        # team_id is copied from the scanner by ReplayObservation.save(); don't pass it.
+        return ReplayObservation.objects.create(
+            scanner=scanner or self.scanner,
+            session_id=session_id,
+            recording_subject_email=email,
+            scanner_result={"model_output": {"summary": summary, **({"title": title} if title else {})}},
+        )
+
+    def test_list_runs_for_action(self) -> None:
+        self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="# Themes", observation_count=3)
+        self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "nothing to summarize"})
+
+        resp = self.client.get(self.runs_url())
+        self.assertEqual(resp.status_code, 200, resp.content)
+        results = resp.json()["results"]
+        self.assertEqual(len(results), 2)
+        completed = next(r for r in results if r["status"] == "completed")
+        self.assertEqual(completed["observation_count"], 3)
+        self.assertIsNone(completed["error_reason"])
+        # The list stays light — the report body + observations are only fetched on retrieve.
+        self.assertNotIn("synthesized_markdown", completed)
+        self.assertNotIn("observations", completed)
+
+    def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
+        obs_a = self._create_observation("sess-a", title="Checkout")
+        obs_b = self._create_observation("sess-b", title="Onboarding")
+        # observation_ids is the summary order; the API must preserve it rather than DB order.
+        run = self._create_run(
+            status=VisionActionRunStatus.COMPLETED,
+            synthesized_markdown="# Themes",
+            observation_count=2,
+            observation_ids=[str(obs_b.id), str(obs_a.id)],
+        )
+
+        body = self.client.get(f"{self.runs_url()}{run.id}/").json()
+        self.assertEqual(body["synthesized_markdown"], "# Themes")
+        self.assertEqual([o["id"] for o in body["observations"]], [str(obs_b.id), str(obs_a.id)])
+        self.assertEqual(body["observations"][0]["session_id"], "sess-b")
+        self.assertEqual(body["observations"][0]["title"], "Onboarding")
+        self.assertEqual(body["observations"][1]["recording_subject_email"], "user@example.com")
+
+    def test_retrieve_does_not_resolve_cross_team_observation_ids(self) -> None:
+        # A stray id from another team stored on the run must never resolve — ReplayObservation isn't fail-closed.
+        other_team = Team.objects.create(organization=self.organization, name="rv-other-team")
+        other_scanner = self._create_scanner(team=other_team, name="rv-other-scanner")
+        foreign = self._create_observation("foreign", scanner=other_scanner)
+        mine = self._create_observation("mine")
+        run = self._create_run(
+            status=VisionActionRunStatus.COMPLETED,
+            synthesized_markdown="# Themes",
+            observation_ids=[str(foreign.id), str(mine.id)],
+        )
+
+        body = self.client.get(f"{self.runs_url()}{run.id}/").json()
+        self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
+
+    @parameterized.expand(
+        [
+            # (status, error, expected copy)
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "skipped_empty"},
+                "No new observations in this window to summarize.",
+            ),
+            # Historical run rows (pre-#66892) stored the old enum; the alias must still humanize.
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "no_delivery_flow"},
+                "No delivery destination is configured for this action.",
+            ),
+            # Abort reasons carry FAILED status — the copy must not contradict the "failed" banner by saying "Skipped".
+            (
+                VisionActionRunStatus.FAILED,
+                {"aborted": "aborted_no_consent"},
+                "AI data processing isn't enabled for this organization.",
+            ),
+        ]
+    )
+    def test_error_reason_humanized(self, status: str, error: dict[str, Any], expected: str) -> None:
+        # A raw engine skip/abort reason is mapped to human copy, not surfaced verbatim.
+        run = self._create_run(status=status, error=error)
+        resp = self.client.get(f"{self.runs_url()}{run.id}/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()["error_reason"], expected)
+        self.assertNotIn("Skipped", resp.json()["error_reason"])
+
+    def test_failed_run_error_reason_does_not_leak_raw_exception(self) -> None:
+        # The engine stamps error["message"] with raw exception text (str(e)[:500]); the API must not
+        # echo it to callers — a failed run surfaces a generic reason instead.
+        run = self._create_run(
+            status=VisionActionRunStatus.FAILED,
+            error={"message": "Traceback: KeyError 'secret_token' in synthesize at line 42"},
+        )
+        resp = self.client.get(f"{self.runs_url()}{run.id}/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertNotIn("secret_token", resp.json()["error_reason"])
+        self.assertEqual(resp.json()["error_reason"], "This run failed while generating the summary.")
+
+    def test_runs_scoped_to_their_action(self) -> None:
+        other_action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="other-action")
+        mine = self._create_run(self.action)
+        self._create_run(other_action)
+
+        results = self.client.get(self.runs_url()).json()["results"]
+        self.assertEqual([r["id"] for r in results], [str(mine.id)])
+
+    def test_malformed_action_id_returns_404(self) -> None:
+        resp = self.client.get(self.runs_url("not-a-uuid"))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_flag_off_hides_endpoint(self) -> None:
+        self._create_run()
+
+        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key != "replay-vision-actions"
+
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+            resp = self.client.get(self.runs_url())
+        self.assertEqual(resp.status_code, 404, resp.content)
+
+
+class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_org = Organization.objects.create(name="other-org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="other-team")
+        self.other_scanner = self._create_scanner(team=self.other_team, name="other-scanner")
+        self.other_action = VisionAction.all_teams.create(
+            team=self.other_team, scanner=self.other_scanner, name="other-action"
+        )
+        VisionActionRun.all_teams.create(
+            team=self.other_team, vision_action=self.other_action, idempotency_key="other-run"
+        )
+
+    def test_cannot_list_other_team_action_runs(self) -> None:
+        # The action belongs to another team, so the nested route must 404 rather than leak its runs.
+        resp = self.client.get(f"/api/projects/{self.team.id}/vision/actions/{self.other_action.id}/runs/")
+        self.assertEqual(resp.status_code, 404)

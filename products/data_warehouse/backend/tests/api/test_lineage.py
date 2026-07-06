@@ -1,8 +1,10 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 
 from posthog.test.db_context_capturing import capture_db_queries
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.lineage import topological_sort
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -67,7 +69,7 @@ class TestLineage(APIBaseTest):
             for q in context.captured_queries
             if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
         ]
-        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+        self.assertLessEqual(len(view_queries), 8, f"Expected at most 8 queries, got {len(view_queries)}")
 
     def test_get_upstream_with_datawarehouse_table(self):
         DataWarehouseTable.objects.create(
@@ -191,6 +193,51 @@ class TestLineage(APIBaseTest):
 
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["test_query"]["type"], "view")
+
+    def test_get_upstream_last_run_at_uses_latest_job_not_stale_model_field(self):
+        stale = datetime(2026, 4, 29, 9, 0, 0, tzinfo=UTC)
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="base_q",
+            query={"kind": "HogQLQuery", "query": "select * from postgres.supabase.users"},
+            external_tables=["postgres.supabase.users"],
+            last_run_at=stale,
+            status="Modified",
+        )
+        final_q = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="final_q",
+            query={"kind": "HogQLQuery", "query": "select * from base_q"},
+            external_tables=["base_q"],
+            last_run_at=stale,
+            status="Modified",
+        )
+
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=final_q,
+            status="Completed",
+            last_run_at=datetime(2026, 5, 1, 0, 0, 0, tzinfo=UTC),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=final_q,
+            status="Completed",
+            last_run_at=datetime(2026, 6, 30, 10, 0, 0, tzinfo=UTC),
+        )
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_q.id}")
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+
+        nodes = {node["id"]: node for node in data["nodes"]}
+        self.assertTrue(nodes["final_q"]["last_run_at"].startswith("2026-06-30T10:00:00"))
+        self.assertTrue(nodes["base_q"]["last_run_at"].startswith("2026-04-29T09:00:00"))
+
+        job_queries = [q for q in context.captured_queries if "posthog_datamodelingjob" in q["sql"].lower()]
+        self.assertEqual(len(job_queries), 1, "Latest job per saved query must be a single batched query")
 
     def test_topological_sort(self):
         nodes = ["A", "B", "C"]

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
     reset_rows_synced_if_needed,
+    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -189,7 +190,13 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         self._resumable_source_manager = resumable_source_manager
-        self._batcher = Batcher(self._logger)
+        # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
+        # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        self._batcher = Batcher(
+            self._logger,
+            chunk_size=source_response.chunk_size,
+            chunk_size_bytes=source_response.chunk_size_bytes,
+        )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
@@ -260,6 +267,14 @@ class PipelineV3(Generic[ResumableData]):
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
+
+            # Defensive pre-write compaction. See `extract.run_pre_write_defensive_compact`
+            # for rationale; shared with the v2 pipeline so the threshold + error handling
+            # stay in lockstep.
+            if not is_fresh_sync:
+                await run_pre_write_defensive_compact(
+                    self._delta_table_helper, self._schema, self._resource, self._logger
+                )
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None

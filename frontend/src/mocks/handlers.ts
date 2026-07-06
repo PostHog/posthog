@@ -25,7 +25,10 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
+import _instanceStatus from './fixtures/_instance_status.json'
+import _preflight from './fixtures/_preflight.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
+import _systemStatus from './fixtures/_system_status.json'
 import { MockResolverInfo, MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = {
@@ -96,6 +99,7 @@ function posthogCORSResponse(info: MockResolverInfo): Response {
 export const defaultMocks: Mocks = {
     get: {
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -201,15 +205,15 @@ export const defaultMocks: Mocks = {
         '/api/projects/@current/': MOCK_DEFAULT_TEAM, // bootstrap endpoint — intentionally @current
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
-        '/_preflight': require('./fixtures/_preflight.json'),
+        '/_preflight': _preflight,
         '/api/login/dev': {
             users: [
                 { email: 'test@posthog.com', is_staff: true, label: 'Default test user' },
                 { email: 'staff@posthog.com', is_staff: true, label: null },
             ],
         },
-        '/_system_status': require('./fixtures/_system_status.json'),
-        '/api/instance_status': require('./fixtures/_instance_status.json'),
+        '/_system_status': _systemStatus,
+        '/api/instance_status': _instanceStatus,
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
         '/api/sentry_stats/': {
             error: 'Error fetching stats from sentry',

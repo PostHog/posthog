@@ -3,6 +3,7 @@ from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt
+from unittest.mock import patch
 
 from rest_framework.status import HTTP_200_OK, HTTP_204_NO_CONTENT, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
@@ -45,12 +46,13 @@ def team_enterprise_api_test_factory():
 
         # Deleting projects
 
-        def test_delete_team_as_org_admin_allowed(self):
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        def test_delete_team_as_org_admin_allowed(self, mock_start_deletion):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             response = self.client.delete(f"/api/environments/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 0)
+            mock_start_deletion.assert_called_once()
 
         def test_delete_team_as_org_member_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -65,13 +67,14 @@ def team_enterprise_api_test_factory():
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
-        def test_delete_second_team_as_org_admin_allowed(self):
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        def test_delete_second_team_as_org_admin_allowed(self, mock_start_deletion):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
             response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+            mock_start_deletion.assert_called_once()
 
         def test_no_delete_team_not_administrating_organization(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER

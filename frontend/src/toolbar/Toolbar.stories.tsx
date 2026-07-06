@@ -22,15 +22,34 @@ import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
     useOnMountEffect(() => {
-        const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
-        const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
-        styleTags.forEach((tag) => {
-            const style = document.createElement('style')
-            const text = tag.innerText
-            style.appendChild(document.createTextNode(text))
-            shadowRoot?.appendChild(style)
-        })
+        if (!shadowRoot) {
+            return
+        }
+        // Mirror the document's CSS into the toolbar's isolated shadow root *synchronously*,
+        // by serializing the already-loaded stylesheet rules into a single <style>. The
+        // toolbar measures its size/position (and which way to open menus) on render, so the
+        // styles must be applied before that — cloning <link> tags would load async and the
+        // toolbar would measure an unstyled bar, misplacing it and its panels. Inline <style>
+        // (webpack, vite dev) and extracted <link> CSS (vite build) both surface here as
+        // CSSStyleSheets. Same-origin sheets are readable; clone any that aren't as a fallback.
+        const cssChunks: string[] = []
+        for (const sheet of Array.from(document.styleSheets)) {
+            try {
+                cssChunks.push(
+                    Array.from(sheet.cssRules)
+                        .map((rule) => rule.cssText)
+                        .join('\n')
+                )
+            } catch {
+                if (sheet.ownerNode instanceof Element) {
+                    shadowRoot.appendChild(sheet.ownerNode.cloneNode(true))
+                }
+            }
+        }
+        const style = document.createElement('style')
+        style.appendChild(document.createTextNode(cssChunks.join('\n')))
+        shadowRoot.appendChild(style)
     })
 }
 

@@ -13,7 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -33,6 +33,7 @@ from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -67,6 +68,22 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
+
+
+def _make_feature_flag_psak(
+    team: Team, label: str = "psak", scopes: list[str] | None = None
+) -> tuple[str, ProjectSecretAPIKey]:
+    # Token must match _SECRET_API_KEY_RE = r"^phs_[a-zA-Z0-9]+$", so only alphanumerics after phs_.
+    suffix = "".join(c for c in label if c.isalnum())
+    token = "phs_" + ("b" * 35) + suffix
+    psak = ProjectSecretAPIKey.objects.create(
+        team=team,
+        label=label,
+        mask_value=f"phs_...{suffix[:4]}",
+        secure_value=hash_key_value(token),
+        scopes=["feature_flag:read"] if scopes is None else scopes,
+    )
+    return token, psak
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -2112,6 +2129,108 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
+    def _create_remote_config_flag(self, key: str = "my-remote-config-flag") -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+    def test_remote_config_with_psak(self):
+        self._create_remote_config_flag()
+        token, _ = _make_feature_flag_psak(self.team, label="remote-config")
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), '{"test": true}')
+
+    def test_remote_config_psak_wrong_scope_returns_403(self):
+        self._create_remote_config_flag()
+        token, _ = _make_feature_flag_psak(self.team, label="wrong-scope", scopes=["endpoint:read"])
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remote_config_psak_cross_team_returns_403(self):
+        self._create_remote_config_flag()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        token, _ = _make_feature_flag_psak(other_team, label="other-team")
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remote_config_psak_increments_remote_config_bucket(self):
+        self._create_remote_config_flag()
+        token, _ = _make_feature_flag_psak(self.team, label="telemetry")
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
+        self.assertEqual(sum(int(count) for count in buckets.values()), 1)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.feature_flags.backend.api.feature_flag.RemoteConfigThrottle.rate", new="2/minute")
+    def test_remote_config_throttles_project_secret_api_key_requests(self, *_args):
+        # PSAK requests carry no personal API key, so a plain PersonalApiKeyRateThrottle would let
+        # them through unthrottled. RemoteConfigThrottle's PSAK-aware base must throttle them per key.
+        self._create_remote_config_flag()
+        token, _ = _make_feature_flag_psak(self.team, label="throttle")
+        self.client.logout()
+        cache.clear()
+
+        url = f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config"
+        headers = {"authorization": f"Bearer {token}"}
+        for _ in range(2):
+            self.assertEqual(self.client.get(url, headers=headers).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(url, headers=headers).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.feature_flags.backend.api.feature_flag.RemoteConfigProjectSecretApiKeyTeamThrottle.rate",
+        new="2/minute",
+    )
+    def test_remote_config_team_throttle_caps_across_multiple_psaks(self, *_args):
+        # The per-team throttle exists to stop a project from multiplying its budget by minting keys.
+        # The per-key throttle stays at its default, so the only way the third request trips is the
+        # shared per-team bucket — two distinct keys, one team.
+        self._create_remote_config_flag()
+        token_a, _ = _make_feature_flag_psak(self.team, label="teamcapa")
+        token_b, _ = _make_feature_flag_psak(self.team, label="teamcapb")
+        self.client.logout()
+        cache.clear()
+
+        url = f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config"
+        for _ in range(2):
+            self.assertEqual(
+                self.client.get(url, headers={"authorization": f"Bearer {token_a}"}).status_code, status.HTTP_200_OK
+            )
+        self.assertEqual(
+            self.client.get(url, headers={"authorization": f"Bearer {token_b}"}).status_code,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     def test_remote_config_returns_response_even_if_shadow_raises(self):
         # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
@@ -2148,6 +2267,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         [
             ("project_secret_key", False),
             ("personal_api_key", True),
+            ("psak", False),
         ]
     )
     def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
@@ -2160,6 +2280,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             PersonalAPIKey.objects.create(
                 label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
             )
+        elif _name == "psak":
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
             self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
             secret_token = self.team.secret_api_token
@@ -4428,8 +4550,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("no_group_type_mapping", None, "group", "groups"),
+            ("named_group_type", "organization", "Company", "Companies"),
+        ]
+    )
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_create_group_feature_flag_usage_dashboard(
+        self, _name, group_type, expected_singular, expected_plural, mock_report_user_action
+    ):
+        if group_type is not None:
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type=group_type,
+                group_type_index=0,
+                name_singular=expected_singular,
+                name_plural=expected_plural,
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4485,10 +4624,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(total_volume_properties, [flag_property_filter, group_property_filter])
 
         assert tiles[1].insight is not None
-        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique groups per variant")
+        self.assertEqual(tiles[1].insight.name, f"Feature Flag calls made by unique {expected_plural} per variant")
         self.assertEqual(
             tiles[1].insight.description,
-            "Shows the number of unique group calls made on feature flag per variant with key: group-feature",
+            f"Shows the number of unique {expected_singular} calls made on feature flag per variant with key: group-feature",
         )
         unique_calls_query = cast(dict[str, Any], tiles[1].insight.query)
         unique_calls_series = unique_calls_query["source"]["series"][0]
@@ -4497,8 +4636,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         unique_calls_properties = unique_calls_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
 
+    @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_update_group_feature_flag_key_updates_usage_dashboard(self, mock_report_user_action):
+    def test_update_group_feature_flag_key_updates_usage_dashboard(
+        self, mock_report_user_action, mock_personhog_client
+    ):
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_id.return_value = MagicMock(mappings=[])
         create = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -5383,6 +5526,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_kwargs["cohort_type"] = cohort_type
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+            cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
 
         cohort = Cohort.objects.create(**cohort_kwargs)
 

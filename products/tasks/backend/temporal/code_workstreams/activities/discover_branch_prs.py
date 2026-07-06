@@ -8,6 +8,7 @@ from django.utils import timezone
 import requests
 from temporalio import activity
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.temporal.common.utils import close_db_connections
 
@@ -130,7 +131,7 @@ def discover_branch_prs_for_team(
             activity.logger.warning("code_workstreams_discover_integration_missing", repository=candidate.repository)
             integrations[cache_key] = None
             continue
-        except (GitHubIntegrationError, requests.RequestException) as e:
+        except (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException) as e:
             # Token-refresh failure; skip this candidate rather than aborting the activity.
             activity.logger.warning(
                 "code_workstreams_discover_integration_unavailable", repository=candidate.repository, error=str(e)

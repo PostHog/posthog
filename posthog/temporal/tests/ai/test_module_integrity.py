@@ -25,6 +25,7 @@ class TestAITemporalModuleIntegrity:
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "AnomalyInvestigationWorkflow",
+            "CheckpointCompactionWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -51,6 +52,8 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "investigate_anomaly_activity",
+            "select_checkpoint_compaction_batch",
+            "compact_checkpoint_conversations",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

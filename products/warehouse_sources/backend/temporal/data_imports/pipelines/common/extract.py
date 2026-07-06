@@ -399,3 +399,30 @@ async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
 async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
     if await cdp_producer.should_produce_table():
         await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+
+
+async def run_pre_write_defensive_compact(
+    delta_table_helper: DeltaTableHelper,
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Best-effort pre-write compact + vacuum at the start of a sync run.
+
+    Triggers `DeltaTableHelper.compact_if_fragmented` so a sync that arrived at a
+    fragmented Delta target (e.g. because earlier attempts failed before reaching
+    `_post_run_operations`) cleans up before adding more small files — keeping the
+    subsequent per-partition merge scans cheap. Wrapped in try/except so a
+    compaction failure never blocks the actual sync; the original error path is
+    unaffected.
+
+    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the
+    behaviour identical across pipelines without each having to know how to look
+    up `partition_count` or how to swallow compaction errors.
+    """
+    try:
+        partition_count_for_compact = schema.partition_count or resource.partition_count
+        await delta_table_helper.compact_if_fragmented(partition_count=partition_count_for_compact)
+    except Exception as e:
+        capture_exception(e)
+        await logger.aexception(f"Pre-write compaction failed: {e}", exc_info=e)

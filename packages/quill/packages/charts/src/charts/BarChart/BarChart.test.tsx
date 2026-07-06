@@ -269,6 +269,38 @@ describe('BarChart', () => {
             expect(tipLow.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
         })
 
+        // Mirrors the horizontal funnel bar: breakdown segments plus a tooltip-hidden filler
+        // padding the stack to 100. seriesData keeps declaration order, so consumers need
+        // hoveredSeriesKey to know which segment the cursor is in — including the filler,
+        // which has no seriesData row of its own.
+        it.each<[string, number, string]>([
+            ['first segment', 20, 'a'],
+            ['middle segment', 55, 'b'],
+            ['tooltip-hidden filler segment', 85, 'filler'],
+        ])('stacked exposes hoveredSeriesKey for cursor in the %s', async (_name, valueAtCursor, expectedKey) => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [40] },
+                { key: 'b', label: 'B', data: [30] },
+                { key: 'filler', label: 'Filler', data: [30], visibility: { tooltip: false } },
+            ]
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={series}
+                    labels={['step']}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                />
+            )
+            // Stack totals 100, so the nice value scale spans [0, 100] across the plot width.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + (valueAtCursor / 100) * dimensions.plotWidth,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.hoveredSeriesKey).toBe(expectedKey)
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
+        })
+
         it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
             const onPointClick = jest.fn()
             const { chart } = renderHogChart(
@@ -480,6 +512,7 @@ describe('BarChart', () => {
             })
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
+            expect(tooltip.hoveredSeriesKey).toBe('b')
         })
 
         // Regression: grouped clicks always resolved to the first series, so a breakdown

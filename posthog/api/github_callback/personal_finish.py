@@ -18,6 +18,7 @@ from posthog.api.github_callback.types import (
     github_oauth_redirect_uri,
     is_valid_github_installation_id,
 )
+from posthog.egress.github.transport import github_request
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -114,13 +115,12 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
     if flow.discovers_installations:
         try:
-            response = requests.get(
+            # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+            response = github_request(
+                "GET",
                 "https://api.github.com/user/installations",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {authorization.access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
+                source="integration",
+                headers={"Authorization": f"Bearer {authorization.access_token}"},
                 params={"per_page": 100},
                 timeout=10,
             )

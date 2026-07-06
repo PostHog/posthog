@@ -205,8 +205,141 @@ def query_workflow_window_costs(
     return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
 
 
+# One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
+# attributed to the author through their PRs, keyed on (repo_owner, repo_name, pr_number) — never
+# pr_number alone, since PR numbers restart per repo (SPEC §7). Windowed on the run start so the figure
+# answers "spend over [window]", never an unbounded all-time.
+_AUTHOR_WORKFLOW_SELECT = """
+    SELECT
+        r.workflow_name, j.labels,
+        countIf(j.duration_seconds IS NOT NULL) AS finished,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
+        countIf(j.duration_seconds IS NULL) AS unfinished
+    FROM __JOBS_SOURCE__ AS j
+    INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
+    INNER JOIN (
+            SELECT DISTINCT repo_owner, repo_name, number FROM __PR_SOURCE__ WHERE author_handle = {author}
+        ) AS ap ON r.repo_owner = ap.repo_owner AND r.repo_name = ap.repo_name AND r.pr_number = ap.number
+    WHERE r.run_started_at >= {date_from} __DATE_TO__
+    GROUP BY r.workflow_name, j.labels
+    LIMIT 1000000
+"""
+
+
+def query_author_workflow_costs(
+    *,
+    curated: CuratedGitHubSource,
+    author: str,
+    date_from: datetime,
+    date_to: datetime | None,
+) -> list[WorkflowCost]:
+    """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
+
+    Empty when the jobs source isn't synced. Same grouped+expand shape as the other cost queries;
+    the author→runs link goes through their PR numbers (the one attribution rule, SPEC §7).
+    """
+    jobs_source = curated.jobs_source()
+    if jobs_source is None:
+        return []
+    placeholders: dict[str, ast.Expr] = {
+        "author": ast.Constant(value=author),
+        "date_from": ast.Constant(value=date_from),
+    }
+    date_to_clause = ""
+    if date_to is not None:
+        date_to_clause = "AND r.run_started_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _AUTHOR_WORKFLOW_SELECT.replace("__JOBS_SOURCE__", jobs_source)
+        .replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO__", date_to_clause)
+    )
+    response = curated.run(sql, query_type="engineering_analytics.author_workflow_costs", placeholders=placeholders)
+    by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
+        by_workflow[workflow_name or ""].extend(
+            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+        )
+    costs = [_to_workflow_cost(workflow, aggregate_pr_cost(jobs)) for workflow, jobs in by_workflow.items()]
+    return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
+
+
+# The window-cost shape twice over — the current window and the equal-length one before it — as
+# per-window conditional aggregates on one jobs⋈runs scan, so the repo hub's delta doesn't pay the
+# (largest-table) join twice. Window predicates mirror the two separate calls exactly.
+_WINDOW_COST_WITH_PREV_SELECT = """
+    SELECT
+        r.workflow_name, j.labels,
+        countIf(j.duration_seconds IS NOT NULL AND __CUR__) AS finished,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL AND __CUR__) AS elapsed,
+        countIf(j.duration_seconds IS NULL AND __CUR__) AS unfinished,
+        countIf(j.duration_seconds IS NOT NULL AND __PREV__) AS finished_prev,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL AND __PREV__) AS elapsed_prev,
+        countIf(j.duration_seconds IS NULL AND __PREV__) AS unfinished_prev
+    FROM __JOBS_SOURCE__ AS j
+    INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
+    WHERE r.run_started_at >= {prev_from} __DATE_TO__
+    GROUP BY r.workflow_name, j.labels
+    LIMIT 1000000
+"""
+
+
+def query_workflow_window_costs_with_prev(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    prev_from: datetime,
+) -> tuple[dict[str, PRCostAggregate], dict[str, PRCostAggregate]]:
+    """``query_workflow_window_costs`` for [date_from, date_to] and [prev_from, date_from] in one scan.
+
+    Returns ``(current, previous)``, both keyed by workflow_name; empty when the jobs source isn't synced.
+    """
+    jobs_source = curated.jobs_source()
+    if jobs_source is None:
+        return {}, {}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "prev_from": ast.Constant(value=prev_from),
+    }
+    cur = "(r.run_started_at >= {date_from}" + (" AND r.run_started_at <= {date_to})" if date_to else ")")
+    prev = "(r.run_started_at >= {prev_from} AND r.run_started_at <= {date_from})"
+    date_to_clause = ""
+    if date_to is not None:
+        date_to_clause = "AND r.run_started_at <= {date_to}"
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = (
+        _WINDOW_COST_WITH_PREV_SELECT.replace("__JOBS_SOURCE__", jobs_source)
+        .replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__CUR__", cur)
+        .replace("__PREV__", prev)
+        .replace("__DATE_TO__", date_to_clause)
+    )
+    response = curated.run(
+        sql, query_type="engineering_analytics.workflow_window_costs_with_prev", placeholders=placeholders
+    )
+    by_workflow_cur: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    by_workflow_prev: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
+    for workflow_name, labels, finished, elapsed, unfinished, finished_prev, elapsed_prev, unfinished_prev in (
+        response.results or []
+    ):
+        parsed = _parse_labels(labels)
+        by_workflow_cur[workflow_name or ""].extend(
+            _expand_jobs(parsed, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+        )
+        by_workflow_prev[workflow_name or ""].extend(
+            _expand_jobs(parsed, int(finished_prev or 0), float(elapsed_prev or 0.0), int(unfinished_prev or 0))
+        )
+    return (
+        {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow_cur.items() if jobs},
+        {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow_prev.items() if jobs},
+    )
+
+
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
-# to the page's run window so the figure always answers "spend over [window]", never an unbounded all-time.
+# to the page's run window (and optional branch) so the figure always answers "spend over [window]",
+# never an unbounded all-time.
 _RUNNER_COST_SELECT = """
     SELECT
         j.labels,
@@ -216,7 +349,7 @@ _RUNNER_COST_SELECT = """
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
     WHERE r.repo_owner = {repo_owner} AND r.repo_name = {repo_name} AND r.workflow_name = {workflow_name}
-        AND r.run_started_at >= {date_from} __DATE_TO__
+        AND r.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
     GROUP BY j.labels
     LIMIT 1000000
 """
@@ -230,10 +363,11 @@ def query_workflow_runner_costs(
     workflow_name: str,
     date_from: datetime,
     date_to: datetime | None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier over [date_from, date_to], highest spend first.
-    Empty when the jobs source isn't synced. Raw runner-label combos are folded into their display tier
-    (via runner_descriptor)."""
+    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch),
+    highest spend first. Empty when the jobs source isn't synced. Raw runner-label combos are folded
+    into their display tier (via runner_descriptor)."""
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return []
@@ -247,10 +381,17 @@ def query_workflow_runner_costs(
     if date_to is not None:
         date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
+    branch = branch.strip() if branch else None
+    branch_clause = ""
+    if branch:
+        branch_clause = "AND r.head_branch = {branch}"
+        placeholders["branch"] = ast.Constant(value=branch)
     sql = (
         _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause)
     )
     response = curated.run(
         sql,

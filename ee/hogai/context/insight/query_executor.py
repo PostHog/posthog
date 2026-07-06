@@ -150,7 +150,7 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime, user: Optional["User"] = None):
+    def __init__(self, team: Team, utc_now_datetime: datetime, user: "User"):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
@@ -451,6 +451,15 @@ class AssistantQueryExecutor:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
             raise Exception("There was an unknown error running this query.")
 
+        # A failed query can come back as a structurally-valid response that carries an `error`
+        # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
+        # timeout (`_execute_direct_sql_query` stores `result.error`), or a ClickHouse error
+        # captured in debug mode. Without this guard that response is formatted as a header-only
+        # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
+        # `query_status.error` check the async-polling branch above already does.
+        if isinstance(response_dict, dict) and (error := response_dict.get("error")):
+            raise MaxToolRetryableError(str(error))
+
         total_elapsed = time.time() - start_time
         if debug_timing:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
@@ -611,10 +620,11 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
 async def execute_and_format_query(
     team: Team,
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+    *,
+    user: "User",
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
-    user: Optional["User"] = None,
     include_prompt_framing: bool = True,
 ) -> str:
     """

@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -8,7 +9,6 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function ExportButton({
     iframeRef,
@@ -247,7 +248,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
             <div className="max-w-[50rem] py-6 px-3 h-full w-full">
                 <div className="flex items-center flex-wrap gap-6">
                     <div className="w-50">
-                        <DetectiveHog className="w-full h-full" />
+                        <HedgehogMagnifyingGlass className="w-full h-full" />
                     </div>
 
                     <div className="flex-1">
@@ -345,8 +346,11 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
+    const { setClickmapEnabled } = useActions(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -355,7 +359,12 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapEnabled={hasValidReplayIframeData && clickmapAvailable ? clickmapEnabled : undefined}
+                        onClickmapEnabledChange={
+                            hasValidReplayIframeData && clickmapAvailable ? setClickmapEnabled : undefined
+                        }
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
                         {hasValidReplayIframeData ? (
