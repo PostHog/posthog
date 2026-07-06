@@ -20,8 +20,6 @@ import pytest
 import structlog
 from asgiref.sync import sync_to_async
 
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
@@ -33,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     _build_query,
 )
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 _IMPL = MySQLImplementation()
 

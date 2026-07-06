@@ -17,7 +17,7 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
     HUBSPOT_REFRESH_TOKEN="..." \
     HUBSPOT_APP_CLIENT_SECRET="..." \
     HUBSPOT_APP_CLIENT_ID="..." \
-pytest posthog/temporal/tests/data_imports/test_hubspot_source.py
+pytest products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_hubspot_source.py
 ```
 """
 
@@ -30,8 +30,6 @@ from unittest.mock import MagicMock, patch
 
 import structlog
 
-from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
@@ -41,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     _get_properties_str,
     get_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
