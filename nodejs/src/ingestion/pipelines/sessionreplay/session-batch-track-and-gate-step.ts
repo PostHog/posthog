@@ -32,14 +32,18 @@ import { SessionTracker } from './sessions/session-tracker'
  * filter calls ({@link SessionFilter.handleNewSessions}/{@link SessionFilter.isBlocked}) are pure rate
  * limiting and fail open, so a Redis blip there under-limits rather than halting.
  */
-export function createTrackAndGateStep<
-    T extends {
-        message: Pick<Message, 'partition' | 'offset'>
-        team: TeamForReplay
-        headers: SessionReplayHeaders
-        retentionPeriod: RetentionPeriod
-    },
->(sessionTracker: SessionTracker, sessionFilter: SessionFilter): BatchProcessingStep<T, Gated<T & NewSessionFlag>> {
+/** The minimal per-element shape this step needs to track and rate-limit a session. */
+type Trackable = {
+    message: Pick<Message, 'partition' | 'offset'>
+    team: TeamForReplay
+    headers: SessionReplayHeaders
+    retentionPeriod: RetentionPeriod
+}
+
+export function createTrackAndGateStep<T extends Trackable>(
+    sessionTracker: SessionTracker,
+    sessionFilter: SessionFilter
+): BatchProcessingStep<T, Gated<T & NewSessionFlag>> {
     return async function trackAndGateStep(values) {
         // Dedupe repeated sessions so each one's Redis bootstrap runs exactly once per batch.
         const toResolve = new SessionSet()
