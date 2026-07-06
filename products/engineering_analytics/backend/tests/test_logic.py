@@ -991,6 +991,49 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         )
         assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
 
+    def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
+        # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
+        # verdict is failure if any workflow failed, success if all settled and at least one passed, and
+        # in-flight (null) while any is still running. Two workflows on the same head_sha must not yield
+        # two dots. Runs off the default branch and outside the window are excluded.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(95, "alice", "open", 0, _ago(1), head_sha="sha95")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                # Commit A: two workflows, both passed -> one green dot with a wall-clock duration spanning
+                # the earliest start to the latest finish (not either workflow's own duration).
+                _run_row(9601, "CI", "sha-a", "completed", "success", _ago(3), _ago(2), head_branch="main"),
+                _run_row(9602, "Deploy", "sha-a", "completed", "success", _ago(3), _ago(1), head_branch="main"),
+                # Commit B: one workflow failed -> the whole commit is red even though the other passed.
+                _run_row(9603, "CI", "sha-b", "completed", "failure", _ago(2), _ago(2), head_branch="main"),
+                _run_row(9604, "Deploy", "sha-b", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                # Commit C: one workflow still running -> in-flight, so conclusion and duration are null.
+                _run_row(9605, "CI", "sha-c", "completed", "success", _ago(1), _ago(1), head_branch="main"),
+                _run_row(9606, "Deploy", "sha-c", "in_progress", None, _ago(1), _ago(1), head_branch="main"),
+                # A PR-branch commit and an out-of-window commit: both excluded from default-branch health.
+                _run_row(9607, "CI", "sha-d", "completed", "failure", _ago(1), _ago(1), head_branch="feat"),
+                _run_row(9608, "CI", "sha-e", "completed", "success", _ago(60), _ago(60), head_branch="main"),
+            ],
+        )
+        activity = api.get_repo_run_activity(team=self.team)
+        by_started = sorted(activity.points, key=lambda p: p.run_started_at)
+        # Three default-branch commits in the window -> three points (six runs collapsed), oldest first here.
+        assert len(activity.points) == 3
+        commit_a, commit_b, commit_c = by_started
+        assert commit_a.conclusion == "success"
+        assert commit_a.duration_seconds is not None and commit_a.duration_seconds > 0
+        assert commit_b.conclusion == "failure"
+        # In-flight commit: unsettled workflow leaves the verdict and duration null (drops off the scatter).
+        assert commit_c.conclusion is None
+        assert commit_c.duration_seconds is None
+        # Default-branch commits carry no single attributed PR.
+        assert all(p.pr_number == 0 for p in activity.points)
+
     def test_workflow_detail_branch_filter(self) -> None:
         # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
         # as the Workflows tab — without it, drilling in from a branch-scoped tab widened back to every
