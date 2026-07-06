@@ -13,6 +13,8 @@
  *       carries the minus glyph (icon communicates, no position to misread).
  *   E — Dash on track, no handle: the handle disappears entirely; a gray (border-colored)
  *       track shows a centered dash (most minimal, reads like a "blocked/mixed" badge).
+ *   F — Same as E, but the track keeps the regular unchecked switch fill gray instead of
+ *       the border gray.
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -148,6 +150,18 @@ export function VariantENoHandleDash(props: PrototypeSwitchProps): JSX.Element {
         <SwitchShell
             {...props}
             trackStyle={{ backgroundColor: 'var(--color-border-primary)' }}
+            handleStyle={{ visibility: 'hidden' }}
+            trackContent={<Dash color="var(--color-bg-surface-primary)" width="35%" />}
+        />
+    )
+}
+
+/** F — like E, but the track keeps the regular unchecked switch fill gray. */
+export function VariantFNoHandleDashFillGray(props: PrototypeSwitchProps): JSX.Element {
+    return (
+        <SwitchShell
+            {...props}
+            trackStyle={{ backgroundColor: 'var(--color-bg-fill-switch)' }}
             handleStyle={{ visibility: 'hidden' }}
             trackContent={<Dash color="var(--color-bg-surface-primary)" width="35%" />}
         />
