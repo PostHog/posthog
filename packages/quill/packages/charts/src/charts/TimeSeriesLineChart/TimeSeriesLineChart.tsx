@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
+    AxisLinesConfig,
     ChartLegendConfig,
     ChartTheme,
     DateRangeZoomData,
@@ -49,7 +50,7 @@ export interface TimeSeriesLineChartConfig {
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
     showTickMarks?: boolean
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
