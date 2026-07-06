@@ -1068,6 +1068,24 @@ def test_apply_enabled_columns_projection(
     assert sorted(dropped) == sorted(set(_projection_input_table().column_names) - set(expected_columns))
 
 
+def test_apply_enabled_columns_projection_drops_spoofed_internal_lookalikes():
+    # A source can't smuggle a deselected column past the projection by giving it a name that
+    # merely looks internal (_ph_*/_dlt_*) — only the pipeline's own exact internal columns survive.
+    table = pa.table(
+        {
+            "name": ["a", "b"],
+            "_ph_debug": ["{}", "{}"],
+            "_ph_secret": ["s1", "s2"],
+            "_dlt_secret": ["d1", "d2"],
+        }
+    )
+
+    result, dropped = apply_enabled_columns_projection(table, ["name"], None, None, None)
+
+    assert result.column_names == ["name", "_ph_debug"]
+    assert sorted(dropped) == ["_dlt_secret", "_ph_secret"]
+
+
 def test_observed_schema_metadata_columns_excludes_internal_columns():
     fields: list[pa.Field] = [
         pa.field("id", pa.int64(), nullable=False),

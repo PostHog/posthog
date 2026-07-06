@@ -358,7 +358,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
-INTERNAL_COLUMN_PREFIXES = ("_ph_", "_dlt_")
+INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
 
 
 def _fold_column_name_for_match(name: str) -> str:
@@ -379,8 +379,10 @@ def apply_enabled_columns_projection(
 
     Delta-write-side counterpart of the SQL sources' SELECT projection, for sources that can't
     push the projection into the fetch. `None` means all columns sync. Primary keys, the active
-    incremental field, partition-key source columns, and `_ph_*`/`_dlt_*` internals are always
-    retained. Both sides are folded through the dlt naming convention: the table has already been
+    incremental field, partition-key source columns, and the pipeline's own internal columns
+    (`INTERNAL_COLUMN_NAMES`) are always retained — matched by exact name, not prefix, so an
+    upstream source can't smuggle a deselected column past the projection by naming it e.g.
+    `_ph_secret` or `_dlt_secret`. Both sides are folded through the dlt naming convention: the table has already been
     through `normalize_table_column_names` while `enabled_columns`/primary keys arrive in the
     source namespace, so a raw comparison would drop every non-lowercase column. If the
     projection would drop every user-facing column, the table is returned unchanged (mirrors the
@@ -401,12 +403,12 @@ def apply_enabled_columns_projection(
     kept_names = [
         name
         for name in table.column_names
-        if name.startswith(INTERNAL_COLUMN_PREFIXES) or _fold_column_name_for_match(name) in retained
+        if name in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(name) in retained
     ]
     dropped_names = [name for name in table.column_names if name not in set(kept_names)]
     if not dropped_names:
         return table, []
-    if all(name.startswith(INTERNAL_COLUMN_PREFIXES) for name in kept_names):
+    if all(name in INTERNAL_COLUMN_NAMES for name in kept_names):
         return table, []
     return table.select(kept_names), dropped_names
 
@@ -445,7 +447,7 @@ def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:
     return [
         {"name": field.name, "data_type": str(field.type), "is_nullable": field.nullable}
         for field in schema
-        if not field.name.startswith(INTERNAL_COLUMN_PREFIXES)
+        if field.name not in INTERNAL_COLUMN_NAMES
     ]
 
 
