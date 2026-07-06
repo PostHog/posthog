@@ -1741,6 +1741,15 @@ def create_account_relationship_definition(
     return _to_account_relationship_definition(definition)
 
 
+def get_account_relationship_definition(
+    team_id: int, definition_id: str | UUID
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    return _to_account_relationship_definition(definition)
+
+
 def update_account_relationship_definition(
     *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
 ) -> contracts.AccountRelationshipDefinition | None:
