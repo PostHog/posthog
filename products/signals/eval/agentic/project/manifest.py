@@ -28,9 +28,8 @@ class EvalProjectManifest:
     # OSS repos exposed as repo-selection candidates (full_name, lowercased).
     candidate_repos: tuple[str, ...] = field(default_factory=lambda: tuple(r.full_name for r in REGISTRY.values()))
 
-    # What hedgebox seeds that the research agent can query via MCP. Documented here so reviewers
-    # know what data the live evals depend on (see posthog/demo/products/hedgebox/matrix.py).
-    # Observed on a local seed (team 1) on 2026-06-27 — a representative mix the agent can analyze:
+    # What hedgebox seeds that the research agent can query via MCP; observed on a local
+    # seed (team 1) on 2026-06-27.
     seeded_data: tuple[str, ...] = (
         "Analytics: ~78 distinct event types (downloaded_file, uploaded_file, signed_up, paid_bill, "
         "$pageview, $feature_flag_called, $web_vitals, react_framerate …) over months of history",

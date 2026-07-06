@@ -15,10 +15,8 @@ from products.signals.eval.agentic.project.manifest import DEFAULT_MANIFEST, Eva
 
 logger = logging.getLogger(__name__)
 
-# Fixed simulation "now": generate_demo_data anchors its -120d..+30d event window to this
-# instant (defaulting to wall-clock time), so without a pin a re-seed on a later date shifts
-# every timestamp and drifts from the committed ground truth. 2026-06-27 matches the seed the
-# manifest's `seeded_data` was observed on.
+# Without a pinned "now" a re-seed shifts every timestamp and drifts from the committed
+# ground truth; 2026-06-27 matches the seed the manifest was observed on.
 SIMULATION_NOW = dt.datetime(2026, 6, 27, 12, 0, 0, tzinfo=dt.UTC)
 
 

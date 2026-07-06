@@ -368,11 +368,8 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
             "would silently lose the live suite's data-grounded coverage"
         )
 
-    # 4) Templated source/verdict variety. These are synthetic (no real data/code), so the verdict
-    # is genuinely variable — asserting a tight actionability/priority would just add noise. We assert
-    # only the stable dimensions: the summary stays on-topic, and (for clearly-vague signals) the
-    # agent must NOT call it immediately actionable. Relative quality is captured by the LLM judge.
-    # Capped at one case per detail: repeating details pads the suite with verbatim duplicates.
+    # 4) Templated source/verdict variety — synthetic, so only the stable dimensions are
+    # asserted. One case per detail; repeats would pad the suite with verbatim duplicates.
     n_variety = min(max(0, target - len(cases)), len(_VERDICT_DETAILS))
     for i in range(n_variety):
         kind, detail = _VERDICT_DETAILS[i]

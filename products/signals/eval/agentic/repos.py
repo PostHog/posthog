@@ -50,10 +50,7 @@ class OSSRepo:
         return self.full_name.split("/", 1)[1]
 
 
-# A deliberately diverse candidate pool: a scheduling web app, a BaaS platform, a
-# workflow-automation tool, a whiteboard SPA, a headless CMS, and PostHog's own SDKs.
-# Distinct enough that repo-selection ground truth is unambiguous, popular enough to be
-# representative of what real teams connect.
+# Deliberately diverse and mutually distinct so repo-selection ground truth is unambiguous.
 REGISTRY: dict[str, OSSRepo] = {
     repo.key: repo
     for repo in [

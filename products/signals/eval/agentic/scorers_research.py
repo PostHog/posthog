@@ -172,9 +172,8 @@ class DataEvidenceScorer(DeterministicScorer):
         lowered = blob.lower()
         if not any(m in lowered for m in _NO_DATA_MARKERS):
             return True
-        # A marker inside a long, number-bearing narrative is incidental ("recordings were
-        # not available for these users") — only disqualify when the blob is short or
-        # carries no concrete result.
+        # A marker inside a long, number-bearing narrative is incidental — only disqualify
+        # short or result-free blobs.
         return len(blob) >= 120 and bool(re.search(r"\d", blob))
 
     def grade(self, case: EvalCase, output: ReportResearchOutput) -> list[Score]:

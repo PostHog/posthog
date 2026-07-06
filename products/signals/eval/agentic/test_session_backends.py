@@ -102,8 +102,6 @@ def test_turn_cursor_detects_drift(recorded: dict, requested: dict, fragment: st
 
 
 def test_replay_session_validates_via_real_parser():
-    """Replay must run the recorded text through the real Pydantic validation path."""
-
     async def run() -> tuple[_Probe, _Probe]:
         cassette = _cassette('{"value": 1, "label": "first"}', '{"value": 2, "label": "second"}')
         with active_cassette(cassette):
@@ -117,8 +115,6 @@ def test_replay_session_validates_via_real_parser():
 
 
 def test_replay_session_rejects_invalid_recorded_text():
-    """A cassette that no longer validates against the schema is a real, surfaced failure."""
-
     async def run() -> None:
         cassette = _cassette('{"value": "not-an-int", "label": "x"}')
         with active_cassette(cassette):

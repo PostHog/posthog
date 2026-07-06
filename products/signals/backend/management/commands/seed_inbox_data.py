@@ -45,9 +45,8 @@ from products.tasks.backend.facade import api as tasks_facade
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
 _DEFAULT_REPOSITORY = "posthog/posthog"
 
-# Terminal states cycled across the seeded reports so the inbox shows more than one status. Kept to
-# states reachable from in_progress without extra side effects; READY dominates since it's the
-# actionable inbox state users actually triage.
+# States reachable from in_progress without side effects; READY dominates since it's what
+# users actually triage.
 _FINAL_STATES = [
     SignalReport.Status.READY,
     SignalReport.Status.READY,
@@ -197,9 +196,8 @@ class Command(BaseCommand):
             report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
             report.save(update_fields=report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3))
 
-        # The persist path only writes `new_artefacts`; fixtures captured mid-run keep content in
-        # `old_artefacts`, so coalesce everything into `new_artefacts` to guarantee the judgments /
-        # findings actually land for a seeded report.
+        # The persist path only writes `new_artefacts`; coalesce so mid-run fixtures'
+        # judgments/findings actually land.
         result = result.model_copy(
             update={"new_artefacts": [*result.old_artefacts, *result.new_artefacts], "old_artefacts": []}
         )
@@ -349,9 +347,8 @@ class Command(BaseCommand):
     _BULK_TITLE_PREFIX = "SEEDBULK report "
 
     def _resolve_team_reviewer_logins(self, team: Team) -> list[str]:
-        # Seed suggested reviewers across the team's actual org members' github logins, so the
-        # "For you" scope (which filters by the logged-in user's github login) actually surfaces
-        # reports for whoever is testing. Falls back to a known handle if no member has one linked.
+        # Use real org members' github logins so the "For you" scope surfaces reports for
+        # whoever is testing.
         logins: list[str] = []
         seen: set[str] = set()
         members = OrganizationMembership.objects.filter(organization_id=team.organization_id).select_related("user")
@@ -368,9 +365,8 @@ class Command(BaseCommand):
         reviewers = self._resolve_team_reviewer_logins(team)
         self.stdout.write(f"Bulk-seeding {n} reports for team {team.id} ({team.name})… reviewers={reviewers}")
 
-        # A small pool of real PR-bearing task runs. The has_implementation_pr filter joins a
-        # report's task_run-artefact task ids to TaskRuns with a non-empty pr_url, so pointing
-        # many reports' task_run artefacts at this pool is enough to exercise the filter at scale.
+        # has_implementation_pr joins task_run artefacts to TaskRuns with a pr_url, so a small
+        # shared pool exercises the filter at scale.
         task_pool: list[tuple[str, str]] = []
         if with_runs:
             pool_size = min(max(n // 500, 1), 100)

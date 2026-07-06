@@ -100,9 +100,8 @@ class ResearchExpectation:
     summary_must_mention: tuple[str, ...] = ()
     # Minimum number of commit hashes the agent should attribute across findings.
     min_commit_hashes: int = 0
-    # When True, require the agent to have actually queried/analyzed the project's PostHog data
-    # (a substantive `data_queried`, not "MCP unavailable"). Use for data-grounded signals where
-    # the project actually contains corroborating analytics/error-tracking/replay data.
+    # Require a substantive `data_queried` (not "MCP unavailable") — only for signals the
+    # project actually holds corroborating data for.
     expect_data_evidence: bool = False
 
 
@@ -118,9 +117,8 @@ class ResearchCase(EvalCase):
 
 @dataclass(frozen=True)
 class RepoSelectionExpectation:
-    # Expected repo full_name(s) the agent should pick — a single value or a tuple of acceptable
-    # values when more than one candidate is a defensible subject (e.g. two repos for the same
-    # product). None means no specific expectation. Use ``expect_null`` for "no plausible candidate".
+    # Acceptable pick(s); a tuple when more than one candidate is defensible. None = no
+    # expectation; use ``expect_null`` for "no plausible candidate".
     expected_repository: str | tuple[str, ...] | None = None
     # When True, any non-null pick is wrong (the case has no valid subject repo).
     expect_null: bool = False

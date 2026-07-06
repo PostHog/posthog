@@ -104,10 +104,8 @@ class AgenticEvalHarness:
         return scores
 
     async def run_suite(self, step: str, cases: list[EvalCase], *, mode: str) -> SuiteResult:
-        # Replay/record swap MultiTurnSession and stub helpers via process-global monkeypatching
-        # (the cassette cursor is contextvar-isolated, but the patches are not), so those modes
-        # must run one case at a time. Live mode patches nothing global and is the slow path that
-        # actually benefits from concurrency, so it honours self.concurrency.
+        # Replay/record swap MultiTurnSession via process-global patches, so those modes run
+        # one case at a time; live patches nothing global and honours self.concurrency.
         effective_concurrency = self.concurrency if mode == "live" else 1
         sem = asyncio.Semaphore(effective_concurrency)
 

@@ -33,16 +33,13 @@ CASES: list[ResearchCase] = [
             ),
         ),
         expected=ResearchExpectation(
-            # Subjective judgments on a synthetic signal have an acceptable range, not one right
-            # answer — a live agent that finds the funnel code but no corroborating data may land on
-            # either verdict. Accept the defensible set; the deterministic dims below stay exact.
+            # Either verdict is defensible without corroborating data; the deterministic
+            # dimensions below stay exact.
             expected_actionability=("immediately_actionable", "requires_human_input"),
             expected_priority=("P1", "P2", "P3"),
             expected_already_addressed=False,
-            # This is a synthetic signal with no matching data in the project, so a live agent
-            # honestly reports verified=False (it can't confirm a fabricated metric claim).
-            # Asserting verification here would be a wrong expectation; verification is still
-            # graded by research_flag_cleanup_multi (replay). Left unset so live + replay agree.
+            # A live agent can't verify a fabricated metric claim, so it honestly reports
+            # verified=False — left unset so live + replay agree.
             expect_verified=None,
             expected_code_path_substrings={"sig_funnel_tz": ("funnel",)},
             summary_must_mention=("funnel", "timezone"),

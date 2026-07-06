@@ -31,9 +31,8 @@ from pydantic import BaseModel
 
 from products.signals.eval.agentic.cassette import Cassette, RecordedTurn, TurnCursor, prompt_fingerprint
 
-# Import the real session via the tasks facade (the documented cross-product surface). We keep
-# this module-level reference to the genuine class so replay reuses its real `_parse_and_validate`
-# even while `inject_session` patches the facade's bound name to a backend.
+# Module-level reference to the genuine class so replay reuses its real `_parse_and_validate`
+# even while `inject_session` patches the facade's bound name.
 from products.tasks.backend.facade.agents import MultiTurnSession
 
 if TYPE_CHECKING:
@@ -43,9 +42,8 @@ logger = logging.getLogger(__name__)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
-# The bind sites where ``MultiTurnSession`` is referenced. Research imports it lazily from the
-# facade at call time; the other two bind it at module import. Patching all of them (plus the
-# source) makes the swap total regardless of import style.
+# Research imports MultiTurnSession lazily; the others bind it at module import — patch every
+# bind site plus the source so the swap is total.
 _PATCH_TARGETS: tuple[tuple[str, str], ...] = (
     ("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner", "MultiTurnSession"),
     ("products.tasks.backend.facade.agents", "MultiTurnSession"),
