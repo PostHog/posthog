@@ -16,6 +16,7 @@ common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
+futures = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
@@ -24,7 +25,11 @@ rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

@@ -1,6 +1,7 @@
 //! End-to-end shuffler test against an in-process rdkafka `MockCluster` (no external broker or DB).
 //! Asserts that only forwardable events land, that each `(team_id, person_id)` lands on a single
-//! partition, and that the envelope payload maps every field.
+//! partition, that the envelope payload maps every field, and that the async commit path settles
+//! every input offset — including an unparseable poison pill — without over-forwarding.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,7 +17,7 @@ use common_types::{ClickHouseEvent, PersonMode};
 use lifecycle::{ComponentOptions, Manager};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::{ClientConfig, Message};
+use rdkafka::{ClientConfig, Message, TopicPartitionList};
 use uuid::Uuid;
 
 const INPUT_TOPIC: &str = "clickhouse_events_json";
@@ -53,8 +54,12 @@ fn test_config(bootstrap: &str) -> Config {
         team_index_refresh_secs: 300,
         team_index_refresh_jitter_secs: 0,
         team_allowlist: TeamAllowlist::All,
-        recv_batch_size: 100,
-        recv_batch_timeout_ms: 200,
+        max_inflight_forwards: 10_000,
+        commit_interval_ms: 200,
+        queue_full_backoff_ms: 100,
+        kafka_producer_linger_ms: 20,
+        kafka_producer_queue_mib: 64,
+        kafka_producer_queue_messages: 100_000,
     }
 }
 
@@ -134,6 +139,43 @@ async fn collect_output(
     collected
 }
 
+/// Polls the shuffler group's committed offset for input partition 0 until it reaches
+/// `expected` (the next-offset past everything produced), proving the async ledger commit
+/// settled forwards, drops, skips, and the poison pill. The prober never subscribes, so it
+/// fetches offsets without joining (and rebalancing) the shuffler's group.
+async fn wait_for_committed_offset(bootstrap: &str, group: &str, expected: i64) {
+    let prober: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap)
+        .set("group.id", group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("failed to create committed-offset prober");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(INPUT_TOPIC, 0);
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(committed) = prober.committed_offsets(tpl.clone(), Duration::from_secs(5)) {
+            if let Some(elem) = committed.elements_for_topic(INPUT_TOPIC).first() {
+                if let rdkafka::Offset::Offset(value) = elem.offset() {
+                    assert!(
+                        value <= expected,
+                        "committed offset {value} ran past the produced input {expected}"
+                    );
+                    if value == expected {
+                        return;
+                    }
+                }
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for committed offset {expected}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 #[tokio::test]
 async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let (cluster, input_producer): (_, FutureProducer<_>) =
@@ -200,6 +242,9 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         },
     ];
 
+    // A poison pill mid-stream: unparseable, must settle and be committed over, never forwarded.
+    const GARBAGE_AFTER_INDEX: usize = 3;
+    let mut total_input_messages = 0i64;
     let mut uuid_by_index = Vec::new();
     for (index, spec) in inputs.iter().enumerate() {
         let uuid = Uuid::from_u128(0xC0_0000 + index as u128);
@@ -212,6 +257,21 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
             .await
             .expect("input produce canceled")
             .expect("input produce failed");
+        total_input_messages += 1;
+
+        if index == GARBAGE_AFTER_INDEX {
+            input_producer
+                .send_result(
+                    FutureRecord::to(INPUT_TOPIC)
+                        .key("garbage")
+                        .payload("this is not json"),
+                )
+                .expect("enqueue garbage")
+                .await
+                .expect("garbage produce canceled")
+                .expect("garbage produce failed");
+            total_input_messages += 1;
+        }
     }
 
     let expected_forwardable: usize = inputs.iter().filter(|s| s.forwardable).count();
@@ -237,8 +297,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         producer,
         team_index,
         handle,
-        config.recv_batch_size,
-        config.recv_batch_timeout(),
+        config.shuffler_settings(),
     );
     tokio::spawn(async move { shuffler.process().await });
 
@@ -311,4 +370,8 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         first.source_offset, 0,
         "first produced event has input offset 0"
     );
+
+    // Commit progression: every input offset — settled drops/skips, acked forwards, and the
+    // poison pill — ends up covered by an explicit ledger commit.
+    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
 }
