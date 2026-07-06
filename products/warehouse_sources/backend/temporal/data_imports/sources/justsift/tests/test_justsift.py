@@ -172,13 +172,15 @@ class TestCheckAccess:
         monkeypatch.setattr(justsift, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @parameterized.expand(
+    # monkeypatch is a pytest fixture, which parameterized.expand cannot inject — keep pytest.mark.parametrize here.
+    @pytest.mark.parametrize(
+        "status, ok, expected_status, expected_message",
         [
             (200, True, 200, None),
             (401, False, 401, None),
             (403, False, 403, None),
             (500, False, 500, "Sift returned HTTP 500"),
-        ]
+        ],
     )
     def test_status_mapping(
         self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
