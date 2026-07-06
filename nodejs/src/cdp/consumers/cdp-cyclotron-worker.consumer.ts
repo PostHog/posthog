@@ -94,8 +94,25 @@ export class CdpCyclotronWorker<
                         ? this.personsManager
                               .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
                               .then((person) => {
-                                  if (person) {
-                                      hogFuncState.globals.person = person
+                                  // Fall back to an empty-shaped stub when the lookup misses.
+                                  // Happens on the rerun path for cookieless-mode events
+                                  // (`cookieless_*` distinct_ids never persist to
+                                  // `posthog_persondistinctid`) and for reruns where the
+                                  // person has since been deleted. This matches the shape
+                                  // the events pipeline attaches at original ingest time
+                                  // (`{id: '', name, url}`, no `properties`). Leaving
+                                  // `globals.person` as `undefined` would make any input
+                                  // bytecode that dereferences `person.properties.*`
+                                  // (e.g. the Google Ads template's
+                                  // `person.properties.gclid ?? … ?? event.properties.gclid`)
+                                  // halt on the first branch with "Could not execute
+                                  // bytecode" — never reaching the event-level fallback
+                                  // that would otherwise recover the send.
+                                  hogFuncState.globals.person = person ?? {
+                                      id: '',
+                                      name: '',
+                                      url: '',
+                                      properties: {},
                                   }
                               })
                         : undefined,
