@@ -626,6 +626,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                             properties={source?.properties}
                             filter_test_accounts={source?.filterTestAccounts}
+                            isPathCleaningEnabled={source?.doPathCleaning}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />

@@ -3,7 +3,12 @@ import posthog from 'posthog-js'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
-import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
+import {
+    BREAKDOWN_NULL_DISPLAY,
+    eventPropertiesToPathClean,
+    personPropertiesToPathClean,
+    sessionPropertiesToPathClean,
+} from 'scenes/web-analytics/common'
 
 import {
     ProductIntentContext,
@@ -22,16 +27,33 @@ import {
 
 import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+/** Path-type properties whose stored value differs from the cleaned value shown in the table.
+ *  For these, an exact match against the raw value misses when path cleaning is enabled. */
+const PATH_CLEANABLE_KEYS_BY_TYPE: Record<
+    PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
+    Set<string>
+> = {
+    [PropertyFilterType.Event]: eventPropertiesToPathClean,
+    [PropertyFilterType.Session]: sessionPropertiesToPathClean,
+    [PropertyFilterType.Person]: personPropertiesToPathClean,
+}
+
 /**
  * Build a property filter for a breakdown value. When the value is the
  * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
  * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
  * match.
+ *
+ * When path cleaning is enabled the table shows a cleaned path (e.g. `/blog/<id>`)
+ * while the raw stored value is the uncleaned one (`/blog/12345`). Mirror what
+ * `webAnalyticsFilters` does and match with IsCleanedPathExact for path keys so
+ * the recordings list narrows to the same population the row count reflects.
  */
-const buildBreakdownPropertyFilter = (
+export const buildBreakdownPropertyFilter = (
     key: string,
     type: PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
-    value: string
+    value: string,
+    isPathCleaningEnabled: boolean
 ): AnyPropertyFilter => {
     if (value === BREAKDOWN_NULL_DISPLAY) {
         return {
@@ -41,11 +63,12 @@ const buildBreakdownPropertyFilter = (
             operator: PropertyOperator.IsNotSet,
         } as AnyPropertyFilter
     }
+    const isCleanablePath = isPathCleaningEnabled && PATH_CLEANABLE_KEYS_BY_TYPE[type].has(key)
     return {
         key,
         type,
         value: [value],
-        operator: PropertyOperator.Exact,
+        operator: isCleanablePath ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact,
     } as AnyPropertyFilter
 }
 
@@ -106,6 +129,9 @@ interface ReplayButtonProps {
     /** Web analytics filters test accounts by default; session replay doesn't. Forward it so the
      *  recordings page matches the row count. */
     filter_test_accounts?: boolean
+    /** Whether the source query has path cleaning on. When it does, path breakdown rows show a cleaned
+     *  value that won't match the raw stored path with an exact filter — so match with IsCleanedPathExact. */
+    isPathCleaningEnabled?: boolean
 }
 
 export const ReplayButton = ({
@@ -115,6 +141,7 @@ export const ReplayButton = ({
     value,
     properties,
     filter_test_accounts,
+    isPathCleaningEnabled = false,
 }: ReplayButtonProps): JSX.Element => {
     const extraFilters: UniversalFiltersGroupValue[] = (properties ?? []) as UniversalFiltersGroupValue[]
 
@@ -188,17 +215,20 @@ export const ReplayButton = ({
                 buildBreakdownPropertyFilter(
                     '$entry_utm_source',
                     PropertyFilterType.Session,
-                    values[0] ?? BREAKDOWN_NULL_DISPLAY
+                    values[0] ?? BREAKDOWN_NULL_DISPLAY,
+                    isPathCleaningEnabled
                 ),
                 buildBreakdownPropertyFilter(
                     '$entry_utm_medium',
                     PropertyFilterType.Session,
-                    values[1] ?? BREAKDOWN_NULL_DISPLAY
+                    values[1] ?? BREAKDOWN_NULL_DISPLAY,
+                    isPathCleaningEnabled
                 ),
                 buildBreakdownPropertyFilter(
                     '$entry_utm_campaign',
                     PropertyFilterType.Session,
-                    values[2] ?? BREAKDOWN_NULL_DISPLAY
+                    values[2] ?? BREAKDOWN_NULL_DISPLAY,
+                    isPathCleaningEnabled
                 ),
             ])
         )
@@ -226,5 +256,5 @@ export const ReplayButton = ({
         return <></>
     }
 
-    return renderButton(buildFilters([buildBreakdownPropertyFilter(key, type, value)]))
+    return renderButton(buildFilters([buildBreakdownPropertyFilter(key, type, value, isPathCleaningEnabled)]))
 }
