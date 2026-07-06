@@ -156,6 +156,21 @@ class TestBaseUrl:
     def test_base_url_per_data_center(self, _name: str, data_center: str, expected: str) -> None:
         assert base_url(data_center) == expected
 
+    @parameterized.expand(
+        [
+            ("path_delimiter", "us1/evil.com"),
+            ("fragment", "us1#@evil.com"),
+            ("userinfo", "us1@evil.com"),
+            ("unknown_region", "au"),
+            ("empty", ""),
+        ]
+    )
+    def test_base_url_rejects_unlisted_data_center(self, _name: str, data_center: str) -> None:
+        # A `data_center` outside the allowlist could otherwise retarget the credentialed request at
+        # an attacker host and leak the bearer token.
+        with pytest.raises(ValueError, match="Unknown Zonka Feedback data center"):
+            base_url(data_center)
+
 
 class TestCheckAccess:
     def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
@@ -167,23 +182,24 @@ class TestCheckAccess:
         monkeypatch.setattr(zonka_feedback, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Zonka Feedback returned HTTP 500"),
-        ],
+            ("reachable", 200, True, 200, None),
+            ("unauthorized", 401, False, 401, None),
+            ("forbidden", 403, False, 403, None),
+            ("server_error", 500, False, 500, "Zonka Feedback returned HTTP 500"),
+        ]
     )
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("zonka-token", "us1") == (expected_status, expected_message)
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            self._patch_session(mp, response)
+            assert check_access("zonka-token", "us1") == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
@@ -211,3 +227,39 @@ class TestZonkaFeedbackSourceResponse:
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in ZONKA_FEEDBACK_ENDPOINTS.values())
         assert set(ZONKA_FEEDBACK_ENDPOINTS) == set(ENDPOINTS)
+
+
+class TestSessionSecurity:
+    """Credentialed requests must redact the token and pin redirects off so a 3xx from a
+    compromised host can't retarget the bearer token at another origin."""
+
+    def test_get_rows_pins_redirects_and_redacts_token(self, monkeypatch: Any) -> None:
+        make_session = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(zonka_feedback, "make_tracked_session", make_session)
+        monkeypatch.setattr(zonka_feedback, "_fetch_page", lambda *a, **k: _page([]))
+
+        manager = _FakeResumableManager()
+        list(
+            get_rows(
+                auth_token="secret-token",
+                data_center="us1",
+                endpoint="responses",
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_check_access_pins_redirects_and_redacts_token(self, monkeypatch: Any) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        session = MagicMock()
+        session.get.return_value = response
+        make_session = MagicMock(return_value=session)
+        monkeypatch.setattr(zonka_feedback, "make_tracked_session", make_session)
+
+        check_access("secret-token", "us1")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False

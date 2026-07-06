@@ -38,6 +38,11 @@ class ZonkaFeedbackResumeConfig:
 
 
 def base_url(data_center: str) -> str:
+    # Validate against the fixed allowlist before interpolating: a `data_center` carrying URL
+    # delimiters (`/`, `#`, `@`) could otherwise retarget the request at an attacker host and leak
+    # the bearer token during validation or sync.
+    if data_center not in DATA_CENTER_IDS:
+        raise ValueError("Unknown Zonka Feedback data center")
     return f"https://{data_center}.apis.zonkafeedback.com"
 
 
@@ -71,7 +76,10 @@ def _fetch_page(
         )
 
     if not response.ok:
-        logger.error(f"Zonka Feedback API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log `response.text`: error bodies from these endpoints can echo contact/feedback PII
+        # into logs that sit outside the warehouse tables' access controls. Status and the redacted
+        # URL are enough to diagnose.
+        logger.error(f"Zonka Feedback API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -86,8 +94,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ZONKA_FEEDBACK_ENDPOINTS[endpoint]
     url = f"{base_url(data_center)}{config.path}"
-    # `redact_values` masks the auth token in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(auth_token), redact_values=(auth_token,))
+    # `redact_values` masks the auth token in logged URLs and captured samples. `allow_redirects=False`
+    # pins the credentialed request to the validated Zonka Feedback host so a 3xx from a compromised
+    # or misconfigured endpoint can't retarget the bearer token at another origin.
+    session = make_tracked_session(headers=_headers(auth_token), redact_values=(auth_token,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
@@ -147,7 +157,7 @@ def check_access(auth_token: str, data_center: str, path: str = DEFAULT_PROBE_PA
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(auth_token), redact_values=(auth_token,))
+    session = make_tracked_session(headers=_headers(auth_token), redact_values=(auth_token,), allow_redirects=False)
     try:
         response = session.get(f"{base_url(data_center)}{path}", params={"page": 1, "page_size": 1}, timeout=15)
     except Exception as e:

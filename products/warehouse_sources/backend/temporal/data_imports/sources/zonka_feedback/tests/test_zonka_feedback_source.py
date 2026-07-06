@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -71,47 +73,57 @@ class TestZonkaFeedbackSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://us1.apis.zonkafeedback.com/responses?page=1&page_size=100",
-            "403 Client Error: Forbidden for url: https://e.apis.zonkafeedback.com/surveys?page=2&page_size=100",
-            "401 Client Error: Unauthorized for url: https://in.apis.zonkafeedback.com/contacts?page=1&page_size=100",
-        ],
+            (
+                "responses_401",
+                "401 Client Error: Unauthorized for url: https://us1.apis.zonkafeedback.com/responses?page=1&page_size=100",
+            ),
+            (
+                "surveys_403",
+                "403 Client Error: Forbidden for url: https://e.apis.zonkafeedback.com/surveys?page=2&page_size=100",
+            ),
+            (
+                "contacts_401",
+                "401 Client Error: Unauthorized for url: https://in.apis.zonkafeedback.com/contacts?page=1&page_size=100",
+            ),
+        ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://us1.apis.zonkafeedback.com/responses",
-            "HTTPSConnectionPool(host='us1.apis.zonkafeedback.com', port=443): Read timed out.",
-            "429 Client Error: Too Many Requests for url: https://e.apis.zonkafeedback.com/surveys",
-        ],
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://us1.apis.zonkafeedback.com/responses",
+            ),
+            ("read_timeout", "HTTPSConnectionPool(host='us1.apis.zonkafeedback.com', port=443): Read timed out."),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://e.apis.zonkafeedback.com/surveys"),
+        ]
     )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Zonka Feedback auth token"),
-            (403, False, "Invalid Zonka Feedback auth token"),
-            (500, False, "Zonka Feedback returned HTTP 500"),
-            (0, False, "Could not connect to Zonka Feedback: boom"),
-        ],
+            ("reachable", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Zonka Feedback auth token"),
+            ("forbidden", 403, False, "Invalid Zonka Feedback auth token"),
+            ("server_error", 500, False, "Zonka Feedback returned HTTP 500"),
+            ("connection_error", 0, False, "Could not connect to Zonka Feedback: boom"),
+        ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         message = (
             "Zonka Feedback returned HTTP 500"
