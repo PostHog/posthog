@@ -255,13 +255,26 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
     # send dummy event to check the proxy is working
     try:
+        # A monitoring ping to a customer-controlled domain must not follow redirects: a malicious
+        # domain could 307-redirect us (preserving method + body) to an internal host, turning this
+        # into an SSRF sink. The proxy is expected to answer the event directly with a 2xx.
         response = requests.post(
             f"https://{proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            allow_redirects=False,
+            timeout=5,
         )
 
         response.raise_for_status()
+
+        # With redirects disabled, raise_for_status() does not flag 3xx; a healthy proxy answers
+        # directly, so treat a redirect as a misconfiguration rather than silently passing.
+        if response.is_redirect or response.is_permanent_redirect:
+            return CheckActivityOutput(
+                errors=[f"Proxy returned an unexpected redirect (status {response.status_code})"],
+                warnings=[],
+            )
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem
         ctx = ssl.create_default_context()
@@ -284,6 +297,11 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
     except requests.exceptions.SSLError:
         return CheckActivityOutput(
             errors=["Failed to connect to proxy: invalid SSL certificate"],
+            warnings=[],
+        )
+    except requests.exceptions.Timeout:
+        return CheckActivityOutput(
+            errors=["Failed to connect to proxy: request timed out"],
             warnings=[],
         )
     except requests.exceptions.ConnectionError:

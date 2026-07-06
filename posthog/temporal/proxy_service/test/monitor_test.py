@@ -44,6 +44,8 @@ class TestCheckProxyIsLive(TestCase):
         # Mock successful HTTP response
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
+        mock_response.is_redirect = False
+        mock_response.is_permanent_redirect = False
         mock_post.return_value = mock_response
 
         # Mock SSL certificate check with fixed future date (20 days from frozen time)
@@ -65,6 +67,8 @@ class TestCheckProxyIsLive(TestCase):
             f"https://{self.proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            allow_redirects=False,
+            timeout=5,
         )
 
         self.assertEqual(result.errors, [])
@@ -99,6 +103,44 @@ class TestCheckProxyIsLive(TestCase):
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_timeout(self, mock_get_record, mock_post):
+        """Test request timeout handling"""
+        mock_get_record.return_value = self.proxy_record
+        mock_post.side_effect = requests.exceptions.ReadTimeout("timed out")
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Failed to connect to proxy: request timed out"])
+        self.assertEqual(result.warnings, [])
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.socket.socket")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_rejects_redirect(self, mock_get_record, mock_post, mock_socket):
+        """A redirect response is treated as an error and never followed (SSRF guard)"""
+        mock_get_record.return_value = self.proxy_record
+
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.is_redirect = True
+        mock_response.is_permanent_redirect = False
+        mock_response.status_code = 307
+        mock_post.return_value = mock_response
+
+        result = await check_proxy_is_live(self.input)
+
+        # redirects are disabled at the request layer, and a redirect response is reported
+        # rather than silently passing the health check or being followed to an internal host
+        self.assertEqual(mock_post.call_args.kwargs["allow_redirects"], False)
+        self.assertEqual(result.errors, ["Proxy returned an unexpected redirect (status 307)"])
+        self.assertEqual(result.warnings, [])
+        # we must not have reached the certificate socket connection
+        mock_socket.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_proxy_is_live_http_error(self, mock_get_record, mock_post):
         """Test HTTP error handling"""
         mock_get_record.return_value = self.proxy_record
@@ -124,6 +166,8 @@ class TestCheckProxyIsLive(TestCase):
         # Mock successful HTTP response
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
+        mock_response.is_redirect = False
+        mock_response.is_permanent_redirect = False
         mock_post.return_value = mock_response
 
         # Mock SSL certificate that expires in 9 days (less than 14 day threshold)
