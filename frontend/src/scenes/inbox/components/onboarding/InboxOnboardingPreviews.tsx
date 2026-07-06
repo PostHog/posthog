@@ -7,8 +7,9 @@ import { playMeep } from './meep'
 /**
  * Onboarding previews that render the *real* inbox `ReportCard` (the very component the Pull
  * requests / Reports tabs use), fed mock data – so they read as the genuine article rather than a
- * lookalike. Every click inside a card is intercepted (capture phase) and turned into a cheeky
- * `meep` instead of navigating or archiving, so the samples stay inert while still feeling alive.
+ * lookalike. Every click inside a card is intercepted (capture phase) so a sample never navigates
+ * or archives; instead it nudges the user toward setup (with a cheeky `meep` sound), keeping the
+ * samples inert while still feeling alive.
  *
  * The sample work is a wink at Silicon Valley (the show): Pied Piper's middle-out compression and
  * the ever-looming Hooli.
@@ -55,7 +56,8 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
 
 /**
  * Wraps a real `ReportCard` so the whole card is inert-but-playful: an `onClickCapture` swallows
- * every click (stopping the card's links/buttons from navigating or archiving) and meeps instead.
+ * every click (stopping the card's links/buttons from navigating or archiving) and nudges the user
+ * toward setup instead.
  */
 function MeepCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
     return (
