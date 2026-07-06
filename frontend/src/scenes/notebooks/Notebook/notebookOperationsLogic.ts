@@ -52,7 +52,8 @@ export const notebookOperationsLogic = kea<notebookOperationsLogicType>([
     selectors({
         activeOperation: [
             (s) => [s.operations],
-            (operations): NotebookOperation | null => Object.values(operations)[0] ?? null,
+            (operations: Record<string, NotebookOperation>): NotebookOperation | null =>
+                Object.values(operations)[0] ?? null,
         ],
         isBusy: [(s) => [s.operations], (operations): boolean => Object.keys(operations).length > 0],
     }),
