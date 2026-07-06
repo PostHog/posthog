@@ -67,7 +67,7 @@ class TestGetRows:
 
     def test_single_page_done_yields_and_stops(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {None: _page([{"id": "app_1"}, {"id": "app_2"}], iterator="c1", done=True)}
+        pages: dict[str | None, dict] = {None: _page([{"id": "app_1"}, {"id": "app_2"}], iterator="c1", done=True)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"id": "app_1"}, {"id": "app_2"}]
         # `done` on the first page means we stop without persisting resume state.
@@ -87,7 +87,7 @@ class TestGetRows:
     def test_stops_when_iterator_missing(self, monkeypatch: Any) -> None:
         # A page that isn't `done` but returns no next cursor must still terminate.
         manager = _FakeResumableManager()
-        pages = {None: _page([{"id": "app_1"}], iterator=None, done=False)}
+        pages: dict[str | None, dict] = {None: _page([{"id": "app_1"}], iterator=None, done=False)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"id": "app_1"}]
         assert manager.saved == []
@@ -95,13 +95,13 @@ class TestGetRows:
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(SvixResumeConfig(iterator="c1"))
         # The first (None) page must never be fetched on resume.
-        pages = {"c1": _page([{"id": "app_2"}], iterator="c2", done=True)}
+        pages: dict[str | None, dict] = {"c1": _page([{"id": "app_2"}], iterator="c2", done=True)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"id": "app_2"}]
 
     def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {None: _page([], iterator=None, done=True)}
+        pages: dict[str | None, dict] = {None: _page([], iterator=None, done=True)}
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == []
         assert manager.saved == []
