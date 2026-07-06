@@ -272,6 +272,13 @@ export class RedisSessionEventBus implements SessionEventBus {
      * — it's a readiness probe for deterministic tests, not a prod concern.
      */
     async whenSubscribed(sessionId: string): Promise<void> {
+        // Guard the precondition: without a registered listener the message
+        // handler has no `subs` entry to dispatch to, so it would silently
+        // drop every event while this still resolves "channel live" — the
+        // exact symptom we're guarding against. Fail loudly instead.
+        if (!this.subs.has(sessionId)) {
+            throw new Error(`whenSubscribed('${sessionId}') called before subscribe() — register a listener first`)
+        }
         await this.ensureSubscribed(sessionId)
     }
 
