@@ -111,7 +111,11 @@ function ProjectDigestSelector({
                             {projectsByOrganization.map((group) => (
                                 <div key={group.organizationId} className="flex flex-col gap-2">
                                     {showOrganization && <span className="font-medium">{group.organizationName}</span>}
-                                    <div className={showOrganization ? 'ml-4 flex flex-col gap-2' : 'flex flex-col gap-2'}>
+                                    <div
+                                        className={
+                                            showOrganization ? 'ml-4 flex flex-col gap-2' : 'flex flex-col gap-2'
+                                        }
+                                    >
                                         {group.projects.map((project) => (
                                             <LemonCheckbox
                                                 key={`${keyPrefix}-${project.id}`}
