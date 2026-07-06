@@ -25,7 +25,7 @@ import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightMod
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
-    isHighFrequencyAlertInterval,
+    isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -345,7 +345,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     // can only skip weekends for sub-daily alerts
                     skip_weekend:
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
-                            isHighFrequencyAlertInterval(alert.calculation_interval)) &&
+                            isSubDailyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: isTrendsAlertConfig(alert.config)

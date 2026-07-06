@@ -27,14 +27,14 @@ export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
 
 const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
 
-const HIGH_FREQUENCY_INTERVALS = [
+const SUB_DAILY_INTERVALS = [
     AlertCalculationInterval.HOURLY,
     AlertCalculationInterval.EVERY_15_MINUTES,
     AlertCalculationInterval.REAL_TIME,
 ]
 
-export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval): boolean {
-    return HIGH_FREQUENCY_INTERVALS.includes(interval)
+export function isSubDailyAlertInterval(interval: AlertCalculationInterval): boolean {
+    return SUB_DAILY_INTERVALS.includes(interval)
 }
 
 const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {

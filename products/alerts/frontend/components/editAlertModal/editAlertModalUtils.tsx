@@ -48,7 +48,7 @@ export function getSimulationRangeOptions(interval: AlertCalculationInterval): {
     }
 }
 
-export function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
+export function intervalDropdownPhrase(interval: AlertCalculationInterval): string {
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
             return 'in real time'
@@ -83,7 +83,7 @@ export function getAlertIntervalOptions(
         ...ALERT_INTERVAL_OPTIONS,
     ]
     return intervals.map((interval) => {
-        const labelText = alertCalculationIntervalToLabel(interval)
+        const labelText = intervalDropdownPhrase(interval)
         const showLock =
             (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) ||
             (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement)

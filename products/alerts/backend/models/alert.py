@@ -404,19 +404,16 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         enabled: bool,
         existing: AlertConfiguration | None = None,
     ) -> str | None:
-        """Validate a create/update that would leave an alert in the given real-time state.
+        """Validate the active real-time limit for a create/update that would leave an alert
+        in the given real-time state.
 
-        Shared by every write path (REST serializer, AI tool) so the entitlement and the
-        active real-time limit can't be bypassed. The limit only applies when the change
-        increases the active real-time count — an alert that already was an enabled
-        real_time alert doesn't re-count against it.
+        Purely the limit check — callers gate the entitlement first via
+        interval_entitlement_error. The limit only applies when the change increases the
+        active real-time count — an alert that already was an enabled real_time alert
+        doesn't re-count against it.
         """
         if calculation_interval != AlertCalculationInterval.REAL_TIME:
             return None
-        if error := cls.real_time_interval_validation_error(
-            calculation_interval=calculation_interval, organization=organization
-        ):
-            return error
         if not enabled:
             return None
         already_active_real_time = (

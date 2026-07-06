@@ -8,7 +8,7 @@ import { AvailableFeature } from '~/types'
 
 import {
     getDefaultSimulationRange,
-    isHighFrequencyAlertInterval,
+    isSubDailyAlertInterval,
     selectAlertCalculationInterval,
 } from './alertIntervalHelpers'
 
@@ -121,7 +121,7 @@ describe('alertIntervalHelpers', () => {
         })
     })
 
-    describe('isHighFrequencyAlertInterval', () => {
+    describe('isSubDailyAlertInterval', () => {
         it.each([
             [AlertCalculationInterval.REAL_TIME, true],
             [AlertCalculationInterval.EVERY_15_MINUTES, true],
@@ -130,7 +130,7 @@ describe('alertIntervalHelpers', () => {
             [AlertCalculationInterval.WEEKLY, false],
             [AlertCalculationInterval.MONTHLY, false],
         ])('%s → %s', (interval, expected) => {
-            expect(isHighFrequencyAlertInterval(interval)).toBe(expected)
+            expect(isSubDailyAlertInterval(interval)).toBe(expected)
         })
     })
 })

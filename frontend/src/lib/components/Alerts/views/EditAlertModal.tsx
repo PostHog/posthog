@@ -28,7 +28,7 @@ import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
 import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
@@ -207,7 +207,7 @@ export function EditAlertModal({
         }
         if (
             (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
-                isHighFrequencyAlertInterval(alertForm.calculation_interval)) &&
+                isSubDailyAlertInterval(alertForm.calculation_interval)) &&
             alertForm.skip_weekend
         ) {
             n += 1
