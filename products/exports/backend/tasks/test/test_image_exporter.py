@@ -518,6 +518,44 @@ class TestImageExporter(APIBaseTest):
             }
 
 
+class TestImageExportUserErrorHandling(APIBaseTest):
+    def _make_insight_asset(self) -> ExportedAsset:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"}},
+        )
+        return ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+    @parameterized.expand(
+        [
+            # A malformed user query (e.g. an unquoted non-ASCII HogQL identifier) must be re-raised
+            # for the outer handler to record as a user failure, but must not reach error tracking.
+            ("user_query_error_not_captured", QueryError("The identifier `週` needs quoting"), False),
+            ("platform_error_captured", ValueError("something broke in the platform"), True),
+        ]
+    )
+    def test_export_image_only_captures_non_user_errors(
+        self, _name: str, exception: Exception, should_capture: bool
+    ) -> None:
+        exported_asset = self._make_insight_asset()
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight",
+                side_effect=exception,
+            ),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+        ):
+            with self.assertRaises(type(exception)):
+                image_exporter.export_image(exported_asset)
+
+        assert mock_capture.called is should_capture
+
+
 @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
 @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")

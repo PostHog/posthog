@@ -33,6 +33,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERRORS,
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
@@ -592,6 +593,12 @@ def export_image(
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
-            logger.error("image_exporter.failed", exception=e, exc_info=True)
+            # A malformed user query (e.g. an unquoted non-ASCII HogQL identifier) is the user's to
+            # fix, not a platform fault. export_asset_direct records it as a user failure, so don't
+            # send it to error tracking where it would surface as a bug.
+            if isinstance(e, USER_QUERY_ERRORS):
+                logger.warning("image_exporter.user_query_error", exception=str(e), team_id=team_id)
+            else:
+                capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
+                logger.error("image_exporter.failed", exception=e, exc_info=True)
             raise

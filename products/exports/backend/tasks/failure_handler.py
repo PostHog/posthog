@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
 from posthog.hogql.errors import (
+    ExposedHogQLError,
     QueryError,
     ResolutionError,
     SyntaxError as HogQLSyntaxError,
@@ -99,6 +100,10 @@ EXCEPTIONS_TO_RETRY = (
 )
 
 USER_QUERY_ERRORS = (
+    # Any HogQL error flagged as exposable is the user's to fix (e.g. an unquoted non-ASCII
+    # identifier raising SyntaxError). QueryError and SyntaxError below are subclasses; the base is
+    # kept so future exposed errors also classify as user errors rather than platform faults.
+    ExposedHogQLError,
     QueryError,
     HogQLSyntaxError,
     ValidationError,  # DRF validation of the user's query (e.g. a funnel with fewer than two steps)

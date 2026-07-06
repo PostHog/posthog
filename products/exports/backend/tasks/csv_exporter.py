@@ -43,7 +43,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import ExcelColumnLimitExceeded
+from .failure_handler import USER_QUERY_ERRORS, ExcelColumnLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
@@ -695,6 +695,12 @@ def export_tabular(
         else:
             team_id = "unknown"
 
-        capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
-        logger.error("csv_exporter.failed", exception=e, exc_info=True)
+        # A malformed user query (e.g. an unquoted non-ASCII HogQL identifier) is the user's to
+        # fix, not a platform fault. export_asset_direct records it as a user failure, so don't
+        # send it to error tracking where it would surface as a bug.
+        if isinstance(e, USER_QUERY_ERRORS):
+            logger.warning("csv_exporter.user_query_error", exception=str(e), team_id=team_id)
+        else:
+            capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
+            logger.error("csv_exporter.failed", exception=e, exc_info=True)
         raise
