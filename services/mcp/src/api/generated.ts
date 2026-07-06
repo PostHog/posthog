@@ -29878,6 +29878,10 @@ export namespace Schemas {
       invocation_id: string;
       /** The email step (action node) within the workflow that sent this email. */
       action_id: string;
+      /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+      function_id: string;
+      /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+      function_name: string;
       /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
       parent_run_id: string;
       /** Asset kind. Currently always 'email'. */
@@ -54517,6 +54521,11 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+     */
+    export type _LogPatternSeverityCounts = {[key: string]: number};
+
     export interface _LogPattern {
       /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
       pattern: string;
@@ -54540,6 +54549,8 @@ export namespace Schemas {
       services: string[];
       /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
       sparkline: number[];
+      /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+      severity_counts: _LogPatternSeverityCounts;
     }
 
     /**
@@ -59434,6 +59445,39 @@ export namespace Schemas {
 
 
     export const EnvironmentsPersonsDeletePropertyCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsPersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: EnvironmentsPersonsEmailsListFormat;
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsPersonsEmailsListFormat = typeof EnvironmentsPersonsEmailsListFormat[keyof typeof EnvironmentsPersonsEmailsListFormat];
+
+
+    export const EnvironmentsPersonsEmailsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -66400,6 +66444,39 @@ export namespace Schemas {
 
 
     export const PersonsDeletePropertyCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: PersonsEmailsListFormat;
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PersonsEmailsListFormat = typeof PersonsEmailsListFormat[keyof typeof PersonsEmailsListFormat];
+
+
+    export const PersonsEmailsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

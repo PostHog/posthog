@@ -1821,6 +1821,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    EMAILS = 'emails',
 }
 
 export enum GroupsTabType {

@@ -51,6 +51,9 @@ jobs:
                 ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
                     && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true'
                     && steps.baseline_push.outputs.result != 'true' }}
+            replay_shared: >-
+                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true'
+                    && steps.baseline_push.outputs.result != 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -125,6 +128,16 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+                      # The @posthog/replay-shared package's own jest suite (the
+                      # jest-replay-shared job). posthog-js bumps land via the catalog +
+                      # lockfile and have broken it before (rrweb subpath entries switching
+                      # to ESM); its zstd tests need the node:zlib support pinned by .nvmrc.
+                      replay_shared:
+                        - 'common/replay-shared/**'
+                        - pnpm-workspace.yaml
+                        - pnpm-lock.yaml
+                        - .nvmrc
+                        - .github/workflows/ci-frontend.yml
 
             - name: Detect Visual Review baseline-only push
               id: baseline_push
@@ -423,6 +436,10 @@ jobs:
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
+            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            - name: Check toolbar bundle stays under the CloudFront gzip limit
+              run: pnpm --filter=@posthog/frontend check-toolbar-size
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -719,9 +736,36 @@ jobs:
               shell: bash
               run: exit 1
 
+    jest-replay-shared:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.replay_shared == 'true'
+        name: Jest test (replay-shared)
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Full workspace install: the suite's jsdom test environment resolves
+            # through the workspace root, not the package's own dependencies, so a
+            # filtered install can't run it.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Test with Jest
+              run: pnpm --filter=@posthog/replay-shared test
+
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
+        needs:
+            [
+                jest,
+                jest-replay-shared,
+                frontend-typescript-checks,
+                frontend-format,
+                frontend-bundle-size,
+                frontend_tests,
+                changes,
+            ]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -763,7 +807,7 @@ jobs:
                   runner: 'github'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -777,6 +821,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
+                  if [[ "${{ needs.jest-replay-shared.result }}" != "success" && "${{ needs.jest-replay-shared.result }}" != "skipped" ]]; then
+                    echo "Replay shared jest tests failed."
+                    exit 1
+                  fi
+                  echo "Replay shared jest tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1
