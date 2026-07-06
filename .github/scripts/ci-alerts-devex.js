@@ -32,10 +32,10 @@
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
 // Per-workflow links point at the engineering analytics workflow-detail page (not GitHub), scoped
-// to master via that product's `?q=` branch filter. Hosted in the team-devex project (project 2)
-// for now: the only project with the PostHog/posthog GitHub source synced. `owner`/`repo` come
-// from the run context; the workflow's GitHub display name is the path key.
-const ENG_ANALYTICS_BASE = 'https://us.posthog.com/project/2/engineering-analytics'
+// to master via that product's `?q=` branch filter. Hosted in the team-devex project (347861) for
+// now, before it moves to its final home; it's the project with the PostHog/posthog GitHub source
+// synced. `owner`/`repo` come from the run context; the workflow's GitHub display name is the path key.
+const ENG_ANALYTICS_BASE = 'https://us.posthog.com/project/347861/engineering-analytics'
 // One page of channel history. #alerts-devex is low-traffic, so the open anchor
 // reliably stays within the newest 100 messages; a busier channel would need paging.
 const HISTORY_LIMIT = 100
