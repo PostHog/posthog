@@ -18,6 +18,7 @@ import __funnelLeftToRightWithInlineEvents from '../../mocks/fixtures/api/projec
 import __funnelTimeToConvert from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import __funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import __funnelTopToBottomBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import __funnelTopToBottomBreakdownCompare from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdownCompare.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
@@ -116,6 +117,14 @@ FunnelTopToBottomBreakdown.parameters = {
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(__funnelTopToBottomBreakdown as any, 'edit')
 FunnelTopToBottomBreakdownEdit.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
+}
+// Breakdown × compare: each value renders a current and a (desaturated) previous bar, and the
+// detailed results table doubles into per-period rows tagged Current/Previous. The funnels-compare
+// flag gates the toggle — without it the compare data degrades and the snapshot is wrong.
+export const FunnelTopToBottomBreakdownCompare: Story = createInsightStory(__funnelTopToBottomBreakdownCompare as any)
+FunnelTopToBottomBreakdownCompare.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(__funnelHistoricalTrends as any)

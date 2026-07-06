@@ -23,7 +23,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.egress.github.limiter import remember_observed_core_limit
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
 
@@ -350,17 +350,64 @@ class GitHubIntegrationBase:
         self._on_token_refreshed()
         self.integration.save()
 
+    @staticmethod
+    def _installation_permanently_unavailable(response: requests.Response) -> bool:
+        """Whether a mint response (POST installations/{id}/access_tokens) shows the installation is
+        permanently gone — 404 (uninstalled) or a 403 suspension — as opposed to a transient failure.
+
+        A rate-limited 403 is transient and must return False, so a live installation is never mistaken
+        for a dead one: the shared :func:`raise_if_github_rate_limited` detector is the single source of
+        truth for that, and any 403 it doesn't flag as a rate limit is only treated as suspension when
+        the body says so. When in doubt, return False and leave the row armed.
+        """
+        if response.status_code == 404:
+            return True
+        if response.status_code != 403:
+            return False
+        try:
+            raise_if_github_rate_limited(response)
+        except GitHubRateLimitError:
+            return False
+        try:
+            body = (response.text or "").lower()
+        except Exception:
+            body = ""
+        return "suspended" in body
+
+    def _disarm_proactive_refresh_if_installation_gone(self, response: requests.Response) -> bool:
+        """Stop the every-minute beat loop from re-minting a dead installation forever.
+
+        ``access_token_expired()`` returns False when ``config`` lacks ``expires_in``/``refreshed_at``,
+        so dropping those two keys permanently disarms proactive refresh for this row. Only fires for a
+        permanently-gone installation (404 uninstalled / 403 suspended), never a transient failure.
+        Self-healing: if the installation is later restored, a real API call 401s and ``api_request``'s
+        refresh-retry mints successfully and re-persists the fields. Mutates ``config`` in memory and
+        returns whether anything changed; the caller owns the save.
+        """
+        if not self._installation_permanently_unavailable(response):
+            return False
+        config = {**self.integration.config}
+        if "expires_in" not in config and "refreshed_at" not in config:
+            return False
+        config.pop("expires_in", None)
+        config.pop("refreshed_at", None)
+        self.integration.config = config
+        return True
+
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
 
         Override to persist error state, increment counters, etc.  The base
-        implementation only logs.
+        implementation logs and, for a permanently-gone installation, disarms the
+        every-minute proactive refresh so a dead row isn't re-minted forever.
         """
         logger.warning(
             "GitHubIntegration: installation token refresh failed",
             integration_id=self.integration.id,
             status_code=response.status_code,
         )
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     def _on_token_refreshed(self) -> None:
         """Called after a successful token refresh, before ``save()``.
