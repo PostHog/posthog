@@ -25,6 +25,12 @@
 // all-branch CI-speed percentile — workflow_health's p50/p95 is over
 // status='completed' with no conclusion filter, so off-master durations are polluted
 // by supersede-cancels. Needs a conclusion='success' duration percentile upstream.
+//
+// Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill a
+// missed window, so a webhook outage undercounts that week's COUNT-based lines (runs,
+// re-runs, billable minutes, $, failure totals) and the WoW delta absorbs the hole.
+// Ratios (success rate, p50/p95) and the PR-snapshot lines (merged count, open→merge
+// median) are robust to gaps.
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
