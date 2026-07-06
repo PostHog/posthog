@@ -181,6 +181,9 @@ class SupportReplyWorkflow:
 
             ticket_type = classify_output.ticket_type
             needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
+            # Whether this reply would be auto-sent to the (untrusted) author on its channel.
+            # Keeps customer-data read scopes off any auto-publishable draft (see draft.py).
+            auto_publishable = ticket_type in ctx_output.auto_publish_ticket_types
 
             missing: list[str] = []
             prior_citations: list[str] = []
@@ -240,6 +243,7 @@ class SupportReplyWorkflow:
                         ticket_type=ticket_type,
                         needs_diagnostics=needs_diagnostics,
                         diagnostics_allowed=ctx_output.diagnostics_allowed,
+                        auto_publishable=auto_publishable,
                     ),
                     start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=RetryPolicy(maximum_attempts=2),
