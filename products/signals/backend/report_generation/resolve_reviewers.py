@@ -45,7 +45,10 @@ def enrich_reviewer_dicts_with_org_members(
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
     Called at read time so that users who connect their GitHub account after the
-    artefact was created show up properly.
+    artefact was created show up properly. Reviewers are derived from git commit
+    authorship, not the org roster, so an author who has since left the org would
+    otherwise still be suggested. Reviewers whose GitHub login doesn't resolve to a
+    current org member are dropped here rather than emitted with ``user: null``.
     """
     if not reviewer_dicts:
         return reviewer_dicts
@@ -61,6 +64,8 @@ def enrich_reviewer_dicts_with_org_members(
     for r in reviewer_dicts:
         login = r.get("github_login", "")
         user = resolved_map.get(login.lower()) if login else None
+        if user is None:
+            continue
         enriched.append(
             {
                 **r,
@@ -70,9 +75,7 @@ def enrich_reviewer_dicts_with_org_members(
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
-                }
-                if user
-                else None,
+                },
             }
         )
 
