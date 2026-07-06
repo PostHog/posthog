@@ -78,6 +78,34 @@ maybeDescribe('RedisSessionEventBus', () => {
         await sub.disconnect()
     })
 
+    it('whenSubscribed() resolves only once the channel is live — no sleep needed before publish', async () => {
+        if (!reachable) {
+            return
+        }
+        // The other cases sleep 50ms after subscribe() to let the fire-and-forget
+        // SUBSCRIBE ACK land. whenSubscribed() replaces that race with a deterministic
+        // wait: awaiting it, then publishing immediately (no sleep), still delivers.
+        const prefix = `test_ready_${Date.now()}`
+        const pub = new RedisSessionEventBus({ url: REDIS_URL, channelPrefix: prefix })
+        const sub = new RedisSessionEventBus({ url: REDIS_URL, channelPrefix: prefix })
+        await pub.connect()
+        await sub.connect()
+
+        const received: SessionEvent[] = []
+        sub.subscribe('r1', (e) => received.push(e))
+        await sub.whenSubscribed('r1')
+
+        await pub.publish(mkEvent('r1', 'completed'))
+        // Only the broker round-trip needs a beat now; the SUBSCRIBE is already ACKed.
+        await new Promise((r) => setTimeout(r, 50))
+
+        expect(received).toHaveLength(1)
+        expect(received[0]).toMatchObject({ session_id: 'r1', kind: 'completed' })
+
+        await pub.disconnect()
+        await sub.disconnect()
+    })
+
     it('does not deliver events for other session ids', async () => {
         if (!reachable) {
             return

@@ -261,6 +261,20 @@ export class RedisSessionEventBus implements SessionEventBus {
         }
     }
 
+    /**
+     * Resolves once the Redis SUBSCRIBE for this session's channel has been
+     * ACKed. `subscribe()` is deliberately fire-and-forget — prod tolerates
+     * missing the at-most-one event published before the ACK, because a
+     * long-lived /listen connection attaches before the turn begins. Tests
+     * that assert on a *specific* published event have no such slack: they
+     * subscribe and then immediately trigger the publish, so they need the
+     * channel confirmed live first. Kept off the `SessionEventBus` interface
+     * — it's a readiness probe for deterministic tests, not a prod concern.
+     */
+    async whenSubscribed(sessionId: string): Promise<void> {
+        await this.ensureSubscribed(sessionId)
+    }
+
     private async ensureSubscribed(sessionId: string): Promise<void> {
         if (!this.subscriber) {
             await this.connect()

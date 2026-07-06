@@ -146,6 +146,10 @@ describe('queued follow-ups: real e2e', () => {
 
         const events: SessionEvent[] = []
         const unsubscribe = c.bus.subscribe(sid, (e) => events.push(e))
+        // `subscribe()` fires the Redis SUBSCRIBE off without awaiting it;
+        // wait for the channel to be live before draining, else the
+        // `user_message` published mid-drain races the ACK and gets dropped.
+        await c.bus.whenSubscribed(sid)
 
         await c.drain()
         await sendDone!

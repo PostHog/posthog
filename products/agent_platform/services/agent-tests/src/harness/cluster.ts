@@ -28,7 +28,7 @@ import { Express } from 'express'
 import { Pool } from 'pg'
 import request from 'supertest'
 
-import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
+import { AuthProvider, buildApp } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
@@ -172,7 +172,7 @@ export interface Cluster {
     bundle: S3BundleStore
     /** Per-cluster bucket prefix the bundle store is rooted at. */
     bundlePrefix: string
-    bus: SessionEventBus
+    bus: RedisSessionEventBus
     identities: IdentityStore
     logs: CollectingLogSink
     /** Tapped `$ai_generation` / `$ai_span` / `$ai_trace` the runner emitted, with the resolved per-team key. */
@@ -311,8 +311,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // files don't deliver each other's events. Same impl prod runs; in-memory
     // bus has been removed. Teardown disconnects.
     const busChannelPrefix = `harness_${Math.random().toString(36).slice(2, 10)}`
-    const bus: SessionEventBus & { connect: () => Promise<void>; disconnect: () => Promise<void> } =
-        new RedisSessionEventBus({ url: REDIS_URL, channelPrefix: busChannelPrefix })
+    const bus: RedisSessionEventBus = new RedisSessionEventBus({ url: REDIS_URL, channelPrefix: busChannelPrefix })
     await bus.connect()
     const identities: IdentityStore = new PgIdentityStore(pool)
     // Real KafkaLogSink against the local broker. The tap captures wire
