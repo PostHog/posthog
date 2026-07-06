@@ -3300,6 +3300,22 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.filters == original_filters
         assert experiment.is_exposure_frozen is False
 
+    def test_freeze_exposure_rejects_when_no_users_exposed(self):
+        experiment = self._create_running_experiment(name="Freeze Empty", feature_flag_key="freeze-empty-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # An empty snapshot cohort ANDed into every release group would un-enroll every user with a
+        # 200 response — the freeze must reject instead.
+        with patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=[]):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "no users have been exposed" in str(ctx.exception).lower()
+
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
     def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(self):
         experiment = self._create_running_experiment(name="Freeze Insert Fail", feature_flag_key="freeze-insert-flag")
         original_filters = deepcopy(experiment.feature_flag.filters)

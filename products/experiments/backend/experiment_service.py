@@ -48,6 +48,10 @@ from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    build_exposure_event_conditions,
+    get_exposure_event_and_property,
+)
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
@@ -1757,6 +1761,12 @@ class ExperimentService:
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        if not exposed_person_uuids:
+            # An empty snapshot cohort ANDed into every release group would un-enroll every user.
+            raise ValidationError(
+                "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
+                "Wait until the experiment has recorded exposures."
+            )
 
         # 2. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
         exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
@@ -1816,22 +1826,49 @@ class ExperimentService:
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
-        Runs a synchronous ``$feature_flag_called`` scan capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS,
-        returning at most FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1 rows so an over-cap set can be detected
-        and rejected. This is the *actually-exposed* set (persons who fired the exposure event), not the
-        eligible audience.
+        Runs a synchronous scan of the experiment's exposure events, honoring
+        ``exposure_criteria`` (custom exposure event or action plus its property filters) via the
+        same helpers the metrics pipeline uses, and requiring the exposure to have landed a
+        variant — so the snapshot is the analyzed population, not everyone who fired the event.
+        Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
+        FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1 rows so an over-cap set can be detected and rejected.
+
+        Deliberate deviation from the analysis-side definition:
+        ``exposure_criteria.filterTestAccounts`` is NOT applied. It shapes which exposures are
+        *analyzed*; this snapshot decides who keeps being *served* a variant, and excluding test
+        accounts from it would evict the team's own users at freeze time.
         """
         # start_date is guaranteed non-null here — the caller already asserted the experiment is running.
         start_date = experiment.start_date
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        query = (
-            "SELECT DISTINCT person_id FROM events "
-            "WHERE event = '$feature_flag_called' "
-            "AND properties.$feature_flag = {flag_key} "
-            "AND timestamp >= {start_date} "
-            f"LIMIT {FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1}"
+        _, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
+        variant_keys = [variant["key"] for variant in experiment.feature_flag.variants]
+
+        conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=start_date),
+            ),
+            *build_exposure_event_conditions(experiment.exposure_criteria, self.team, flag_key),
+        ]
+        if variant_keys:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["properties", variant_property]),
+                    right=ast.Constant(value=variant_keys),
+                )
+            )
+
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["person_id"])],
+            distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=conditions),
+            limit=ast.Constant(value=FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1),
         )
         try:
             with tags_context(
@@ -1843,10 +1880,6 @@ class ExperimentService:
                 response = execute_hogql_query(
                     query,
                     team=self.team,
-                    placeholders={
-                        "flag_key": ast.Constant(value=flag_key),
-                        "start_date": ast.Constant(value=start_date),
-                    },
                     settings=HogQLGlobalSettings(max_execution_time=FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS),
                     # Under the default LimitContext.QUERY the printer clamps any top-level LIMIT to
                     # MAX_SELECT_RETURNED_ROWS (50k), which would silently truncate the snapshot and
