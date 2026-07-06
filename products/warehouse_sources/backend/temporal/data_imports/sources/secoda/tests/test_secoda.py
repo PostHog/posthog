@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Optional
 
 import pytest
@@ -42,7 +43,7 @@ class TestGetRows:
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[str, tuple[list[dict], Optional[str]]],
+        pages: Mapping[str, tuple[list[dict], Optional[str]]],
         endpoint: str = "tables",
     ) -> list[dict]:
         def fake_fetch(session: Any, url: str, logger: Any) -> tuple[list[dict], Optional[str]]:
