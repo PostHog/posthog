@@ -531,6 +531,86 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         raise
 
 
+# Caps for the combined match+specificity prompt: per-report member count and content length,
+# enforced inside the ClickHouse query so the Temporal activity payload stays bounded
+# (~30 candidate reports x 8 members x 500 chars is well under the ~2MiB payload limit).
+MAX_MEMBERS_PER_REPORT = 8
+MEMBER_CONTENT_MAX_CHARS = 500
+
+
+@dataclass
+class FetchSignalsForReportsInput:
+    team_id: int
+    report_ids: list[str]
+
+
+@dataclass
+class FetchSignalsForReportsOutput:
+    signals_by_report: dict[str, list[SignalData]]
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def fetch_signals_for_reports_activity(input: FetchSignalsForReportsInput) -> FetchSignalsForReportsOutput:
+    """Fetch the most recent member signals for ALL candidate reports in one ClickHouse query.
+
+    Returns up to MAX_MEMBERS_PER_REPORT signals per report (most recent first), with content
+    truncated to MEMBER_CONTENT_MAX_CHARS. Reports with no live signals are absent from the map.
+    """
+    if not input.report_ids:
+        return FetchSignalsForReportsOutput(signals_by_report={})
+
+    try:
+        team = await Team.objects.aget(pk=input.team_id)
+
+        subquery = _deduped_signals_subquery(
+            candidate_document_filter="JSONExtractString(metadata, 'report_id') IN ({report_ids})"
+        )
+        query = f"""
+            SELECT
+                document_id,
+                substring(content, 1, {MEMBER_CONTENT_MAX_CHARS}) as content,
+                metadata,
+                timestamp,
+                JSONExtractString(metadata, 'report_id') as report_id
+            FROM ({subquery})
+            WHERE JSONExtractString(metadata, 'report_id') IN ({{report_ids}})
+              AND NOT JSONExtractBool(metadata, 'deleted')
+            ORDER BY timestamp DESC
+            LIMIT {MAX_MEMBERS_PER_REPORT} BY report_id
+        """
+
+        result = await execute_hogql_query_with_retry(
+            query_type="SignalsFetchForReports",
+            query=query,
+            team=team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in input.report_ids]),
+            },
+        )
+
+        signals_by_report: dict[str, list[SignalData]] = {}
+        for row in result.results or []:
+            report_id = row[-1]
+            signals_by_report.setdefault(report_id, []).append(_parse_signal_row(row[:-1]))
+
+        logger.debug(
+            f"Fetched member signals for {len(signals_by_report)}/{len(input.report_ids)} reports",
+            team_id=input.team_id,
+            requested=len(input.report_ids),
+            found=len(signals_by_report),
+        )
+        return FetchSignalsForReportsOutput(signals_by_report=signals_by_report)
+    except Exception as e:
+        logger.exception(
+            f"Failed to fetch signals for {len(input.report_ids)} reports: {e}",
+            team_id=input.team_id,
+        )
+        raise
+
+
 def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
     """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)

@@ -12,6 +12,7 @@ from products.signals.backend.temporal.drop_telemetry import capture_signal_drop
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
     AssignAndEmitSignalOutput,
+    MatchAndVerifySignalInput,
     MatchSignalToReportInput,
     VerifyMatchSpecificityInput,
     VerifyMatchSpecificityOutput,
@@ -19,13 +20,17 @@ from products.signals.backend.temporal.grouping import (
     _cosine_distance,
     _ProcessedBatchSignal,
     assign_and_emit_signal_activity,
+    match_and_verify_signal_activity,
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
+    FetchSignalsForReportsInput,
+    FetchSignalsForReportsOutput,
     fetch_signals_for_report_activity,
+    fetch_signals_for_reports_activity,
 )
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
@@ -35,6 +40,7 @@ from products.signals.backend.temporal.types import (
     NoMatchMetadata,
     ReportContext,
     SignalCandidate,
+    SignalData,
     SignalReportSummaryWorkflowInputs,
     SpecificityMetadata,
 )
@@ -148,22 +154,18 @@ def partition_into_parallel_batches(
     return _group_into_batches(levels)
 
 
-async def _process_signal(
+async def _match_signal_two_call(
     team_id: int,
     signal: EmitSignalInputs,
-    signal_id: str,
-    signal_idx: int,
-    signal_embedding: list[float],
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
-) -> _SignalResult:
+) -> tuple[MatchResult, Optional[str]]:
+    """Steps 5 + 5.5: LLM match, then a separate PR-specificity verification for existing matches.
+
+    Returns (match_result, updated_title).
     """
-    Process a single signal through the match → specificity → assign pipeline.
-    Replicates the body of the sequential for-loop in _process_signal_batch.
-    """
-    # Step 5: Group-aware LLM match
-    match_result = await workflow.execute_activity(
+    match_result: MatchResult = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
             team_id=team_id,
@@ -178,7 +180,6 @@ async def _process_signal(
         retry_policy=RetryPolicy(maximum_attempts=5),
     )
 
-    # Step 5.5: PR-specificity verification for existing matches
     updated_title: Optional[str] = None
 
     if isinstance(match_result, ExistingReportMatch):
@@ -226,6 +227,90 @@ async def _process_signal(
                 ),
             )
 
+    return match_result, updated_title
+
+
+async def _match_signal_combined(
+    team_id: int,
+    signal: EmitSignalInputs,
+    queries: list[str],
+    augmented_results: list[list[SignalCandidate]],
+    report_contexts: dict[str, ReportContext],
+) -> tuple[MatchResult, Optional[str]]:
+    """Steps 5 + 5.5 collapsed into one LLM call: candidate group members are fetched up
+    front for ALL candidate reports, then the model matches and applies the PR test together.
+
+    Returns (match_result, updated_title). A specificity-style rejection arrives as a plain
+    NewReportMatch — the combined call cannot disagree with itself, so there are no post-hoc
+    rejections.
+    """
+    candidate_report_ids = sorted({c.report_id for candidates in augmented_results for c in candidates})
+
+    report_members: dict[str, list[SignalData]] = {}
+    if candidate_report_ids:
+        members_result: FetchSignalsForReportsOutput = await workflow.execute_activity(
+            fetch_signals_for_reports_activity,
+            FetchSignalsForReportsInput(team_id=team_id, report_ids=candidate_report_ids),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        report_members = members_result.signals_by_report
+
+    match_result: MatchResult = await workflow.execute_activity(
+        match_and_verify_signal_activity,
+        MatchAndVerifySignalInput(
+            team_id=team_id,
+            description=signal.description,
+            source_product=signal.source_product,
+            source_type=signal.source_type,
+            queries=queries,
+            query_results=augmented_results,
+            report_contexts=report_contexts,
+            report_members=report_members,
+        ),
+        start_to_close_timeout=timedelta(minutes=10),
+        retry_policy=RetryPolicy(maximum_attempts=5),
+    )
+
+    updated_title: Optional[str] = None
+    if isinstance(match_result, ExistingReportMatch) and match_result.match_metadata.specificity is not None:
+        updated_title = match_result.match_metadata.specificity.pr_title
+
+    return match_result, updated_title
+
+
+async def _process_signal(
+    team_id: int,
+    signal: EmitSignalInputs,
+    signal_id: str,
+    signal_idx: int,
+    signal_embedding: list[float],
+    queries: list[str],
+    augmented_results: list[list[SignalCandidate]],
+    report_contexts: dict[str, ReportContext],
+    use_combined: bool = False,
+) -> _SignalResult:
+    """
+    Process a single signal through the match → specificity → assign pipeline.
+    Replicates the body of the sequential for-loop in _process_signal_batch.
+    """
+    if use_combined:
+        match_result, updated_title = await _match_signal_combined(
+            team_id=team_id,
+            signal=signal,
+            queries=queries,
+            augmented_results=augmented_results,
+            report_contexts=report_contexts,
+        )
+    else:
+        match_result, updated_title = await _match_signal_two_call(
+            team_id=team_id,
+            signal=signal,
+            queries=queries,
+            augmented_results=augmented_results,
+            report_contexts=report_contexts,
+        )
+
     # Step 6: Assign + emit
     assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
         assign_and_emit_signal_activity,
@@ -265,6 +350,7 @@ async def _process_signal_safe(
     queries: list[str],
     augmented_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    use_combined: bool = False,
 ) -> Optional[_SignalResult]:
     """Wrapper around _process_signal that catches exceptions and returns None on failure."""
     try:
@@ -277,6 +363,7 @@ async def _process_signal_safe(
             queries=queries,
             augmented_results=augmented_results,
             report_contexts=report_contexts,
+            use_combined=use_combined,
         )
     except Exception as e:
         logger.exception(
@@ -300,6 +387,7 @@ async def _process_parallel_batch(
     signal_embeddings: list[list[float]],
     processed_batch_signals: list[_ProcessedBatchSignal],
     report_contexts: dict[str, ReportContext],
+    use_combined: bool = False,
 ) -> tuple[
     list[_ProcessedBatchSignal],
     list[tuple[str, AssignAndEmitSignalOutput]],
@@ -347,6 +435,7 @@ async def _process_parallel_batch(
                 queries=per_signal_queries[idx],
                 augmented_results=augmented_results,
                 report_contexts=report_contexts,
+                use_combined=use_combined,
             )
         )
 
@@ -407,6 +496,7 @@ async def process_sequential_phase_parallel(
     per_signal_ch_results: list[list[list[SignalCandidate]]],
     signal_embeddings: list[list[float]],
     report_contexts: dict[str, ReportContext],
+    use_combined: bool = False,
 ) -> SequentialPhaseResult:
     """
     Main public function: replaces the sequential phase of _process_signal_batch with
@@ -414,6 +504,9 @@ async def process_sequential_phase_parallel(
 
     Calls partition_into_parallel_batches, then iterates through each batch calling
     _process_parallel_batch, accumulating results across batches.
+
+    When `use_combined` is set, each signal's match + PR-specificity decision is made in a
+    single LLM call (candidate group members fetched up front) instead of two.
     """
     parallel_batches = partition_into_parallel_batches(
         per_signal_query_embeddings=per_signal_query_embeddings,
@@ -456,6 +549,7 @@ async def process_sequential_phase_parallel(
             signal_embeddings=signal_embeddings,
             processed_batch_signals=all_processed_signals,
             report_contexts=report_contexts,
+            use_combined=use_combined,
         )
 
         all_processed_signals.extend(new_processed)
