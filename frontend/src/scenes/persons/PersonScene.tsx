@@ -10,6 +10,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -17,6 +18,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
@@ -45,6 +47,7 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay, pickBestPersonDistinctId } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
@@ -207,6 +210,8 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const emailAssetsUIEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOW_EMAIL_ASSETS_UI]
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
@@ -395,6 +400,13 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-logs-tab">Logs</span>,
                         content: <PersonLogsTab person={person} />,
                     },
+                    emailAssetsUIEnabled && person.uuid
+                        ? {
+                              key: PersonsTabType.EMAILS,
+                              label: <span data-attr="persons-emails-tab">Emails</span>,
+                              content: <PersonEmailsTab teamId={currentTeam?.id ?? 0} personId={String(person.uuid)} />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
