@@ -46,16 +46,16 @@ StepRunner ── invokes real step fn ──▶ MultiTurnSession seam ──▶
 
 ```bash
 # all steps, replay, from the repo root
-python manage.py run_agentic_eval
+python manage.py run_agentic_signals_eval
 
 # one step, gate at 100% (nonzero exit on miss) — good for CI
-python manage.py run_agentic_eval --step research --min-pass-rate 1.0
+python manage.py run_agentic_signals_eval --step research --min-pass-rate 1.0
 
 # add LLM-as-judge scorers (needs LLM gateway env, see ../CLAUDE.md)
-python manage.py run_agentic_eval --judge
+python manage.py run_agentic_signals_eval --judge
 
 # emit $ai_evaluation events to PostHog (queryable like the grouping eval)
-python manage.py run_agentic_eval --capture
+python manage.py run_agentic_signals_eval --capture
 ```
 
 Equivalent pytest entrypoints (collected by `../pytest.ini`'s `eval_*` convention):
@@ -97,9 +97,9 @@ Live/record drive the real sandbox agent. Prerequisites:
 Then (`--team-id` defaults to 1):
 
 ```bash
-python manage.py run_agentic_eval --mode live                       # all steps
-python manage.py run_agentic_eval --step research --mode live --judge
-python manage.py run_agentic_eval --step research --mode record     # saves a cassette
+python manage.py run_agentic_signals_eval --mode live                       # all steps
+python manage.py run_agentic_signals_eval --step research --mode live --judge
+python manage.py run_agentic_signals_eval --step research --mode record     # saves a cassette
 ```
 
 Live datasets differ from replay datasets (see `cases/*_live.py`): repo-selection candidates come
@@ -151,7 +151,11 @@ data-warehouse tables. See `project/manifest.py` for the catalog.
 
 Cases exercise **external signals from a mix of sources** — `error_tracking`, `session_replay`,
 `github`, `linear`, `zendesk`, `conversations` — and a spread of verdicts (actionability ×
-priority P0–P4). Research cases come in two flavours:
+priority P0–P4). The curated live research set is **weighted toward the production signal mix**
+(error tracking and session replay dominate real signal volume) and mirrors the content shapes
+the emitters in this repo produce — the error-tracking template, session_problem segment
+narrations with `problem_type`/`session_id` extras, and production `source_type` vocabulary
+(see the `cases/research_live.py` module docstring). Research cases come in two flavours:
 
 - **data-grounded** — the signal references data that actually exists in the project (e.g. the real
   "Checkout API timeout" issue, `downloaded_file` volume, the "Pricing page redesign" experiment).
@@ -177,17 +181,47 @@ variety:
 
 ```bash
 python manage.py generate_eval_cases                       # (re)generate JSON, ~110/step (needs DB)
-python manage.py run_agentic_eval --mode live --sample 20  # deterministic 20-case sample per step
-python manage.py run_agentic_eval --step research --mode live --sample 30 --seed 7 --concurrency 6
+# live runs default to the curated cases only; opt the generated suite in explicitly:
+python manage.py run_agentic_signals_eval --mode live --include-generated --sample 20
+python manage.py run_agentic_signals_eval --step research --mode live --include-generated --sample 30 --seed 7 --concurrency 6
 ```
 
-`--sample N` (with `--seed`) runs a reproducible subset so you can dial cost vs. coverage; compare the
-per-metric pass rates across two runs to see if a change helped. Curated hand-authored cases
-(`cases/*_live.py`) are always included alongside the generated ones.
+Replay includes the generated suite by default; **live/record default to the curated
+hand-authored cases** (`cases/*_live.py`) and only include the generated JSON with
+`--include-generated`. `--sample N` (with `--seed`) runs a reproducible subset of whatever set
+is loaded so you can dial cost vs. coverage; compare the per-metric pass rates across two runs
+to see if a change helped.
 
 The deterministic dimensions (code paths, commits, summary keywords, data-evidence, files-touched,
 forbidden-files, diff-keywords, repo-correctness) are exact; subjective dimensions use acceptable
 ranges. Grouping is covered by the sibling `eval_grouping_e2e.py`.
+
+## Comparing models / runtimes (arms)
+
+Which runtime/model a **live** run uses is resolved per step from the `signals-pipeline-models`
+flag payload (`products/signals/backend/agent_runtime.py`), read fresh by each CLI run — so a
+model comparison is: set the payload to arm A, run, set it to arm B, run, and diff the reports
+(each report line carries the resolved `[adapter/model/effort]`, and the run id is stamped so
+arms can't be confused). Example payload for a codex arm:
+
+```json
+{
+  "team_configs": {
+    "*": {
+      "steps": {
+        "research": { "runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "high" },
+        "repo_selection": { "runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "low" }
+      }
+    }
+  }
+}
+```
+
+Swap to a Claude-runtime arm by setting only `model` (e.g. `{"model": "claude-opus-4-8"}`) on
+the same steps. Edit the flag on the local instance (feature flag `signals-pipeline-models`,
+team 1), and restore your usual payload when done — the flag is global to the local instance.
+Treat single-run deltas smaller than ~15 points as noise at the current case counts; re-run
+before concluding.
 
 ## Adding cases
 
@@ -196,7 +230,7 @@ ranges. Grouping is covered by the sibling `eval_grouping_e2e.py`.
    (a JSON file of ordered agent turns — see existing cassettes). The turn sequence must match the
    step (research: one finding per signal, then actionability, then priority if actionable, then
    presentation; repo selection: a single `RepoSelectionResult`).
-3. Run `python manage.py run_agentic_eval --step <step> --case <id>` to verify.
+3. Run `python manage.py run_agentic_signals_eval --step <step> --case <id>` to verify.
 
 ## Adding a step
 

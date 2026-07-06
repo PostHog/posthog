@@ -7,7 +7,7 @@ Read `README.md` first. Key facts:
 - The one swappable seam is `MultiTurnSession`. `replay` (default) feeds recorded cassettes
   through the real validation/collapsing logic — deterministic, no stack, no LLM. `live` runs
   the real sandbox agent (needs the local stack + Docker).
-- Run: `python manage.py run_agentic_eval [--step ...] [--mode replay|record|live] [--judge] [--capture] [--min-pass-rate N]`.
+- Run: `python manage.py run_agentic_signals_eval [--step ...] [--mode replay|record|live] [--judge] [--capture] [--min-pass-rate N]`.
 - Unit tests are `test_*.py` here (DB-free); evals are `eval_*.py` (collected by `../pytest.ini`).
 
 When changing a step's prompt/flow in `report_generation/` or `repo_selection/`:

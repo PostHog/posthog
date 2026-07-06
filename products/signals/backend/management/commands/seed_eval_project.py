@@ -38,5 +38,5 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("eval project seeded"))
         self.stdout.write(
             "Next: connect a GitHub integration (repo-selection/implementation candidates) and run\n"
-            "  python manage.py run_agentic_eval --mode live --team-id <id> --judge"
+            "  python manage.py run_agentic_signals_eval --mode live --team-id <id> --judge"
         )

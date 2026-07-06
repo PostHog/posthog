@@ -1,18 +1,18 @@
 """Run the agentic eval suite (research / repo selection / implementation).
 
 The local entrypoint for the agentic eval framework. Defaults to deterministic ``replay``
-mode (no stack, no LLM), so ``python manage.py run_agentic_eval`` works anywhere. ``live``
+mode (no stack, no LLM), so ``python manage.py run_agentic_signals_eval`` works anywhere. ``live``
 and ``record`` modes drive the real agent and need the local stack + Docker sandbox; see
 ``products/signals/eval/agentic/README.md``.
 
 Examples::
 
-    python manage.py run_agentic_eval                       # all steps, replay
-    python manage.py run_agentic_eval --step research       # one step
-    python manage.py run_agentic_eval --judge               # add LLM-judge scorers
-    python manage.py run_agentic_eval --capture             # emit $ai_evaluation events
-    python manage.py run_agentic_eval --min-pass-rate 1.0   # gate CI (nonzero exit on miss)
-    python manage.py run_agentic_eval --step research --mode live --team-id 42 --judge
+    python manage.py run_agentic_signals_eval                       # all steps, replay
+    python manage.py run_agentic_signals_eval --step research       # one step
+    python manage.py run_agentic_signals_eval --judge               # add LLM-judge scorers
+    python manage.py run_agentic_signals_eval --capture             # emit $ai_evaluation events
+    python manage.py run_agentic_signals_eval --min-pass-rate 1.0   # gate CI (nonzero exit on miss)
+    python manage.py run_agentic_signals_eval --step research --mode live --team-id 42 --judge
 """
 
 from __future__ import annotations

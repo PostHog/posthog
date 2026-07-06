@@ -22,7 +22,7 @@ invited_team_member, paid_bill, $web_vitals, upgraded_plan, the three error-trac
 the four experiments); **verdict** cases grade actionability/priority calibration, including
 the production-dominant "third-party error, not our bug" triage. Subjective judgments use
 acceptable-range ground truth; ``None`` in ``expected_priority`` accepts a not-actionable
-report carrying no priority. Run: ``python manage.py run_agentic_eval --step research --mode
+report carrying no priority. Run: ``python manage.py run_agentic_signals_eval --step research --mode
 live`` (add ``--case <id>``).
 """
 
@@ -568,7 +568,10 @@ CASES: list[ResearchCase] = [
     ResearchCase(
         case_id="research_live_feature_request",
         step="research",
-        repo=_FAST_REPO,
+        # Needs a repo that plausibly owns the feature (exports/downloads) — with a
+        # non-owning repo the correct verdict is "misrouted", which grades the routing,
+        # not the judgment.
+        repo=_CODE_REPO,
         notes="linear feature request — actionable-or-human, not a P0 emergency.",
         signals=(
             SignalSpec(
@@ -617,7 +620,9 @@ CASES: list[ResearchCase] = [
     ResearchCase(
         case_id="research_live_idor_urgent",
         step="research",
-        repo=_FAST_REPO,
+        # Must run against a repo that plausibly owns sharing/access control, else the
+        # correct verdict is "misrouted for this repo" and urgency is unmeasurable.
+        repo=_CODE_REPO,
         notes="cross-tenant data access report — must be treated as high priority, never brushed off.",
         signals=(
             SignalSpec(

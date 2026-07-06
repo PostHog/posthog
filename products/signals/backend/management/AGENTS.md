@@ -5,13 +5,13 @@ Use these to test grouping strategies against real signal data end-to-end.
 
 ## Agentic evals
 
-`run_agentic_eval` runs the agentic eval framework (research / repo selection / implementation)
+`run_agentic_signals_eval` runs the agentic eval framework (research / repo selection / implementation)
 and `seed_eval_project` seeds the synthetic eval project. Full docs:
 `products/signals/eval/agentic/README.md`.
 
 ```bash
-python manage.py run_agentic_eval                       # all steps, deterministic replay
-python manage.py run_agentic_eval --step research --judge --min-pass-rate 1.0
+python manage.py run_agentic_signals_eval                       # all steps, deterministic replay
+python manage.py run_agentic_signals_eval --step research --judge --min-pass-rate 1.0
 python manage.py seed_eval_project                      # hedgebox dataset for live runs (needs stack)
 ```
 
