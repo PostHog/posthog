@@ -160,12 +160,12 @@ describe('VariantDistributionEditor', () => {
 
         it('does not show "Add variant" button', () => {
             renderEditor()
-            expect(screen.queryByRole('button', { name: /add variant/i })).not.toBeInTheDocument()
+            expect(screen.queryByText(/add variant/i)).not.toBeInTheDocument()
         })
 
         it('does not show pencil icon (customize split toggle)', () => {
             renderEditor()
-            expect(screen.queryByRole('button', { name: /customize split/i })).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/customize split/i)).not.toBeInTheDocument()
         })
 
         it('does not show rollout percentage slider', () => {
