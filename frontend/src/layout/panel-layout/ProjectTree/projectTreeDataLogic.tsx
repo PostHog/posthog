@@ -367,7 +367,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                 const folderName =
                                     splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
                                 LemonDialog.open({
-                                    title: `Delete "${folderName}"?`,
+                                    title: `Remove "${folderName}"?`,
                                     content: (
                                         <DeleteFolderDialogContent
                                             folderName={folderName}
