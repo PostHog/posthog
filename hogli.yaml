@@ -1141,3 +1141,7 @@ environment:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true
+    scrub_person_properties:
+        bin_script: scrub_person_properties.py
+        description: Scrub person properties from every person that has them in a PostHog project, via capture events or the persons API
+        hidden: true
