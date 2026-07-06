@@ -537,6 +537,12 @@ class ExperimentService:
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
     @staticmethod
+    def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
+        """Parameters for analytics events: the stored column carries no flag config, so attach
+        the variant detail event consumers expect from the linked flag."""
+        return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
+
+    @staticmethod
     def feature_flag_config_to_parameters(
         feature_flag_input: dict, parameters: dict | None, flag: FeatureFlag | None = None
     ) -> dict:
@@ -557,10 +563,35 @@ class ExperimentService:
         "clear" — a partial object must not silently regress config it never mentioned.
         """
         params = dict(parameters or {})
+        # Reject unrecognized keys instead of silently dropping them: applying half an object
+        # (e.g. taking filters but ignoring `active` or `super_groups`) would leave the flag in a
+        # state the caller never asked for. `id` is allowed because clients serializing an optional
+        # id as null still express write intent (a real echo carries a non-null id).
+        unsupported = sorted(set(feature_flag_input) - {"id", "filters", "ensure_experience_continuity"})
+        if unsupported:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported keys: {', '.join(unsupported)}. The experiment feature_flag "
+                    "input accepts filters and ensure_experience_continuity; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
         filters = feature_flag_input.get("filters")
         if filters is not None and not isinstance(filters, dict):
             raise ValidationError({"feature_flag": "filters must be an object."})
         filters = filters or {}
+        unsupported_filters = sorted(
+            set(filters) - {"multivariate", "groups", "aggregation_group_type_index", "payloads"}
+        )
+        if unsupported_filters:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported filters keys: {', '.join(unsupported_filters)}. The experiment "
+                    "feature_flag input accepts filters.multivariate, filters.groups, "
+                    "filters.aggregation_group_type_index, and filters.payloads; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
         multivariate = filters.get("multivariate")
         if multivariate is not None and not isinstance(multivariate, dict):
             raise ValidationError({"feature_flag": "filters.multivariate must be an object."})
@@ -1791,12 +1822,7 @@ class ExperimentService:
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
-        # The stored column no longer mirrors flag config; keep the event's variant detail by
-        # attaching it from the flag.
-        completed_metadata["parameters"] = {
-            **(experiment.parameters or {}),
-            "feature_flag_variants": experiment.feature_flag.variants,
-        }
+        completed_metadata["parameters"] = self._parameters_with_variant_detail(experiment)
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -2078,12 +2104,7 @@ class ExperimentService:
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
         metadata["release_to_everyone"] = release_to_everyone
-        # The stored column no longer mirrors flag config; keep the event's variant detail by
-        # attaching it from the flag.
-        metadata["parameters"] = {
-            **(experiment.parameters or {}),
-            "feature_flag_variants": experiment.feature_flag.variants,
-        }
+        metadata["parameters"] = self._parameters_with_variant_detail(experiment)
 
         report_user_action(
             self.user,
@@ -2576,7 +2597,9 @@ class ExperimentService:
             parameters["feature_flag_payloads"] = deepcopy(source_payloads)
         else:
             parameters.pop("feature_flag_payloads", None)
-        parameters["ensure_experience_continuity"] = source_experiment.feature_flag.ensure_experience_continuity
+        # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
+        # would substitute the target team's flags_persistence_default, changing SDK behavior.
+        parameters["ensure_experience_continuity"] = bool(source_experiment.feature_flag.ensure_experience_continuity)
 
         # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
