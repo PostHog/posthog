@@ -38,7 +38,7 @@ export type PrototypeToggleValue = boolean | 'indeterminate'
 export interface PrototypeSwitchProps {
     value: PrototypeToggleValue
     onChange: (nextChecked: boolean) => void
-    /** When set, a "reset" link shows next to a resolved (yes/no) switch to go back to indeterminate. */
+    /** When set, an "Unset override" link shows next to the label of a resolved (yes/no) switch. */
     onReset?: () => void
     label?: string | JSX.Element
     size?: 'small' | 'medium'
@@ -70,6 +70,12 @@ function SwitchShell({
     trackContent,
 }: ShellProps): JSX.Element {
     const indeterminate = value === 'indeterminate'
+    const resetLink =
+        onReset && !indeterminate ? (
+            <Link className="text-xs uppercase" onClick={onReset}>
+                Unset override
+            </Link>
+        ) : null
     return (
         <div
             className={clsx('LemonSwitch', `LemonSwitch--${size}`, {
@@ -78,7 +84,14 @@ function SwitchShell({
                 'LemonSwitch--full-width': fullWidth,
             })}
         >
-            {label && <label>{label}</label>}
+            {label ? (
+                <label className="flex items-center gap-2">
+                    {label}
+                    {resetLink}
+                </label>
+            ) : (
+                resetLink
+            )}
             <button
                 type="button"
                 role="switch"
@@ -92,11 +105,6 @@ function SwitchShell({
                 </div>
                 {indeterminate ? trackContent : null}
             </button>
-            {onReset && !indeterminate && (
-                <Link className="text-xs" onClick={onReset}>
-                    reset
-                </Link>
-            )}
         </div>
     )
 }
