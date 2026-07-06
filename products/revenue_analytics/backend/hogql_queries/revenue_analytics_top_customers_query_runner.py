@@ -260,7 +260,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         # tags this execution. An untagged ClickHouse query raises in local dev, so fill in
         # product/feature when the caller has not already tagged them.
         current = get_query_tags()
-        overrides = {}
+        overrides: dict[str, ProductKey | Feature] = {}
         if current.product is None:
             overrides["product"] = ProductKey.REVENUE_ANALYTICS
         if current.feature is None:
