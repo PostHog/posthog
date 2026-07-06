@@ -740,12 +740,17 @@ def run_service_names_query(
     search: str = "",
 ) -> list[dict]:
     """Return distinct service names from trace spans."""
+    # Pin to UTC so the day-bucket bounds print UTC-aligned, matching TIME_BUCKET_DATE_RANGE_WHERE
+    # and the convertToProjectTimezone=False session below. Without this the bounds print in the
+    # team's timezone and a short window near UTC midnight can drop today's rows on a non-UTC team,
+    # returning an empty service list even while spans are flowing.
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
         interval=IntervalType.MINUTE,
         interval_count=2,
         now=dt.datetime.now(),
+        timezone_info=ZoneInfo("UTC"),
     )
 
     exprs: list[ast.Expr] = [
