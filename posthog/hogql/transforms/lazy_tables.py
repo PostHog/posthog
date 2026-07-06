@@ -598,7 +598,13 @@ class LazyTableResolver(TraversingVisitor):
                     # A lazy table expands into an aggregating subquery. ClickHouse rejects a SAMPLE
                     # modifier on a subquery, and sampling a pre-aggregated table is meaningless, so
                     # drop the modifier rather than emitting invalid SQL.
-                    join_ptr.sample = None
+                    if join_ptr.sample is not None:
+                        self.context.add_warning(
+                            f'SAMPLE clause ignored: the "{table_name}" table is computed on the fly and cannot be sampled',
+                            start=join_ptr.sample.start,
+                            end=join_ptr.sample.end,
+                        )
+                        join_ptr.sample = None
                     break
                 join_ptr = join_ptr.next_join
 
