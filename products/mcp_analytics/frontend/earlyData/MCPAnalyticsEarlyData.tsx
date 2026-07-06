@@ -45,8 +45,10 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
             <SummaryCard />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <LiveActivityCard />
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <div className="lg:col-span-3">
+                    <LiveActivityCard />
+                </div>
                 <div className="flex flex-col gap-4">
                     <IntentsCard />
                     <ClientsCard />
