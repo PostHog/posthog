@@ -572,7 +572,7 @@ class TestSendDigestToWorkflow(SimpleTestCase):
 
     @override_settings(
         ERROR_TRACKING_WEEKLY_DIGEST_WORKFLOW_ID="wf-123",
-        ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET="Bearer test-token",
+        WORKFLOWS_WEBHOOK_SECRET="Bearer test-token",
         CLOUD_DEPLOYMENT=None,
     )
     def test_sends_secret_as_authorization_header(self):

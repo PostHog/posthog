@@ -481,8 +481,8 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     # The workflow trigger's "auth_header" input compares the Authorization header verbatim,
     # so the secret must be the full header value (e.g. "Bearer <token>").
     headers = {}
-    if settings.ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET:
-        headers["Authorization"] = settings.ERROR_TRACKING_WEEKLY_DIGEST_WEBHOOK_SECRET
+    if settings.WORKFLOWS_WEBHOOK_SECRET:
+        headers["Authorization"] = settings.WORKFLOWS_WEBHOOK_SECRET
 
     response = requests.post(
         webhook_url,
