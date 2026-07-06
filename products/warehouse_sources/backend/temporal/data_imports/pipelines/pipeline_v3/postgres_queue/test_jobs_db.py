@@ -493,6 +493,21 @@ class TestBatchQueueLeaseRenewal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestQueueFreshnessProbe:
+    @pytest.mark.asyncio
+    async def test_reports_only_batches_never_picked_up(self, conn):
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+        bid = await _insert_batch(conn)
+        age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        assert age is not None and age >= 0
+
+        # Any status row means the batch was picked up — it must stop counting.
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGroupLeaseRecovery:
     @pytest.mark.asyncio
     async def test_absent_lease_orphan_is_recovered(self, conn):

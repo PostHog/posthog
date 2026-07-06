@@ -710,6 +710,13 @@ class _LogPatternSerializer(serializers.Serializer):
             "the volume shape over the window, not exact per-bucket tallies."
         ),
     )
+    severity_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
+            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+        ),
+    )
 
 
 class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
