@@ -226,6 +226,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 const response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
                 actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
             } catch {
+                // Without this the table shows its filter-specific empty state, which reads as "all rated".
+                lemonToast.error("Couldn't load results to rate. Refresh to try again.")
                 actions.loadObservationsFailure()
             }
         },
