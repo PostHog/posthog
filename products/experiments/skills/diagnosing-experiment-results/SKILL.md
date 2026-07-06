@@ -44,43 +44,43 @@ can be confirmed or ruled out from that data without an interview.
 
 ## Step 2 — Match symptom to diagnostic
 
-| User says...                                                                               | Diagnostic group                               |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| "Smaller variant looks biased" / banner says bias                                          | A — bias & skew                                |
-| "Variant ratio doesn't match my split" / SRM warning                                       | A — bias & skew                                |
-| "Why isn't it 50/50?" / "users in both groups"                                             | A — bias & skew                                |
-| "Users in both control and test" / high `$multiple` %                                      | A — bias & skew                                |
-| Multi-variant exposure on a server-rendered app                                            | A — bias & skew                                |
-| Banner about feature-flag/experiment state mismatch                                        | A — bias & skew                                |
-| "Migrating distinct_id" / "switching from anonymous to user_id" mid-run                    | A — bias & skew                                |
-| Metric count is much smaller than exposures (e.g. 10× or 100× gap)                         | A — bias & skew (route here before D)          |
-| "Experiment shows 0 / not enough data" / empty                                             | B — empty experiment                           |
-| "Variant always undefined / false"                                                         | B — empty experiment                           |
-| "$feature_flag_called fires but no exposures show up"                                      | B — empty experiment                           |
-| "Experiment says running but exposures haven't moved in weeks/months"                      | B — empty experiment                           |
-| "Significance keeps flipping as we run longer"                                             | C — interpretation traps                       |
-| "Significance was declared, then it wasn't significant anymore"                            | C — interpretation traps                       |
-| "30/16 split at 46 exposures, is this broken?"                                             | C — interpretation traps                       |
-| "A/A test is showing significant results"                                                  | C — interpretation traps                       |
-| "Many metrics — some significant, some not"                                                | C — interpretation traps                       |
-| "Bayesian says 96% chance to win — should we ship?"                                        | C — interpretation traps                       |
-| "Confidence intervals overlap — does that mean not significant?"                           | C — interpretation traps                       |
-| "An external tool (significance calculator or AI agent) disagrees with PostHog"            | C — interpretation traps                       |
-| "Should I ship? Primary is up but a secondary is down"                                     | C — interpretation traps                       |
-| "PostHog numbers ≠ my SQL count"                                                           | D — numbers vs SQL                             |
-| "Funnel says X% but my raw event count says Y"                                             | D — numbers vs SQL                             |
-| "Sum of revenue looks wrong" / "breakdown shows 'none'"                                    | D — numbers vs SQL                             |
-| "Recordings panel doesn't match the stats"                                                 | D — numbers vs SQL                             |
-| "I applied a filter but the user count didn't change"                                      | D — numbers vs SQL                             |
-| "I want to slice results by current person properties (as of now, not as of exposure)"     | D — numbers vs SQL                             |
-| "Changed split / rollout / metric / criteria mid-run, now odd"                             | E — mid-run changes                            |
-| "Ended/shipped — flag now flipped to 0/100 unexpectedly"                                   | E — mid-run changes                            |
-| "Long-term metric moves opposite from primary"                                             | E — mid-run changes                            |
-| "Retention metric counts users I didn't expect"                                            | E — mid-run changes                            |
-| "Can't convert the feature flag back to a simple (boolean) flag after the experiment ends" | E — mid-run changes                            |
-| "How do I restart an experiment with new variants?"                                        | E — mid-run changes                            |
-| Metric line is rendered but the result block is empty / no chance-to-win or significance   | E — mid-run changes (E13 legacy methodology)   |
-| "Results won't load" / many metric rows show `data: null` (not a legacy experiment)        | Step 1.5 snapshot — reading metric result rows |
+| User says...                                                                               | Diagnostic group                             |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| "Smaller variant looks biased" / banner says bias                                          | A — bias & skew                              |
+| "Variant ratio doesn't match my split" / SRM warning                                       | A — bias & skew                              |
+| "Why isn't it 50/50?" / "users in both groups"                                             | A — bias & skew                              |
+| "Users in both control and test" / high `$multiple` %                                      | A — bias & skew                              |
+| Multi-variant exposure on a server-rendered app                                            | A — bias & skew                              |
+| Banner about feature-flag/experiment state mismatch                                        | A — bias & skew                              |
+| "Migrating distinct_id" / "switching from anonymous to user_id" mid-run                    | A — bias & skew                              |
+| Metric count is much smaller than exposures (e.g. 10× or 100× gap)                         | A — bias & skew (route here before D)        |
+| "Experiment shows 0 / not enough data" / empty                                             | B — empty experiment                         |
+| "Variant always undefined / false"                                                         | B — empty experiment                         |
+| "$feature_flag_called fires but no exposures show up"                                      | B — empty experiment                         |
+| "Experiment says running but exposures haven't moved in weeks/months"                      | B — empty experiment                         |
+| "Significance keeps flipping as we run longer"                                             | C — interpretation traps                     |
+| "Significance was declared, then it wasn't significant anymore"                            | C — interpretation traps                     |
+| "30/16 split at 46 exposures, is this broken?"                                             | C — interpretation traps                     |
+| "A/A test is showing significant results"                                                  | C — interpretation traps                     |
+| "Many metrics — some significant, some not"                                                | C — interpretation traps                     |
+| "Bayesian says 96% chance to win — should we ship?"                                        | C — interpretation traps                     |
+| "Confidence intervals overlap — does that mean not significant?"                           | C — interpretation traps                     |
+| "An external tool (significance calculator or AI agent) disagrees with PostHog"            | C — interpretation traps                     |
+| "Should I ship? Primary is up but a secondary is down"                                     | C — interpretation traps                     |
+| "PostHog numbers ≠ my SQL count"                                                           | D — numbers vs SQL                           |
+| "Funnel says X% but my raw event count says Y"                                             | D — numbers vs SQL                           |
+| "Sum of revenue looks wrong" / "breakdown shows 'none'"                                    | D — numbers vs SQL                           |
+| "Recordings panel doesn't match the stats"                                                 | D — numbers vs SQL                           |
+| "I applied a filter but the user count didn't change"                                      | D — numbers vs SQL                           |
+| "I want to slice results by current person properties (as of now, not as of exposure)"     | D — numbers vs SQL                           |
+| "Changed split / rollout / metric / criteria mid-run, now odd"                             | E — mid-run changes                          |
+| "Ended/shipped — flag now flipped to 0/100 unexpectedly"                                   | E — mid-run changes                          |
+| "Long-term metric moves opposite from primary"                                             | E — mid-run changes                          |
+| "Retention metric counts users I didn't expect"                                            | E — mid-run changes                          |
+| "Can't convert the feature flag back to a simple (boolean) flag after the experiment ends" | E — mid-run changes                          |
+| "How do I restart an experiment with new variants?"                                        | E — mid-run changes                          |
+| Metric line is rendered but the result block is empty / no chance-to-win or significance   | E — mid-run changes (E13 legacy methodology) |
+| "Results won't load" / many metric rows show `data: null` (not a legacy experiment)        | Step 1.5 — diagnostic snapshot (null rows)   |
 
 If the symptom is unclear, ask one clarifying question before picking. Most diagnostics have different fixes
 — do not guess.
