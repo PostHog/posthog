@@ -79,6 +79,51 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
+    // Self-healing for a stale bundle after a deploy: a still-cached entry/preloaded chunk can
+    // import a minified binding a freshly-deployed sibling no longer exports, which fails the
+    // module graph at link time (e.g. Safari "Importing binding name 'X' is not found") before
+    // any React error boundary exists to catch it. Detect that class of failure at the window
+    // level and reload once onto the current bundle. Shares the localStorage guard key with
+    // ChunkLoadErrorBoundary so the two never reload in a loop or on top of each other.
+    const staleBundleReloadGuard = `
+        (function () {
+            var RELOAD_KEY = 'posthog-chunk-reload-at';
+            var RELOAD_WINDOW_MS = 20000;
+            function isStaleBundleError(value) {
+                var message = value && typeof value.message === 'string'
+                    ? value.message
+                    : typeof value === 'string' ? value : '';
+                if (!message) { return false; }
+                return (
+                    message.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+                    message.indexOf('Importing a module script failed') !== -1 ||
+                    message.indexOf('error loading dynamically imported module') !== -1 ||
+                    message.indexOf('Importing binding name') !== -1 ||
+                    message.indexOf('does not provide an export named') !== -1 ||
+                    message.indexOf('import not found') !== -1 ||
+                    message.indexOf('ambiguous indirect export') !== -1
+                );
+            }
+            function reloadOnce() {
+                var last = 0;
+                try { last = Number(window.localStorage.getItem(RELOAD_KEY)) || 0; } catch (e) {}
+                if (last && Date.now() - last < RELOAD_WINDOW_MS) { return; }
+                try { window.localStorage.setItem(RELOAD_KEY, String(Date.now())); } catch (e) {}
+                window.location.reload();
+            }
+            window.addEventListener('error', function (event) {
+                if (isStaleBundleError(event && event.error) || isStaleBundleError(event && event.message)) {
+                    reloadOnce();
+                }
+            });
+            window.addEventListener('unhandledrejection', function (event) {
+                if (isStaleBundleError(event && event.reason)) {
+                    reloadOnce();
+                }
+            });
+        })();
+    `
+
     const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
@@ -154,6 +199,7 @@ export function copyIndexHtml(
                     // Fingers crossed the browser waits for the stylesheet to
                     // load such that it's in place when react starts
                     // adding elements to the DOM
+                    ${staleBundleReloadGuard}
                     ${cssFile ? cssLoader : ''}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
