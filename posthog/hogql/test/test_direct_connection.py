@@ -30,6 +30,7 @@ class TestGetDirectConnectionSource(APIBaseTest):
 
         resolved = get_direct_connection_source(self.team, str(source.id), require_pure_direct=True)
 
+        assert resolved is not None
         self.assertEqual(resolved.id, source.id)
 
     def test_default_allows_synced_warehouse_source(self):
@@ -38,4 +39,5 @@ class TestGetDirectConnectionSource(APIBaseTest):
 
         resolved = get_direct_connection_source(self.team, str(source.id))
 
+        assert resolved is not None
         self.assertEqual(resolved.id, source.id)
