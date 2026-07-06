@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
@@ -15,14 +16,32 @@ export type ContextOnboardingStepId = 'welcome' | 'install' | 'sources' | 'wareh
 // `eventUsageLogic`, stamped `{version: 1, flow_variant: 'legacy'}`.
 const CONTEXT_ONBOARDING_EVENT_PROPS = { version: 2, flow_variant: 'context_first' } as const
 
+/** Arm of the cloud-wizard AB test (GROW-117): `test` offers the cloud run, `control` is local-only. */
+export type CloudRunExperimentArm = 'control' | 'test'
+
+export function resolveCloudRunExperimentArm(featureFlags: FeatureFlagsSet): CloudRunExperimentArm {
+    return featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN] === 'test' ? 'test' : 'control'
+}
+
 // Wizard-sync events fire from BOTH onboarding variants (GROW-121): same v2 event shape, but
-// flow_variant reflects whichever flow the user is actually in so the AB test can split on it.
-function wizardSyncEventProps(featureFlags: FeatureFlagsSet): { version: 2; flow_variant: string } {
+// flow_variant reflects whichever flow the user is actually in, and the cloud-run experiment arm
+// rides along (GROW-117) so downstream metrics can split on either without a flag-persons join.
+function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
+    version: 2
+    flow_variant: string
+    cloud_run_experiment_arm: CloudRunExperimentArm
+} {
     return {
         version: 2,
         flow_variant: resolveOnboardingFlowVariant(featureFlags) === 'self-driving' ? 'context_first' : 'legacy',
+        cloud_run_experiment_arm: resolveCloudRunExperimentArm(featureFlags),
     }
 }
+
+// The exposure is once per pageload, not per render: the install step remounts on navigation, and a
+// re-fired exposure would inflate the denominator. Module-scoped, mirroring the wizard tracker's
+// once-per-session report guards.
+let reportedCloudRunExperimentExposure = false
 
 /**
  * Funnel events for the context-first onboarding flow (v2) — a dedicated logic rather than more
@@ -60,6 +79,9 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             prOpened: boolean
             prUrl: string | null
         }) => props,
+        // Exposure marker for the cloud-wizard AB test (GROW-117): fired when a user reaches the
+        // surface where the arms diverge (the install step on cloud/dev instances).
+        reportWizardCloudRunExperimentExposed: true,
         // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
         // both variants and both run modes (GROW-121).
         reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
@@ -141,6 +163,15 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 duration_seconds: durationSeconds,
                 pr_opened: prOpened,
                 pr_url: prUrl,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardCloudRunExperimentExposed: () => {
+            if (reportedCloudRunExperimentExposure) {
+                return
+            }
+            reportedCloudRunExperimentExposure = true
+            posthog.capture('wizard cloud run experiment exposed', {
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },

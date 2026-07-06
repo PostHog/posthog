@@ -5,7 +5,9 @@ import { IconCloud, IconTerminal } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { useWizardCommand } from '../SetupWizardBanner'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
@@ -39,9 +41,19 @@ export function WizardInstallOptions({
     const { isCloudOrDev } = useWizardCommand()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { reportWizardCloudRunExperimentExposed } = useActions(onboardingEventUsageLogic)
     const [mode, setMode] = useState<WizardInstallMode>('cloud')
 
     const offerCloud = cloudRunEnabled && isCloudOrDev
+
+    // GROW-117: this component is where the cloud-run AB arms diverge — control collapses to the
+    // local block, test shows the picker — so mounting it on a cloud/dev instance IS the exposure.
+    // Self-hosted never offers cloud runs on either arm, so it stays out of the experiment.
+    useOnMountEffect(() => {
+        if (isCloudOrDev) {
+            reportWizardCloudRunExperimentExposed()
+        }
+    })
     // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked
     // and the view pins to the cloud run's progress until it is cleared (e.g. via the failure fallback).
     const localBlocked = !!activeCloudRun
