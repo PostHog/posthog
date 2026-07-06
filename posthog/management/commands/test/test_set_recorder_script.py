@@ -107,13 +107,18 @@ class TestSetRecorderScriptCommand(BaseTest):
     def test_samples_the_expected_teams_at_rate_0_5(self):
         # Fixed ids are required: sample_on_property now hashes into 10000 buckets (was 100 before
         # #68598 raised the resolution so sub-1% rates stop truncating to zero). At that finer
-        # resolution a block of consecutive auto-increment ids lands almost all-or-nothing mod 10000,
-        # so the old "roughly 50 of 100 sampled" assertion flipped to 0 or 100 depending on the id
-        # block CI happened to assign. These fixed ids give a stable split, and the expected set below
-        # is derived independently of the command's sampling code: for these 100 ids
-        # simple_hash(id) % 10000 lands under 5000 for ids 9_400_000..9_400_079 and at/above it for
-        # the last 20. Asserting against this precomputed 80/20 split (rather than re-deriving it with
-        # sample_on_property) proves the command samples correctly, not merely that it matches itself.
+        # resolution a block of consecutive ids lands almost all-or-nothing mod 10000. The old test
+        # created its 100 teams with Team.objects.create(), drawing from the Postgres id sequence,
+        # which is not rolled back between tests, so the block's starting id drifted run-to-run. Under
+        # the old %100 every possible block spread ~40-55/100 and passed "roughly 50 sampled"; under
+        # %10000 only a small fraction of blocks land in that range, so the same assertion passed or
+        # failed purely on which id block a run happened to draw (which is why it went green on #68598
+        # and started failing later). These fixed ids remove that dependency and give a stable split,
+        # and the expected set below is derived independently of the command's sampling code: for these
+        # 100 ids simple_hash(id) % 10000 lands under 5000 for ids 9_400_000..9_400_079 and at/above it
+        # for the last 20. Asserting against this precomputed 80/20 split (rather than re-deriving it
+        # with sample_on_property) proves the command samples correctly, not merely that it matches
+        # itself.
         Team.objects.bulk_create(
             [
                 Team(id=9_400_000 + i, organization=self.organization, project=self.project, name=f"Team {i}")
