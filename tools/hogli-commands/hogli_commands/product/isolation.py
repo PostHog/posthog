@@ -34,8 +34,36 @@ from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 # ---------------------------------------------------------------------------
 
 
-def iter_interface_blocks(tach_content: str) -> Iterator[tuple[list[str], list[str]]]:
-    """Yield (expose_patterns, from_patterns) for every [[interfaces]] block."""
+# A tach [[interfaces]] block carrying this marker in the comment lines directly above it
+# exposes internals that core depends on *permanently* and outside the import-reroute path —
+# ClickHouse DDL consumed by core's schema registry and frozen migrations, which can never be
+# routed through the facade. Such a block is NOT a legacy leak: the modules stay walled off
+# from every importer except the declared consumers, and turbo.json must re-run the Django
+# suite on any change to them (enforced by IsolationChainCheck) so the skip stays sound.
+PERMANENT_INTERFACE_MARKER = "isolation:permanent-interface"
+
+
+def _block_is_permanent(tach_content: str, header_start: int) -> bool:
+    """True if the [[interfaces]] header at header_start is preceded by the permanent marker.
+
+    Scans the comment lines immediately above the header (blank lines allowed between the
+    comment and the header), stopping at the first line of TOML content — which, between two
+    blocks, is always the previous block's body, so a marker can't leak across block boundaries.
+    """
+    for line in reversed(tach_content[:header_start].splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            if PERMANENT_INTERFACE_MARKER in stripped:
+                return True
+            continue
+        break
+    return False
+
+
+def _iter_interface_blocks_raw(tach_content: str) -> Iterator[tuple[list[str], list[str], bool]]:
+    """Yield (expose_patterns, from_patterns, is_permanent) for every [[interfaces]] block."""
     for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
         block = match.group(1)
         expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
@@ -44,6 +72,12 @@ def iter_interface_blocks(tach_content: str) -> Iterator[tuple[list[str], list[s
             continue
         expose_patterns = re.findall(r'"(.*?)"', expose_match.group(1))
         from_patterns = re.findall(r'"(.*?)"', from_match.group(1))
+        yield expose_patterns, from_patterns, _block_is_permanent(tach_content, match.start())
+
+
+def iter_interface_blocks(tach_content: str) -> Iterator[tuple[list[str], list[str]]]:
+    """Yield (expose_patterns, from_patterns) for every [[interfaces]] block."""
+    for expose_patterns, from_patterns, _permanent in _iter_interface_blocks_raw(tach_content):
         yield expose_patterns, from_patterns
 
 
@@ -136,14 +170,46 @@ def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
 
     Detected structurally: an [[interfaces]] block whose `from` is exactly this
     module and whose `expose` includes any non-facade/non-presentation pattern.
+
+    A block carrying the PERMANENT_INTERFACE_MARKER is exempt — its exposure is a
+    declared, irreducible non-import coupling (see permanent_interface_modules), not
+    a leak to be drained.
     """
-    for expose_patterns, from_patterns in iter_interface_blocks(tach_content):
+    for expose_patterns, from_patterns, is_permanent in _iter_interface_blocks_raw(tach_content):
+        if is_permanent:
+            continue
         normalized_from = [p.replace("\\", "") for p in from_patterns]
         if normalized_from != [module_path]:
             continue
         if any(not pattern_targets_public_surface(p) for p in expose_patterns):
             return True
     return False
+
+
+def _normalize_exposed_module(pattern: str) -> str:
+    """'backend\\.sql.*' -> 'backend.sql'; 'backend\\.embedding.*' -> 'backend.embedding'."""
+    normalized = pattern.replace("\\", "")
+    return normalized[:-2] if normalized.endswith(".*") else normalized
+
+
+def permanent_interface_modules(tach_content: str, module_path: str) -> set[str]:
+    """Module roots a product permanently exposes to core via a marked [[interfaces]] block.
+
+    These are non-import-behavioral couplings — ClickHouse DDL imported by core's schema
+    registry and frozen migrations — that cannot be rerouted through the facade. The marker
+    keeps the external seal honest rather than leaving the block to read as a temporary leak:
+    the modules stay walled off for every importer except the declared consumers, and the
+    returned set is what turbo.json must keep in its contract-check inputs so a change to them
+    still re-runs the Django suite (enforced by IsolationChainCheck).
+    """
+    modules: set[str] = set()
+    for expose_patterns, from_patterns, is_permanent in _iter_interface_blocks_raw(tach_content):
+        if not is_permanent:
+            continue
+        if [p.replace("\\", "") for p in from_patterns] != [module_path]:
+            continue
+        modules.update(_normalize_exposed_module(p) for p in expose_patterns if not pattern_targets_public_surface(p))
+    return modules
 
 
 def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
@@ -208,17 +274,47 @@ def _input_targets_surface(glob: str) -> bool:
     return glob.removeprefix("./").startswith(_FACADE_PRESENTATION_PREFIXES + _ROUTES_PREFIXES)
 
 
-def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
+def _module_input_prefixes(module: str) -> tuple[str, ...]:
+    """A permanently-exposed module's accepted contract-check input forms.
+
+    'backend.sql' -> ('backend/sql.py', 'backend/sql/') so either a single-file module or a
+    package satisfies coverage."""
+    path = module.replace(".", "/")
+    return (f"{path}.py", f"{path}/")
+
+
+def _input_targets_permanent(glob: str, permanent_modules: frozenset[str]) -> bool:
+    normalized = glob.removeprefix("./")
+    return any(normalized.startswith(_module_input_prefixes(m)) for m in permanent_modules)
+
+
+def has_narrowed_turbo_inputs(product_dir: Path, permanent_modules: frozenset[str] = frozenset()) -> bool:
     """True only when contract-check inputs are confined to the public surface AND at least one
     targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
-    Negated globs ('!...') are excluded from the surface test."""
+    Negated globs ('!...') are excluded from the surface test.
+
+    Permanently-exposed modules (permanent_modules) count as extended surface: a product may
+    list them without forfeiting the narrowing, since core depends on them outside the import
+    graph and they must re-run the suite on change (see uncovered_permanent_modules)."""
     inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
         return False
-    return all(_input_targets_surface(i) for i in inputs) and any(
+    return all(_input_targets_surface(i) or _input_targets_permanent(i, permanent_modules) for i in inputs) and any(
         _input_targets_facade_or_presentation(i) for i in inputs
     )
+
+
+def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[str]) -> set[str]:
+    """Permanently-exposed modules with no matching contract-check input glob.
+
+    Each such module is a non-import channel into core; if turbo.json doesn't re-run the suite
+    on its change, the skip is unsound. IsolationChainCheck turns a non-empty result into a
+    blocking issue, mirroring the routes-watching rule."""
+    if not permanent_modules:
+        return set()
+    inputs = [i.removeprefix("./") for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    return {m for m in permanent_modules if not any(i.startswith(_module_input_prefixes(m)) for i in inputs)}
 
 
 def routes_in_turbo_inputs(product_dir: Path) -> bool:
@@ -248,6 +344,11 @@ class IsolationStatus:
     bypass_entries: tuple[str, ...]  # presentation -> internals deferrals still open (the worklist)
     has_contract_check_script: bool
     has_narrowed_turbo: bool
+    # Module roots permanently exposed to core outside the import-reroute path (declared via the
+    # permanent-interface marker in tach.toml). They are not leaks, but turbo.json must keep them
+    # in its contract-check inputs — uncovered_permanent_exposures lists any that don't.
+    permanent_exposures: tuple[str, ...] = ()
+    uncovered_permanent_exposures: tuple[str, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -293,6 +394,7 @@ def compute_isolation_status(
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
     module_path = f"products.{name}"
+    permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     return IsolationStatus(
         name=name,
         is_isolated=is_isolated,
@@ -301,5 +403,7 @@ def compute_isolation_status(
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
         bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
         has_contract_check_script=has_contract_check_script(product_dir),
-        has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir),
+        has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir, permanent_modules),
+        permanent_exposures=tuple(sorted(permanent_modules)),
+        uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
     )
