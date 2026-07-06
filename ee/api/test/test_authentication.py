@@ -493,6 +493,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):
         # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: a JSON
