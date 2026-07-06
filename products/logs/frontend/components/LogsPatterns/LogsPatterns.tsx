@@ -90,17 +90,19 @@ function PatternExpandedRow({ row }: { row: _LogPatternApi }): JSX.Element {
                 {row.services.length ? <> · {row.services.join(', ')}</> : null}
             </div>
             {row.examples.length ? (
-                <div className="border rounded bg-bg-light p-2 flex flex-col divide-y">
-                    {row.examples.map((example, i) => (
-                        <PatternExampleRow key={i} example={example} />
-                    ))}
-                </div>
+                <>
+                    <div className="border rounded bg-bg-light p-2 flex flex-col divide-y">
+                        {row.examples.map((example, i) => (
+                            <PatternExampleRow key={i} example={example} />
+                        ))}
+                    </div>
+                    <div className="text-muted text-xs">
+                        Examples are sampled lines, shown as mined (whitespace-collapsed and truncated).
+                    </div>
+                </>
             ) : (
                 <span className="text-muted text-xs">No examples were retained for this pattern.</span>
             )}
-            <div className="text-muted text-xs">
-                Examples are sampled lines, shown as mined (whitespace-collapsed and truncated).
-            </div>
         </div>
     )
 }
