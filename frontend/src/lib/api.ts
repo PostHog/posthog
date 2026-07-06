@@ -4921,7 +4921,13 @@ const api = {
         },
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
-            data: { node_id: string; code: string; refs?: Record<string, string> }
+            data: {
+                node_id: string
+                code: string
+                refs?: Record<string, string>
+                node_type?: 'hogql' | 'python'
+                output_name?: string
+            }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
@@ -4936,6 +4942,9 @@ const api = {
                 row_count?: number
                 first_page?: (string | number | null)[][]
                 has_more?: boolean
+                stdout?: string
+                stderr?: string
+                media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
         }> {

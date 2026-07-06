@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -19,16 +20,24 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
+export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
+
 export type NotebookNodeSQLV2Result = {
     columns: string[]
     types?: [string, string][]
     row_count: number
     first_page: (string | number | null)[][]
     has_more?: boolean
+    // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
+    stdout?: string
+    stderr?: string
+    media?: NotebookNodeSQLV2Media[]
 }
 
 export type NotebookNodeSQLV2Attributes = {
     code: string
+    // 'hogql' pushes to ClickHouse; 'python' runs in the sandbox kernel over materialized frames.
+    nodeType?: 'hogql' | 'python'
     // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
     returnVariable: string
     runId?: string | null
@@ -120,6 +129,8 @@ const Component = ({
         return null
     }
 
+    const hasPythonOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+
     return (
         <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
@@ -127,6 +138,26 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {hasPythonOutput ? (
+                    <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        {result?.stdout ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap select-text m-0">{result.stdout}</pre>
+                        ) : null}
+                        {result?.stderr ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap text-danger select-text m-0">
+                                {result.stderr}
+                            </pre>
+                        ) : null}
+                        {result?.media?.map((item, index) => (
+                            <img
+                                key={index}
+                                src={`data:${item.mime_type};base64,${item.data}`}
+                                alt="Python output"
+                                className="max-w-full rounded border border-border bg-white"
+                            />
+                        ))}
+                    </div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
@@ -188,7 +219,7 @@ const Component = ({
                             </div>
                         )}
                     </>
-                ) : (
+                ) : hasPythonOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
                 {attributes.runId ? (
@@ -251,15 +282,41 @@ const Settings = ({
     const { isRunning } = useValues(dataLogic)
     const { runQuery } = useActions(dataLogic)
 
+    const nodeType = attributes.nodeType ?? 'hogql'
     return (
-        <NotebookCodeSQLEditorSettings
-            attributes={attributes}
-            updateAttributes={updateAttributes}
-            tabIdSuffix="datav2"
-            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))}
-            runQueryLoading={isRunning}
-            runQueryTooltip="Run SQL (v2) query"
-        />
+        <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center gap-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                <LemonSegmentedButton
+                    size="xsmall"
+                    value={nodeType}
+                    onChange={(value) => updateAttributes({ nodeType: value })}
+                    options={[
+                        { value: 'hogql', label: 'HogQL' },
+                        { value: 'python', label: 'Python' },
+                    ]}
+                />
+                <span className="text-[10px] text-muted">
+                    {nodeType === 'python'
+                        ? 'Runs in the sandbox kernel over materialized frames'
+                        : 'Runs on ClickHouse'}
+                </span>
+            </div>
+            <div className="min-h-0 flex-1">
+                <NotebookCodeSQLEditorSettings
+                    attributes={attributes}
+                    updateAttributes={updateAttributes}
+                    tabIdSuffix="datav2"
+                    onRunQuery={(code) =>
+                        runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId), {
+                            nodeType,
+                            outputName: attributes.returnVariable,
+                        })
+                    }
+                    runQueryLoading={isRunning}
+                    runQueryTooltip={nodeType === 'python' ? 'Run Python' : 'Run SQL (v2) query'}
+                />
+            </div>
+        </div>
     )
 }
 
@@ -274,6 +331,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
     attributes: {
         code: {
             default: '',
+        },
+        nodeType: {
+            default: 'hogql',
         },
         returnVariable: {
             default: 'sql_df',
