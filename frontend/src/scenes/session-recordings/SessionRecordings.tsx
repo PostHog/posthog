@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { WarningHog } from 'lib/components/hedgehogs'
@@ -12,6 +13,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -122,6 +124,35 @@ function Header(): JSX.Element {
     )
 }
 
+const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-waitlist-promo'
+
+function ReplayVisionPromoBanner(): JSX.Element | null {
+    // Teams with the flag already have access, so send them to the product instead of the waitlist
+    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-vision-waitlist-banner-shown">
+            <LemonBanner
+                type="ai"
+                dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
+                action={{
+                    children: hasReplayVision ? 'Try Replay vision' : 'Join the waitlist',
+                    to: urls.replayVision(),
+                    'data-attr': 'replay-vision-waitlist-banner-cta',
+                }}
+            >
+                Tired of watching replays? Replay vision watches them for you and surfaces what matters.
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
+    )
+}
+
 function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
@@ -211,6 +242,7 @@ function MainPanel(): JSX.Element {
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
+            <ReplayVisionPromoBanner />
             <Warnings />
 
             {!tab ? (

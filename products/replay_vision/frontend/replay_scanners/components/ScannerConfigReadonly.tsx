@@ -187,7 +187,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconBolt />} title="Triggers" />
+                    <CardHeader icon={<IconBolt />} title="Scan conditions" />
                     <div className="flex flex-col gap-3">
                         <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
                         <LabeledRow label="Recording filters">
