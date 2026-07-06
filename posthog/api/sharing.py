@@ -445,7 +445,10 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
-                    instance.enabled = dashboard.is_shared
+                    # Adopt the legacy share token onto the active config, but never enable sharing
+                    # as a side effect. This helper runs on the read path (``list``), so flipping
+                    # ``enabled`` here would let a plain GET silently make a dashboard public off a
+                    # stale legacy ``is_shared=True``. Enabling must go through an explicit PATCH.
                     instance.access_token = dashboard.share_token
                     instance.save()
 
