@@ -5526,6 +5526,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_kwargs["cohort_type"] = cohort_type
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+            cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
 
         cohort = Cohort.objects.create(**cohort_kwargs)
 

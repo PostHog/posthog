@@ -944,6 +944,7 @@ export function DataTable({
                                             heading={context?.emptyStateHeading}
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
+                                            sampleDataVariant="table"
                                         />
                                     )
                                 }

@@ -120,10 +120,12 @@ LLM Review
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
-Final verdict → GitHub review (approve or comment)
+Final verdict → GitHub review (approve) or sticky comment (everything else)
 ```
 
-The bot never posts request-changes — only approves or comments.
+The bot never posts request-changes.
+Approvals are posted as real PR reviews (they must count toward branch protection).
+Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers
 
@@ -173,6 +175,10 @@ of the manifest's diff hard-denies edits to known scripts/lifecycle/build
 keys (see `manifest_risk.py` — fails closed if the diff can't be read),
 manifest PRs are kept out of the T0 fast path, and the reviewer prompt must
 REFUSE on execution-bearing changes the scan can't name.
+Manifest/lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS`
+table in `gates.py` (the single source the deny patterns and helpers derive
+from): a Cargo.lock bump hard-denies on its own but doesn't silence the
+scripts guard on an unrelated package.json edit in the same PR.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching
