@@ -10,6 +10,7 @@ from django.urls import get_resolver
 from django.urls.resolvers import URLPattern, URLResolver
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog.middleware import EnvironmentsRewriteMiddleware
@@ -27,10 +28,9 @@ PROJECTS_PREFIX = "api/projects"
 # yet. The middleware skips these (it only rewrites paths that resolve project-side), so
 # they keep working via the legacy route. Shrink this set by registering projects-side
 # counterparts; do NOT grow it — new team-scoped endpoints must register under /api/projects.
-# Only a few sub-paths still lack a counterpart: messaging/customerio/webhook, a bare
-# progress endpoint, and query/<uuid>/progress — everything else is dual-registered.
+# The only paths still lacking a counterpart are the defunct query-progress stubs: a bare
+# progress endpoint and query/<uuid>/progress.
 KNOWN_ENVIRONMENT_ONLY_RESOURCES = {
-    "messaging",
     "progress",
     "query",
 }
@@ -113,11 +113,15 @@ class TestFlagDistinctId(SimpleTestCase):
 
 
 class TestRewriteMechanism(SimpleTestCase):
-    # The rewrite mutating the request path to /api/projects is the one signal that would go
-    # silent if it regressed: because both prefixes are dual-registered, an end-to-end request
-    # would still return 200 via the legacy route even if the rewrite did nothing. This asserts
-    # the path the downstream handler actually resolves.
-    def _resolved_path(self, path: str, enabled: bool) -> str:
+    # Two signals that would go silent if they regressed: (1) the rewrite mutating the request
+    # path to /api/projects — because both prefixes are dual-registered, an end-to-end request
+    # returns 200 via the legacy route even if the rewrite did nothing; (2) the `outcome` label
+    # on the observability counter, which is the rollout signal — a mis-wired label would
+    # silently corrupt the "not routed to projects" metric the rollout is steered by.
+    _METRIC = "posthog_environments_prefix_requests_total"
+    _OUTCOMES = ("rewritten", "passthrough", "env_only")
+
+    def _run(self, path: str, enabled: bool) -> tuple[str, str | None]:
         captured: dict[str, str] = {}
 
         def get_response(request: HttpRequest) -> HttpResponse:
@@ -125,32 +129,39 @@ class TestRewriteMechanism(SimpleTestCase):
             captured["path_info"] = request.path_info
             return HttpResponse()
 
+        before = {o: REGISTRY.get_sample_value(self._METRIC, {"outcome": o}) or 0.0 for o in self._OUTCOMES}
         request = RequestFactory().get(path)
         with patch.object(EnvironmentsRewriteMiddleware, "_rewrite_enabled", return_value=enabled):
             EnvironmentsRewriteMiddleware(get_response)(request)
         self.assertEqual(captured["path"], captured["path_info"])
-        return captured["path"]
+        incremented = [
+            o
+            for o in self._OUTCOMES
+            if (REGISTRY.get_sample_value(self._METRIC, {"outcome": o}) or 0.0) - before[o] == 1.0
+        ]
+        self.assertLessEqual(len(incremented), 1, f"more than one outcome incremented: {incremented}")
+        return captured["path"], (incremented[0] if incremented else None)
 
     @parameterized.expand(
         [
-            ("dual route + enabled → projects", "/api/environments/2/dashboards/", True, "/api/projects/2/dashboards/"),
+            ("dual + enabled", "/api/environments/2/dashboards/", True, "/api/projects/2/dashboards/", "rewritten"),
             (
-                "dual route + disabled → unchanged",
+                "dual + disabled",
                 "/api/environments/2/dashboards/",
                 False,
                 "/api/environments/2/dashboards/",
+                "passthrough",
             ),
-            (
-                "env-only route + enabled → unchanged",
-                "/api/environments/2/progress/",
-                True,
-                "/api/environments/2/progress/",
-            ),
-            ("non-environments path → unchanged", "/api/projects/2/dashboards/", True, "/api/projects/2/dashboards/"),
+            ("env-only + enabled", "/api/environments/2/progress/", True, "/api/environments/2/progress/", "env_only"),
+            ("non-environments path", "/api/projects/2/dashboards/", True, "/api/projects/2/dashboards/", None),
         ]
     )
-    def test_downstream_resolves_expected_path(self, _name: str, path: str, enabled: bool, expected: str) -> None:
-        self.assertEqual(self._resolved_path(path, enabled), expected)
+    def test_resolved_path_and_outcome_metric(
+        self, _name: str, path: str, enabled: bool, expected_path: str, expected_outcome: str | None
+    ) -> None:
+        resolved, outcome = self._run(path, enabled)
+        self.assertEqual(resolved, expected_path)
+        self.assertEqual(outcome, expected_outcome)
 
 
 class TestEnvironmentsRewrite(APIBaseTest):
