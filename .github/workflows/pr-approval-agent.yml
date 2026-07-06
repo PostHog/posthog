@@ -74,6 +74,11 @@ jobs:
                   # doesn't break stamphog (and vice versa). The env var name
                   # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
                   ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  # ai-gateway cutover: when both are set, the review routes through
+                  # the Go ai-gateway (phs_ secret) instead of Anthropic directly.
+                  # Unset = direct path, so setting them is the cutover.
+                  AI_GATEWAY_URL: ${{ secrets.STAMPHOG_AI_GATEWAY_URL }}
+                  AI_GATEWAY_API_KEY: ${{ secrets.STAMPHOG_AI_GATEWAY_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -90,11 +95,17 @@ jobs:
                   # unlike GitHub App bot approvals which show author_association NONE.
                   GH_TOKEN_APPROVE: ${{ github.token }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # Derived from the token step so the sticky-comment author
+                  # filter tracks an app rename instead of failing silent.
+                  BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
               run: |
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -111,16 +122,90 @@ jobs:
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
                       -f body="$REASONING"
-                  elif [ -n "$REASONING" ]; then
-                    gh api \
-                      -X POST "repos/$REPO/pulls/$PR/reviews" \
-                      "${SHA_ARGS[@]}" \
-                      -f event=COMMENT \
-                      -f body="$REASONING"
                   else
-                    gh pr comment "$PR" \
-                      --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
-                      --repo "$REPO"
+                    # Non-approve verdicts share ONE sticky comment, updated in
+                    # place, instead of a fresh COMMENT review per run. Review
+                    # bodies can't be minimized or deleted, so when an automation
+                    # loop keeps re-applying the label against a deterministic
+                    # denial (e.g. the size gate) the refusals pile up — one PR
+                    # collected 60+ near-identical stamphog reviews.
+                    MARKER='<!-- stamphog-sticky-review -->'
+                    RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+                    # Author + leading-marker filter: on a public repo anyone can
+                    # post a comment containing the marker; without the filter the
+                    # bot would PATCH (clobber) a third-party comment. Slurp so the
+                    # jq runs once over all pages — per-page --jq could emit one
+                    # object per page. The || guard keeps a transient lookup
+                    # failure from aborting the step before the label strip below
+                    # (it degrades to posting a fresh comment instead).
+                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+                      --jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
+                      || echo "")
+                    COMMENT_ID=""
+                    EXISTING_BODY=""
+                    PREV_COUNT=0
+                    if [ -n "$EXISTING" ]; then
+                      COMMENT_ID=$(jq -r '.id' <<<"$EXISTING")
+                      EXISTING_BODY=$(jq -r '.body' <<<"$EXISTING")
+                      PREV_COUNT=$(jq -r '.body | (match("stamphog-review-count:([0-9]+)").captures[0].string // "0")' <<<"$EXISTING")
+                    fi
+
+                    # The append path requires an actual verdict in the prior body —
+                    # a crash-only prior comment goes through the rebuild branch so
+                    # it can't end up claiming "the verdict above" over no verdict.
+                    if [ -z "$REASONING" ] && [ -n "$COMMENT_ID" ] \
+                      && grep -q 'verdict: \*\*' <<<"$EXISTING_BODY"; then
+                      # Verdictless crash with a prior verdict on record: append the
+                      # failure note below it rather than clobbering the reasoning
+                      # the author still needs to act on. The anchored grep dedups
+                      # only the note itself, never verdict reasoning that happens
+                      # to mention review failures.
+                      { grep -v '^> ⚠️ A later review run failed' <<<"$EXISTING_BODY" || true; } > /tmp/stamphog-comment.md
+                      {
+                        echo
+                        echo "> ⚠️ A later review run failed before producing a verdict — check the [workflow run]($RUN_URL). The verdict above is from an earlier run."
+                      } >> /tmp/stamphog-comment.md
+                    else
+                      # The counter tracks verdicts only — a crash rebuild keeps
+                      # the previous count so repeated failures don't inflate it.
+                      if [ -n "$REASONING" ]; then
+                        COUNT=$((PREV_COUNT + 1))
+                        HEADLINE="stamphog reviewed \`${REVIEWED_SHA:-unknown}\` — verdict: **${VERDICT:-unknown}**"
+                        DETAIL="$REASONING"
+                      else
+                        COUNT=$PREV_COUNT
+                        HEADLINE="stamphog review failed before producing a verdict"
+                        DETAIL="Check the [workflow run]($RUN_URL) and re-apply the label to retry."
+                      fi
+                      {
+                        echo "$MARKER"
+                        echo "<!-- stamphog-review-count:$COUNT -->"
+                        echo "> [!NOTE]"
+                        echo "> 🤖 $HEADLINE"
+                        echo
+                        echo "$DETAIL"
+                        if [ -n "$COMMENT_ID" ]; then
+                          echo
+                          [ "$PREV_COUNT" -gt 0 ] \
+                            && echo "_Updated in place — this replaces $PREV_COUNT earlier stamphog review(s) on this PR._" \
+                            || echo "_Updated in place from an earlier stamphog review._"
+                        fi
+                      } > /tmp/stamphog-comment.md
+                    fi
+
+                    # A failed PATCH (comment deleted, transient API error) falls
+                    # back to posting fresh, so the only unguarded API call left
+                    # ahead of the label strip is the same single POST the old
+                    # COMMENT-review path had.
+                    if [ -n "$COMMENT_ID" ]; then
+                      gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" \
+                        -F "body=@/tmp/stamphog-comment.md" || COMMENT_ID=""
+                    fi
+                    if [ -z "$COMMENT_ID" ]; then
+                      gh api -X POST "repos/$REPO/issues/$PR/comments" \
+                        -F "body=@/tmp/stamphog-comment.md"
+                    fi
                   fi
 
                   # Only the two substantive verdicts strip the label — a

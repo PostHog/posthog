@@ -118,7 +118,7 @@ const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
     monitor: 'result_verdict',
 }
 
-function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
+export function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
     if (columnKey === 'result') {
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
@@ -795,6 +795,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        sampling_mode: scanner.sampling_mode,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })

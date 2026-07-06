@@ -311,6 +311,11 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
     202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # The rows/bytes-to-read cap is deterministic for a given window: the data
+    # won't shrink between attempts, so an immediate retry re-scans the same
+    # terabytes only to fail the same way. Fail fast so the caller can fall
+    # back or narrow the window.
+    307,  # TOO_MANY_ROWS_OR_BYTES
     # An OOM won't succeed on an immediate retry with the same window — retrying just
     # adds memory pressure to a cluster that already signaled it's out of memory. Fail
     # fast so the caller can react (e.g. cap the team's window) and fall back.

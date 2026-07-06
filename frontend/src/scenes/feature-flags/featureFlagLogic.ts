@@ -2177,7 +2177,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 maybeApplyUrlIntent(values, actions)
             }
         },
-        applyTemplate: async ({ templateId }) => {
+        applyTemplate: async ({ templateId }, breakpoint) => {
             const template = values.templates.find((t) => t.id === templateId)
             if (!template || !values.featureFlag) {
                 return
@@ -2188,6 +2188,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.defaultReleaseConditions,
                 values.currentTeam?.id
             )
+            // Bail if the logic unmounted or applyTemplate was re-invoked while release conditions
+            // were loading — otherwise the reads below hit a store path that no longer exists and kea throws.
+            breakpoint()
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []

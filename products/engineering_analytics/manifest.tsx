@@ -41,6 +41,14 @@ export const manifest: ProductManifest = {
             description: "A single workflow's recent runs across the connected repo.",
             iconType: 'health',
         },
+        EngineeringAnalyticsAuthor: {
+            import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
+            projectBased: true,
+            name: 'Author',
+            layout: 'app-container',
+            description: "One author's pull requests — a filtered view for finding work, not a ranking.",
+            iconType: 'health',
+        },
     },
     // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
     // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
@@ -62,11 +70,13 @@ export const manifest: ProductManifest = {
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
+        '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
     redirects: {
-        // The author surface was removed: analytics stay at team/repo level (see README locked decisions).
+        // The author *list* (leaderboards / rankings) stays removed — analytics aggregate at team/repo
+        // level only (see README locked decisions). The per-author page is a filtered PR view, reachable
+        // only via the author links on PR rows, so it keeps its route above.
         '/engineering-analytics/authors': '/engineering-analytics',
-        '/engineering-analytics/author/:handle': '/engineering-analytics',
     },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
@@ -79,6 +89,8 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        engineeringAnalyticsAuthor: (handle: string): string =>
+            `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
