@@ -78,13 +78,7 @@ describe('ml-mirror-pipeline', () => {
     } as unknown as SessionTracker
     const sessionFilter = {
         handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
-        isBlocked: jest.fn().mockImplementation((sessions: SessionSet) => {
-            const map = new SessionMap<boolean>()
-            for (const { teamId, sessionId } of sessions) {
-                map.set(teamId, sessionId, false)
-            }
-            return Promise.resolve(map)
-        }),
+        isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
     } as unknown as SessionFilter
     const keyStore = createMockKeyStore()
     const now = DateTime.now()

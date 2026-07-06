@@ -66,7 +66,7 @@ export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
         // block some more; handleNewSessions returns exactly the set it just blocked.
         const newSessions = new SessionSet()
         for (const { teamId, sessionId } of toResolve) {
-            if (!seen.get(teamId, sessionId) && !alreadyBlocked.get(teamId, sessionId)) {
+            if (!seen.get(teamId, sessionId) && !alreadyBlocked.has(teamId, sessionId)) {
                 newSessions.add(teamId, sessionId)
             }
         }
@@ -77,7 +77,7 @@ export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
             const sessionId = value.headers.session_id
             const isNewSession = !seen.get(teamId, sessionId)
 
-            if (alreadyBlocked.get(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
+            if (alreadyBlocked.has(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
                 logger.debug('🔁', 'session_replay_session_dropped_before_record', {
                     sessionId,
                     teamId,

@@ -33,7 +33,7 @@ describe('SessionFilter', () => {
 
     // Single-session convenience over the batched isBlocked, so the behavior assertions stay focused.
     const blocked = (filter: SessionFilter, teamId: number, sessionId: string): Promise<boolean> =>
-        filter.isBlocked(sessionSet([teamId, sessionId])).then((m) => m.get(teamId, sessionId) ?? false)
+        filter.isBlocked(sessionSet([teamId, sessionId])).then((s) => s.has(teamId, sessionId))
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -141,8 +141,8 @@ describe('SessionFilter', () => {
 
             const result = await sessionFilter.isBlocked(sessionSet([1, 'open'], [1, 'blocked']))
 
-            expect(result.get(1, 'open')).toBe(false)
-            expect(result.get(1, 'blocked')).toBe(true)
+            expect(result.has(1, 'open')).toBe(false)
+            expect(result.has(1, 'blocked')).toBe(true)
             expect(mockRedis.mget).toHaveBeenCalledTimes(1)
             expect(mockRedis.mget).toHaveBeenCalledWith([
                 '@posthog/replay/session-blocked:1:open',
@@ -161,9 +161,9 @@ describe('SessionFilter', () => {
                 sessionSet([1, 'cached-blocked'], [1, 'uncached-blocked'], [1, 'uncached-open'])
             )
 
-            expect(result.get(1, 'cached-blocked')).toBe(true) // from the local cache
-            expect(result.get(1, 'uncached-blocked')).toBe(true) // from Redis
-            expect(result.get(1, 'uncached-open')).toBe(false) // from Redis
+            expect(result.has(1, 'cached-blocked')).toBe(true) // from the local cache
+            expect(result.has(1, 'uncached-blocked')).toBe(true) // from Redis
+            expect(result.has(1, 'uncached-open')).toBe(false) // from Redis
             // Only the two uncached keys are read; the cached one is not re-fetched.
             expect(mockRedis.mget).toHaveBeenCalledTimes(1)
             expect(mockRedis.mget).toHaveBeenCalledWith([
@@ -180,8 +180,8 @@ describe('SessionFilter', () => {
 
             const result = await sessionFilter.isBlocked(sessionSet([1, 'a'], [1, 'b']))
 
-            expect(result.get(1, 'a')).toBe(false)
-            expect(result.get(1, 'b')).toBe(true)
+            expect(result.has(1, 'a')).toBe(false)
+            expect(result.has(1, 'b')).toBe(true)
             expect(mockRedis.mget).not.toHaveBeenCalled()
             expect(mockRedisPool.acquire).not.toHaveBeenCalled()
         })
@@ -336,8 +336,8 @@ describe('SessionFilter', () => {
             mockRedis.mget.mockResolvedValue([null])
             const result = await sessionFilter.isBlocked(sessionSet([1, 'shared'], [2, 'shared']))
 
-            expect(result.get(1, 'shared')).toBe(true) // blocked for team 1
-            expect(result.get(2, 'shared')).toBe(false) // not blocked for team 2
+            expect(result.has(1, 'shared')).toBe(true) // blocked for team 1
+            expect(result.has(2, 'shared')).toBe(false) // not blocked for team 2
             // Team 1 is served from its own cache entry; only team 2's distinct key reaches Redis.
             expect(mockRedis.mget).toHaveBeenCalledWith(['@posthog/replay/session-blocked:2:shared'])
         })

@@ -9,7 +9,7 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1'
 
 // Single-session convenience over the batched isBlocked.
 const blocked = (filter: SessionFilter, teamId: number, sessionId: string): Promise<boolean> =>
-    filter.isBlocked(new SessionSet().add(teamId, sessionId)).then((m) => m.get(teamId, sessionId) ?? false)
+    filter.isBlocked(new SessionSet().add(teamId, sessionId)).then((s) => s.has(teamId, sessionId))
 
 describe('SessionFilter integration', () => {
     let sessionFilter: SessionFilter
@@ -188,10 +188,10 @@ describe('SessionFilter integration', () => {
                     .add(teamId, `${testRunId}-batch-never`)
             )
 
-            expect(result.get(teamId, allowed)).toBe(false)
-            expect(result.get(teamId, blockedA)).toBe(true)
-            expect(result.get(teamId, blockedB)).toBe(true)
-            expect(result.get(teamId, `${testRunId}-batch-never`)).toBe(false)
+            expect(result.has(teamId, allowed)).toBe(false)
+            expect(result.has(teamId, blockedA)).toBe(true)
+            expect(result.has(teamId, blockedB)).toBe(true)
+            expect(result.has(teamId, `${testRunId}-batch-never`)).toBe(false)
         })
 
         it('keeps blocks isolated per team in Redis', async () => {
@@ -221,8 +221,8 @@ describe('SessionFilter integration', () => {
             })
             const result = await reader.isBlocked(new SessionSet().add(teamA, shared).add(teamB, shared))
 
-            expect(result.get(teamA, shared)).toBe(true) // blocked in Redis for team A
-            expect(result.get(teamB, shared)).toBe(false) // team B's key was never written
+            expect(result.has(teamA, shared)).toBe(true) // blocked in Redis for team A
+            expect(result.has(teamB, shared)).toBe(false) // team B's key was never written
         })
     })
 })

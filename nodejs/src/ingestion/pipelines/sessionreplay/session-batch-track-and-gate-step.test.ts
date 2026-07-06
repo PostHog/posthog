@@ -8,7 +8,7 @@ import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
 
-// A hasSeen()/isBlocked() implementation that answers every queried session with the same value.
+// A hasSeen() implementation that answers every queried session with the same value.
 const mapAll =
     (value: boolean) =>
     (sessions: SessionSet): Promise<SessionMap<boolean>> => {
@@ -17,6 +17,19 @@ const mapAll =
             map.set(teamId, sessionId, value)
         }
         return Promise.resolve(map)
+    }
+
+// An isBlocked() implementation: none blocked, or all queried sessions blocked.
+const blockAll =
+    (blocked: boolean) =>
+    (sessions: SessionSet): Promise<SessionSet> => {
+        const result = new SessionSet()
+        if (blocked) {
+            for (const { teamId, sessionId } of sessions) {
+                result.add(teamId, sessionId)
+            }
+        }
+        return Promise.resolve(result)
     }
 
 // Reads (isNewSession, status) off an ok result, or null if it isn't ok. Only allowed sessions survive
@@ -63,7 +76,7 @@ describe('createTrackAndGateStep', () => {
         mockSessionTracker = { hasSeen: jest.fn(mapAll(true)) }
         mockSessionFilter = {
             handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
-            isBlocked: jest.fn(mapAll(false)),
+            isBlocked: jest.fn(blockAll(false)),
         }
     })
 
@@ -86,7 +99,7 @@ describe('createTrackAndGateStep', () => {
 
     it('drops an already-blocked session without re-charging its team budget', async () => {
         mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
-        mockSessionFilter.isBlocked.mockImplementation(mapAll(true))
+        mockSessionFilter.isBlocked.mockImplementation(blockAll(true))
 
         const results = await createStep()([element(1, 'a')])
 

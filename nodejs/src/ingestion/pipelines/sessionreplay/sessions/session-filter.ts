@@ -3,7 +3,7 @@ import { LRUCache } from 'lru-cache'
 import { logger } from '~/common/utils/logger'
 import { Limiter } from '~/common/utils/token-bucket'
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -122,23 +122,20 @@ export class SessionFilter {
     }
 
     /**
-     * Check which of the given sessions are blocked. Local-cache hits are answered without Redis; the
+     * Return which of the given sessions are blocked. Local-cache hits are answered without Redis; the
      * remaining sessions are checked in a single MGET.
      *
      * Fails open (rate-limiting rule 1): if Redis is unavailable, the unknown sessions are assumed not
      * blocked, so a rate-limited session may slip through and record — under-enforcement, never halting.
      *
-     * @returns a map keyed by `(teamId, sessionId)` — true if blocked, false otherwise
+     * @returns the subset of `sessions` that are blocked (an unblocked session is simply absent)
      */
-    public async isBlocked(sessions: SessionSet): Promise<SessionMap<boolean>> {
-        const result = new SessionMap<boolean>()
+    public async isBlocked(sessions: SessionSet): Promise<SessionSet> {
+        const blocked = new SessionSet()
 
-        // Skip Redis entirely when filter is disabled
+        // Skip Redis entirely when filter is disabled — nothing is blocked.
         if (!this.filterEnabled) {
-            for (const { teamId, sessionId } of sessions) {
-                result.set(teamId, sessionId, false)
-            }
-            return result
+            return blocked
         }
 
         const misses: { teamId: number; sessionId: string }[] = []
@@ -148,7 +145,9 @@ export class SessionFilter {
             const cached = this.localCache.get(this.generateKey(teamId, sessionId))
             if (cached !== undefined) {
                 SessionBatchMetrics.incrementSessionFilterCacheHit()
-                result.set(teamId, sessionId, cached)
+                if (cached) {
+                    blocked.add(teamId, sessionId)
+                }
             } else {
                 SessionBatchMetrics.incrementSessionFilterCacheMiss()
                 misses.push({ teamId, sessionId })
@@ -156,7 +155,7 @@ export class SessionFilter {
         }
 
         if (misses.length === 0) {
-            return result
+            return blocked
         }
 
         const startTime = performance.now()
@@ -168,17 +167,17 @@ export class SessionFilter {
                 const { teamId, sessionId } = misses[i]
                 const isBlocked = values[i] !== null
                 this.localCache.set(this.generateKey(teamId, sessionId), isBlocked)
-                result.set(teamId, sessionId, isBlocked)
+                if (isBlocked) {
+                    blocked.add(teamId, sessionId)
+                }
             }
-            return result
+            return blocked
         } catch (error) {
-            // Fail open: if Redis is unavailable, allow the unknown sessions through
+            // Fail open: if Redis is unavailable, treat the unknown sessions as not blocked by omitting
+            // them from the set (their block state stays unknown rather than halting the pipeline).
             logger.error('session_filter_is_blocked_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionFilterRedisErrors()
-            for (const { teamId, sessionId } of misses) {
-                result.set(teamId, sessionId, false)
-            }
-            return result
+            return blocked
         } finally {
             if (client) {
                 await this.redisPool.release(client)

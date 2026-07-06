@@ -122,13 +122,7 @@ describe('session-replay-pipeline', () => {
     } as unknown as SessionTracker
     const sessionFilter = {
         handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
-        isBlocked: jest.fn().mockImplementation((sessions: SessionSet) => {
-            const map = new SessionMap<boolean>()
-            for (const { teamId, sessionId } of sessions) {
-                map.set(teamId, sessionId, false)
-            }
-            return Promise.resolve(map)
-        }),
+        isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
     } as unknown as SessionFilter
     const keyStore = createMockKeyStore()
 
@@ -404,11 +398,13 @@ describe('session-replay-pipeline', () => {
             // drops it; unlike the restriction/parse drops above, this verifies the session-key path's
             // own drop is wired into offset tracking the same way.
             ;(sessionFilter.isBlocked as jest.Mock).mockImplementationOnce((sessions: SessionSet) => {
-                const map = new SessionMap<boolean>()
+                const blocked = new SessionSet()
                 for (const { teamId, sessionId } of sessions) {
-                    map.set(teamId, sessionId, sessionId === 'session-2')
+                    if (sessionId === 'session-2') {
+                        blocked.add(teamId, sessionId)
+                    }
                 }
-                return Promise.resolve(map)
+                return Promise.resolve(blocked)
             })
 
             const pipeline = createSessionReplayPipeline({
