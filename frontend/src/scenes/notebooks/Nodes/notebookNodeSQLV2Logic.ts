@@ -150,6 +150,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         node_id: props.nodeId,
                         code,
                     })
+                    // Mark this as the active run so a still-in-flight poll from a previous run
+                    // can't overwrite this result or stop this run's poller once it resolves.
+                    cache.activeRunId = run_id
                     props.updateAttributes({ runId: run_id, result: null })
                     actions.startPolling(run_id)
                 } catch (error) {
@@ -158,6 +161,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 }
             },
             startPolling: ({ runId }) => {
+                cache.activeRunId = runId
                 cache.pollAttempts = 0
                 actions.pollResult(runId)
                 // Same key auto-disposes any previous poller; disposables clean up on unmount and pause on hidden tab.
@@ -179,6 +183,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 cache.pollInFlight = true
                 try {
                     const { status, result, error } = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
+                    // A newer run started while this poll was in flight — its result and poller
+                    // must win, so drop this stale response instead of overwriting/stopping it.
+                    if (runId !== cache.activeRunId) {
+                        return
+                    }
                     if (status === 'done') {
                         props.updateAttributes({
                             result: result
@@ -200,6 +209,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     }
                     // 'running' → keep polling
                 } catch (error) {
+                    if (runId !== cache.activeRunId) {
+                        return
+                    }
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
                     actions.stopPolling()
                 } finally {
