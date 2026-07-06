@@ -244,14 +244,12 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
                 pass
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
-            return (
-                False,
-                f"The Convex deployment rejected the request (HTTP {e.response.status_code}). "
-                "Check your deployment URL and deploy key, then try again.",
-            )
+        # Any other status falls through to a generic message. Keep the raw error
+        # (which embeds the deployment URL) out of what the user sees.
+        detail = f" (HTTP {e.response.status_code})" if e.response is not None else ""
         return (
             False,
-            "The Convex deployment rejected the request. Check your deployment URL and deploy key, then try again.",
+            f"The Convex deployment rejected the request{detail}. Check your deployment URL and deploy key, then try again.",
         )
     except RequestsConnectionError:
         return False, "Could not connect to the Convex deployment. Check your deployment URL and try again."
