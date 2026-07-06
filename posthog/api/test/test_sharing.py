@@ -1680,6 +1680,21 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert not response.json().get("result_error")
 
+    def test_shared_dashboard_page_refresh_computes_warehouse_tile(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        # The /shared/ page normally serves cached results and refreshes them async; refresh=blocking
+        # is the only flow that executes the query during this request. That execution runs as the
+        # shared-link user from the page context - if that wiring breaks, it runs userless and fails closed.
+        response = self.client.get(f"/shared/{config.access_token}.json?refresh=blocking")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        tiles = response.json()["dashboard"]["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["insight"]["result"], tiles[0]["insight"].get("result_error")
+
     def test_shared_notebook_inline_warehouse_query_executes(self):
         from products.notebooks.backend.models import Notebook
 
