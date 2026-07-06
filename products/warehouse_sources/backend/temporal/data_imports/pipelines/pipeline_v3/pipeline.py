@@ -448,7 +448,7 @@ class PipelineV3(Generic[ResumableData]):
                     mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
                 )
             except Exception:
-                self._logger.exception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
+                await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
 
         total_batches = len(self._batch_results)
 
