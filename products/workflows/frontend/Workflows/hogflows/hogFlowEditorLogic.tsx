@@ -475,20 +475,22 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                         const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
 
-                        if (!step) {
-                            // Migrate old function actions to the basic functon action type
-                            if (action.type.startsWith('function_')) {
-                                action.type = 'function'
-                            }
-                        }
+                        // Migrate old function actions to the basic function action type without
+                        // writing back onto workflowLogic's action: an in-place mutation corrupts
+                        // the workflow subscription's previous-value snapshot, so legacy flows
+                        // would never compare deep-equal and would rebuild on every poll.
+                        const migratedAction: HogFlowAction =
+                            !step && action.type.startsWith('function_')
+                                ? ({ ...action, type: 'function' } as HogFlowAction)
+                                : action
 
                         return {
-                            id: action.id,
+                            id: migratedAction.id,
                             type: 'action',
-                            data: action,
+                            data: migratedAction,
                             position: { x: 0, y: 0 },
-                            handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
-                            deletable: !['trigger', 'exit'].includes(action.type),
+                            handles: Object.values(handlesByIdByNodeId[migratedAction.id] ?? {}),
+                            deletable: !['trigger', 'exit'].includes(migratedAction.type),
                             selectable: true,
                             draggable: false,
                             connectable: false,
@@ -505,8 +507,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
             },
 
-            setNodes: async ({ nodes }) => {
+            setNodes: async ({ nodes }, breakpoint) => {
                 const formattedNodes = await getFormattedNodes(nodes, values.edges)
+                // Drop this layout run if a newer setNodes was dispatched while elk was working,
+                // so overlapping rebuilds can't finish out of order and let a stale layout win.
+                breakpoint()
 
                 // Reconcile after layout so positions participate in the equality check: a node
                 // that moved gets a fresh reference, an untouched one keeps its identity and its

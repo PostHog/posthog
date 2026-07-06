@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { initKeaTests } from '~/test/init'
 
 import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
@@ -469,7 +471,7 @@ describe('hogFlowEditorLogic', () => {
     describe('graph identity across rebuilds', () => {
         // Auto-save round-trips rebuild the graph from the workflow; without id-based
         // reconciliation every node and edge object is recreated each time and every ReactFlow
-        // subtree re-renders — the detached-DOM churn this exists to prevent. Fixed timestamps so
+        // subtree re-renders, the detached-DOM churn this exists to prevent. Fixed timestamps so
         // two calls produce deep-equal flows.
         const makeFlow = (branchName: string = 'Branch'): HogFlow => ({
             id: 'test-flow',
@@ -516,26 +518,17 @@ describe('hogFlowEditorLogic', () => {
             created_at: '2026-01-01T00:00:00Z',
         })
 
-        // The rebuild always produces a new nodes ARRAY (only item references are reconciled), so
-        // an array identity change is the deterministic "async layout finished" signal — needed
-        // because the mounted logic's workflow subscription also schedules its own rebuild.
-        const waitForRebuild = async (previous: HogFlowActionNode[]): Promise<void> => {
-            for (let attempt = 0; attempt < 200 && logic.values.nodes === previous; attempt++) {
-                await new Promise((resolve) => setTimeout(resolve, 10))
-            }
-            expect(logic.values.nodes).not.toBe(previous)
-        }
-
+        // Each rebuild finishes by dispatching setNodesRaw from the async layout listener, and
+        // kea-test-utils consumes matched actions in order, so awaiting one setNodesRaw per
+        // rebuild is the deterministic "layout finished" signal.
         const applyFlow = async (flow: HogFlow): Promise<void> => {
-            const before = logic.values.nodes
-            logic.actions.resetFlowFromHogFlow(flow)
-            await waitForRebuild(before)
+            await expectLogic(logic, () => logic.actions.resetFlowFromHogFlow(flow)).toDispatchActions(['setNodesRaw'])
         }
 
         beforeEach(async () => {
             // Let the mount-time subscription rebuild (from workflowLogic's template flow) land
             // first so it can't clobber the flows the tests apply.
-            await waitForRebuild(logic.values.nodes)
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
         })
 
         it('keeps node and edge references stable across a deep-equal rebuild', async () => {
@@ -544,7 +537,7 @@ describe('hogFlowEditorLogic', () => {
             const initialEdges = logic.values.edges
             expect(initialNodes.length).toBeGreaterThan(0)
 
-            // Freshly constructed but deep-equal — as an auto-save round-trip would deliver.
+            // Freshly constructed but deep-equal, as an auto-save round-trip would deliver.
             await applyFlow(makeFlow())
 
             logic.values.nodes.forEach((node, index) => expect(node).toBe(initialNodes[index]))
