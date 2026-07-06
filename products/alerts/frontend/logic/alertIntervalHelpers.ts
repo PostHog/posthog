@@ -37,6 +37,8 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     return HIGH_FREQUENCY_INTERVALS.includes(interval)
 }
 
+// Twin of _CADENCE_DURATION_MINUTES / _INTERVAL_DURATION_MINUTES in
+// products/alerts/backend/evaluation/validation.py — keep the two in sync.
 const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.REAL_TIME]: 2,
     [AlertCalculationInterval.EVERY_15_MINUTES]: 15,

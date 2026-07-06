@@ -353,6 +353,22 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def interval_entitlement_error(
+        cls,
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        organization: Organization,
+    ) -> str | None:
+        """Entitlement gate for any plan-restricted interval — the single entry point for
+        write paths and evaluation-time downgrade checks. Each underlying check returns None
+        unless the interval matches, so at most one can produce an error."""
+        return cls.real_time_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        ) or cls.every_15_minutes_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        )
+
+    @classmethod
     def check_real_time_alert_limit(
         cls, team_id: int, organization: Organization, *, exclude_id: str | None = None
     ) -> str | None:
