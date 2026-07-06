@@ -1,4 +1,5 @@
 import api, { ApiMethodOptions } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -153,6 +154,16 @@ export async function pollForResults(
 }
 
 /**
+ * A 404 while polling an async query's status means its backend Redis status key is gone: it
+ * either expired (STATUS_TTL_SECONDS, currently 20 minutes) or was never written for the polled
+ * id. The in-flight job's status is unrecoverable, so re-submitting the query is the right fix
+ * rather than crashing the visualization with an uncaught error.
+ */
+export function isQueryStatusExpiredError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 404
+}
+
+/**
  * Execute a query node and return the response, use async query if enabled
  */
 async function executeQuery<N extends DataNode>(
@@ -176,45 +187,60 @@ async function executeQuery<N extends DataNode>(
      */
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
-    if (!pollOnly) {
-        const refreshParam: RefreshType = refresh || 'blocking'
+    // When an async query's status key expires mid-poll the backend returns a 404. Re-submit
+    // the query once instead of surfacing an uncaught error. We can only re-submit when we're
+    // allowed to POST (not in poll-only shared/exported contexts).
+    const maxResubmitsOnExpiry = pollOnly ? 0 : 1
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+    for (let attempt = 0; ; attempt++) {
+        if (!pollOnly) {
+            const refreshParam: RefreshType = refresh || 'blocking'
 
-        if (response.detail) {
-            throw new Error(response.detail)
+            const response = await api.query(queryNode, {
+                requestOptions: methodOptions,
+                clientQueryId: queryId,
+                refresh: refreshParam,
+                filtersOverride,
+                variablesOverride,
+                limitContext,
+            })
+
+            if (response.detail) {
+                throw new Error(response.detail)
+            }
+
+            if (!isAsyncResponse(response)) {
+                // Executed query synchronously or from cache
+                return response
+            }
+
+            if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
+                // Cached results are already present alongside a background recompute, so use them
+                // now rather than discarding them to poll a job that may take a while (or be stuck).
+                return response
+            }
+
+            queryId = response.query_status.id
+        } else {
+            if (refresh !== 'async' && refresh !== 'force_async') {
+                throw new Error('pollOnly is only supported for async queries')
+            }
+            if (!queryId) {
+                throw new Error('pollOnly requires a queryId')
+            }
         }
 
-        if (!isAsyncResponse(response)) {
-            // Executed query synchronously or from cache
-            return response
-        }
-
-        if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
-            // Cached results are already present alongside a background recompute, so use them
-            // now rather than discarding them to poll a job that may take a while (or be stuck).
-            return response
-        }
-
-        queryId = response.query_status.id
-    } else {
-        if (refresh !== 'async' && refresh !== 'force_async') {
-            throw new Error('pollOnly is only supported for async queries')
-        }
-        if (!queryId) {
-            throw new Error('pollOnly requires a queryId')
+        try {
+            const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+            return statusResponse.results
+        } catch (e) {
+            if (attempt < maxResubmitsOnExpiry && isQueryStatusExpiredError(e)) {
+                posthog.capture('async query status expired, resubmitting', { queryId })
+                continue
+            }
+            throw e
         }
     }
-
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
-    return statusResponse.results
 }
 
 // Return data for a given query

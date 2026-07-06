@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    isQueryStatusExpiredError,
+    performQuery,
+    pollForResults,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -195,6 +201,43 @@ describe('query', () => {
             } finally {
                 globalThis.document = originalDocument
             }
+        })
+    })
+
+    describe('async query status expiry', () => {
+        const asyncQuery: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+
+        it('re-submits the query once when the status expires (404) mid-poll', async () => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValue({ query_status: { id: 'q1' } } as any)
+            jest.spyOn(api.queryStatus, 'get')
+                .mockRejectedValueOnce(new ApiError('Query not found', 404))
+                .mockResolvedValue({ query_status: { complete: true, results: ['recovered'] } } as any)
+
+            const result = await performQuery(asyncQuery, undefined, 'async')
+
+            expect(result).toEqual(['recovered'])
+            // First submit + one re-submit after the 404
+            expect(querySpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not re-submit on a non-404 poll error', async () => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValue({ query_status: { id: 'q1' } } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValue(new ApiError('Server error', 500))
+
+            await expect(performQuery(asyncQuery, undefined, 'async')).rejects.toThrow(ApiError)
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('isQueryStatusExpiredError', () => {
+        it('is true only for a 404 ApiError', () => {
+            expect(isQueryStatusExpiredError(new ApiError('Query not found', 404))).toBe(true)
+            expect(isQueryStatusExpiredError(new ApiError('Server error', 500))).toBe(false)
+            expect(isQueryStatusExpiredError(new Error('Query not found'))).toBe(false)
         })
     })
 
