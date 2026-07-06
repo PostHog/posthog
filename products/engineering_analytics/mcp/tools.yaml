@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-author-workflow-costs:
+        operation: engineering_analytics_author_workflow_costs
+        enabled: false
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
@@ -31,6 +34,12 @@ tools:
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
+    engineering-analytics-job-aggregates:
+        operation: engineering_analytics_job_aggregates
+        enabled: false
+    engineering-analytics-master-failures:
+        operation: engineering_analytics_master_failures
+        enabled: false
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true
@@ -57,6 +66,12 @@ tools:
         enabled: false
     engineering-analytics-quarantine-request:
         operation: engineering_analytics_quarantine_request
+        enabled: false
+    engineering-analytics-repo-overview:
+        operation: engineering_analytics_repo_overview
+        enabled: false
+    engineering-analytics-run-failure-logs:
+        operation: engineering_analytics_run_failure_logs
         enabled: false
     engineering-analytics-sources:
         operation: engineering_analytics_sources

@@ -107,7 +107,7 @@ export function buildFunnelStepsBars<TMeta = unknown>(
         data: variant.data,
         color: variant.color,
         meta: variant.meta,
-        ...(variant.trackData ? { trackData: variant.trackData } : {}),
+        trackData: variant.trackData,
     }))
     return {
         series,

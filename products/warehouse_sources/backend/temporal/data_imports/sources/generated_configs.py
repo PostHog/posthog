@@ -219,7 +219,8 @@ class AlpacaBrokerAPISourceConfig(config.Config):
 
 @config.config
 class AlphaVantageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
@@ -300,7 +301,7 @@ class AppfiguresSourceConfig(config.Config):
 
 @config.config
 class AppfollowSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -620,7 +621,8 @@ class ChargedeskSourceConfig(config.Config):
 
 @config.config
 class ChargifySourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
@@ -1222,7 +1224,7 @@ class FlexportSourceConfig(config.Config):
 
 @config.config
 class FloatAppSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1252,7 +1254,8 @@ class FreshBooksSourceConfig(config.Config):
 
 @config.config
 class FreshcallerSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config

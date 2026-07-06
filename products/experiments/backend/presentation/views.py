@@ -983,7 +983,7 @@ class EnterpriseExperimentsViewSet(
                         "experiment-metrics-recalculation-workflow",
                         MetricsRecalcInputs(recalculation_id=recalculation_id),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
             except Exception:

@@ -50,11 +50,13 @@ the row lists both.
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
+| alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads              | HTTP                        | requests                                                        | ✅                          |
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
 | appfigures              | HTTP                        | requests                                                        | ✅                          |
+| appfollow               | HTTP                        | requests                                                        | ✅                          |
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
@@ -92,6 +94,7 @@ the row lists both.
 | chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk              | HTTP                        | requests                                                        | ✅                          |
+| chargify                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
 | churnkey                | HTTP                        | requests                                                        | ✅                          |
 | coda                    | HTTP                        | requests                                                        | ✅                          |
@@ -133,6 +136,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
 | freshservice            | HTTP                        | requests                                                        | ✅                          |
@@ -154,6 +158,7 @@ the row lists both.
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
+| float_app               | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
@@ -363,7 +368,6 @@ doesn't conflict with concurrent PRs.
 - airops
 - akeneo
 - alpaca_broker_api
-- alpha_vantage
 - amazon_ads
 - amazon_cloudwatch
 - amazon_eventbridge
@@ -373,7 +377,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
-- appfollow
 - apple_search_ads
 - appstack
 - apptivo
@@ -394,7 +397,6 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chargify
 - chatwoot
 - chift
 - chorus
@@ -442,13 +444,11 @@ doesn't conflict with concurrent PRs.
 - firebolt
 - flexmail
 - flexport
-- float_app
 - flowlu
 - formbricks
 - freeagent
 - freightview
 - freshbooks
-- freshcaller
 - freshchat
 - freshservice
 - fulcrum
@@ -762,9 +762,9 @@ Update SOURCES.md whenever you:
 
 Two semgrep rules enforce the tracked transports inside `sources/`:
 
-- [`data-imports-http-transport`](/.semgrep/rules/data-imports-http-transport.yaml) bans direct
+- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml) bans direct
   `requests.<verb>` / `requests.Session()` / `httpx.*` — route through `make_tracked_session()`.
-- [`data-imports-grpc-transport`](/.semgrep/rules/data-imports-grpc-transport.yaml) bans raw
+- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml) bans raw
   `grpc.*_channel(...)` and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction —
   route through `make_tracked_channel(...)` (for `channel=`/`transport=` SDKs) or
   `tracked_interceptors(host)` (for `interceptors=` SDKs).

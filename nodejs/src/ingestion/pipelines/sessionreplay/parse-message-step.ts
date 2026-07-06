@@ -21,6 +21,9 @@ const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
+// Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
+// sample; exceeding it DLQs instead of risking an unclassifiable OOM.
+const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
 
 export interface ParseMessageStepInput {
     message: Message
@@ -31,11 +34,11 @@ export interface ParseMessageStepOutput {
     parsedMessage: ParsedMessageData
 }
 
-function isGzipped(buffer: Buffer): boolean {
+export function isGzipped(buffer: Buffer): boolean {
     return buffer.subarray(0, GZIP_HEADER.length).equals(GZIP_HEADER)
 }
 
-function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
+export function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
     if (!headers) {
         return null
     }
@@ -46,6 +49,34 @@ function getContentEncoding(headers: MessageHeader[] | undefined): string | null
         }
     }
     return null
+}
+
+/**
+ * Decompress a Kafka message's value (lz4 via the content-encoding header, gzip via its magic bytes,
+ * else as-is) and record the encoding metric. Throws on corrupt compressed data — callers dlq with
+ * `invalid_compressed_data`. Shared by the parse step and the fused native parse+anonymize step.
+ */
+export function decompressMessageValue(message: Message): Buffer {
+    const value = message.value!
+    const contentEncoding = getContentEncoding(message.headers)
+    let messageUnzipped = value
+    if (contentEncoding === 'lz4') {
+        const uncompressedSize = value.readUInt32LE(0)
+        if (uncompressedSize > MAX_DECOMPRESSED_BYTES) {
+            throw new Error(`lz4 uncompressed size ${uncompressedSize} exceeds the decompression cap`)
+        }
+        const output = Buffer.allocUnsafe(uncompressedSize)
+        const decodedLength = lz4.decodeBlock(value.subarray(4), output)
+        // Without this check an inflated prefix leaks the uninitialized tail of `output`.
+        if (decodedLength !== uncompressedSize) {
+            throw new Error(`lz4 decoded ${decodedLength} bytes but the size prefix claimed ${uncompressedSize}`)
+        }
+        messageUnzipped = output
+    } else if (isGzipped(value)) {
+        messageUnzipped = gunzipSync(value, { maxOutputLength: MAX_DECOMPRESSED_BYTES })
+    }
+    SessionRecordingIngesterMetrics.incrementMessagesByEncoding(contentEncoding ?? (isGzipped(value) ? 'gzip' : 'none'))
+    return messageUnzipped
 }
 
 function getValidEvents(events: unknown[]): {
@@ -107,23 +138,12 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             return dlq('message_value_or_timestamp_is_empty')
         }
 
-        let messageUnzipped = message.value
-        const contentEncoding = getContentEncoding(message.headers)
+        let messageUnzipped: Buffer
         try {
-            if (contentEncoding === 'lz4') {
-                const uncompressedSize = message.value.readUInt32LE(0)
-                const output = Buffer.allocUnsafe(uncompressedSize)
-                lz4.decodeBlock(message.value.subarray(4), output)
-                messageUnzipped = output
-            } else if (isGzipped(message.value)) {
-                messageUnzipped = gunzipSync(message.value)
-            }
+            messageUnzipped = decompressMessageValue(message)
         } catch (error) {
             return dlq('invalid_compressed_data', error)
         }
-        SessionRecordingIngesterMetrics.incrementMessagesByEncoding(
-            contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
-        )
 
         let rawPayload: unknown
         try {
