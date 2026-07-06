@@ -625,7 +625,7 @@ export function getFunnelDatasetPosition(
         return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
-    return dataset?.breakdownIndex ?? 0
+    return dataset?.colorIndex ?? dataset?.breakdownIndex ?? 0
 }
 
 export function getTrendResultCustomizationKey(
