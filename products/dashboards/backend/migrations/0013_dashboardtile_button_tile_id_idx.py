@@ -1,8 +1,7 @@
 import django.db.models.deletion
 from django.db import migrations, models
-from django.db.models import Q
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
+from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -29,12 +28,10 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        SafeAddIndexConcurrently(
-            model_name="dashboardtile",
-            index=models.Index(
-                fields=["button_tile"],
-                name="posthog_dashboardtile_button_tile_id_idx",
-                condition=Q(("button_tile__isnull", False)),
-            ),
+        CreateIndexConcurrently(
+            index_name="posthog_dashboardtile_button_tile_id_idx",
+            table_name="posthog_dashboardtile",
+            columns='("button_tile_id")',
+            where='WHERE "button_tile_id" IS NOT NULL',
         ),
     ]

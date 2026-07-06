@@ -112,14 +112,7 @@ class DashboardTile(models.Model):
     objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
 
     class Meta:
-        indexes = [
-            models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
-            models.Index(
-                fields=["button_tile"],
-                name="posthog_dashboardtile_button_tile_id_idx",
-                condition=Q(("button_tile__isnull", False)),
-            ),
-        ]
+        indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
         constraints = [
             UniqueConstraint(
                 fields=["dashboard", "insight"],
