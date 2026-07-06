@@ -141,8 +141,14 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
         resetDraft: () => {
             actions.setDraft(draftFromStream(values.eventStream))
         },
-        saveEventStreamSuccess: () => {
+        saveEventStreamSuccess: ({ eventStream }) => {
             lemonToast.success('Event stream configuration saved')
+            posthog.capture(AccountsEvents.EventStreamConfigSaved, {
+                enabled: eventStream?.enabled ?? false,
+                event_count: eventStream?.event_names?.length ?? 0,
+                has_slack_channel: !!eventStream?.slack_channel_id,
+                member_count: eventStream?.account_ids?.length ?? 0,
+            })
         },
         saveEventStreamFailure: ({ error, errorObject }) => {
             posthog.captureException(errorObject ?? new Error(error), { scope: 'eventStreamLogic.saveEventStream' })
@@ -155,6 +161,10 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
             if (testMessage) {
                 const channel = values.eventStream?.slack_channel_name || testMessage.channel_id
                 lemonToast.success(`Test message sent to ${channel}`)
+                posthog.capture(AccountsEvents.EventStreamTestMessageSent, {
+                    event_count: values.eventStream?.event_names?.length ?? 0,
+                    member_count: values.eventStream?.account_ids?.length ?? 0,
+                })
             }
         },
         sendTestMessageFailure: ({ error, errorObject }) => {
