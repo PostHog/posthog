@@ -91,6 +91,13 @@ export function normalizeRunStatus(status: SignalScoutRunStatus): ScoutRunStatus
     return 'unknown'
 }
 
+/** Returns true when a run's status has settled — not running or queued.
+ * Settled runs can be safely reused across polls without freezing wall-clock renders. */
+export function isSettledRun(run: SignalScoutRunSummary): boolean {
+    const status = normalizeRunStatus(run.status)
+    return status !== 'running' && status !== 'queued'
+}
+
 export function runDurationSeconds(run: SignalScoutRunSummary, now: Date): number | null {
     if (!run.started_at) {
         return null
@@ -303,6 +310,9 @@ function emptyRollup(): ScoutRollup {
  * changes each poll and every memoized row re-renders even when nothing changed. Matching by id and
  * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
  * `React.memo` on the rows can actually bite.
+ *
+ * Cost: O(n·fields) per call — one Map build + one deep-equal per matched pair. Fine for the
+ * runs window (≤100 items, 60s cadence); keep that in mind if pointed at a large, hot list.
  */
 export function reconcileById<T>(
     previous: T[],

@@ -3,10 +3,10 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -103,9 +103,11 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                         {confidencePercent}% confidence
                     </span>
                     <span className="flex-1" />
-                    <span className="whitespace-nowrap text-[11px] text-muted">
-                        {humanFriendlyDetailedTime(emission.emitted_at)}
-                    </span>
+                    <TZLabel
+                        time={emission.emitted_at}
+                        showPopover={false}
+                        className="whitespace-nowrap text-[11px] text-muted"
+                    />
                 </button>
                 <LemonButton
                     size="xsmall"

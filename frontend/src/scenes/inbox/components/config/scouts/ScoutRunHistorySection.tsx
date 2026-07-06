@@ -4,8 +4,8 @@ import { memo, useMemo, useState } from 'react'
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -83,9 +83,11 @@ const ScoutRunRow = memo(function ScoutRunRow({ run }: { run: SignalScoutRunSumm
                     className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                 />
                 <RunGlyph run={run} />
-                <span className="whitespace-nowrap text-[11px] text-muted">
-                    {humanFriendlyDetailedTime(run.started_at)}
-                </span>
+                <TZLabel
+                    time={run.started_at}
+                    showPopover={false}
+                    className="whitespace-nowrap text-[11px] text-muted"
+                />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
                 {failureKind && (
                     <span className="whitespace-nowrap text-[11px] text-warning">
