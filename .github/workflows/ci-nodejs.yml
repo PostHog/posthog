@@ -58,6 +58,9 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # The Jest shared-fixtures suite pins the native replay anonymizer against
+                        # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
+                        - 'rust/replay-anonymizer-node/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'

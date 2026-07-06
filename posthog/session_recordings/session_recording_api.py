@@ -135,6 +135,8 @@ from .queries.combine_session_ids_for_filtering import combine_session_id_filter
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
 MAX_RECORDINGS_PER_BULK_ACTION = 20
+# Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
+MAX_RECORDINGS_PER_BULK_DELETE = 100
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -539,6 +541,36 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Must provide a blob key")
 
         return data
+
+
+# Schema-only; enforcement stays in the view to preserve the pre-existing error contract.
+class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
+    session_recording_ids = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=MAX_RECORDINGS_PER_BULK_DELETE,
+        help_text=f"Session IDs of the recordings to delete (max {MAX_RECORDINGS_PER_BULK_DELETE} per call).",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. "
+        "Providing this narrows the lookup and speeds up the request; defaults to the project's "
+        "recording retention period.",
+    )
+
+
+class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit "
+        "access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips."
+    )
+    deleted_count = serializers.IntegerField(help_text="Number of recordings that were deleted.")
+    total_requested = serializers.IntegerField(help_text="Number of session recording IDs in the request.")
+    failed_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs that were found but could not be deleted. These can be retried.",
+    )
 
 
 def list_recordings_response(
@@ -1101,14 +1133,16 @@ class SessionRecordingViewSet(
 
         return Response(status=204)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. "
+        "IDs that don't match an existing recording are skipped and counted in `total_requested` but not "
+        "`deleted_count`.",
+        request=SessionRecordingBulkDeleteRequestSerializer,
+        responses={200: SessionRecordingBulkDeleteResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk delete recordings via recording-api (crypto-shredding).
-
-        Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
-        If not provided, defaults to the team's retention period to ensure all recordings can be found.
-        """
+        """Bulk delete recordings via recording-api (crypto-shredding)."""
 
         session_recording_ids = request.data.get("session_recording_ids", [])
         date_from = request.data.get("date_from", None)
@@ -1116,9 +1150,9 @@ class SessionRecordingViewSet(
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_DELETE:
             raise exceptions.ValidationError(
-                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_DELETE} recordings at once"
             )
 
         if not date_from:
@@ -1130,6 +1164,8 @@ class SessionRecordingViewSet(
             "date_from": date_from,
             "date_to": None,
             "kind": "RecordingsQuery",
+            # Without an explicit limit the query defaults to 50 rows, silently truncating larger batches.
+            "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
         recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
