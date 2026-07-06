@@ -44,6 +44,7 @@ class TestRunPreWriteDefensiveCompact:
             MagicMock(aexception=AsyncMock()),
         )
 
+        assert run_maintenance.await_args is not None
         assert run_maintenance.await_args.kwargs["partition_count"] == expected
 
     @pytest.mark.asyncio
