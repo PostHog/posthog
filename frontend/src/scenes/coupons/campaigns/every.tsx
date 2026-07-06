@@ -1,6 +1,6 @@
 import { IconX } from '@posthog/icons'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 
 import { CampaignConfig } from './types'
 
@@ -12,7 +12,7 @@ const EVERY_CREDIT_ELIGIBILITY_CUTOFF = 'July 14, 2026'
 const EveryHero: React.FC = () => {
     return (
         <div className="flex items-center justify-center gap-3 mb-4">
-            <Logo style={{ height: '3rem' }} />
+            <Logo size="lg" />
             <IconX className="size-8 opacity-60" />
             <img src={EVERY_LOGO_BLACK} alt="Every" className="h-8 w-auto [filter:brightness(0)] dark:hidden" />
             <img src={EVERY_LOGO_WHITE} alt="Every" className="hidden h-8 w-auto dark:block" />

@@ -1,6 +1,6 @@
 import './SelfDrivingOnboarding.scss'
 
-import { PostHogLogo } from 'lib/brand/v2'
+import { Logo } from 'lib/brand'
 
 import { ContextOnboarding } from './ContextOnboarding'
 
@@ -14,8 +14,7 @@ export function SelfDrivingOnboarding(): JSX.Element | null {
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
             {/* Logo above the card, group centered (paper-desk positioning). Gradient in light, white in dark. */}
             <span className="block mb-6">
-                <PostHogLogo className="h-7 w-auto block dark:hidden sm:h-8" />
-                <PostHogLogo variant="mono" color="white" className="h-7 w-auto hidden dark:block sm:h-8" />
+                <Logo size="md" />
             </span>
             {/* The card chrome and its per-step width live inside ContextOnboarding (so the width can vary
                 by step); here we just center it under the logo. */}
