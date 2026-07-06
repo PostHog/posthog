@@ -121,6 +121,16 @@ class TestRaiseOnPersistentWebhookFailure:
         ):
             await manager._raise_on_persistent_webhook_failure()
 
+    async def test_query_failure_fails_open(self):
+        # An error reading delivery status (e.g. table missing during a deploy)
+        # must not block the run — the check is advisory.
+        manager = _build_manager()
+        with (
+            patch.object(manager, "_webhook_failure_lookback_seconds", AsyncMock(return_value=3600)),
+            patch.object(webhook_s3, "sync_execute", side_effect=Exception("table does not exist")),
+        ):
+            await manager._raise_on_persistent_webhook_failure()
+
     async def test_get_items_raises_before_reading_s3(self):
         manager = _build_manager()
         with (

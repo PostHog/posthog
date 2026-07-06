@@ -154,24 +154,31 @@ class WebhookSourceManager:
         schema's rows and source-level rows.
         """
         window_seconds = await self._webhook_failure_lookback_seconds()
-        rows = await database_sync_to_async_pool(sync_execute)(
-            """
-            SELECT http_status, ok, reason
-            FROM warehouse_webhook_delivery_status
-            WHERE team_id = %(team_id)s
-              AND source_id = %(source_id)s
-              AND (schema_id = %(schema_id)s OR schema_id = '')
-              AND timestamp > now() - toIntervalSecond(%(window_seconds)s)
-            ORDER BY timestamp DESC
-            LIMIT 50
-            """,
-            {
-                "team_id": self._inputs.team_id,
-                "source_id": str(self._inputs.source_id),
-                "schema_id": str(self._inputs.schema_id),
-                "window_seconds": window_seconds,
-            },
-        )
+        try:
+            rows = await database_sync_to_async_pool(sync_execute)(
+                """
+                SELECT http_status, ok, reason
+                FROM warehouse_webhook_delivery_status
+                WHERE team_id = %(team_id)s
+                  AND source_id = %(source_id)s
+                  AND (schema_id = %(schema_id)s OR schema_id = '')
+                  AND timestamp > now() - toIntervalSecond(%(window_seconds)s)
+                ORDER BY timestamp DESC
+                LIMIT 50
+                """,
+                {
+                    "team_id": self._inputs.team_id,
+                    "source_id": str(self._inputs.source_id),
+                    "schema_id": str(self._inputs.schema_id),
+                    "window_seconds": window_seconds,
+                },
+            )
+        except Exception as e:
+            # Fail open: this is an advisory health signal, not a correctness gate.
+            # If we can't read delivery status (transient ClickHouse error, or the
+            # table not yet created during a deploy), never block the user's run.
+            await self._logger.awarning("webhook_delivery_status_query_failed", error=str(e))
+            return None
         return self._classify_webhook_failure(rows)
 
     @staticmethod
