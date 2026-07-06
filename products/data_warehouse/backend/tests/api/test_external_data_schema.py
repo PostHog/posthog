@@ -3180,17 +3180,15 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, supports_column_selection_expected
+            # source_type, expected — column selection is available for every registered source
+            # (SQL projects in its SELECT, others drop before the Delta write) EXCEPT managed-schema
+            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column set.
             (ExternalDataSourceType.POSTGRES, True),
-            (ExternalDataSourceType.MYSQL, True),
-            (ExternalDataSourceType.MSSQL, True),
-            (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
-            (ExternalDataSourceType.REDSHIFT, True),
-            # ClickHouse isn't a SQLSource but opts into column selection.
             (ExternalDataSourceType.CLICKHOUSE, True),
-            # Non-SQL sources stay False
+            (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.ZENDESK, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
@@ -3201,6 +3199,23 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+    def test_enabled_columns_rejected_for_managed_schema_source(self):
+        # Stripe/Paddle/Zendesk expose a fixed canonical HogQL schema; dropping a referenced
+        # column makes the s3() structure miss it and the query fails to resolve the field.
+        # Reject the selection at save so column selection can't corrupt those tables.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Payout", team=self.team, source=source)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["id", "status"]},
+        )
+        assert response.status_code == 400
+        assert "Column selection is not supported" in str(response.json())
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
@@ -3215,12 +3230,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            (ExternalDataSourceType.STRIPE, False),
-            (ExternalDataSourceType.POSTGRES, True),
+            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
+            (ExternalDataSourceType.STRIPE, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
     ):
         source, schema = self._create(source_type=source_type)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
@@ -3228,7 +3245,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
-        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert summary["supports_column_selection"] is expected_column_selection
+        assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
 
     def test_list_omits_source_summary(self):
@@ -3352,6 +3370,24 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for direct-query sources" in str(response.json())
+
+    def test_row_filters_rejected_for_source_without_pushdown(self):
+        # Only sources that push filters into their query (SQL WHERE) honor them — accepting a
+        # filter for an API source would save it and then silently sync unfiltered rows.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for this source type" in str(response.json())
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

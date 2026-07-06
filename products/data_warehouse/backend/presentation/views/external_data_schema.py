@@ -66,13 +66,28 @@ logger = structlog.get_logger(__name__)
 
 
 def source_supports_column_selection(source_type: str) -> bool:
+    """Column selection is available for every registered source: SQL sources project the
+    selection into their SELECT, everything else is projected generically just before the
+    Delta write. Unknown source types stay False so the UI fails closed.
+
+    Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
+    fixed canonical schema, so dropping a referenced column breaks the query."""
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return not source.has_managed_hogql_schema
+
+
+def source_supports_row_filters(source_type: str) -> bool:
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-    return bool(source.supports_column_selection)
+    return bool(source.supports_row_filters)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -406,6 +421,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
+                "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
             },
         }
@@ -425,6 +441,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
+            "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
         }
 
@@ -560,6 +577,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
+                # Managed-schema sources expose a fixed canonical HogQL schema; dropping a
+                # referenced column breaks the query, so column selection isn't offered for them.
+                if not source_supports_column_selection(instance.source.source_type):
+                    raise ValidationError("Column selection is not supported for this source type.")
                 if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
                     raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}
@@ -579,6 +600,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            # Only sources that push filters into their query (SQL WHERE) can honor them — a
+            # saved-but-ignored filter would silently sync unfiltered rows.
+            if not source_supports_row_filters(instance.source.source_type):
+                raise ValidationError("Row filters are not supported for this source type.")
             incoming_sync_type = data.get("sync_type")
             target_is_cdc = (
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc

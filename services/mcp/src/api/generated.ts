@@ -22526,6 +22526,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly supports_column_selection?: boolean;
+      readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
     } | null;
@@ -37949,6 +37950,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly supports_column_selection?: boolean;
+      readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
     } | null;
