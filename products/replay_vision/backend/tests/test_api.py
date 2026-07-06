@@ -10,6 +10,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -25,6 +31,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.queries import ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -1834,6 +1841,27 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
         self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded),
+            ("at_capacity", ClickHouseAtCapacity),
+        ]
+    )
+    def test_estimate_translates_slow_query_into_retryable_error(self, _name: str, exc: type[Exception]) -> None:
+        with patch(
+            "products.replay_vision.backend.api.scanners.estimate_scanner_session_volume",
+            side_effect=exc(),
+        ) as mock_estimate:
+            resp = self.client.post(self.estimate_url, data={}, format="json")
+        self.assertEqual(resp.status_code, 503, resp.content)
+        self.assertEqual(resp.json()["code"], "scanner_estimate_unavailable")
+        # The live preview must bound itself to the interactive budget, not the 30s batch cap, so it fails fast.
+        self.assertEqual(
+            mock_estimate.call_args.kwargs["max_execution_seconds"], ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS
+        )
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.

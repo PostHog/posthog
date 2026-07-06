@@ -71,6 +71,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         if (isScannerSubmitting) {
             return
         }
+        // Clicking the step you're already on is a deliberate no-op; re-pushing the current route does nothing visible.
+        if (next === step) {
+            return
+        }
         if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
             if (step === 'template') {
                 router.actions.push(urls.replayVisionScannerConfigure(scannerId))

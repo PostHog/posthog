@@ -12,7 +12,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,6 +20,12 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.user import User
 
 from products.replay_vision.backend.api.filters import (
@@ -65,6 +71,21 @@ _MAX_TAG_LENGTH = 100
 _MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
+
+# ClickHouse failures the interactive estimate can hit on an expensive filter; all mean "couldn't count in time".
+_ESTIMATE_QUERY_FAILURES = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseAtCapacity,
+)
+
+
+class ScannerEstimateUnavailable(APIException):
+    # Retryable and non-blocking — the estimate is only a preview; the scanner saves and runs without it.
+    status_code = 503
+    default_detail = "the recording count timed out. Your filters may be too broad to count quickly."
+    default_code = "scanner_estimate_unavailable"
 
 
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
@@ -757,7 +778,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
+        # Bound the live preview to the interactive budget (not the 30s batch cap) so a slow filter fails fast
+        # with a retryable error instead of leaving the forecast spinning.
+        try:
+            estimate = estimate_scanner_session_volume(
+                team=self.team,
+                query=recordings_query,
+                max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+            )
+        except _ESTIMATE_QUERY_FAILURES as e:
+            logger.warning("replay_vision.estimate_query_failed", team_id=self.team_id, error=str(e))
+            raise ScannerEstimateUnavailable()
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
         # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this

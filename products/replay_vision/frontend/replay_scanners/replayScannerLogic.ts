@@ -776,6 +776,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 refreshVisionQuota()
             },
 
+            // A blocked submit on the triggers step is otherwise silent: name/prompt errors live on the configure
+            // step, so their markers render on fields not in the DOM here. Route the user to the offending step.
+            submitScannerFailure: () => {
+                const errors = values.scannerValidationErrors
+                const configurePath = urls.replayVisionScannerConfigure(props.id)
+                const onConfigureStep = router.values.location.pathname.endsWith(configurePath)
+                if (!onConfigureStep && !!(errors?.name || errors?.scanner_config)) {
+                    router.actions.push(configurePath)
+                    lemonToast.error('Fix the highlighted fields to create your scanner.')
+                }
+            },
+
             requestScannerEstimate: () => {
                 cache.disposables.add(() => {
                     const id = setTimeout(() => actions.loadScannerEstimate(), 300)

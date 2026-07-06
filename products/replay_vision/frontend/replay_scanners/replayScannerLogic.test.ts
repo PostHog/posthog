@@ -362,6 +362,22 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('blocked-submit feedback', () => {
+        it('routes a create blocked by a configure-step field back to the configure step', async () => {
+            // On triggers, name/prompt errors would otherwise render on fields absent from the DOM — a silent no-op.
+            router.actions.push('/replay-vision/new/triggers')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('leaves the user on the configure step when its own field is the one failing', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+    })
+
     describe('buildObservationListParams', () => {
         const monitorScanner = { scanner_type: 'monitor' } as ReplayScanner
         const scorerScanner = { scanner_type: 'scorer' } as ReplayScanner

@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
@@ -18,6 +18,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
+    const { requestScannerEstimate } = useActions(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
 
     if (!scanner) {
@@ -139,9 +140,21 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     recordings in the last {scannerEstimate.window_days} days.
                 </div>
             ) : scannerEstimateError ? (
-                <div className="text-xs text-danger">Couldn't estimate impact: {scannerEstimateError}</div>
+                <div className="flex items-start justify-between gap-2">
+                    <div className="text-xs text-danger">
+                        Couldn't estimate impact: {scannerEstimateError} The scanner will still work without a forecast.
+                    </div>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => requestScannerEstimate()}>
+                        Retry
+                    </LemonButton>
+                </div>
             ) : (
-                <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
+                <div className="flex items-start justify-between gap-2">
+                    <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => requestScannerEstimate()}>
+                        Retry
+                    </LemonButton>
+                </div>
             )}
         </LemonCard>
     )

@@ -52,10 +52,12 @@ export function ScannerEditorStepper({
                             type="button"
                             onClick={() => onStepClick(step.key)}
                             data-attr={`vision-editor-step-${step.key}`}
+                            // The current step is a no-op; drop the interactive affordances so it doesn't read as a dead click.
+                            aria-disabled={isCurrent || undefined}
                             className={cn(
                                 'group flex items-center gap-1.5 px-2 py-1 rounded transition-all duration-150',
                                 'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
-                                'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
+                                isCurrent ? 'cursor-default' : 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
                             )}
                             aria-current={isCurrent ? 'step' : undefined}
                         >
