@@ -14,7 +14,7 @@ from posthog.tasks.alerts.utils import (
 from products.alerts.backend.models.alert import AlertConfiguration
 
 
-class TestAlertRealTimeScheduling:
+class TestAlertUtils:
     def test_calculation_interval_to_order_ranks_real_time_first(self) -> None:
         assert calculation_interval_to_order(AlertCalculationInterval.REAL_TIME) < calculation_interval_to_order(
             AlertCalculationInterval.EVERY_15_MINUTES
