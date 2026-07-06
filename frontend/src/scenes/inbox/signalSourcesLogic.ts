@@ -5,8 +5,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
