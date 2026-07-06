@@ -32,6 +32,16 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
+/** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
+ * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)
+ * diagnostics the viewer already has; a query-restricted caller (diagnostics scrubbed) sees "Completed". */
+export function isPartialDelivery(row: Pick<SubscriptionDeliveryApi, 'status' | 'ai_report_diagnostics'>): boolean {
+    if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
+        return false
+    }
+    return (row.ai_report_diagnostics ?? []).some((d) => d.ok === false)
+}
+
 function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
     let tagType: 'success' | 'danger' | 'warning' | 'default'
@@ -66,6 +76,19 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             <Tooltip title={failureMessage}>
                 <LemonTag type={tagType} className="cursor-help">
                     {label}
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    if (isPartialDelivery(row)) {
+        const diagnostics = row.ai_report_diagnostics ?? []
+        const failed = diagnostics.filter((d) => d.ok === false).length
+        return (
+            <Tooltip
+                title={`${failed} of ${diagnostics.length} queries failed — those metrics are missing from the report.`}
+            >
+                <LemonTag type="warning" className="cursor-help">
+                    Partial
                 </LemonTag>
             </Tooltip>
         )
