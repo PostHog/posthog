@@ -21,7 +21,6 @@ from django.db import (
 )
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.http.response import HttpResponseRedirectBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
@@ -592,30 +591,29 @@ class ShortCircuitMiddleware:
         return response
 
 
-class HttpResponseTemporaryRedirectPreserveMethod(HttpResponseRedirectBase):
-    status_code = 307
-
-
-class EnvironmentsRedirectMiddleware:
-    """Redirects /api/environments/* to the equivalent /api/projects/* path.
+class EnvironmentsRewriteMiddleware:
+    """Serves /api/environments/* through the canonical /api/projects/* viewsets.
 
     /api/projects/ is a backwards-compatible superset of /api/environments/ (a Project
     and its primary Team share the same numeric id, so the id segment — including
-    @current — carries over unchanged). Uses 307 so clients re-send the original method
-    and body; a 301/302 would let clients downgrade writes to GET and drop the body.
+    @current — carries over unchanged). When enabled for a team, the request path is
+    rewritten in place to /api/projects/* and re-routed to the projects viewset, so the
+    client gets a normal 200 on the original URL. This is deliberately NOT a 307/308:
+    many API clients (httpx, Guzzle, …) don't follow redirects by default, so a redirect
+    silently breaks them — an in-process rewrite is transparent to every client and keeps
+    method, body, query string, and auth on the same request.
 
     Only paths whose rewritten /api/projects/* form resolves to a registered route are
-    redirected — the few environment-only routes with no projects counterpart yet (see
-    test_environments_redirect.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched,
-    so a redirect can never land on a 404.
+    rewritten — the few environment-only routes with no projects counterpart yet (see
+    test_environments_rewrite.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched.
 
     Gated by the `api-environments-redirect` feature flag, evaluated locally per request
-    (no network call, no flag events) — turning the flag off disables the redirect
-    instantly without a deploy or restart. The flag is bucketed on the team/project id
-    from the path (see _flag_distinct_id), so a percentage rollout redirects that
-    fraction of teams (0% off, 100% on) rather than flipping the whole instance at once.
-    If the flag can't be evaluated (missing, local evaluation unavailable, SDK disabled)
-    the redirect stays OFF. Whether or not the redirect is enabled, redirectable
+    (no network call, no flag events) — turning the flag off serves the request via the
+    legacy /api/environments route instead, instantly and without a deploy. The flag is
+    bucketed on the team/project id from the path (see _flag_distinct_id), so a percentage
+    rollout rewrites that fraction of teams (0% off, 100% on) rather than flipping the
+    whole instance at once. If the flag can't be evaluated (missing, local evaluation
+    unavailable, SDK disabled) the rewrite stays OFF. Either way, rewritable
     /api/environments/* responses carry `Deprecation`, `Sunset`, and `Link` headers
     announcing the successor path to integrators.
     """
@@ -638,16 +636,19 @@ class EnvironmentsRedirectMiddleware:
             return self.get_response(request)
 
         query_string = request.META.get("QUERY_STRING", "")
-        location = f"{target_path}?{query_string}" if query_string else target_path
+        successor = f"{target_path}?{query_string}" if query_string else target_path
 
-        response: HttpResponse
-        if self._redirect_enabled(self._flag_distinct_id(path)):
-            response = HttpResponseTemporaryRedirectPreserveMethod(location)
-        else:
-            response = self.get_response(request)
+        if self._rewrite_enabled(self._flag_distinct_id(path)):
+            # Re-route URL resolution to the projects viewset with no client-visible
+            # redirect; method, body, query string, and auth stay on the same request.
+            request.path = target_path
+            request.path_info = target_path
+            request.META["PATH_INFO"] = target_path
+
+        response = self.get_response(request)
 
         response["Deprecation"] = "true"
-        response["Link"] = f'<{location}>; rel="successor-version"'
+        response["Link"] = f'<{successor}>; rel="successor-version"'
         sunset = self._sunset_http_date()
         if sunset:
             response["Sunset"] = sunset
@@ -668,7 +669,7 @@ class EnvironmentsRedirectMiddleware:
         return cls.FEATURE_FLAG_DISTINCT_ID
 
     @classmethod
-    def _redirect_enabled(cls, distinct_id: Optional[str] = None) -> bool:
+    def _rewrite_enabled(cls, distinct_id: Optional[str] = None) -> bool:
         # only_evaluate_locally keeps this off the network on every request; a per-team
         # distinct id lets a percentage rollout bucket by team instead of flipping the
         # whole instance at once (see _flag_distinct_id).
