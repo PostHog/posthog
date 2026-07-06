@@ -59,7 +59,7 @@ describe('StickinessBarChart', () => {
 
         await waitFor(
             () => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
@@ -68,7 +68,7 @@ describe('StickinessBarChart', () => {
     it('y-axis: renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
         renderInsight({ query: stickinessBar() })
 
-        await screen.findByRole('img', { name: /chart with/i })
+        await screen.findByLabelText(/chart with/i)
         await waitFor(() => {
             const ticks = getHogChart().yTicks()
             expect(ticks.length).toBeGreaterThan(0)
@@ -100,7 +100,7 @@ describe('StickinessBarChart', () => {
             },
             { timeout: 5000 }
         )
-        expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
     })
 
     it('click → persons modal: opens with a "stickiness on {interval} {day}" title', async () => {
@@ -156,7 +156,7 @@ describe('StickinessBarChart', () => {
             const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)
