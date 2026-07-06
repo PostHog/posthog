@@ -583,12 +583,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/organizations/@current/members/?search=marketing")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        emails = [r["user"]["email"] for r in results]
-        match_type_by_email = {r["user"]["email"]: r["search_match_type"] for r in results}
 
-        assert match_type_by_email.get("marketing@example.com") == "exact"
-        assert "promo@example.com" not in emails, "similar matches must be hidden when exact matches exist"
-        assert "unrelated@example.com" not in emails
+        assert [r["user"]["email"] for r in results] == ["marketing@example.com"], (
+            "similar matches must be hidden when exact matches exist"
+        )
+        assert results[0]["search_match_type"] == "exact"
 
     def test_list_organization_members_search_match_type_absent_without_search(self):
         User.objects.create_and_join(self.organization, "extra@posthog.com", None)
