@@ -24,6 +24,7 @@ import {
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    doesSurveyRepeatOnEveryEvent,
     getSurveyNotificationFilters,
     getResolvedSurveyDateRange,
     getSurveyAudienceSummaryValue,
@@ -1442,5 +1443,25 @@ describe('splitChoicesOnPaste', () => {
 
     it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
         expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
+    })
+})
+
+describe('doesSurveyRepeatOnEveryEvent', () => {
+    it.each([
+        [
+            'repeated activation with a trigger event',
+            true,
+            { values: [{ name: 'purchase' }], repeatedActivation: true },
+        ],
+        ['repeated activation without trigger events', false, { values: [], repeatedActivation: true }],
+        [
+            'trigger events without repeated activation',
+            false,
+            { values: [{ name: 'purchase' }], repeatedActivation: false },
+        ],
+        ['no events object', false, null],
+    ])('%s -> %s', (_name, expected, events) => {
+        const survey = { conditions: events ? { events } : null } as Pick<Survey, 'conditions'>
+        expect(doesSurveyRepeatOnEveryEvent(survey)).toBe(expected)
     })
 })

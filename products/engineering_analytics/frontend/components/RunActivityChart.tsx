@@ -59,11 +59,9 @@ const MIN_POINTS = 2
 const LENS_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
-// A run with no final duration is treated as in flight up to now — but only up to this cap. A run that
-// started longer ago than this and still hasn't settled almost certainly never will (its completion webhook
-// was missed); without the cap its interval would stretch to now and inflate the in-flight band — and the
-// time axis — by hours or days. Capping bounds that phantom load while still counting a genuinely-running
-// recent run right up to now.
+// A run with no final duration counts as in flight up to now, capped here: one that started longer ago
+// and never settled almost certainly lost its completion webhook, and uncapped it would inflate the
+// in-flight band and time axis by days.
 const MAX_IN_FLIGHT_MS = 60 * 60 * 1000
 
 /** Round up to a "nice" number (1/2/5 × 10ⁿ) so axis ticks land on readable values. */
@@ -221,11 +219,9 @@ function RunActivityBrush({
 }
 
 /**
- * Two views of one workflow's runs on a shared time axis: a scatter of each completed run by start time
- * (X) and wall-clock duration (Y), colored by verdict with a dashed median line; and below it an
- * "in-flight" band showing how many runs were executing at once (the red fill is the failing share, the
- * peak is labeled). The scatter answers "are runs slow / failing?"; the band answers "how much parallel
- * load?". Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
+ * Two views of one workflow's runs on a shared time axis: a scatter by start time (X) and duration (Y),
+ * colored by verdict with a dashed median; and below it an "in-flight" band of concurrent runs (red fill
+ * = failing share). Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
  */
 export function RunActivityChart({
     runs,
@@ -399,9 +395,7 @@ export function RunActivityChart({
                 <h3 className="mb-0">{title}</h3>
                 <Tooltip
                     title={
-                        truncated
-                            ? `Over the most recent ${plottable.length} runs — the list is capped, so this isn't the full window.`
-                            : undefined
+                        truncated ? `Covers the most recent ${plottable.length} runs, not the full window.` : undefined
                     }
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">

@@ -39,6 +39,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
@@ -63,10 +64,11 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
         # time-sensitive checks get workers first when the due batch is large.
         # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
-            default=Value(3),
+            When(calculation_interval=AlertCalculationInterval.REAL_TIME.value, then=Value(0)),
+            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(1)),
+            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(2)),
+            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(3)),
+            default=Value(4),
             output_field=IntegerField(),
         )
 
@@ -219,6 +221,17 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
+        except AlertExtractionError as err:
+            # The alert can't be evaluated as configured (wrong query shape / bad config) — a
+            # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
+            # existing path instead of capturing it as an exception, which would pollute error
+            # tracking with a config problem that recurs on every check until fixed.
+            alert_check = disable_invalid_alert(alert, str(err))
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=False,  # disable_invalid_alert already emailed subscribers
+                new_state=AlertState.ERRORED,
+            )
         except Exception as err:
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(

@@ -9,6 +9,7 @@ import {
     INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
     PRIORITY_ACCENT,
+    PRIORITY_MEANING,
     inboxPriorityFilterLabel,
     inboxSortOptionKey,
     inboxSourceFilterLabel,
@@ -174,7 +175,12 @@ export function InboxSearchFilterBar({
                                 style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
                             />
                         }
-                        label={priority}
+                        label={
+                            <span>
+                                {priority}
+                                <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
+                            </span>
+                        }
                         active={priorityFilter.includes(priority)}
                         onClick={() => togglePriority(priority)}
                     />

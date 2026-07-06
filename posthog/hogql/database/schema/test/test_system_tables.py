@@ -316,6 +316,14 @@ def _create_error_tracking_assignment_rule(team: Team, label: str):
     )
 
 
+def _create_error_tracking_bypass_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingBypassRule
+
+    return ErrorTrackingBypassRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
 def _create_error_tracking_suppression_rule(team: Team, label: str):
     from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
@@ -651,6 +659,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_modeling_endpoint_versions", _create_endpoint_version),
     ("data_modeling_endpoints", _create_endpoint),
     ("error_tracking_assignment_rules", _create_error_tracking_assignment_rule),
+    ("error_tracking_bypass_rules", _create_error_tracking_bypass_rule),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),
@@ -816,6 +825,48 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_markdown_column_extracts_only_markdown_notebook_source(self):
+        markdown_source = "# Title\n\nSome notebook markdown."
+        Notebook.objects.create(
+            team=self.team,
+            short_id="mdnote",
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {"nodeId": "markdown-notebook-v2", "markdown": markdown_source},
+                    }
+                ],
+            },
+            text_content=markdown_source,
+        )
+        Notebook.objects.create(
+            team=self.team,
+            short_id="legacy",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Legacy content"}]},
+                ],
+            },
+            text_content="Legacy content",
+        )
+        Notebook.objects.create(team=self.team, short_id="empty", content=None, text_content=None)
+
+        response = execute_hogql_query(
+            "SELECT short_id, markdown FROM system.notebooks WHERE short_id IN ('mdnote', 'legacy', 'empty')",
+            team=self.team,
+            user=self.user,
+        )
+        rows = {row[0]: row[1] for row in response.results}
+
+        assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

@@ -297,6 +297,48 @@ export interface PatchedTaskAutomationWriteApi {
 }
 
 /**
+ * Response shape for a task channel, read from a frozen ``ChannelDTO``.
+ */
+export interface ChannelDTOApi {
+    id: string
+    name: string
+    channel_type: string
+    created_at: string
+    created_by?: TaskUserBasicInfoApi | null
+}
+
+export interface PaginatedChannelDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelDTOApi[]
+}
+
+/**
+ * Request body for creating (resolve-or-create) or renaming a public channel.
+ */
+export interface ChannelWriteApi {
+    /**
+     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * @maxLength 128
+     */
+    name: string
+}
+
+/**
+ * Request body for creating (resolve-or-create) or renaming a public channel.
+ */
+export interface PatchedChannelWriteApi {
+    /**
+     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * @maxLength 128
+     */
+    name?: string
+}
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -516,6 +558,11 @@ export interface TaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
 }
 
 /**
@@ -608,6 +655,11 @@ export interface PatchedTaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
 }
 
 /**
@@ -1688,6 +1740,37 @@ export interface StreamReadTokenResponseApi {
     stream_base_url: string | null
 }
 
+/**
+ * Response shape for one message in a task's thread.
+ */
+export interface TaskThreadMessageDTOApi {
+    id: string
+    task: string
+    content: string
+    created_at: string
+    author?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    forwarded_to_agent_at?: string | null
+    forwarded_by?: TaskUserBasicInfoApi | null
+}
+
+export interface PaginatedTaskThreadMessageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskThreadMessageDTOApi[]
+}
+
+/**
+ * Request body for posting a thread message.
+ */
+export interface TaskThreadMessageWriteApi {
+    /** Message text. */
+    content: string
+}
+
 export interface TaskRepositoriesResponseApi {
     /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
     repositories: string[]
@@ -2069,6 +2152,17 @@ export type TaskAutomationsListParams = {
     offset?: number
 }
 
+export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type TasksListParams = {
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
@@ -2080,11 +2174,15 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
+     * Filter tasks to a channel's feed.
+     */
+    channel?: string
+    /**
      * Filter by creator user ID
      */
     created_by?: number
     /**
-     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks (available to any team member; access stays governed by task visibility). 'true' lists only internal tasks and is a staff/debug view.
+     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
      * * `true` - true
      * * `false` - false
@@ -2215,6 +2313,17 @@ export type TasksRunsStreamRetrieveParams = {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string
+}
+
+export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

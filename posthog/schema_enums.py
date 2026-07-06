@@ -65,6 +65,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    REAL_TIME = "real_time"
     EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
@@ -1828,6 +1829,9 @@ class ExternalDataSourceType(StrEnum):
     PODIUM = "Podium"
     LOOPS = "Loops"
     REDIS = "Redis"
+    MERCURY = "Mercury"
+    GOJIBERRY = "Gojiberry"
+    TEACHABLE = "Teachable"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3104,6 +3108,7 @@ class SlackIntegrationScope(StrEnum):
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
     CHANNELS_MANAGE = "channels:manage"
+    COMMANDS = "commands"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 

@@ -18,6 +18,8 @@ class ProcessTaskError(ApplicationError):
         if cause is not None and capture:
             capture_exception(cause, self.context)
 
+        # Retry policies match non_retryable_error_types against this type; the SDK omits it unless set.
+        kwargs.setdefault("type", type(self).__name__)
         super().__init__(message, self.context, **kwargs)
 
 
@@ -73,6 +75,18 @@ class SandboxNotFoundError(ProcessTaskFatalError):
 
 class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
+
+    pass
+
+
+class SandboxMissingRepositoryError(ProcessTaskFatalError):
+    """The repository directory the agent-server needs as its cwd is absent from the sandbox.
+
+    Happens when a run reaches agent-server start without a clone — no snapshot restored and no
+    usable GitHub credentials. Retrying cannot make the directory appear, so fail immediately
+    with the real reason instead of burning health-check timeouts on a server that can never
+    open a session.
+    """
 
     pass
 

@@ -13,6 +13,7 @@ import {
     HogFunctionInvocationGlobals,
     LogEntry,
     LogEntryLevel,
+    MessageAssetRow,
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
@@ -176,6 +177,7 @@ export class HogFlowExecutorService {
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
+        const emailAssets: MessageAssetRow[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
@@ -213,6 +215,7 @@ export class HogFlowExecutorService {
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
+            emailAssets.push(...result.emailAssets)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -223,6 +226,7 @@ export class HogFlowExecutorService {
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
+        result.emailAssets = emailAssets
 
         return result
     }

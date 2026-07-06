@@ -62,6 +62,7 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
+    SUPPORTED_FILTER_TYPES,
     BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
@@ -83,6 +84,9 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Quoted, sorted rendering of the supported filter types for user-facing messages.
+_SUPPORTED_FILTER_TYPES_DISPLAY = ", ".join(repr(t) for t in sorted(SUPPORTED_FILTER_TYPES))
 
 
 def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
@@ -576,7 +580,15 @@ class BatchExportRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
     )
-    filters = serializers.JSONField(required=False, allow_null=True)
+    filters = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional list of property filters to restrict which events are exported. Each filter is a "
+            f"serialized HogQL property filter object with a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY} "
+            '(e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}).'
+        ),
+    )
     timezone = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1078,10 +1090,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("'filters' should be an array of filters")
 
         for filter in filters:
-            if isinstance(filter, dict) and any(key in filter for key in ("data_interval_start", "data_interval_end")):
+            if not isinstance(filter, dict):
+                raise serializers.ValidationError("Each filter must be an object")
+
+            if any(key in filter for key in ("data_interval_start", "data_interval_end")):
                 raise serializers.ValidationError(
                     "'data_interval_start' and 'data_interval_end' are run attributes and not 'filters'."
                     " Trigger a backfill if you wish to manually control which periods to batch export."
+                )
+
+            if filter.get("type") not in SUPPORTED_FILTER_TYPES:
+                raise serializers.ValidationError(
+                    f"Each filter must have a 'type' of one of: {_SUPPORTED_FILTER_TYPES_DISPLAY}"
                 )
         return filters
 
