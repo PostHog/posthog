@@ -598,6 +598,26 @@ describe('ci-alerts-devex', () => {
         assert.equal(slack.postMessage.calls.length, 0)
     })
 
+    it('an empty runs page cannot resolve an open incident (regression)', async () => {
+        // Every gating workflow has years of master-push history — an empty page while master has
+        // fresh commits is an index anomaly, and must not read as "no failures" → phantom recovery.
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id }) => {
+                        const table = { 'ci-frontend.yml': runs('Frontend CI', ['success']) }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github, { history: [activeAnchor()] })
+        assert.equal(outputs.action, 'hold')
+        assert.equal(slack.update.calls.length, 0)
+        assert.equal(slack.postMessage.calls.length, 0)
+    })
+
     it('a failed runs fetch cannot resolve an open incident (regression)', async () => {
         // A fetch error must not read as "no failures" — that used to strike through the anchor
         // with "master recovered" on a transient API hiccup.

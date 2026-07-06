@@ -80,7 +80,10 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { f
             freshAsOf && newestRawCreatedAt
                 ? (new Date(freshAsOf).getTime() - new Date(newestRawCreatedAt).getTime()) / 60000
                 : 0
-        if (!(lagMins > RUN_INDEX_MAX_LAG_MINUTES)) return settled // NaN-safe
+        // An empty page while master has commits is the same anomaly as a lagging one — every
+        // gating workflow has master-push history, so its absence is unreadable, not "no failures".
+        const pageStale = Boolean(freshAsOf) && (newestRawCreatedAt === null || lagMins > RUN_INDEX_MAX_LAG_MINUTES)
+        if (!pageStale) return settled // NaN dates fall through to fresh, as before
         if (attempt >= STALE_PAGE_RETRIES) {
             throw new Error(`stale runs index: newest run ${newestRawCreatedAt} trails newest master commit ${freshAsOf}`)
         }
