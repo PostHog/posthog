@@ -14,6 +14,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
 import { objectClean } from 'lib/utils/objects'
+import { isNetworkError } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
@@ -7492,7 +7493,10 @@ async function handleFetch(
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
+        // Re-throw aborted and network-level fetch failures untouched (rather than wrapping the raw
+        // error object in an ApiError, which stringifies to an opaque "TypeError: Load failed").
+        // These are benign interrupted requests, not bugs, so error tracking suppresses them centrally.
+        if (error && ((error as any).name === 'AbortError' || isNetworkError(error))) {
             throw error
         }
         throw new ApiError(error as any, response?.status)

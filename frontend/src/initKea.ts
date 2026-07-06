@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { isNetworkError } from 'lib/utils/requests'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -125,7 +126,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isNetworkError(error)) {
                     posthog.captureException(error)
                 }
             },
