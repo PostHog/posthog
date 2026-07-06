@@ -351,6 +351,7 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_FACET_RAIL: 'logs-facet-rail', // owner: #team-logs
+    LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_PATTERNS_VIEW: 'logs-patterns-view', // owner: #team-logs
     LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
