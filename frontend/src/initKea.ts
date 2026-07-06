@@ -9,7 +9,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, decodeParams, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -73,6 +73,9 @@ export function initKea({
         routerPlugin({
             history: routerHistory,
             location: routerLocation,
+            // Guard against malformed percent-encoding (e.g. a dangling `%` in a truncated URL
+            // hash) so a bad link degrades gracefully instead of throwing URIError during boot.
+            decodeParams,
             urlPatternOptions: {
                 // :TRICKY: What chars to allow in named segment values i.e. ":key"
                 // in "/url/:key". Default: "a-zA-Z0-9-_~ %".

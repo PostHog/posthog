@@ -1,6 +1,7 @@
 import { TeamType } from '~/types'
 
 import { getCurrentTeamId } from './getAppContext'
+import { tryDecodeURIComponent } from './url'
 
 const pathsWithoutProjectId = [
     'api',
@@ -85,6 +86,55 @@ export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): st
 
 const STAY_ON_SAME_PAGE_PATHS = ['settings']
 const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
+
+// Mirrors kea-router's default `parseValue`: coerce numbers/booleans and parse JSON-looking values.
+function parseParamValue(value: string): any {
+    if (!Number.isNaN(Number(value)) && value.trim() !== '') {
+        return Number(value)
+    } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
+        return value.toLowerCase() === 'true'
+    } else if (value.length >= 2 && (value.match(/^\[.*\] +$/) || value.match(/^\{.*\} +$/))) {
+        return value.substring(0, value.length - 1)
+    } else if (value.length >= 2 && (value.match(/^\[.*\]$/) || value.match(/^\{.*\}$/))) {
+        try {
+            return JSON.parse(value)
+        } catch {
+            // Not valid JSON, fall through to returning the raw string
+        }
+    }
+    return value
+}
+
+/**
+ * Drop-in replacement for kea-router's default `decodeParams` that tolerates malformed
+ * percent-encoding. The default uses a raw `decodeURIComponent`, so a dangling `%` in a URL
+ * hash (e.g. a truncated pasted link like `#q=...%`) throws `URIError` during router init and
+ * crashes the whole app on boot. Using `tryDecodeURIComponent` lets bad params degrade to their
+ * raw string instead of taking down the app.
+ */
+export function decodeParams(input: string, symbol: string): Record<string, any> {
+    if (symbol && input.indexOf(symbol) === 0) {
+        input = input.slice(1)
+    }
+
+    const ret: Record<string, any> = Object.create(null)
+
+    for (let param of input.split('&')) {
+        param = param.replace(/\+/g, ' ')
+        const index = param.indexOf('=')
+        if (index === -1) {
+            if (param.length > 0) {
+                ret[tryDecodeURIComponent(param)] = null
+            }
+        } else {
+            const key = tryDecodeURIComponent(param.slice(0, index))
+            const value = tryDecodeURIComponent(param.slice(index + 1))
+            ret[key] = parseParamValue(value)
+        }
+    }
+
+    return ret
+}
 
 export function getProjectSwitchTargetUrl(
     currentPath: string,
