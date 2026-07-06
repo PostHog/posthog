@@ -131,8 +131,10 @@ TRUNCATE_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_TABLE_SQL = (
 )
 
 
-# Direct insert used by tests / any bypass-Kafka producer. Writes go to the
-# local data table (the distributed read alias isn't writable).
+# Direct insert helper for a bypass-Kafka producer (e.g. a backfill or future
+# test fixture). Writes go to the local data table (the distributed read alias
+# isn't writable). Kept alongside the DROP/TRUNCATE helpers for parity with the
+# `hog_invocation_results` table family.
 INSERT_WAREHOUSE_WEBHOOK_DELIVERY_STATUS_SQL = f"""
 INSERT INTO {WAREHOUSE_WEBHOOK_DELIVERY_STATUS_DATA_TABLE} (
     team_id,
