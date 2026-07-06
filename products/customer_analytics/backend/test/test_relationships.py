@@ -262,6 +262,7 @@ class TestWritePathSync(BaseTest):
             user=self.user,
             was_impersonated=False,
         )
+        assert view.id is not None
         account = Account.objects.for_team(self.team.id).get(id=view.id)
         assert self._active_rows(account).count() == 1
 
