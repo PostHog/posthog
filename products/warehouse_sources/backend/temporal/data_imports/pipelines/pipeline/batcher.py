@@ -59,7 +59,12 @@ def _column_payload_bytes(col: pa.ChunkedArray) -> int:
         # Recurse into child fields so a nested struct (e.g. a Mongo document carried under `data`) is
         # counted instead of undercounting to 0 — otherwise the per-table byte split never sees the
         # payload that actually drives the merge's memory. `flatten()` yields one ChunkedArray per field.
-        return sum(_column_payload_bytes(child) for child in col.flatten())
+        # Guarded like the fixed-width branch below: an unexpected flatten failure degrades to 0 rather
+        # than propagating and breaking size accounting for the whole table.
+        try:
+            return sum(_column_payload_bytes(child) for child in col.flatten())
+        except Exception:
+            return 0
     # Fixed-width primitives expose bit_width; variable-length / other nested types raise -> 0.
     # Known limitation: map and sub-byte bool columns still undercount to 0 (we bound large string/JSON
     # and struct payloads, the actual OOM drivers).

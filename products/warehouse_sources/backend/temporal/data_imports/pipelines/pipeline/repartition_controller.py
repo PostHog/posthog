@@ -164,10 +164,17 @@ async def maybe_flag_for_repartition(
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
         # largest partition looks within budget — the compressed at-rest size under-counts the merge's
         # real working set (e.g. wide nested-JSON columns that decompress far more than typical data).
-        oom_count = await asyncio.to_thread(
-            ExternalDataSchemaOOMEvent.recent_count, schema, days=repartition_oom_window_days()
-        )
-        oom_triggered = oom_count >= repartition_oom_threshold()
+        # Only query the OOM log when the size check didn't already trip: an over-budget table
+        # repartitions regardless, so the count would only feed observability props there — skip the
+        # per-sync indexed COUNT for it and report 0.
+        if over_budget:
+            oom_count = 0
+            oom_triggered = False
+        else:
+            oom_count = await asyncio.to_thread(
+                ExternalDataSchemaOOMEvent.recent_count, schema, days=repartition_oom_window_days()
+            )
+            oom_triggered = oom_count >= repartition_oom_threshold()
 
         if not over_budget and not oom_triggered:
             await logger.adebug(
@@ -244,7 +251,7 @@ async def maybe_flag_for_repartition(
             )
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
             await logger.adebug(
-                f"repartition: over budget but skipped, no finer partitioning target available "
+                f"repartition: needs repartition but skipped, no finer partitioning target available "
                 f"schema_id={schema.id} reason={reason} max_partition_bytes={max_bytes} budget_bytes={budget} "
                 f"partition_mode={schema.partition_mode} partition_format={schema.partition_format} "
                 f"partition_count={len(partition_bytes)}",

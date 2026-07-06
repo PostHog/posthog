@@ -46,7 +46,11 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
         ]
 
     @classmethod
-    def recent_count(cls, schema: "ExternalDataSchema", *, days: int = 7) -> int:
-        """Number of OOM occurrences recorded for this schema within the last `days`."""
+    def recent_count(cls, schema: "ExternalDataSchema", *, days: int) -> int:
+        """Number of OOM occurrences recorded for this schema within the last `days`.
+
+        `days` is required (no default) so it stays sourced from `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS`
+        at the call site rather than duplicating that window here where the two could silently diverge.
+        """
         since = timezone.now() - timedelta(days=days)
         return cls.objects.for_team(schema.team_id).filter(schema_id=schema.pk, created_at__gte=since).count()

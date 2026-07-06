@@ -517,39 +517,36 @@ async def run_pre_write_defensive_compact(
 ) -> None:
     """Best-effort pre-write compact + vacuum at the start of a sync run.
 
-    Triggers `DeltaTableHelper.compact_if_fragmented` so a sync that arrived at a
-    fragmented Delta target (e.g. because earlier attempts failed before reaching
-    `_post_run_operations`) cleans up before adding more small files — keeping the
-    subsequent per-partition merge scans cheap. Wrapped in try/except so a
-    compaction failure never blocks the actual sync; the original error path is
-    unaffected.
+    Delegates to `DeltaTableHelper.run_maintenance`, which compacts a fragmented Delta
+    target (a sync that arrived fragmented because earlier attempts failed before
+    reaching `_post_run_operations` — keeping the subsequent per-partition merge scans
+    cheap) and otherwise vacuums on a commit-count cadence so a table that OOMs its merge
+    every run and never reaches post-load compaction still sheds tombstones (the
+    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist, so
+    this function is the sole writer of `last_vacuum_version`. Wrapped in try/except so a
+    maintenance failure never blocks the actual sync; the original error path is unaffected.
 
-    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the
-    behaviour identical across pipelines without each having to know how to look
-    up `partition_count` or how to swallow compaction errors.
+    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
+    identical across pipelines without each having to know how to look up `partition_count`
+    or how to swallow maintenance errors.
     """
-    try:
-        partition_count_for_compact = schema.partition_count or resource.partition_count
-        await delta_table_helper.compact_if_fragmented(partition_count=partition_count_for_compact)
-    except Exception as e:
-        capture_exception(e)
-        await logger.aexception(f"Pre-write compaction failed: {e}", exc_info=e)
-
-    # Vacuum on a commit-count cadence, independent of the fragmentation check above (which is blind to
-    # dead files) and of merge success. A table that OOMs its merge every run never reaches the post-load
-    # compaction, so without this it accumulates tombstones indefinitely (the ~99%-dead-file tables).
     try:
         from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
             update_sync_type_config_keys,
         )
 
+        partition_count_for_compact = schema.partition_count or resource.partition_count
         last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
         commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
-        new_version = await delta_table_helper.vacuum_if_stale(last_vacuum_version, commit_threshold)
+        new_version = await delta_table_helper.run_maintenance(
+            partition_count=partition_count_for_compact,
+            last_vacuum_version=last_vacuum_version,
+            commit_threshold=commit_threshold,
+        )
         if new_version is not None and new_version != last_vacuum_version:
             await database_sync_to_async_pool(update_sync_type_config_keys)(
                 schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
             )
     except Exception as e:
         capture_exception(e)
-        await logger.aexception(f"Pre-write vacuum failed: {e}", exc_info=e)
+        await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)

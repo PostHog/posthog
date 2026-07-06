@@ -741,6 +741,42 @@ class TestVacuumIfStale:
         assert vacuum.await_count == (1 if expect_vacuum else 0)
 
 
+class TestRunMaintenance:
+    """run_maintenance is the single pre-write entry point: compaction supersedes the cadence vacuum."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @pytest.mark.asyncio
+    async def test_compaction_supersedes_vacuum_and_advances_watermark(self):
+        # Fragmented table: compact runs (and vacuums as part of it), so the cadence vacuum is skipped —
+        # no double vacuum in one run — and the watermark advances to the post-compaction version.
+        helper = self._helper()
+        table = MagicMock(version=MagicMock(return_value=200))
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=True)),
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock()) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=50, commit_threshold=100)
+
+        assert result == 200
+        vacuum_if_stale.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_vacuum_when_not_fragmented(self):
+        # Not fragmented → no compaction; fall through to the commit-cadence vacuum and return its watermark.
+        helper = self._helper()
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=False)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock(return_value=150)) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=40, commit_threshold=100)
+
+        assert result == 150
+        vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
 class TestIsTableCorrupted:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
 

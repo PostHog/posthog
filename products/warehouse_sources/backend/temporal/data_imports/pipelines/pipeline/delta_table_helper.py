@@ -777,3 +777,29 @@ class DeltaTableHelper:
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
         await self.compact_table()
         return True
+
+    async def run_maintenance(
+        self,
+        partition_count: int | None,
+        last_vacuum_version: int | None,
+        commit_threshold: int,
+    ) -> int | None:
+        """Single pre-write maintenance entry point: compact if fragmented, else vacuum on commit cadence.
+
+        The two triggers are orthogonal — fragmentation (active file count) vs. commit cadence (tombstone
+        accrual) — but they share one outcome, the vacuum watermark. `compact_if_fragmented` already
+        vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
+        in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
+        fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
+        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
+        the watermark so it lives in exactly one place.
+        """
+        compacted = await self.compact_if_fragmented(partition_count=partition_count)
+        if compacted:
+            table = await self.get_delta_table()
+            if table is None:
+                return None
+            # Compaction (which vacuumed) added a commit, advancing the version; reset the cadence
+            # watermark to it so the next vacuum is measured from this cleanup, not the old baseline.
+            return await asyncio.to_thread(table.version)
+        return await self.vacuum_if_stale(last_vacuum_version, commit_threshold)

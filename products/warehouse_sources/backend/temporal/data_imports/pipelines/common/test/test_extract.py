@@ -24,7 +24,7 @@ _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipe
 class TestRunPreWriteDefensiveCompact:
     @parameterized.expand(
         [
-            # (schema_partition_count, resource_partition_count, expected_passed_to_compact)
+            # (schema_partition_count, resource_partition_count, expected_passed_to_run_maintenance)
             ("schema_value_wins", 10, 72, 10),
             ("falls_back_to_resource", None, 72, 72),
             ("both_none_passes_none", None, None, None),
@@ -34,25 +34,23 @@ class TestRunPreWriteDefensiveCompact:
     async def test_resolves_partition_count_schema_over_resource(
         self, _name: str, schema_count: int | None, resource_count: int | None, expected: int | None
     ):
-        compact = AsyncMock(return_value=False)
-        helper = MagicMock(compact_if_fragmented=compact)
+        run_maintenance = AsyncMock(return_value=None)
+        helper = MagicMock(run_maintenance=run_maintenance)
 
         await run_pre_write_defensive_compact(
             helper,
-            MagicMock(partition_count=schema_count),
+            MagicMock(partition_count=schema_count, sync_type_config={}),
             MagicMock(partition_count=resource_count),
             MagicMock(aexception=AsyncMock()),
         )
 
-        compact.assert_awaited_once_with(partition_count=expected)
+        assert run_maintenance.await_args.kwargs["partition_count"] == expected
 
     @pytest.mark.asyncio
-    async def test_swallows_compaction_failure(self):
-        # The whole point of the wrapper: a compaction error must never propagate and
+    async def test_swallows_maintenance_failure(self):
+        # The whole point of the wrapper: a maintenance error must never propagate and
         # block the sync — it's captured and logged instead.
-        compact = AsyncMock(side_effect=RuntimeError("compaction blew up"))
-        # Stub the vacuum path to a clean no-op so only the compaction failure is captured.
-        helper = MagicMock(compact_if_fragmented=compact, vacuum_if_stale=AsyncMock(return_value=None))
+        helper = MagicMock(run_maintenance=AsyncMock(side_effect=RuntimeError("maintenance blew up")))
         logger = MagicMock(aexception=AsyncMock())
 
         schema = MagicMock(partition_count=5, sync_type_config={})
@@ -157,3 +155,35 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+
+    def test_corrupt_table_with_ready_swap_is_salvaged(self, team):
+        # A corrupt table whose interrupted repartition swap left a `ready` temp table is finished from temp
+        # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs
+        # and the job stays billable. Guards the salvage-from-temp branch against regressing to a reset.
+        schema, job = self._schema_and_job(team)
+        schema.sync_type_config = {
+            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"}
+        }
+        schema.save(update_fields=["sync_type_config"])
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True),
+            reset_table=AsyncMock(),
+            _get_credentials=MagicMock(return_value={}),
+        )
+
+        repartition_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition"
+        repartition_table_module = (
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+        )
+        resume = AsyncMock(return_value={"outcome": "completed"})
+        with (
+            patch(f"{repartition_module}._resume_swap_with_missing_live", resume),
+            patch(f"{repartition_table_module}._target_from_schema", return_value=MagicMock()),
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        assert result is True
+        resume.assert_awaited_once()
+        helper.reset_table.assert_not_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
