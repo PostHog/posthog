@@ -39,6 +39,8 @@ export interface CreateComboScalesOptions {
     /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
      *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Per-axis overrides — explicit values win over the alternating-side default and `options.scaleType`. */
+    axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
 }
 
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
@@ -63,6 +65,7 @@ export function createComboScales(
         seriesTypeOf,
         barStackedData,
         valueDomain,
+        axes,
     } = options
 
     const band = scaleBand<string>()
@@ -80,7 +83,11 @@ export function createComboScales(
     }
 
     // Empty chart still needs an axis to draw against.
-    const axisPositions = orderedAxisPositions(series)
+    const axisOverrides = new Map((axes ?? []).map((a) => [a.id, a]))
+    const axisPositions = orderedAxisPositions(series).map(({ axisId, position }) => ({
+        axisId,
+        position: axisOverrides.get(axisId)?.position ?? position,
+    }))
     if (axisPositions.length === 0) {
         axisPositions.push({ axisId: DEFAULT_Y_AXIS_ID, position: 'left' })
     }
@@ -107,7 +114,7 @@ export function createComboScales(
         // series explicitly routed to the right axis) keeps its own data-derived scale instead of
         // being forced onto [0, 1].
         const scale = createYScale(axisValueSeries, dimensions, {
-            scaleType,
+            scaleType: axisOverrides.get(axisId)?.scaleType ?? scaleType,
             percentStack: barLayout === 'percent' && axisSeries.some((s) => seriesTypeOf(s) === 'bar'),
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
         })

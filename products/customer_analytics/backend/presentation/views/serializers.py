@@ -27,7 +27,10 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
-from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+    CUSTOM_PROPERTY_OPTION_COLORS,
+)
 from products.customer_analytics.backend.facade.contracts import (
     AccountNotebookView,
     AccountNoteView,
@@ -35,6 +38,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
+    CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
 )
@@ -356,6 +360,32 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         ]
 
 
+class CustomPropertyOptionSerializer(DataclassSerializer):
+    """An allowed value of a select custom property."""
+
+    id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Server-assigned stable id of the option. Omit for new options; send it back unchanged "
+            "when editing so renames and removals can be told apart."
+        ),
+    )
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=400,
+        help_text="Display label of the option. Stored as the account's value when picked.",
+    )
+    color = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_OPTION_COLORS,
+        help_text="Preset color token used to render the option ('preset-1' through 'preset-10').",
+    )
+
+    class Meta:
+        dataclass = CustomPropertyOption
+        ref_name = "CustomPropertyOption"
+        fields = ["id", "label", "color"]
+
+
 class CustomPropertyDefinitionSerializer(DataclassSerializer):
     """A team-scoped definition of a custom account property — the attribute side of the model.
 
@@ -378,13 +408,22 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
             "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', or 'boolean'."
+            "'percent', 'date', 'datetime', 'boolean', or 'select'."
         ),
     )
     is_big_number = serializers.BooleanField(
         required=False,
         default=False,
         help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    options = CustomPropertyOptionSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "For select properties: the allowed options. Required (non-empty) when display_type is "
+            "'select'; cleared server-side for other types."
+        ),
     )
     source = CustomPropertySourceSerializer(  # type: ignore[assignment]
         read_only=True,
@@ -409,6 +448,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "description",
             "display_type",
             "is_big_number",
+            "options",
             "source",
             "created_at",
             "created_by",

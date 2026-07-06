@@ -3,6 +3,8 @@ import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
+import { IconCheckCircle } from '@posthog/icons'
+
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -39,6 +41,7 @@ function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
+        resendResponse,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -119,6 +122,7 @@ function Login(): JSX.Element {
                     <div className="flex flex-col items-center gap-3">
                         <LemonButton
                             size="large"
+                            type="secondary"
                             center
                             fullWidth
                             disabled={resendResponseLoading}
@@ -127,6 +131,12 @@ function Login(): JSX.Element {
                         >
                             Resend verification email
                         </LemonButton>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                Verification email sent — check your inbox.
+                            </p>
+                        )}
                         <Link
                             onClick={() => clearGeneralError()}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"

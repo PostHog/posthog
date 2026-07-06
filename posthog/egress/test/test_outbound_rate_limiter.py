@@ -72,6 +72,20 @@ def test_policy_rejects_empty_limits():
         RatePolicy(limits=())
 
 
+def test_provider_receives_the_full_limiter_key() -> None:
+    # Guards the per-scope budget seam: if resolve_policy stops passing the key through, every
+    # key-aware provider (e.g. GitHub's tier-scaled budgets) silently reverts to one shared budget.
+    seen: list[str] = []
+
+    def provider(key: str) -> RatePolicy:
+        seen.append(key)
+        return RatePolicy(limits=((1, 3600.0),))
+
+    register_policy("test-keyed", provider)
+    resolve_policy("test-keyed:scope:42")
+    assert seen == ["test-keyed:scope:42"]
+
+
 @pytest.mark.parametrize("bad_key", ["totally-unregistered:scope:1", "nocolon"])
 def test_resolve_policy_rejects_bad_keys(bad_key):
     # Fail-closed: an unregistered domain or a malformed (colon-less) key must raise rather than

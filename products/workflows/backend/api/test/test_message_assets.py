@@ -11,6 +11,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_person
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -232,3 +233,128 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         self.feature_enabled_mock.return_value = False
         res = self.client.get(f"{self._base()}/{path}")
         assert res.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "p@example.com"})
+        self.hog_flow = HogFlow.objects.create(team=self.team, name="Welcome flow")
+        ff_patcher = patch(
+            "products.workflows.backend.api.message_assets.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.feature_enabled_mock = ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
+
+    def _emails(self, params=None):
+        return self.client.get(f"/api/projects/{self.team.id}/persons/{self.person.uuid}/emails/", params)
+
+    def _seed(self, invocation_id: str, *, person_id: Optional[str] = None, **kwargs):
+        create_message_asset(
+            team_id=self.team.pk,
+            function_id=str(self.hog_flow.pk),
+            invocation_id=invocation_id,
+            person_id=person_id or str(self.person.uuid),
+            **kwargs,
+        )
+
+    def test_returns_empty_when_person_has_no_emails(self):
+        res = self._emails()
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json() == []
+
+    def test_returns_emails_with_function_id_for_navigation(self):
+        self._seed("inv-1", subject="Hello", recipient="p@example.com")
+        rows = self._emails().json()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["invocation_id"] == "inv-1"
+        assert row["subject"] == "Hello"
+        assert row["recipient"] == "p@example.com"
+        assert row["function_id"] == str(self.hog_flow.pk)
+        # Workflow name is enriched from Postgres so the tab shows "Test Flow" instead of a UUID.
+        # A regression here would put raw workflow IDs in front of users.
+        assert row["function_name"] == self.hog_flow.name
+        assert "html" not in row
+
+    def test_function_name_empty_when_workflow_deleted(self):
+        create_message_asset(
+            team_id=self.team.pk,
+            function_id="00000000-0000-0000-0000-000000000abc",
+            invocation_id="inv-orphan",
+            person_id=str(self.person.uuid),
+        )
+        row = self._emails().json()[0]
+        # No HogFlow row → the frontend falls back to function_id for display, so this must be blank
+        # rather than a stale name or a database lookup error.
+        assert row["function_name"] == ""
+
+    def test_isolated_from_other_persons(self):
+        self._seed("mine")
+        self._seed("theirs", person_id="00000000-0000-0000-0000-000000000999")
+        rows = self._emails().json()
+        assert {r["invocation_id"] for r in rows} == {"mine"}
+
+    def test_isolated_from_other_teams(self):
+        self._seed("mine")
+        create_message_asset(
+            team_id=self.team.pk + 9999,
+            function_id=str(self.hog_flow.pk),
+            invocation_id="other-team",
+            person_id=str(self.person.uuid),
+        )
+        rows = self._emails().json()
+        assert {r["invocation_id"] for r in rows} == {"mine"}
+
+    def test_excludes_standalone_hog_function_emails(self):
+        self._seed("flow-row")
+        self._seed("fn-row", function_kind="hog_function")
+        rows = self._emails().json()
+        assert {r["invocation_id"] for r in rows} == {"flow-row"}
+
+    def test_collapses_to_latest_version(self):
+        self._seed("inv-1", subject="first", version=1)
+        self._seed("inv-1", subject="second", version=2)
+        rows = self._emails().json()
+        assert len(rows) == 1
+        assert rows[0]["subject"] == "second"
+
+    def test_excludes_deleted(self):
+        self._seed("inv-1", version=1)
+        self._seed("inv-1", version=2, is_deleted=1)
+        assert self._emails().json() == []
+
+    def test_sorted_newest_first(self):
+        now = datetime.now(tz=UTC)
+        self._seed("older", sent_at=now - timedelta(hours=2))
+        self._seed("newer", sent_at=now - timedelta(minutes=5))
+        rows = self._emails().json()
+        assert [r["invocation_id"] for r in rows] == ["newer", "older"]
+
+    def test_respects_limit_and_offset(self):
+        for i in range(5):
+            self._seed(f"inv-{i}")
+        assert len(self._emails({"limit": 2}).json()) == 2
+        assert len(self._emails({"limit": 2, "offset": 4}).json()) == 1
+
+    def test_personal_api_key_requires_person_read_scope(self):
+        self._seed("inv-1")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="no person scope",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:read"],
+        )
+        res = self.client.get(
+            f"/api/projects/{self.team.id}/persons/{self.person.uuid}/emails/",
+            headers={"authorization": f"Bearer {key}"},
+        )
+        assert res.status_code == 403, res.json()
+        assert "person:read" in res.json().get("detail", "")
+
+    def test_404_when_ui_flag_disabled(self):
+        self._seed("inv-1")
+        self.feature_enabled_mock.return_value = False
+        assert self._emails().status_code == status.HTTP_404_NOT_FOUND
