@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuntrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import (
     HuntrResumeConfig,
-    check_access,
     huntr_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import ENDPOINTS, HUNTR_ENDPOINTS
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -108,12 +108,7 @@ You can generate an access token in your Huntr organization admin dashboard. The
         self, config: HuntrSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The access token is organization-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.access_token)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Huntr access token"
-        return False, message or "Could not validate Huntr access token"
+        return validate_credentials(config.access_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HuntrResumeConfig]:
         return ResumableSourceManager[HuntrResumeConfig](inputs, HuntrResumeConfig)

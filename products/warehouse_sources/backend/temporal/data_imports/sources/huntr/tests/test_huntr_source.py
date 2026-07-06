@@ -99,7 +99,7 @@ class TestHuntrSource:
             (0, False, "Could not connect to Huntr: boom"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source.check_access")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr.check_access")
     def test_validate_credentials(
         self,
         mock_check: mock.MagicMock,
