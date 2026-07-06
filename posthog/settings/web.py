@@ -520,7 +520,19 @@ SPECTACULAR_SETTINGS = {
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
-        "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
+        "CustomPropertyDisplayTypeEnum": [
+            "text",
+            "number",
+            "currency",
+            "percent",
+            "date",
+            "datetime",
+            "boolean",
+            "select",
+        ],
+        # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
+        # palette color later would change the hash and silently rename the generated type.
+        "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.

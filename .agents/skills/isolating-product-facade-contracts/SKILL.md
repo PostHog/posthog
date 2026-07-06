@@ -129,7 +129,7 @@ least leave a string to grep for.
 
 ## Clearing coupling the scan won't show
 
-`product:isolate:scan` walks the import graph of `backend.*`. Three kinds of
+`product:isolate:scan` walks the import graph of `backend.*`. Four kinds of
 coupling escape it — none is a dead end, each has a defined move. After the
 backend sweep, `git grep "products.<name>"` (not just `.backend`) and read the
 scan's string-reference section to find them.
@@ -162,6 +162,22 @@ own views. Provide facade read functions for its models; wire the cheap views;
 defer the expensive ones (nested-serializer or transactional viewsets) as named
 `ignore_imports` for the presentation wave. Providing the facade function while
 deferring its caller is a legitimate intermediate state, not a half-migration.
+
+**Product-owned HogQL system tables.** When core mounts a product's federated
+system tables (`schema/system.py`, `lazy_join_registry.py`), answer two independent questions:
+
+- _Can the reference be a normal facade import?_ Yes — table defs and lazy-join
+  functions are plain module-level objects; move them into the product
+  (e.g. `facade/hogql.py`) and reroute core's import, like any other wiring.
+- _Do the objects enter the **static** pickled catalog?_ Core builds the
+  catalog once and reloads it per request through a restricted unpickler
+  (`build_database_root_node` in `posthog/hogql/database/database.py`).
+  Any product-defined **class** in the catalog tree (a `PostgresTable`/`LazyTable`
+  subclass) needs its module added to `_CATALOG_PICKLE_MODULES` — allowlisted
+  individually, not by prefix. A missing entry fails the core catalog tests
+  with a message naming the module. Warehouse-style per-team tables are built
+  at request time and never enter the static catalog, which is why most
+  products never hit this.
 
 The web_analytics migration is the worked example of all three: its preagg test
 base moved down to core, its timezone integration test moved into the product,
