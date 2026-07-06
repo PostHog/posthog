@@ -7,11 +7,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
 
-import { wizardActiveSessionDetectorLogic } from '../../../../legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import { activeCloudRunLogic, CloudRunHandle } from '../activeCloudRunLogic'
-import { InstallationProgress, installationProgressLogic } from '../installationProgressLogic'
-import { InstallationProgressContent } from '../InstallationProgressView'
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
+import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
 import { formatElapsed, syncHeadline, toneTextClass } from './helpers'
+import { InstallationProgress, installationProgressLogic } from './installationProgressLogic'
+import { InstallationProgressContent } from './InstallationProgressView'
+import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import { StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
@@ -45,7 +46,16 @@ function WizardSyncLauncher({
             onClick={onRestore}
             aria-label="Show PostHog setup progress"
             data-attr="wizard-sync-launcher"
-            className="flex items-center gap-2 rounded-full bg-surface-primary border border-primary shadow-lg shadow-black/10 pl-2 pr-3 py-1.5 hover:bg-fill-highlight-50 transition-colors cursor-pointer"
+            className={cn(
+                'flex items-center gap-2 rounded-full bg-surface-primary border shadow-lg shadow-black/10 pl-2 pr-3 py-1.5 hover:bg-fill-highlight-50 transition-colors cursor-pointer',
+                // A minimized run that finished (or failed) should read at a glance, not hide as a
+                // neutral pill.
+                progress.phase === 'completed'
+                    ? 'border-success'
+                    : progress.phase === 'error'
+                      ? 'border-danger'
+                      : 'border-primary'
+            )}
         >
             <StatusGlyph progress={progress} />
             <span className="text-sm font-medium">PostHog setup</span>
@@ -108,12 +118,20 @@ function WizardSyncSurface({
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
     const { dismiss, restore, openDialog, closeDialog } = useActions(wizardSyncUiLogic)
+    const {
+        reportWizardSyncExpanded,
+        reportWizardSyncMinimized,
+        reportWizardSyncRestored,
+        reportWizardSyncRunDismissed,
+    } = useActions(onboardingEventUsageLogic)
     const now = useNow()
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
     const minimized = dismissedKey === runKey
+    const eventProps = { runKey, mode, phase: progress.phase }
     // Clearing a finished run also closes the dialog before the surface unmounts.
     const handleClear = onClear
         ? () => {
+              reportWizardSyncRunDismissed({ ...eventProps, elapsedSeconds })
               closeDialog()
               onClear()
           }
@@ -123,14 +141,27 @@ function WizardSyncSurface({
         <>
             <div className={CORNER}>
                 {minimized ? (
-                    <WizardSyncLauncher progress={progress} elapsedSeconds={elapsedSeconds} onRestore={restore} />
+                    <WizardSyncLauncher
+                        progress={progress}
+                        elapsedSeconds={elapsedSeconds}
+                        onRestore={() => {
+                            reportWizardSyncRestored(eventProps)
+                            restore()
+                        }}
+                    />
                 ) : (
                     <WizardSyncCard
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
-                        onExpand={openDialog}
-                        onDismiss={() => dismiss(runKey)}
+                        onExpand={() => {
+                            reportWizardSyncExpanded(eventProps)
+                            openDialog()
+                        }}
+                        onDismiss={() => {
+                            reportWizardSyncMinimized(eventProps)
+                            dismiss(runKey)
+                        }}
                     />
                 )}
             </div>

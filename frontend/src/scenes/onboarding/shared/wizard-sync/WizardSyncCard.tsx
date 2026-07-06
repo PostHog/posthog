@@ -11,8 +11,8 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { InstallationProgress } from '../installationProgressLogic'
 import { currentTaskLabel, formatElapsed, pipClass, stepCounts, syncHeadline, toneTextClass } from './helpers'
+import { InstallationProgress } from './installationProgressLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
 
@@ -59,6 +59,7 @@ export function WizardSyncCard({
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
+    const isRunning = progress.phase !== 'completed' && progress.phase !== 'error'
 
     return (
         <div
@@ -76,13 +77,18 @@ export function WizardSyncCard({
                 <div className="flex items-center gap-2.5">
                     <StatusGlyph progress={progress} />
                     <div className="flex-1 min-w-0">
-                        <p className={cn('m-0 text-sm font-semibold truncate', toneTextClass(progress))}>{task}</p>
+                        <p
+                            className={cn('m-0 text-sm font-semibold truncate', toneTextClass(progress))}
+                            title={task ?? undefined}
+                        >
+                            {task}
+                        </p>
                         <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
                     </div>
                     <span className="text-xs text-muted tabular-nums shrink-0">{formatElapsed(elapsedSeconds)}</span>
                 </div>
 
-                {total > 0 && (
+                {total > 0 ? (
                     <div className="flex items-center gap-2">
                         <div className="flex flex-1 items-center gap-1">
                             {progress.steps.map((step) => (
@@ -93,6 +99,15 @@ export function WizardSyncCard({
                             {completed}/{total}
                         </span>
                     </div>
+                ) : (
+                    isRunning && (
+                        // No step detail yet (connecting, or a polling-mode run where step
+                        // notifications are stream-borne): an indeterminate strip keeps the card
+                        // visibly alive instead of looking stalled.
+                        <div className="h-1 rounded-full bg-fill-highlight-100 overflow-hidden">
+                            <div className="h-full w-1/3 rounded-full bg-accent animate-pulse" />
+                        </div>
+                    )
                 )}
             </button>
 
@@ -102,7 +117,8 @@ export function WizardSyncCard({
                     {progress.prUrl && (
                         <LemonButton
                             size="xsmall"
-                            type="secondary"
+                            // The PR is the run's payoff: promote it once the run has finished.
+                            type={progress.phase === 'completed' ? 'primary' : 'secondary'}
                             to={progress.prUrl}
                             targetBlank
                             icon={<IconPullRequest />}

@@ -1,0 +1,93 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCloud, IconTerminal } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { useWizardCommand } from '../SetupWizardBanner'
+import { activeCloudRunLogic } from './activeCloudRunLogic'
+import { WizardCloudRunBlock } from './WizardCloudRunBlock'
+
+export type WizardInstallMode = 'cloud' | 'local'
+
+export interface WizardInstallOptionsProps {
+    /** The local "run it yourself" arm. Variants supply their own command block. */
+    localBlock: React.ReactNode
+    /** Keeps the compact onboarding card free of the wizard hedgehog. */
+    hideHog?: boolean
+    /** Called when a cloud run is queued (e.g. advance or unblock the step). */
+    onQueued?: () => void
+    /** Instrumentation hook, fired when the user switches between cloud and local. */
+    onModeSelected?: (mode: WizardInstallMode) => void
+}
+
+/**
+ * One wizard, two ways to run it: have us run it and open a PR (the cloud run), or run the CLI
+ * yourself. A segmented control switches between them. Shared by both onboarding variants; the
+ * cloud path only exists behind ONBOARDING_WIZARD_CLOUD_RUN (the AB test arm) on cloud/dev —
+ * elsewhere this collapses to just the caller's local block, so the control arm is unchanged.
+ */
+export function WizardInstallOptions({
+    localBlock,
+    hideHog = false,
+    onQueued,
+    onModeSelected,
+}: WizardInstallOptionsProps): JSX.Element {
+    const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
+    const { isCloudOrDev } = useWizardCommand()
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const [mode, setMode] = useState<WizardInstallMode>('cloud')
+
+    const offerCloud = cloudRunEnabled && isCloudOrDev
+    // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked
+    // and the view pins to the cloud run's progress until it is cleared (e.g. via the failure fallback).
+    const localBlocked = !!activeCloudRun
+    const effectiveMode: WizardInstallMode = localBlocked ? 'cloud' : mode
+
+    // A failed cloud run's fallback: drop the dead run (unblocks local, clears its FAB) and switch to
+    // the command.
+    const runItYourself = (): void => {
+        clearActiveCloudRun()
+        setMode('local')
+    }
+
+    if (!offerCloud) {
+        return <>{localBlock}</>
+    }
+
+    return (
+        <div className="flex flex-col gap-4">
+            <LemonSegmentedButton
+                fullWidth
+                value={effectiveMode}
+                onChange={(value) => {
+                    onModeSelected?.(value)
+                    setMode(value)
+                }}
+                options={[
+                    {
+                        value: 'cloud',
+                        label: 'Open a pull request',
+                        icon: <IconCloud />,
+                        'data-attr': 'context-wizard-mode-cloud',
+                    },
+                    {
+                        value: 'local',
+                        label: 'Run it yourself',
+                        icon: <IconTerminal />,
+                        disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
+                        'data-attr': 'context-wizard-mode-local',
+                    },
+                ]}
+            />
+            {effectiveMode === 'cloud' ? (
+                <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+            ) : (
+                localBlock
+            )}
+        </div>
+    )
+}
