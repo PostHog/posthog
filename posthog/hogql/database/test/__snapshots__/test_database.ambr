@@ -8940,6 +8940,144 @@
           "row_count": null,
           "type": "system"
       },
+      "system.autoresearch_pipelines": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "target_event": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_event",
+                  "id": null,
+                  "name": "target_event",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "horizon_days": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "horizon_days",
+                  "id": null,
+                  "name": "horizon_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "prediction_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prediction_mode",
+                  "id": null,
+                  "name": "prediction_mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "iteration_budget": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "iteration_budget",
+                  "id": null,
+                  "name": "iteration_budget",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "iteration_budget_remaining": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "iteration_budget_remaining",
+                  "id": null,
+                  "name": "iteration_budget_remaining",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "output_person_property": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "output_person_property",
+                  "id": null,
+                  "name": "output_person_property",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "last_scored_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_scored_at",
+                  "id": null,
+                  "name": "last_scored_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.autoresearch_pipelines",
+          "name": "system.autoresearch_pipelines",
+          "row_count": null,
+          "type": "system"
+      },
       "system.teams": {
           "fields": {
               "id": {
@@ -17543,6 +17681,144 @@
           },
           "id": "system.tasks",
           "name": "system.tasks",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.autoresearch_pipelines": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "target_event": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "target_event",
+                  "id": null,
+                  "name": "target_event",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "horizon_days": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "horizon_days",
+                  "id": null,
+                  "name": "horizon_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "prediction_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prediction_mode",
+                  "id": null,
+                  "name": "prediction_mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "iteration_budget": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "iteration_budget",
+                  "id": null,
+                  "name": "iteration_budget",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "iteration_budget_remaining": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "iteration_budget_remaining",
+                  "id": null,
+                  "name": "iteration_budget_remaining",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "output_person_property": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "output_person_property",
+                  "id": null,
+                  "name": "output_person_property",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "last_scored_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_scored_at",
+                  "id": null,
+                  "name": "last_scored_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.autoresearch_pipelines",
+          "name": "system.autoresearch_pipelines",
           "row_count": null,
           "type": "system"
       },
