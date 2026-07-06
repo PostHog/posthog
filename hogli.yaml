@@ -17,9 +17,6 @@ config:
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
-        # Standalone ops utility for scrubbing person properties in a PostHog project;
-        # not a local-dev command, so keep it out of the hogli manifest.
-        - scrub_person_properties.py
     env:
         files:
             - .env.development

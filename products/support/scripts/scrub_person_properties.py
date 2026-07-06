@@ -24,7 +24,7 @@ can keep showing the property for a short while after the script finishes.
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs query:read and person:read (+ person:write for api mode)
   export POSTHOG_PROJECT_API_KEY=phc_...    # only needed for events mode
-  python bin/scrub_person_properties.py my_secret_prop other_prop \\
+  python products/support/scripts/scrub_person_properties.py my_secret_prop other_prop \\
       --host eu --project-id 123 --mode events --dry-run
 
 --host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
