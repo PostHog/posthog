@@ -1,8 +1,8 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -13,7 +13,6 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
-import { MCPAnalyticsEarlyData } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
@@ -41,8 +40,7 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, signals, dataMaturity, resolvedDashboardMode } = useValues(mcpAnalyticsOnboardingLogic)
-    const { setDashboardModeOverride } = useActions(mcpAnalyticsOnboardingLogic)
+    const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
@@ -111,25 +109,8 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                 <MCPAnalyticsLoading />
             ) : onboardingState && onboardingState !== 'onboarded' ? (
                 <MCPAnalyticsOnboarding state={onboardingState} />
-            ) : resolvedDashboardMode === 'early' ? (
-                <MCPAnalyticsEarlyData />
             ) : (
-                <>
-                    {/* A low-volume user opted into the full dashboard — leave a way back,
-                        since most of its windowed views will look sparse at their volume. */}
-                    {dataMaturity === 'early' && (
-                        <LemonBanner
-                            type="info"
-                            action={{
-                                children: 'Back to early view',
-                                onClick: () => setDashboardModeOverride(null),
-                            }}
-                        >
-                            Your MCP server doesn't have much data yet — the early view is tuned for this stage.
-                        </LemonBanner>
-                    )}
-                    <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
-                </>
+                <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
             )}
         </SceneContent>
     )

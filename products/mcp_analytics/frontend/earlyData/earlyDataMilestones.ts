@@ -1,4 +1,4 @@
-import { FULL_DASHBOARD_LIFETIME_CALLS } from '../mcpAnalyticsOnboardingLogic'
+import { FULL_DASHBOARD_LIFETIME_CALLS, KEY_METRICS_LIFETIME_CALLS } from '../mcpAnalyticsOnboardingLogic'
 
 export interface Milestone {
     key: string
@@ -20,7 +20,7 @@ export function buildMilestones(toolCallsTotal: number): Milestone[] {
         { key: 'first-call', threshold: 1, unlocks: 'Live activity feed' },
         { key: 'tool-patterns', threshold: 25, unlocks: 'Tool usage and error patterns' },
         { key: 'sessions', threshold: 100, unlocks: 'Session timelines and intent summaries' },
-        { key: 'clustering', threshold: 300, unlocks: 'Intent clustering' },
+        { key: 'key-metrics', threshold: KEY_METRICS_LIFETIME_CALLS, unlocks: 'Key metrics and charts' },
         { key: 'full-dashboard', threshold: FULL_DASHBOARD_LIFETIME_CALLS, unlocks: 'Full dashboard' },
     ]
     return ladder.map((m) => ({ ...m, reached: toolCallsTotal >= m.threshold }))

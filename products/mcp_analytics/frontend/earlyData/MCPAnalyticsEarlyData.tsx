@@ -9,17 +9,37 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
+import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { ChecklistItem, EarlyRecentCall, EarlyToolRow } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 /**
- * Progressive small-data view, shown between the first tool call and the volume
- * threshold where the windowed dashboard stops looking empty. Everything here is
- * all-time rather than windowed, refreshes on a timer, and frames low volume as
- * progress ("what unlocks next") instead of emptiness.
+ * Volume-adaptive dashboard for projects that haven't graduated to the standard
+ * windowed dashboard yet. `warming` (< 300 calls) leads with the live feed and
+ * all-time totals — windowed metrics would be noise. `emerging` (300+) puts the
+ * standard key metrics and charts on top and demotes the live sections below.
+ * Early sections are all-time rather than windowed, refresh on a timer, and
+ * frame low volume as progress ("what unlocks next") instead of emptiness.
  */
-export function MCPAnalyticsEarlyData(): JSX.Element {
+export function MCPAnalyticsEarlyDashboard({ stage }: { stage: 'warming' | 'emerging' }): JSX.Element {
+    if (stage === 'emerging') {
+        return (
+            <div className="flex flex-col gap-4" data-attr="mcp-analytics-early-data">
+                <ProgressHeader />
+                <MCPAnalyticsDashboardOverview />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div className="lg:col-span-2">
+                        <LiveActivityCard />
+                    </div>
+                    <div className="flex flex-col gap-4">
+                        <ClientsCard />
+                        <ChecklistCard />
+                    </div>
+                </div>
+            </div>
+        )
+    }
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-early-data">
             <ProgressHeader />
@@ -40,7 +60,6 @@ export function MCPAnalyticsEarlyData(): JSX.Element {
 
 function ProgressHeader(): JSX.Element {
     const { signals } = useValues(mcpAnalyticsOnboardingLogic)
-    const { setDashboardModeOverride } = useActions(mcpAnalyticsOnboardingLogic)
     const { stats, totalCalls, milestones, nextMilestone, milestoneProgress, isRefreshing } =
         useValues(mcpEarlyDataLogic)
     const { refreshAll } = useActions(mcpEarlyDataLogic)
@@ -74,26 +93,16 @@ function ProgressHeader(): JSX.Element {
                                 : '.'}
                         </p>
                     </div>
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconRefresh />}
-                            loading={isRefreshing}
-                            onClick={refreshAll}
-                            data-attr="mcp-analytics-early-view-refresh"
-                        >
-                            Refresh
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => setDashboardModeOverride('full')}
-                            data-attr="mcp-analytics-early-view-full-dashboard"
-                        >
-                            View full dashboard
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        loading={isRefreshing}
+                        onClick={refreshAll}
+                        data-attr="mcp-analytics-early-view-refresh"
+                    >
+                        Refresh
+                    </LemonButton>
                 </div>
                 <LemonProgress percent={milestoneProgress * 100} />
                 <div className="flex gap-2 flex-wrap">
@@ -126,7 +135,7 @@ function LiveActivityCard(): JSX.Element {
                 embedded
                 dataSource={recentCalls}
                 loading={recentCallsLoading && recentCalls.length === 0}
-                rowKey={(row) => `${row.timestamp}-${row.tool}`}
+                rowKey={(row, index) => `${row.timestamp}-${row.tool}-${index}`}
                 emptyState="Waiting for the next tool call…"
                 columns={[
                     {

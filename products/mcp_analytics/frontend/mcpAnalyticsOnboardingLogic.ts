@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { afterMount, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -11,13 +11,24 @@ import type { mcpAnalyticsOnboardingLogicType } from './mcpAnalyticsOnboardingLo
 export type MCPOnboardingState = 'not-instrumented' | 'connected-no-calls' | 'onboarded'
 
 /**
- * How much data the project has, once onboarded. `early` renders the progressive
- * small-data view; `full` renders the windowed dashboard tabs. Volume-gated rather
- * than time-gated so a low-traffic server never regresses to an empty dashboard.
+ * How much data the project has, once onboarded. `early` mixes progressive
+ * small-data sections into the dashboard; `full` is the standard windowed
+ * dashboard. Volume-gated rather than time-gated so a low-traffic server never
+ * regresses to an empty dashboard.
  */
 export type MCPDataMaturity = 'early' | 'full'
 
-/** Graduate to the full dashboard on lifetime volume… */
+/**
+ * The dashboard's information hierarchy, by volume. `warming` leads with the
+ * live feed (metrics would be noise); `emerging` adds the windowed key metrics
+ * and charts on top; `mature` is the standard dashboard with the early
+ * sections retired.
+ */
+export type MCPDashboardStage = 'warming' | 'emerging' | 'mature'
+
+/** Windowed key metrics and charts appear once trends are meaningful. */
+export const KEY_METRICS_LIFETIME_CALLS = 300
+/** The early sections retire on lifetime volume… */
 export const FULL_DASHBOARD_LIFETIME_CALLS = 1000
 /** …or on sustained density, whichever comes first. */
 export const FULL_DASHBOARD_7D_CALLS = 250
@@ -59,19 +70,6 @@ const POLL_INTERVAL_MS = 20000
 
 export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsOnboardingLogic']),
-    actions({
-        setDashboardModeOverride: (override: MCPDataMaturity | null) => ({ override }),
-    }),
-    reducers({
-        // Manual escape hatch both ways: an early-mode user can open the full dashboard,
-        // and a graduated user can peek back at the early view. Persisted so the choice
-        // survives reloads; `null` means "follow the volume gate".
-        dashboardModeOverride: [
-            null as MCPDataMaturity | null,
-            { persist: true },
-            { setDashboardModeOverride: (_, { override }) => override },
-        ],
-    }),
     loaders({
         signals: {
             __default: null as MCPOnboardingSignals | null,
@@ -139,11 +137,17 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                     : 'early'
             },
         ],
-        // What the scene actually renders: the manual override when set, the volume gate otherwise.
-        resolvedDashboardMode: [
-            (s) => [s.dataMaturity, s.dashboardModeOverride],
-            (dataMaturity, dashboardModeOverride): MCPDataMaturity | null =>
-                dataMaturity ? (dashboardModeOverride ?? dataMaturity) : null,
+        dashboardStage: [
+            (s) => [s.signals, s.dataMaturity],
+            (signals, dataMaturity): MCPDashboardStage | null => {
+                if (!dataMaturity) {
+                    return null
+                }
+                if (dataMaturity === 'full') {
+                    return 'mature'
+                }
+                return (signals?.toolCallsTotal ?? 0) >= KEY_METRICS_LIFETIME_CALLS ? 'emerging' : 'warming'
+            },
         ],
     }),
     listeners(({ values, cache }) => ({

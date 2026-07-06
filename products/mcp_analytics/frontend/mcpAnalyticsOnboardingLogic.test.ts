@@ -51,27 +51,20 @@ describe('mcpAnalyticsOnboardingLogic', () => {
     })
 
     it.each([
-        // Below both thresholds: early.
-        [500, 100, 'early'],
+        // Below the key-metrics threshold: live-feed-first hierarchy.
+        [1, 1, 'warming'],
+        [299, 100, 'warming'],
+        // Key metrics appear at 300 lifetime calls.
+        [300, 100, 'emerging'],
+        [500, 100, 'emerging'],
         // Lifetime volume graduates even with a quiet week.
-        [1000, 0, 'full'],
+        [1000, 0, 'mature'],
         // Sustained density graduates even with low lifetime volume.
-        [400, 250, 'full'],
-        [1, 1, 'early'],
-    ])('gates %i lifetime / %i weekly calls to %s mode', async (total, last7d, expected) => {
+        [400, 250, 'mature'],
+    ])('stages %i lifetime / %i weekly calls as %s', async (total, last7d, expected) => {
         const logic = mountWith([[1, total, last7d, '2026-07-01T00:00:00Z']])
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.dataMaturity).toBe(expected)
-        expect(logic.values.resolvedDashboardMode).toBe(expected)
-    })
-
-    it('lets the manual override win over the volume gate', async () => {
-        const logic = mountWith([[1, 3, 3, '2026-07-01T00:00:00Z']])
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setDashboardModeOverride('full')
-        expect(logic.values.resolvedDashboardMode).toBe('full')
-        logic.actions.setDashboardModeOverride(null)
-        expect(logic.values.resolvedDashboardMode).toBe('early')
+        expect(logic.values.dashboardStage).toBe(expected)
     })
 
     it('discards the epoch sentinel minIf() returns when there are no tool calls', async () => {
