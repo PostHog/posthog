@@ -112,7 +112,8 @@ export class CommonIngestionConsumerScope<S extends CommonConsumerContainer> {
         const consumer = new CommonIngestionConsumer(
             this.name,
             started.container.kafkaConsumer,
-            this.producerHealthcheckEnabled ? started.container.outputs : undefined
+            started.container.outputs,
+            this.producerHealthcheckEnabled
         )
         return { consumer, stop: started.stop, container: started.container }
     }
@@ -128,9 +129,9 @@ export class CommonIngestionConsumer {
     constructor(
         readonly name: string,
         private readonly kafkaConsumer: KafkaConsumerInterface,
-        // Present only when INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK is enabled, in
-        // which case the healthcheck also verifies every output producer's brokers.
-        private readonly outputs?: IngestionOutputs<string>
+        private readonly outputs: IngestionOutputs<string>,
+        // When true, the healthcheck also verifies every output producer can reach its brokers.
+        private readonly producerHealthcheckEnabled: boolean
     ) {}
 
     async isHealthy(): Promise<HealthCheckResult> {
@@ -139,7 +140,7 @@ export class CommonIngestionConsumer {
             return consumerHealth
         }
 
-        if (this.outputs) {
+        if (this.producerHealthcheckEnabled) {
             const failures = await this.outputs.checkHealth()
             if (failures.length > 0) {
                 return new HealthCheckResultError('Kafka producer(s) unhealthy', { failedProducers: failures })

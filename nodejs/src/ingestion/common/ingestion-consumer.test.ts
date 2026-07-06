@@ -11,10 +11,10 @@ describe('CommonIngestionConsumer', () => {
     const outputsWith = (failures: string[]): IngestionOutputs<string> =>
         ({ checkHealth: jest.fn().mockResolvedValue(failures) }) as unknown as IngestionOutputs<string>
 
-    it('skips the producer check when outputs are absent (healthcheck disabled)', async () => {
+    it('skips the producer check when the healthcheck is disabled', async () => {
         const outputs = outputsWith(['events'])
-        // Disabled path: the scope passes no outputs, so a failing producer must not be consulted.
-        const consumer = new CommonIngestionConsumer('analytics', healthyKafka())
+        // Disabled path: a failing producer must not be consulted even though outputs are present.
+        const consumer = new CommonIngestionConsumer('analytics', healthyKafka(), outputs, false)
 
         const result = await consumer.isHealthy()
 
@@ -23,7 +23,7 @@ describe('CommonIngestionConsumer', () => {
     })
 
     it('reports unhealthy when an output producer fails its broker check', async () => {
-        const consumer = new CommonIngestionConsumer('analytics', healthyKafka(), outputsWith(['events', 'dlq']))
+        const consumer = new CommonIngestionConsumer('analytics', healthyKafka(), outputsWith(['events', 'dlq']), true)
 
         const result = await consumer.isHealthy()
 
@@ -36,7 +36,7 @@ describe('CommonIngestionConsumer', () => {
             isHealthy: () => new HealthCheckResultError('kafka down', {}),
         } as unknown as KafkaConsumerInterface
         const outputs = outputsWith([])
-        const consumer = new CommonIngestionConsumer('analytics', kafka, outputs)
+        const consumer = new CommonIngestionConsumer('analytics', kafka, outputs, true)
 
         const result = await consumer.isHealthy()
 
