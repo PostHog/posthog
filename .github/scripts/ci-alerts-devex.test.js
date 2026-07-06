@@ -149,7 +149,7 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack }
+        { now, slack, sleep: () => Promise.resolve() }
     ).then(() => ({ slack, outputs }))
 }
 
@@ -543,6 +543,102 @@ describe('ci-alerts-devex', () => {
         const { outputs } = await run(github)
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.blocking_count, '1')
+    })
+
+    // --- Stale pages on the branch/event-filtered index (the 141h phantom root cause) ---
+
+    it('a stale runs page anchored days back cannot open a phantom incident (regression)', async () => {
+        // Even without status=completed, the branch/event-filtered index intermittently serves a
+        // page anchored days back ("red 141h 45m", pinned to the same ancient run as the earlier
+        // 70h phantom). Master's newest commit is minutes old, so the page provably trails
+        // reality: retry, then treat the workflow as unreadable — never as failing.
+        const stalePage = [
+            failureRun('Backend CI', 'stale1', minutes(-4200).toISOString(), minutes(-4186).toISOString()),
+            failureRun('Backend CI', 'stale2', minutes(-4215).toISOString(), minutes(-4201).toISOString()),
+        ]
+        let backendReads = 0
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id }) => {
+                        if (workflow_id === 'ci-backend.yml') backendReads++
+                        const table = { 'ci-backend.yml': stalePage, 'ci-frontend.yml': runs('Frontend CI', ['success']) }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github)
+        assert.equal(backendReads, 3) // initial read + 2 retries before declaring the page unreadable
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    it('a stale runs page cannot resolve an open incident into a phantom recovery (regression)', async () => {
+        // Ancient green runs on a stale page must read as "unreadable this tick", never as recovery.
+        const staleGreens = [
+            { ...failureRun('Backend CI', 'sg1', minutes(-4200).toISOString(), minutes(-4186).toISOString()), conclusion: 'success' },
+        ]
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id }) => {
+                        const table = { 'ci-backend.yml': staleGreens, 'ci-frontend.yml': runs('Frontend CI', ['success']) }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github, { history: [activeAnchor()] })
+        assert.equal(outputs.action, 'hold')
+        assert.equal(slack.update.calls.length, 0)
+        assert.equal(slack.postMessage.calls.length, 0)
+    })
+
+    it('a failed runs fetch cannot resolve an open incident (regression)', async () => {
+        // A fetch error must not read as "no failures" — that used to strike through the anchor
+        // with "master recovered" on a transient API hiccup.
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id }) =>
+                        workflow_id === 'ci-backend.yml'
+                            ? Promise.reject(new Error('boom'))
+                            : Promise.resolve({ data: { workflow_runs: runs('Frontend CI', ['success']) } }),
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github, { history: [activeAnchor()] })
+        assert.equal(outputs.action, 'hold')
+        assert.equal(slack.update.calls.length, 0)
+        assert.equal(slack.postMessage.calls.length, 0)
+    })
+
+    it('activity gate uses the committer date, not squash-merge author dates (regression)', async () => {
+        // A squash merge keeps the branch's original author date (days old); the committer date is
+        // the push time. A just-merged commit must count as activity for the wall-clock arm.
+        const squashMerged = [
+            {
+                sha: 'c0',
+                html_url: 'https://github.com/commit/c0',
+                author: { login: 'dev' },
+                commit: {
+                    message: 'c',
+                    author: { name: 'dev', date: minutes(-6000).toISOString() },
+                    committer: { name: 'dev', date: minutes(-3).toISOString() },
+                },
+            },
+        ]
+        const github = createGithubMock(
+            { 'ci-backend.yml': failingFor(25), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: squashMerged }
+        )
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
     })
 
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {
