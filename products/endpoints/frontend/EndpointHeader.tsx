@@ -30,7 +30,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
     } = useValues(endpointSceneLogic)
     const { endpointName, endpointDescription } = useValues(endpointLogic)
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
-    const { setLocalQuery, setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded } =
+    const { setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded, discardQueryChanges } =
         useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
@@ -97,7 +97,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
         setEndpointDescription(sourceDescription || '')
         setDataFreshness(sourceDataFreshness)
         setIsMaterialized(null)
-        setLocalQuery(null)
+        discardQueryChanges()
         resetBucketOverrides(viewingVersion?.bucket_overrides ?? endpoint.bucket_overrides ?? {})
     }
 

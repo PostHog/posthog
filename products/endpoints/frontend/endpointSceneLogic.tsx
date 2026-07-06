@@ -155,6 +155,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         closeMaterializationSuggestionModal: true,
         regenerateMaterializationSuggestion: true,
         applyMaterializationSuggestion: true,
+        discardQueryChanges: true,
     }),
     reducers({
         localQuery: [
@@ -495,6 +496,21 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             editorLogic?.actions.setSuggestedQueryInput(suggestion.suggested_query, 'materialization_fix')
             lemonToast.success('Review the suggested changes in the editor — accept to apply them')
             actions.closeMaterializationSuggestionModal()
+        },
+        discardQueryChanges: () => {
+            const base = values.viewingVersion?.query ?? values.endpoint?.query
+            const editorLogic = cache.sqlEditorTabId
+                ? sqlEditorLogic.findMounted({ tabId: cache.sqlEditorTabId, mode: SQLEditorMode.Embedded })
+                : null
+            if (editorLogic && base && isHogQLQuery(base)) {
+                editorLogic.actions.overwriteQueryInput(base.query || '')
+                editorLogic.actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: { ...base },
+                    display: ChartDisplayType.ActionsLineGraph,
+                } as DataVisualizationNode)
+            }
+            actions.setLocalQuery(null)
         },
         toggleMaterializationFromMenu: () => {
             if (!values.endpoint?.name) {
