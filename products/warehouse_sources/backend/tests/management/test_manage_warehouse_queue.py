@@ -202,6 +202,7 @@ class TestFailRun:
         run_uuid = str(uuid4())
         _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
         _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        assert job.workflow_run_id is not None
         assert sync_lock.acquire_v3_pipeline_lock(team.pk, str(schema.id), job.workflow_run_id)
 
         out = _call("fail-run", "--team-id", str(team.pk), "--schema-id", str(schema.id), "--live-run", "--yes")
@@ -219,6 +220,7 @@ class TestFailRun:
         run_uuid = str(uuid4())
         _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
         _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        assert job.workflow_run_id is not None
         assert sync_lock.acquire_v3_pipeline_lock(team.pk, str(schema.id), job.workflow_run_id)
 
         out = _call("fail-run", "--team-id", str(team.pk), "--schema-id", str(schema.id))
