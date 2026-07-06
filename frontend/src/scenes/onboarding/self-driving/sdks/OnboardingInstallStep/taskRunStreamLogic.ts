@@ -10,6 +10,7 @@ import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.
 import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
+import { logSyncDebug } from './WizardSync/wizardSyncDebugLogic'
 
 export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
@@ -330,11 +331,16 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             // not live, which keeps the transport swap trivially safe.
             const syncMode: WizardSyncMode =
                 values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE] === 'polling' ? 'polling' : 'sse'
+            const debugSource = `run ${props.runId.slice(0, 8)}`
 
             if (syncMode === 'polling') {
                 const intervalMs = resolvePollingIntervalMs(
                     getFeatureFlagPayload(FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE)
                 )
+                logSyncDebug(debugSource, 'connect', `polling every ~${intervalMs / 1000}s (±20% jitter)`, {
+                    mode: 'polling',
+                    intervalMs,
+                })
                 cache.disposables.add((): (() => void) => {
                     let cancelled = false
                     let timer: number | undefined
@@ -346,12 +352,19 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                             if (cancelled) {
                                 return
                             }
+                            logSyncDebug(
+                                debugSource,
+                                'poll',
+                                `poll ok — ${dto.status}${dto.stage ? `/${dto.stage}` : ''}`,
+                                { mode: 'polling', intervalMs }
+                            )
                             // Only on first open / recovery from error — not every tick.
                             if (values.connectionStatus !== 'open') {
                                 actions.connectionOpened()
                             }
                             actions.taskRunStateUpdated(taskRunDetailToStreamState(dto))
                             if (isTerminalStatus(dto.status)) {
+                                logSyncDebug(debugSource, 'complete', `terminal status ${dto.status} — polling stopped`)
                                 actions.streamCompleted()
                                 cache.disposables.dispose('task-run-sync')
                                 return
@@ -360,6 +373,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                             if (cancelled) {
                                 return
                             }
+                            logSyncDebug(debugSource, 'error', `poll failed: ${String(err)}`)
                             actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
                         }
                         timer = window.setTimeout(() => void poll(), jitteredIntervalMs(intervalMs))
@@ -373,25 +387,45 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 return
             }
 
+            logSyncDebug(debugSource, 'connect', 'opening EventSource', { mode: 'sse' })
             cache.disposables.add((): (() => void) => {
                 const url = getTasksRunsStreamRetrieveUrl(String(projectId), props.taskId, props.runId)
                 const eventSource = new EventSource(url, { withCredentials: true })
 
-                eventSource.onopen = actions.connectionOpened
+                eventSource.onopen = (): void => {
+                    // Mode rides along here too: the connect event can predate the debug panel's
+                    // mount (and get dropped), but open/events always land after it.
+                    logSyncDebug(debugSource, 'open', 'SSE connection open', { mode: 'sse' })
+                    actions.connectionOpened()
+                }
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
                     try {
                         const message = parseTaskRunStreamMessage(event.data)
                         if (message?.kind === 'step') {
+                            logSyncDebug(
+                                debugSource,
+                                'event',
+                                `step ${message.step.group}/${message.step.step} → ${message.step.status}`
+                            )
                             actions.progressStepUpdated(message.step)
                         } else if (message?.kind === 'state') {
+                            logSyncDebug(
+                                debugSource,
+                                'event',
+                                `state → ${message.state.status}${message.state.stage ? `/${message.state.stage}` : ''}`
+                            )
                             actions.taskRunStateUpdated(message.state)
+                        } else {
+                            logSyncDebug(debugSource, 'event', 'message ignored (keepalive/unknown type)')
                         }
                     } catch (err) {
+                        logSyncDebug(debugSource, 'error', `failed to parse SSE payload: ${String(err)}`)
                         actions.connectionErrored(`Failed to parse SSE payload: ${String(err)}`)
                     }
                 }
                 // Completion sentinel — close so EventSource doesn't auto-reconnect to a finished run.
                 eventSource.addEventListener('stream-end', () => {
+                    logSyncDebug(debugSource, 'complete', 'stream-end received')
                     actions.streamCompleted()
                     eventSource.close()
                 })
@@ -399,8 +433,10 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     // CLOSED → browser gave up (won't auto-reconnect); anything else → it's already
                     // retrying (rides the Last-Event-ID cursor), so just surface "reconnecting".
                     if (eventSource.readyState === EventSource.CLOSED) {
+                        logSyncDebug(debugSource, 'error', 'SSE closed by server')
                         actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
                     } else {
+                        logSyncDebug(debugSource, 'error', 'SSE transport error — reconnecting')
                         actions.connectionErrored('EventSource transport error — reconnecting')
                     }
                 }
@@ -409,6 +445,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             }, 'task-run-sync')
         },
         disconnect: () => {
+            logSyncDebug(`run ${props.runId.slice(0, 8)}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
         },
