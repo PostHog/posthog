@@ -4,8 +4,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HealthCheckSignalExtra, Priority, SignalRemediation
-
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.framework import (
@@ -17,6 +15,9 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
+
+from products.signals.backend.contracts import HealthCheckSignalExtra, SignalRemediation
+from products.signals.backend.enums import ReportPriority
 
 
 class _SignalCheck(HealthCheck):
@@ -115,7 +116,7 @@ class TestEmitHealthCheckSignals(SimpleTestCase):
         assert kwargs["remediation"] == SignalRemediation(
             human="Open the health page and set your authorized URLs.",
             agent="Call `project-settings-update` to set app_urls; verify with `project-get`.",
-            priority=Priority.P2,  # derived from the issue's "warning" severity
+            priority=ReportPriority.P2,  # derived from the issue's "warning" severity
         )
 
     def test_emits_for_every_issue_in_the_batch(self):
