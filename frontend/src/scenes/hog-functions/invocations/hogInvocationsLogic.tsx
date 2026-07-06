@@ -715,7 +715,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         ],
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         runs: [
             [] as HogInvocationRow[],
             {
@@ -738,12 +738,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     const newRows = await fetchRunsPage(props, values.filters, offset)
                     breakpoint()
                     actions.setHasMore(newRows.length >= HOG_INVOCATIONS_PAGE_SIZE)
+                    // Prior pages are already enriched — stash the new ids so
+                    // `loadMoreSuccess` scopes the severity query to this page only.
+                    cache.lastPageInvocationIds = newRows.map((r) => r.invocation_id)
                     return [...values.runs, ...newRows]
                 },
                 // Deferred, best-effort enrichment — runs after the table renders and
                 // patches the worst log level onto each row without blocking the load.
-                enrichProblems: async (_, breakpoint) => {
-                    const ids = values.runs.map((r) => r.invocation_id)
+                // `invocationIds` scopes the severity query (Load More passes just the
+                // new page); null enriches every loaded row (refresh path).
+                enrichProblems: async (invocationIds: string[] | null, breakpoint) => {
+                    const ids = invocationIds ?? values.runs.map((r) => r.invocation_id)
                     if (ids.length === 0) {
                         return values.runs
                     }
@@ -888,7 +893,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
-            actions.enrichProblems()
+            // Full-list enrichment: a 10s poll can surface brand-new invocation ids.
+            actions.enrichProblems(null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)
@@ -896,7 +902,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadMoreSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
-            actions.enrichProblems()
+            actions.enrichProblems((cache.lastPageInvocationIds as string[] | undefined) ?? null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)
