@@ -7,7 +7,6 @@ import { combineUrl, router } from 'kea-router'
 import { IconBox } from '@posthog/icons'
 import { LemonCard, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -19,6 +18,7 @@ import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
+import { RunActivityChart } from '../components/RunActivityChart'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -232,8 +232,9 @@ function MasterFailuresSection(): JSX.Element {
 export function RepoOverviewScene(): JSX.Element {
     const {
         overview,
-        masterSuccessRateQuery,
-        masterFailedRunsQuery,
+        activityRuns,
+        activityTruncated,
+        repoActivityLoading,
         attentionPrs,
         draftCount,
         costByWorkflow,
@@ -254,7 +255,7 @@ export function RepoOverviewScene(): JSX.Element {
         costLensEnabled,
         activeSource,
     } = useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures } = useActions(repoOverviewLogic)
+    const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
     if (notConnected) {
@@ -266,6 +267,7 @@ export function RepoOverviewScene(): JSX.Element {
                 onRetry={() => {
                     loadOverview()
                     loadMasterFailures()
+                    loadRepoActivity()
                 }}
             />
         )
@@ -363,23 +365,19 @@ export function RepoOverviewScene(): JSX.Element {
             />
 
             <Section id="master" title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}>
-                {masterSuccessRateQuery && masterFailedRunsQuery ? (
-                    <div className="grid gap-2.5 lg:grid-cols-2">
-                        <QueryCard
-                            title={`Success rate on ${defaultBranch}`}
-                            query={masterSuccessRateQuery}
-                            uniqueKey="engineering-analytics-master-success-rate"
-                        />
-                        <QueryCard
-                            title={`Failed runs on ${defaultBranch}`}
-                            description={`Completed runs on ${defaultBranch} whose conclusion wasn't success.`}
-                            query={masterFailedRunsQuery}
-                            uniqueKey="engineering-analytics-master-failed-runs"
-                        />
-                    </div>
+                {/* One dot per commit to the default branch: X = when its CI started, Y = wall-clock CI
+                    duration, color = the commit's overall verdict (red if any workflow failed). Replaces the
+                    old success-rate line + failed-runs bar — the scatter says time, outcome, and cost at once. */}
+                {activityRuns.length > 0 ? (
+                    <RunActivityChart
+                        runs={activityRuns}
+                        truncated={activityTruncated}
+                        title={`Every ${defaultBranch} commit`}
+                        noun="commit"
+                    />
                 ) : (
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                        Loading…
+                        {repoActivityLoading ? 'Loading…' : `No completed runs on ${defaultBranch} in the window yet.`}
                     </LemonCard>
                 )}
             </Section>

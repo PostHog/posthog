@@ -28,6 +28,9 @@ interface RunActivityChartProps {
     title?: string
     /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
     truncated?: boolean
+    /** Singular noun for each plotted point in the header count — 'run' by default, 'commit' on the repo-health
+     *  view where every dot is a whole commit's collapsed workflows. */
+    noun?: string
     className?: string
 }
 
@@ -227,6 +230,7 @@ export function RunActivityChart({
     runs,
     title = 'Run activity',
     truncated = false,
+    noun = 'run',
     className,
 }: RunActivityChartProps): JSX.Element | null {
     // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
@@ -395,12 +399,14 @@ export function RunActivityChart({
                 <h3 className="mb-0">{title}</h3>
                 <Tooltip
                     title={
-                        truncated ? `Covers the most recent ${plottable.length} runs, not the full window.` : undefined
+                        truncated
+                            ? `Covers the most recent ${plottable.length} ${noun}s, not the full window.`
+                            : undefined
                     }
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
                         {truncated ? 'recent ' : ''}
-                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} runs · median{' '}
+                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} {noun}s · median{' '}
                         {formatAxisMinutes(medianMin)} · peak {peak} in flight
                     </span>
                 </Tooltip>

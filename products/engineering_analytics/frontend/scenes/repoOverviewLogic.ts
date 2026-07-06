@@ -2,20 +2,23 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
-
+import type { ActivityRun } from '../components/RunActivityChart'
 import {
     engineeringAnalyticsMasterFailures,
     engineeringAnalyticsRepoOverview,
+    engineeringAnalyticsRepoRunActivity,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
-import type { MasterFailureGroupApi, RepoOverviewApi, RunFailureLogsApi } from '../generated/api.schemas'
+import type {
+    MasterFailureGroupApi,
+    RepoOverviewApi,
+    RunFailureLogsApi,
+    WorkflowRunActivityApi,
+} from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
 
@@ -32,65 +35,6 @@ export interface CostShareRow {
     share: number
 }
 
-// Warehouse timestamps are strings — parse like the curated builders do (repo_overview._BUCKET_SELECT).
-const RUN_STARTED_AT = 'parseDateTimeBestEffort(run_started_at)'
-
-// Refuse to interpolate anything but a plain identifier into SQL.
-const TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-// Backend granularity ladder (workflow_health._pick_granularity): hour ≤48h, day ≤90d, else week.
-function bucketExpr(from: Dayjs, to: Dayjs): string {
-    const spanHours = to.diff(from, 'hour')
-    if (spanHours <= 48) {
-        return `toStartOfHour(${RUN_STARTED_AT})`
-    }
-    if (spanHours <= 90 * 24) {
-        return `toStartOfDay(${RUN_STARTED_AT})`
-    }
-    return `toStartOfWeek(${RUN_STARTED_AT}, 1)`
-}
-
-function masterHealthSql(
-    metricSelect: string,
-    table: string,
-    branch: string,
-    dateFrom: string | null,
-    dateTo: string | null
-): string | null {
-    const from = dateStringToDayJs(dateFrom ?? SHARED_DEFAULT_DATE_FROM)
-    if (!from) {
-        return null
-    }
-    const to = dateTo ? dateStringToDayJs(dateTo) : null
-    const where = [
-        `status = 'completed'`,
-        `head_branch = '${branch}'`,
-        `${RUN_STARTED_AT} >= toDateTime('${from.format('YYYY-MM-DD HH:mm:ss')}')`,
-    ]
-    if (to) {
-        where.push(`${RUN_STARTED_AT} <= toDateTime('${to.format('YYYY-MM-DD HH:mm:ss')}')`)
-    }
-    return [
-        'SELECT',
-        `    ${bucketExpr(from, to ?? dayjs())} AS bucket_start,`,
-        `    ${metricSelect}`,
-        `FROM ${table}`,
-        `WHERE ${where.join('\n    AND ')}`,
-        'GROUP BY bucket_start',
-        'ORDER BY bucket_start',
-        'LIMIT 400',
-    ].join('\n')
-}
-
-function masterHealthNode(sql: string, display: ChartDisplayType, yColumn: string): DataVisualizationNode {
-    return {
-        kind: NodeKind.DataVisualizationNode,
-        source: { kind: NodeKind.HogQLQuery, query: sql },
-        display,
-        chartSettings: { xAxis: { column: 'bucket_start' }, yAxis: [{ column: yColumn }] },
-    }
-}
-
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'repoOverviewLogic']),
 
@@ -101,7 +45,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             engineeringAnalyticsLogic,
             [
                 'sourceId',
-                'activeSource',
                 'pullRequests',
                 'pullRequestsLoading',
                 'cards',
@@ -134,6 +77,19 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadMasterFailures: async (): Promise<MasterFailureGroupApi[]> =>
                     await engineeringAnalyticsMasterFailures(projectId(), {
                         date_from: MASTER_FAILURES_WINDOW,
+                        source_id: values.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // One collapsed point per default-branch commit (all its workflows folded together) for the
+        // master-health scatter — the backend owns the collapse, so the UI just plots the points.
+        repoActivity: [
+            { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
+            {
+                loadRepoActivity: async (): Promise<WorkflowRunActivityApi> =>
+                    await engineeringAnalyticsRepoRunActivity(projectId(), {
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
                         source_id: values.sourceId ?? undefined,
                     }),
             },
@@ -180,50 +136,21 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             (s) => [s.masterFailures],
             (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
         ],
-        // The warehouse table behind the master-health embeds, mirroring the backend's per-team
-        // `prefix + github_workflow_runs` resolution (logic/sources.py).
-        runsTableName: [
-            (s) => [s.activeSource],
-            (activeSource): string | null => {
-                if (!activeSource) {
-                    return null
-                }
-                const table = `${activeSource.prefix}github_workflow_runs`
-                return TABLE_IDENTIFIER.test(table) ? table : null
-            },
+        // Backend-collapsed commit points, mapped to the shared chart shape (one dot per default-branch
+        // commit: start time, wall-clock CI duration, overall verdict).
+        activityRuns: [
+            (s) => [s.repoActivity],
+            (repoActivity): ActivityRun[] =>
+                repoActivity.points.map((point) => ({
+                    runId: point.run_id,
+                    conclusion: point.conclusion,
+                    startedAt: point.run_started_at,
+                    durationSeconds: point.duration_seconds,
+                    headBranch: point.head_branch,
+                    prNumber: point.pr_number,
+                })),
         ],
-        masterSuccessRateQuery: [
-            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
-            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
-                if (!runsTableName) {
-                    return null
-                }
-                const sql = masterHealthSql(
-                    `round(100 * countIf(conclusion = 'success') / count(), 1) AS success_rate`,
-                    runsTableName,
-                    defaultBranch,
-                    dateFrom,
-                    dateTo
-                )
-                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsLineGraph, 'success_rate') : null
-            },
-        ],
-        masterFailedRunsQuery: [
-            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
-            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
-                if (!runsTableName) {
-                    return null
-                }
-                const sql = masterHealthSql(
-                    `countIf(conclusion != 'success') AS failed_runs`,
-                    runsTableName,
-                    defaultBranch,
-                    dateFrom,
-                    dateTo
-                )
-                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsBar, 'failed_runs') : null
-            },
-        ],
+        activityTruncated: [(s) => [s.repoActivity], (repoActivity): boolean => repoActivity.truncated],
         // Open PRs with failing CI or stuck (open >7d, non-draft, non-bot) — not the full open list.
         attentionPrs: [
             (s) => [s.pullRequests],
@@ -279,22 +206,27 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 actions.loadFailureLogs({ runId })
             }
         },
-        // The failures feed is pinned to -24h, so it only re-reads on source change / refresh.
+        // The failures feed is pinned to -24h, so it only re-reads on source change / refresh; the
+        // activity scatter follows the shared window like the overview tiles.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadOverview()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
             actions.loadOverview()
             actions.loadMasterFailures()
+            actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => {
             actions.loadOverview()
             actions.loadMasterFailures()
+            actions.loadRepoActivity()
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadOverview()
         actions.loadMasterFailures()
+        actions.loadRepoActivity()
     }),
 ])

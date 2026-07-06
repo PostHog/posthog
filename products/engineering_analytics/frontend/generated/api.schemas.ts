@@ -977,6 +977,25 @@ export type EngineeringAnalyticsRepoOverviewParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsRepoRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
      * Workflow run id whose failure logs to fetch.
