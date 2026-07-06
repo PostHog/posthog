@@ -58,7 +58,7 @@ const VARIANTS: {
     {
         key: 'E',
         name: 'Dash on track, no handle',
-        description: 'No handle at all — the filled track shows a centered dash. Most minimal treatment.',
+        description: 'No handle at all — a gray (border-colored) track shows a centered dash. Most minimal treatment.',
         Component: VariantENoHandleDash,
     },
 ]

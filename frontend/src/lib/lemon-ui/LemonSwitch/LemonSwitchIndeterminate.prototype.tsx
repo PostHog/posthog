@@ -11,8 +11,8 @@
  *       track shows accent color (fill amount communicates, "literally half way").
  *   D — Full-width handle with dash: the handle stretches across the entire track and
  *       carries the minus glyph (icon communicates, no position to misread).
- *   E — Dash on track, no handle: the handle disappears entirely; the filled track shows
- *       a centered dash (most minimal, reads like a "blocked/mixed" badge).
+ *   E — Dash on track, no handle: the handle disappears entirely; a gray (border-colored)
+ *       track shows a centered dash (most minimal, reads like a "blocked/mixed" badge).
  *
  * Clicking an indeterminate switch resolves it to checked; after that it toggles normally.
  *
@@ -142,12 +142,12 @@ export function VariantDFullWidthHandleDash(props: PrototypeSwitchProps): JSX.El
     )
 }
 
-/** E — no handle at all: the filled track itself shows a centered dash. */
+/** E — no handle at all: a gray (border-colored) track shows a centered dash. */
 export function VariantENoHandleDash(props: PrototypeSwitchProps): JSX.Element {
     return (
         <SwitchShell
             {...props}
-            trackStyle={{ backgroundColor: 'var(--color-accent)' }}
+            trackStyle={{ backgroundColor: 'var(--color-border-primary)' }}
             handleStyle={{ visibility: 'hidden' }}
             trackContent={<Dash color="var(--color-bg-surface-primary)" width="35%" />}
         />
