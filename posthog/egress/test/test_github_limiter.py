@@ -88,6 +88,7 @@ class TestObservedCoreLimitStore(GitHubLimiterTestCase):
     @parameterized.expand(
         [
             ("non_core_resource", 200, {"X-RateLimit-Resource": "graphql", "X-RateLimit-Limit": "5000"}),
+            ("missing_resource_header", 200, {"X-RateLimit-Limit": "5000"}),
             ("error_response", 401, _core_headers("60")),
             ("implausibly_small_limit", 200, _core_headers("60")),
             ("missing_limit_header", 200, {"X-RateLimit-Resource": "core"}),

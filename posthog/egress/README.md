@@ -39,8 +39,8 @@ The GitHub helpers wrap the key construction; other domains expose their own thi
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
 Each domain registers its policy with `register_policy(domain, policy)`, usually as a provider taking the full limiter key, so the budget is read at acquire time (settings + per-scope state) rather than frozen at import.
-GitHub's budget is per **installation** (the unit GitHub meters), scaled to the installation's real tier: the recorder persists each installation's last-observed core `X-RateLimit-Limit`, and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap (most installations sit on GitHub's 5,000/hour tier, not the 15,000 top tier).
-Unobserved installations fall back to the settings defaults (13,500/hour + 450/minute) until their first recorded response.
+GitHub's budget is per **installation** (the unit GitHub meters), scaled to the installation's real tier: `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap (most installations sit on GitHub's 5,000/hour tier, not the 15,000 top tier).
+Unobserved installations fall back to the settings defaults (13,500/hour + 750/minute) until their first recorded response.
 Budgets stay deliberately under the real ceiling so reactive backoff absorbs drift (clock skew, multi-process races, untracked PAT traffic on the same account).
 
 ### Priority lanes

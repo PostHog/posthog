@@ -111,7 +111,8 @@ def remember_observed_core_limit(installation_id: str | None, response: "request
     if not installation_id or not (200 <= response.status_code < 300):
         return
     headers = response.headers
-    if headers.get("x-ratelimit-resource", "core") != "core":
+    # Require the explicit header — a response missing it is no proof the limits are core's.
+    if headers.get("x-ratelimit-resource") != "core":
         return
     try:
         limit = int(headers.get("x-ratelimit-limit", ""))
