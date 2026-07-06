@@ -203,6 +203,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 // otherwise the playlist flashes empty and scroll snaps back to the top
                 logic.actions.loadSessionRecordings(undefined, undefined, true)
                 expect(logic.values.sessionRecordings).toEqual(listOfSessionRecordings)
+
+                // drain the async fetch so it doesn't resolve after the test finishes
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    sessionRecordings: listOfSessionRecordings,
+                })
             })
         })
 
