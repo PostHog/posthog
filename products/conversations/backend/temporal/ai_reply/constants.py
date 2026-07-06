@@ -1,3 +1,5 @@
+from typing import Literal
+
 MAX_ATTEMPTS = 5
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
@@ -61,7 +63,9 @@ BASE_DRAFT_SCOPES: list[str] = [
 # (all reads, including customer data tools like execute-sql, session recordings, error
 # tracking, logs). The preset string is passed directly to CustomPromptSandboxContext.
 # The prompt layer + support_review_reply_activity backstop external-connection data.
-DIAGNOSTIC_SCOPES_PRESET = "read_only"
+# Typed as a bare Literal (not oauth.McpScopePreset) to keep this module import-free of
+# Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
+DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
 
 # Sandbox agent model for the draft step. Must be in the LLM gateway's `background_agents`
 # product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) -- that's the

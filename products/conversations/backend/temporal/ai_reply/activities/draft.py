@@ -8,6 +8,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.business_knowledge.backend.constants import MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import get_chunks_by_ids
@@ -92,7 +93,7 @@ async def _draft_async(
     # Scope selection keys off the org opt-in (diagnostics_allowed), not the classifier.
     # When opted in: full read_only preset (all reads incl. customer data tools).
     # When not opted in: base scopes only (taxonomy, config, BK, docs -- no raw customer data).
-    mcp_scopes: str | list[str] = DIAGNOSTIC_SCOPES_PRESET if diagnostics_allowed else list(BASE_DRAFT_SCOPES)
+    mcp_scopes: PosthogMcpScopes = DIAGNOSTIC_SCOPES_PRESET if diagnostics_allowed else list(BASE_DRAFT_SCOPES)
 
     context = CustomPromptSandboxContext(
         team_id=team_id,
