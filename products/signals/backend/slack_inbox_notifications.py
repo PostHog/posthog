@@ -23,12 +23,12 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -79,7 +79,7 @@ _SLACK_PRIORITY_LABELS: dict[str, str] = {
 }
 
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
-    choice.value: str(choice.label) for choice in SignalSourceConfig.SourceProduct
+    product.value: label for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()
 }
 
 
