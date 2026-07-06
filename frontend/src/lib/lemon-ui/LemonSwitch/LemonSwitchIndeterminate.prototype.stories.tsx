@@ -46,7 +46,7 @@ const VARIANTS: {
     {
         key: 'C',
         name: 'Half fill',
-        description: 'Handle stretches over the left half, right half shows accent. Literally half on.',
+        description: 'Handle stretches over the left half on a gray-to-accent gradient track. Literally half on.',
         Component: VariantCHalfFill,
     },
     {
@@ -60,7 +60,7 @@ const VARIANTS: {
         key: 'G',
         name: 'Centered half-width handle with dash',
         description:
-            'A + B + C combined: half-width handle parks mid-track carrying the minus glyph, gray left half and accent right half showing on the track.',
+            'A + B + C combined: half-width handle parks mid-track carrying the minus glyph on a gray-to-accent gradient track.',
         Component: VariantGCenteredHandleDash,
     },
     {
