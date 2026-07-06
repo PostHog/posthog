@@ -215,6 +215,11 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
                 lambda self: {"distinct_id": self.user.distinct_id, "identity_verified": False},
                 False,
             ),
+            (
+                "identity_never_verified",
+                lambda self: {"distinct_id": self.user.distinct_id, "identity_verified": None},
+                False,
+            ),
         ]
     )
     def test_only_tickets_with_verified_org_attribution_count(
@@ -281,7 +286,7 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             email_from=self.user.email.upper(),
             organization_id=self.org_id,
             last_message_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
-            identity_verified=None,
+            identity_verified=True,
         )
 
         with self.settings(SITE_URL="https://us.posthog.com"):

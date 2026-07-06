@@ -127,11 +127,8 @@ def _tickets_with_verified_org() -> QuerySet[Ticket]:
     Salesforce Account key, re-verify it here: the ticket's customer identity
     (the widget's real distinct_id, or the provider-supplied email that the
     Slack/Teams/email channels store in ``distinct_id``/``email_from``) must
-    belong to a member of that organization. Tickets attributed only via the
-    analytics fallback (e.g. cross-region accounts) are skipped, and so are
-    tickets whose claimed identity failed verification
-    (``identity_verified=False``), so an attacker can't inherit a victim's
-    membership by claiming their email or distinct_id.
+    belong to a member of that organization, and that identity must carry a
+    positive attestation (``identity_verified=True``).
     """
     membership_for_ticket_org = OrganizationMembership.objects.filter(
         organization_id=OuterRef("organization_uuid")
@@ -150,9 +147,7 @@ def _tickets_with_verified_org() -> QuerySet[Ticket]:
                 When(organization_id__regex=_UUID_REGEX, then=Cast("organization_id", output_field=UUIDField())),
                 output_field=UUIDField(),
             )
-        )
-        .filter(Exists(membership_for_ticket_org))
-        .exclude(identity_verified=False)
+        ).filter(Exists(membership_for_ticket_org), identity_verified=True)
     )
 
 
