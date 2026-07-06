@@ -278,6 +278,16 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     assert diagnostics[0].error_message == "bad query"
 
 
+def _wrap(
+    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
+) -> BaseException:
+    if cause is not None:
+        outer.__cause__ = cause
+    if context is not None:
+        outer.__context__ = context
+    return outer
+
+
 @pytest.mark.parametrize(
     "exc,expected",
     [
@@ -286,6 +296,14 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
         # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
         (InternalHogQLError("internal detail with a team-scoped id"), None),
         (ValueError("boom"), None),
+        # A generic error wrapping a safe error surfaces the wrapped message (executors wrap like this).
+        (
+            _wrap(Exception("wrapper"), cause=ResolutionError("Unable to resolve field 'x'")),
+            "Unable to resolve field 'x'",
+        ),
+        (_wrap(RuntimeError("boom"), context=ExposedHogQLError("bad thing")), "bad thing"),
+        # A generic error wrapping only generic errors stays type-only.
+        (_wrap(Exception("outer"), cause=ValueError("inner")), None),
     ],
 )
 def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):

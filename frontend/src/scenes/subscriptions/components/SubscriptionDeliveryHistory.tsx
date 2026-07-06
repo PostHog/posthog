@@ -123,11 +123,19 @@ function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]):
 const failedIndexes = (diagnostics: readonly AIReportQueryDiagnosticApi[]): number[] =>
     diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
 
+/** The fully-degraded report's emailed body leads with a notice whose closing sentence points recipients
+ * to the delivery history in PostHog. In-app we're already on that page with the query accordion below, so
+ * that pointer is circular — drop it for display only (the persisted/emailed body is untouched). Mirrors
+ * `_all_queries_failed_notice` in report_pipeline.py; a copy change there just no-ops here, so it fails safe. */
+export function stripDeliveryHistoryPointer(markdown: string): string {
+    return markdown.replace(/\s*Check the subscription's delivery history[^.]*\./, '')
+}
+
 /** The delivered report markdown, when present. Scrubbed to `null` for callers without
  * `query:viewer` access just like the diagnostics. */
 function reportMarkdown(row: SubscriptionDeliveryApi): string | null {
     const report = row.ai_report
-    return typeof report === 'string' && report ? report : null
+    return typeof report === 'string' && report ? stripDeliveryHistoryPointer(report) : null
 }
 
 /** The subscription prompt captured when this report was generated. User-authored (not query-derived),

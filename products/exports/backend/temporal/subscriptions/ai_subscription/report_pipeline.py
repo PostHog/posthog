@@ -86,8 +86,16 @@ def _safe_error_message(exc: BaseException) -> Optional[str]:
     # HogQL/ClickHouse error text can echo team-scoped identifiers, so only the query-structure error
     # classes (which describe the field/property the planner referenced) are safe to surface to the
     # subscription owner — the same trust boundary the HogQL repair loop uses when forwarding to the
-    # fixer. Everything else stays type-only.
-    return str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else None
+    # fixer. Everything else stays type-only. Executors often wrap a resolution/exposed error in a
+    # generic Exception, so walk the __cause__/__context__ chain and surface the wrapped safe message.
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (ExposedHogQLError, ResolutionError)):
+            return str(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
 
 
 class ReportStage(StrEnum):
