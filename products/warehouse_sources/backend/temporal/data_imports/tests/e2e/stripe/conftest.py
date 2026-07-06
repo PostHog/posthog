@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from posthog.temporal.tests.data_imports.stripe.data import BALANCE_TRANSACTIONS
+from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.stripe.data import BALANCE_TRANSACTIONS
 
 
 class StripeData(TypedDict):
