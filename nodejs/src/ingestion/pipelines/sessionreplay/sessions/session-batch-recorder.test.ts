@@ -16,6 +16,7 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFeatureRecorder } from './session-feature-recorder'
 import { SessionFilter } from './session-filter'
 import { SessionTracker } from './session-tracker'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
@@ -347,6 +348,23 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('recording and writing', () => {
+        it('skips the feature recorder for pre-serialized (native-anonymizer) messages', async () => {
+            // The feature recorder throws on pre-serialized input; calling it per message would
+            // spam Sentry and stop feature blocks. The call site must skip it instead.
+            const message = createMessage('session1', [])
+            message.message.eventsByWindowId = {}
+            message.message.preSerialized = {
+                lines: Buffer.from('["window1",{"type":3,"timestamp":1000}]\n'),
+                events: [{ ts: 1000, flags: 0 }],
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+            }
+            await record(message)
+            const featureRecorder = jest.mocked(SessionFeatureRecorder).mock.results[0].value
+            expect(featureRecorder.recordMessage).not.toHaveBeenCalled()
+        })
+
         it('should write events in correct format', async () => {
             const message = createMessage('session1', [
                 {

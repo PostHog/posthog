@@ -13,7 +13,13 @@ export const MAX_SIDE_PANEL_ID = 'max-side-panel'
  */
 export function PhaiSidePanelChat(): JSX.Element {
     return (
-        <div className="flex flex-col h-full min-h-0">
+        // `flex-1 min-h-0`, NOT `h-full`: the side panel hosts this inside a ScrollArea whose content
+        // grows with its children (`min-height: auto`), so a percentage height resolves against the
+        // grown box — the runner then inflates to its full thread height and its internal scrollers
+        // never engage (and `overscroll-contain` on the thread swallows wheel events entirely).
+        // Taking remaining flex space instead (zero min-content contribution) keeps the panel clamped
+        // to the viewport so the thread/history scroll internally as designed.
+        <div className="flex flex-col flex-1 min-h-0">
             <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
         </div>
     )

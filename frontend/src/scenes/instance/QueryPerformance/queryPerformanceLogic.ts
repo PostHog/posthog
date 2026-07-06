@@ -15,6 +15,8 @@ export interface PrecomputationTeam {
     experiment_precomputation_enabled: boolean
 }
 
+export type ExperimentsTab = 'slowest_queries' | 'cache_health'
+
 export interface CachePartitionStats {
     partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
     rows: number
@@ -89,6 +91,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
         setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
+        setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
     }),
     reducers({
         search: [
@@ -125,6 +128,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             '',
             {
                 setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
+            },
+        ],
+        experimentsTab: [
+            'slowest_queries' as ExperimentsTab,
+            {
+                setExperimentsTab: (_, { tab }) => tab,
             },
         ],
     }),

@@ -28,7 +28,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.models import Team
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+from products.warehouse_sources.backend.facade.source_management import SSL_REQUIRED_AFTER_DATE
 
 
 class TestDirectPostgresQuery(APIBaseTest):

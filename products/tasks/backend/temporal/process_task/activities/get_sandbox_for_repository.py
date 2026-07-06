@@ -96,6 +96,13 @@ class GetSandboxForRepositoryOutput:
     used_snapshot: bool
     should_create_snapshot: bool
     agent_server_launched: bool = False
+    boot_path: str = "classic"
+    image_source: str | None = None
+    # Per-phase boot durations, threaded through to the sandbox_started analytics event.
+    create_ms: int | None = None
+    clone_ms: int | None = None
+    checkout_ms: int | None = None
+    launch_ms: int | None = None
 
 
 @activity.defn

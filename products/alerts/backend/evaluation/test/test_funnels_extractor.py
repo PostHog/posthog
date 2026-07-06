@@ -84,9 +84,11 @@ def test_result_is_unframed_single_series():
         ),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_INCREASE, "absolute value conditions"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
-        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no data"),
         ([{"order": 0}, {"order": 1}], None, None, AlertConditionType.ABSOLUTE_VALUE, "non-numeric count"),
         ([{"order": 0, "count": 100}, "broken"], None, None, AlertConditionType.ABSOLUTE_VALUE, "malformed"),
+        # A falsy non-list ({}) must raise, not be swallowed as benign empty ([]).
+        ({}, None, None, AlertConditionType.ABSOLUTE_VALUE, "unexpected result shape"),
+        ({}, None, "trends", AlertConditionType.ABSOLUTE_VALUE, "unexpected result shape"),
     ],
 )
 def test_extract_raises_extraction_error(result, config, viz, condition_type, match):
@@ -158,9 +160,14 @@ def test_trends_funnel_compare_evaluates_current_period_only():
     assert result.series[0].points[result.series[0].current_index].value == 40.0
 
 
-def test_trends_funnel_empty_result_raises_extraction_error():
-    with pytest.raises(AlertExtractionError, match="no data"):
-        _extract([], viz="trends")
+@pytest.mark.parametrize("viz", [None, "trends"])
+def test_empty_result_is_benign_no_data(viz):
+    # An empty funnel result (no users in the window) is benign "no data this interval", not a
+    # misconfiguration — it must NOT raise (which would surface a benign empty funnel to error
+    # tracking as a crash). It yields a single missing point so the comparator skips it.
+    result = _extract([], viz=viz)
+    assert len(result.series) == 1
+    assert result.series[0].points[result.series[0].current_index].value is None
 
 
 def test_unsupported_viz_raises():
