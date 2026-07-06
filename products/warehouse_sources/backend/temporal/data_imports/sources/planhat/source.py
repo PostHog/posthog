@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlanhatSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.planhat import (
     PlanhatResumeConfig,
-    check_access,
     planhat_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.settings import (
     ENDPOINTS,
@@ -110,12 +110,7 @@ You can create an API access token from a Private App under **Settings → Servi
         self, config: PlanhatSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API token is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Planhat API token"
-        return False, message or "Could not validate Planhat API token"
+        return validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PlanhatResumeConfig]:
         return ResumableSourceManager[PlanhatResumeConfig](inputs, PlanhatResumeConfig)
