@@ -31,8 +31,9 @@ Usage:
 
 When a personal API key can't be created (e.g. an impersonated staff session), pass a
 browser session instead: --session-id (env POSTHOG_SESSION_ID) with the value of the
-`sessionid` cookie from devtools. The script fetches a CSRF token automatically. The
-session-authenticated user's email is printed so impersonation can be double-checked.
+`sessionid` cookie from devtools. The script fetches a CSRF token automatically, and
+before running anything - reads included - requires typing the authenticated user's
+email, so acting on behalf of an impersonated user is always a conscious choice.
 """
 
 # ruff: noqa: T201 allow print statements in this CLI script
@@ -91,11 +92,30 @@ def request_with_retries(
     raise ScrubError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
 
 
+def confirm_acting_user(email: str) -> None:
+    """Make the operator type the session's email so the acting-as identity is conscious, not assumed."""
+    log("Session auth acts as the browser session's logged-in user - including for read queries.")
+    try:
+        entered = input("Enter that user's email to confirm you know who you're acting as: ")
+    except EOFError as err:
+        raise ScrubError(
+            "Session auth requires interactively confirming the authenticated user; "
+            "use a personal API key for non-interactive runs."
+        ) from err
+    if entered.strip().lower() != email.strip().lower():
+        raise ScrubError(
+            "That does not match the session's authenticated user - check whose session this is "
+            "(e.g. the impersonated user in your browser) and rerun."
+        )
+
+
 def setup_session_auth(session: requests.Session, host: str, session_id: str) -> None:
     """Authenticate with a browser session cookie (works for impersonated staff sessions).
 
     Django session auth requires a CSRF token on unsafe methods, so fetch the CSRF cookie
     from the login page and mirror it into the X-CSRFToken header, with the host as Referer.
+    Before anything runs - reads included - the operator must type the authenticated user's
+    email to confirm they know who the session acts as.
     """
     session.cookies.set("sessionid", session_id)
     request_with_retries(session, "GET", f"{host}/login")
@@ -111,7 +131,11 @@ def setup_session_auth(session: requests.Session, host: str, session_id: str) ->
             f"Session auth failed (HTTP {me.status_code}) - is the sessionid cookie value current? "
             "Impersonated sessions expire when the impersonation ends or times out."
         )
-    log(f"Authenticated via session as {me.json().get('email', '<unknown>')}")
+    email = me.json().get("email")
+    if not email:
+        raise ScrubError("Could not determine the session's authenticated user")
+    confirm_acting_user(email)
+    log(f"Authenticated via session as {email}")
 
 
 def run_hogql_query(
