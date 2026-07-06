@@ -15,6 +15,8 @@ import type {
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
+    SessionRecordingBulkDeleteRequestApi,
+    SessionRecordingBulkDeleteResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
@@ -312,6 +314,26 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSessionRecordingsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_recordings/bulk_delete/`
+}
+
+/**
+ * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
+ */
+export const sessionRecordingsBulkDeleteCreate = async (
+    projectId: string,
+    sessionRecordingBulkDeleteRequestApi: SessionRecordingBulkDeleteRequestApi,
+    options?: RequestInit
+): Promise<SessionRecordingBulkDeleteResponseApi> => {
+    return apiMutator<SessionRecordingBulkDeleteResponseApi>(getSessionRecordingsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingBulkDeleteRequestApi),
     })
 }
 
