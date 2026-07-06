@@ -138,8 +138,9 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
     const markers = observationStatsApi?.labels.version_markers ?? []
     // A freshly applied prompt has no scans yet and no marker, so show the live config as its own entry.
     const currentVersion = scanner.scanner_version
-    const hasCurrentMarker = markers.some((marker) => marker.version === currentVersion)
-    if (markers.length === 0 && !scanner.scanner_config.prompt) {
+    const currentPrompt = scanner.scanner_config.prompt
+    const showCurrentEntry = Boolean(currentPrompt) && !markers.some((marker) => marker.version === currentVersion)
+    if (markers.length === 0 && !showCurrentEntry) {
         return null
     }
     const newestFirst = [...markers].sort((a, b) => b.version - a.version)
@@ -147,7 +148,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader icon={<IconPencil />} title="Prompt versions" />
             <div className="flex flex-col gap-3">
-                {!hasCurrentMarker && (
+                {showCurrentEntry && (
                     <div className="border rounded p-3 space-y-2" id={`prompt-v${currentVersion}`}>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                             <LemonTag type="warning" className="font-mono">
@@ -155,9 +156,7 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             </LemonTag>
                             <span>current · no scans yet</span>
                         </div>
-                        <div className="whitespace-pre-wrap font-mono text-xs">
-                            {scanner.scanner_config.prompt || '—'}
-                        </div>
+                        <div className="whitespace-pre-wrap font-mono text-xs">{currentPrompt}</div>
                     </div>
                 )}
                 {newestFirst.map((marker) => (

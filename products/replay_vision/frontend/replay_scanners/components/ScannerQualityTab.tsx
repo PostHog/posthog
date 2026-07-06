@@ -37,7 +37,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
-import { fillLabelDays } from '../../utils/labelStats'
+import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
@@ -485,29 +485,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
-    // Thumbs-up share per prompt version, from rated sessions only.
-    const versionAccuracy = useMemo(() => {
-        const markers = labelStats?.version_markers ?? []
-        return markers
-            .map((marker) => {
-                const rated = marker.up + marker.down
-                return {
-                    version: marker.version,
-                    rated,
-                    scanned: marker.total,
-                    pct: rated > 0 ? Math.round((marker.up / rated) * 100) : null,
-                }
-            })
-            .filter((entry) => entry.pct !== null)
-            .sort((a, b) => a.version - b.version)
-    }, [labelStats])
-    // A freshly applied prompt has no scans yet and no marker. Show it so the strip
-    // doesn't imply the previous version is still live.
-    const activeVersion = scanner?.scanner_version
-    const activeVersionUnscanned =
-        activeVersion !== undefined &&
-        versionAccuracy.length > 0 &&
-        !(labelStats?.version_markers ?? []).some((marker) => marker.version === activeVersion)
+    // Thumbs-up share per prompt version, from rated sessions only. The active version stays
+    // visible while unrated or unscanned, so a fresh prompt never implies the old one is live.
+    const versionAccuracy = useMemo(
+        () => versionAccuracyStrip(labelStats?.version_markers ?? [], scanner?.scanner_version),
+        [labelStats, scanner]
+    )
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -528,38 +511,34 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                     />
                 </div>
             </div>
-            {versionAccuracy.length >= 2 && (
+            {versionAccuracy.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
-                    {versionAccuracy.map((entry, index) => {
-                        const previous = index > 0 ? versionAccuracy[index - 1] : null
-                        const delta = previous?.pct != null && entry.pct != null ? entry.pct - previous.pct : null
-                        const isCurrent = activeVersionUnscanned
-                            ? false
-                            : activeVersion !== undefined
-                              ? entry.version === activeVersion
-                              : index === versionAccuracy.length - 1
-                        return (
-                            <span key={entry.version} className="flex items-center gap-1.5">
-                                {delta !== null && (
-                                    <span className={delta >= 0 ? 'text-success' : 'text-danger'}>
-                                        {delta >= 0 ? '↑' : '↓'}
-                                    </span>
-                                )}
-                                <Tooltip
-                                    title={`${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`}
-                                >
-                                    <LemonTag type={isCurrent ? 'highlight' : 'muted'}>
-                                        v{entry.version} · {entry.pct}% thumbs up ({entry.rated})
-                                    </LemonTag>
-                                </Tooltip>
-                            </span>
-                        )
-                    })}
-                    {activeVersionUnscanned && (
-                        <Tooltip title="This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker">
-                            <LemonTag type="highlight">v{activeVersion} · no scans yet</LemonTag>
-                        </Tooltip>
-                    )}
+                    {versionAccuracy.map((entry) => (
+                        <span key={entry.version} className="flex items-center gap-1.5">
+                            {entry.delta !== null && (
+                                <span className={entry.delta >= 0 ? 'text-success' : 'text-danger'}>
+                                    {entry.delta >= 0 ? '↑' : '↓'}
+                                </span>
+                            )}
+                            <Tooltip
+                                title={
+                                    entry.pct !== null
+                                        ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
+                                        : entry.scanned > 0
+                                          ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
+                                          : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
+                                }
+                            >
+                                <LemonTag type={entry.isCurrent ? 'highlight' : 'muted'}>
+                                    {entry.pct !== null
+                                        ? `v${entry.version} · ${entry.pct}% thumbs up (${entry.rated})`
+                                        : entry.scanned > 0
+                                          ? `v${entry.version} · no ratings yet`
+                                          : `v${entry.version} · no scans yet`}
+                                </LemonTag>
+                            </Tooltip>
+                        </span>
+                    ))}
                 </div>
             )}
             {labelStatsLoading && !labelStats ? (
