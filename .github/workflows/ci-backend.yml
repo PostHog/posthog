@@ -91,10 +91,6 @@ jobs:
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
-            # True only when every backend-relevant changed file is a data
-            # warehouse import source — lets build_django_matrix drop the
-            # Core/CorePOE/compat segments. Defaults false (full matrix).
-            data_import_sources_only: ${{ steps.sources.outputs.data_import_sources_only || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -287,50 +283,6 @@ jobs:
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
 
-            # Detect PRs whose backend changes are confined to data warehouse
-            # import sources that NO Django Core/CorePOE-collected code imports.
-            # Such a PR is exercised only by the Temporal segment (Core/CorePOE
-            # --ignore=posthog/temporal), so those segments add no coverage.
-            # The `coupled` sources are reverse-imported at runtime by Core tests
-            # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
-            # postgres) — a PR touching them must run the full matrix or it would
-            # silently skip those tests. `coupled` is kept complete by the guard
-            # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
-            # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
-            # PR events only; push and merge_group always run everything.
-            # continue-on-error keeps the fail-open promise even when the runner can't
-            # start the step at all: a very large PR (e.g. a big rename) makes
-            # BACKEND_FILES exceed the process env limit ("Argument list too long"),
-            # which would otherwise hard-fail this job and skip every dependent test job.
-            # On that failure the job output below defaults to false → full matrix.
-            - name: Determine if only data warehouse sources changed
-              id: sources
-              continue-on-error: true
-              if: github.event_name == 'pull_request'
-              env:
-                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
-              run: |
-                  prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
-                  # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common google_search_console mysql postgres salesforce snowflake stripe"
-                  only_sources=false
-                  if [ -n "$BACKEND_FILES" ]; then
-                      only_sources=true
-                      for f in $BACKEND_FILES; do
-                          case "$f" in
-                              "$prefix"*) ;;
-                              *) only_sources=false; break ;;
-                          esac
-                          rest=${f#"$prefix"}    # path within sources/
-                          top=${rest%%/*}        # vendor dir (or top-level filename)
-                          case " $coupled " in
-                              *" $top "*) only_sources=false; break ;;
-                          esac
-                      done
-                  fi
-                  echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
-                  echo "Only data warehouse import sources changed: $only_sources"
-
             # A change that only touches Markdown docs (e.g. a README under
             # posthog/) still matches the broad backend globs above, needlessly
             # running the whole backend suite. Drop the backend signal when
@@ -504,12 +456,6 @@ jobs:
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
-                  # When only (non-coupled) data-warehouse import sources changed, the Temporal
-                  # segment is the sole coverage (build_django_matrix trims Django to it). Those
-                  # source connectors are facade-isolated, so no other product's tests exercise
-                  # them — narrow the product matrix to warehouse_sources alone instead of the
-                  # full all-products fan-out. Guarded + fail-open in the `changes` job above.
-                  DATA_IMPORT_SOURCES_ONLY: ${{ github.event_name != 'pull_request' && 'false' || needs.changes.outputs.data_import_sources_only }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
@@ -640,16 +586,16 @@ jobs:
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/warehouse_sources/backend/temporal, products/signals/backend/emission
+                  #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them.
+                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
                   core=()
                   poe=()
                   temporal=()
                   while IFS= read -r f; do
                       [[ -z "$f" ]] && continue
                       case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/warehouse_sources/backend/temporal/*|products/signals/backend/emission/*)
+                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
                           posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
@@ -1988,7 +1934,6 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
@@ -2131,19 +2076,12 @@ jobs:
                       ')
                   fi
 
-                  if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
-                    # Only data warehouse import sources changed — the Temporal
-                    # segment already covers posthog/temporal, so skip Core/CorePOE/compat.
-                    echo "Only data warehouse import sources changed — running Temporal segment only"
-                    include="$temporal"
-                  else
-                    include=$(jq -cn \
-                      --argjson core "$core" \
-                      --argjson core_persons_on_events "$core_persons_on_events" \
-                      --argjson temporal "$temporal" \
-                      --argjson compat "$compat" \
-                      '$core + $core_persons_on_events + $temporal + $compat')
-                  fi
+                  include=$(jq -cn \
+                    --argjson core "$core" \
+                    --argjson core_persons_on_events "$core_persons_on_events" \
+                    --argjson temporal "$temporal" \
+                    --argjson compat "$compat" \
+                    '$core + $core_persons_on_events + $temporal + $compat')
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
@@ -2643,7 +2581,7 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/warehouse_sources/backend/temporal products/signals/backend/emission -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
