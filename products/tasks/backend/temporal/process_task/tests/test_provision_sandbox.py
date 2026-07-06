@@ -140,3 +140,42 @@ def test_build_environment_variables_disables_telemetry_when_restricted(
         assert all(env.get(k) == "1" for k in keys)
     else:
         assert not (keys & env.keys())
+
+
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@pytest.mark.parametrize(
+    "url, token, traces_url, expected_keys",
+    [
+        (
+            "https://us.i.posthog.com/i/v1/logs",
+            "phc_telemetry",
+            "https://us.i.posthog.com/i/v1/traces",
+            {"POSTHOG_AGENT_OTEL_LOGS_URL", "POSTHOG_AGENT_OTEL_LOGS_TOKEN", "POSTHOG_AGENT_OTEL_TRACES_URL"},
+        ),
+        (
+            "https://us.i.posthog.com/i/v1/logs",
+            "phc_telemetry",
+            None,
+            {"POSTHOG_AGENT_OTEL_LOGS_URL", "POSTHOG_AGENT_OTEL_LOGS_TOKEN"},
+        ),
+        ("https://us.i.posthog.com/i/v1/logs", None, None, set()),
+        (None, "phc_telemetry", None, set()),
+        # Traces alone are useless without the logs pair carrying the token.
+        (None, None, "https://us.i.posthog.com/i/v1/traces", set()),
+    ],
+)
+def test_build_environment_variables_injects_otel_env_only_when_fully_configured(
+    _api, _jwt, _git, url, token, traces_url, expected_keys
+):
+    ctx = _context()
+
+    with override_settings(
+        SANDBOX_AGENT_OTEL_LOGS_URL=url,
+        SANDBOX_AGENT_OTEL_LOGS_TOKEN=token,
+        SANDBOX_AGENT_OTEL_TRACES_URL=traces_url,
+    ):
+        env = _build_environment_variables(ctx, MagicMock(), "", "access-token")
+
+    assert {key for key in env if key.startswith("POSTHOG_AGENT_OTEL_")} == expected_keys
