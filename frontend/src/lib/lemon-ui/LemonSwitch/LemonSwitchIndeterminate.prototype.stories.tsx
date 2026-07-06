@@ -47,7 +47,7 @@ const VARIANTS: {
         key: 'C',
         name: 'Half fill',
         description:
-            'Handle stretches over the left half on a track split by a 30° sloped divider, gray left and orange/red right.',
+            'Handle stretches over the left half on a track split by a 30° sloped divider, gray left and accent right (same fill as B).',
         Component: VariantCHalfFill,
     },
     {
@@ -67,7 +67,7 @@ const VARIANTS: {
         key: 'G',
         name: 'Centered half-width handle with dash',
         description:
-            'A + B + C combined: half-width handle parks mid-track carrying the minus glyph on the sloped gray/orange split track.',
+            'A + B + C combined: half-width handle parks mid-track carrying the minus glyph on the sloped gray/accent split track.',
         Component: VariantGCenteredHandleDash,
     },
     {
