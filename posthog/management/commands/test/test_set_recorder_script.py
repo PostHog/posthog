@@ -7,7 +7,6 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -105,9 +104,12 @@ class TestSetRecorderScriptCommand(BaseTest):
 
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
-    def test_sampling_is_consistent(self):
-        # simple_hash maps consecutive decimal ids into a narrow band mod 10000, so a sequence-assigned
-        # id block usually samples all-or-nothing; fixed ids give a deterministic 80/20 split at rate 0.5.
+    def test_samples_the_expected_teams_at_rate_0_5(self):
+        # Fixed ids give a deterministic split at rate 0.5. The expected set below is derived
+        # independently of the command's sampling code: for these 100 ids, simple_hash(id) % 10000
+        # lands under 5000 for ids 9_400_000..9_400_079 and at/above it for the last 20. Asserting
+        # against this precomputed 80/20 split (rather than re-deriving it with sample_on_property)
+        # proves the command applies sampling correctly, not merely that it matches itself.
         Team.objects.bulk_create(
             [
                 Team(id=9_400_000 + i, organization=self.organization, project=self.project, name=f"Team {i}")
@@ -121,13 +123,10 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        all_ids = set(Team.objects.values_list("id", flat=True))
-        expected_ids = {team_id for team_id in all_ids if sample_on_property(str(team_id), 0.5)}
+        expected_ids = set(range(9_400_000, 9_400_080))
         updated_ids = set(Team.objects.filter(extra_settings__has_key="recorder_script").values_list("id", flat=True))
 
         assert updated_ids == expected_ids
-        # Both sides non-empty proves the command actually filtered rather than updating none or all.
-        assert updated_ids and all_ids - updated_ids
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
