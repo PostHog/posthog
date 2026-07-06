@@ -167,14 +167,35 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class ScopeBudget:
+    """One size-gate budget: a folder override's files, or the global pool.
+
+    `path` is the governing AGENT_POLICIES.md (repo-relative); None is the
+    global pool, which also absorbs files under prose-only or invalid folder
+    files so splitting files across pseudo-scopes can never inflate the
+    allowance.
+    """
+
+    path: str | None
+    max_files: int
+    files: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EffectivePolicy:
-    """Per-PR resolved policy: global values plus any applied folder override."""
+    """Per-PR resolved policy: per-scope size budgets plus advisory prose.
+
+    Mixed PRs get mixed leniency: every changed file is budgeted by the nearest
+    folder override above it, and each scope's files must fit that scope's own
+    ceiling. No file ever gets more leniency than its own folder grants, and
+    the global pool keeps the global ceiling. max_lines stays a single global
+    total; it is not delegable.
+    """
 
     max_lines: int
-    max_files: int
-    folder_override_path: str | None = None
-    folder_override_invalid: bool = False
+    scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
+    invalid_folder_files: tuple[str, ...] = ()
 
 
 class PolicyError(ValueError):
@@ -438,34 +459,28 @@ class _FolderOverride:
     invalid: bool = False
 
 
-def _nearest_common_ancestor(changed_files: Iterable[str]) -> PurePosixPath:
-    """Deepest directory containing every changed file (`.` for repo root).
+def _scope_dir_for(
+    file_path: str, root: Path, cache: dict[PurePosixPath, PurePosixPath | None]
+) -> PurePosixPath | None:
+    """Nearest directory at or above `file_path` carrying an AGENT_POLICIES.md.
 
-    A single stray root-level file collapses the ancestor to the repo root,
-    so a folder override stops applying - the fail direction is stricter.
+    None when no folder file governs the path (the file belongs to the global
+    pool). Per-directory cache keeps this one stat per distinct directory.
     """
-    dirs = [PurePosixPath(f).parent for f in changed_files]
-    if not dirs:
-        return PurePosixPath(".")
-    common = dirs[0].parts
-    for d in dirs[1:]:
-        parts = d.parts
-        limit = min(len(common), len(parts))
-        cut = 0
-        while cut < limit and common[cut] == parts[cut]:
-            cut += 1
-        common = common[:cut]
-    return PurePosixPath(*common) if common else PurePosixPath(".")
-
-
-def _find_folder_policy(root: Path, ancestor: PurePosixPath) -> Path | None:
-    """Walk up from `ancestor` to the repo root, returning the nearest folder file."""
-    candidates = [ancestor, *ancestor.parents]
-    for rel in candidates:
-        candidate = root / rel / _FOLDER_POLICY_FILENAME
-        if candidate.is_file():
-            return candidate
-    return None
+    start = PurePosixPath(file_path).parent
+    result: PurePosixPath | None = None
+    visited: list[PurePosixPath] = []
+    for rel in [start, *start.parents]:
+        if rel in cache:
+            result = cache[rel]
+            break
+        visited.append(rel)
+        if (root / rel / _FOLDER_POLICY_FILENAME).is_file():
+            result = rel
+            break
+    for rel in visited:
+        cache[rel] = result
+    return result
 
 
 def _sanitize_folder_prose(raw: str) -> str:
@@ -534,33 +549,50 @@ def _read_delegated_max_files(stamphog: dict[str, Any], contract: dict[str, Over
 
 
 def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
-    """Resolve the effective policy for a PR's changed files.
+    """Resolve the per-scope size budgets for a PR's changed files.
 
-    Finds the nearest folder override above the changed files' common ancestor,
-    applies its delegated keys within ceilings, and carries the folder file's
-    sanitized advisory prose (or a flag if the file was found but invalid).
+    Each file is governed by the nearest AGENT_POLICIES.md above it. Scopes
+    that grant a max_files override form their own budget over their own files;
+    everything else (no folder file, prose-only, or invalid folder file) pools
+    into the global budget. Advisory prose is collected from every valid folder
+    file that governs at least one changed file.
     """
     root = repo_root()
-    ancestor = _nearest_common_ancestor(changed_files)
-    folder_file = _find_folder_policy(root, ancestor)
-    if folder_file is None:
-        return EffectivePolicy(max_lines=policy.size_gate.max_lines, max_files=policy.size_gate.max_files)
+    dir_cache: dict[PurePosixPath, PurePosixPath | None] = {}
+    by_scope: dict[PurePosixPath | None, list[str]] = {}
+    for file_path in changed_files:
+        scope = _scope_dir_for(file_path, root, dir_cache)
+        by_scope.setdefault(scope, []).append(file_path)
 
-    rel_path = folder_file.relative_to(root).as_posix()
-    parsed = _parse_folder_policy(folder_file, policy.overrides)
-    if parsed.invalid:
-        return EffectivePolicy(
-            max_lines=policy.size_gate.max_lines,
-            max_files=policy.size_gate.max_files,
-            folder_override_path=rel_path,
-            folder_override_invalid=True,
-        )
+    global_files: list[str] = by_scope.pop(None, [])
+    override_scopes: list[ScopeBudget] = []
+    prose_parts: list[tuple[str, str]] = []
+    invalid_files: list[str] = []
+    for scope_dir, files in sorted(by_scope.items(), key=lambda item: str(item[0])):
+        rel_path = (scope_dir / _FOLDER_POLICY_FILENAME).as_posix()
+        parsed = _parse_folder_policy(root / rel_path, policy.overrides)
+        if parsed.invalid:
+            invalid_files.append(rel_path)
+            global_files.extend(files)
+            continue
+        if parsed.prose:
+            prose_parts.append((rel_path, parsed.prose))
+        if parsed.max_files is None:
+            global_files.extend(files)
+            continue
+        override_scopes.append(ScopeBudget(path=rel_path, max_files=parsed.max_files, files=tuple(files)))
 
-    max_files = parsed.max_files if parsed.max_files is not None else policy.size_gate.max_files
+    if len(prose_parts) == 1:
+        folder_prose = prose_parts[0][1]
+    elif prose_parts:
+        folder_prose = "\n\n".join(f"[{path}]\n{prose}" for path, prose in prose_parts)
+    else:
+        folder_prose = None
+
+    scopes = (*override_scopes, ScopeBudget(path=None, max_files=policy.size_gate.max_files, files=tuple(global_files)))
     return EffectivePolicy(
         max_lines=policy.size_gate.max_lines,
-        max_files=max_files,
-        folder_override_path=rel_path,
-        folder_override_invalid=False,
-        folder_prose=parsed.prose,
+        scopes=scopes,
+        folder_prose=folder_prose,
+        invalid_folder_files=tuple(invalid_files),
     )

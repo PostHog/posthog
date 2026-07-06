@@ -15,7 +15,17 @@ sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 import gates  # noqa: E402
 import policy  # noqa: E402
 import reviewer  # noqa: E402
-from policy import PolicyError, _sanitize_folder_prose, default_policy_path, load_policy, resolve  # noqa: E402
+import review_pr  # noqa: E402
+from github import PRData  # noqa: E402
+from policy import (  # noqa: E402
+    EffectivePolicy,
+    PolicyError,
+    ScopeBudget,
+    _sanitize_folder_prose,
+    default_policy_path,
+    load_policy,
+    resolve,
+)
 
 _LOCKFILE_NAMES = gates._ALL_LOCKFILE_NAMES
 
@@ -244,50 +254,117 @@ def fake_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_resolve_folder_override_applies_when_scoped(fake_repo: Path) -> None:
+def _scope(eff, path):
+    return next(s for s in eff.scopes if s.path == path)
+
+
+def test_resolve_folder_override_budgets_its_own_files(fake_repo: Path) -> None:
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/visual_review/sub/b.py"])
-    assert eff.max_files == 50
+    vr = _scope(eff, _VISUAL_REVIEW_FILE)
+    assert vr.max_files == 50
+    assert set(vr.files) == {"products/visual_review/a.py", "products/visual_review/sub/b.py"}
+    assert _scope(eff, None).files == ()
     assert eff.max_lines == gates.MAX_LINES
-    assert eff.folder_override_path == _VISUAL_REVIEW_FILE
-    assert eff.folder_override_invalid is False
+    assert eff.invalid_folder_files == ()
     assert eff.folder_prose == "advisory prose"
 
 
-def test_resolve_stray_root_file_disables_override(fake_repo: Path) -> None:
+def test_resolve_mixed_pr_budgets_each_scope_separately(fake_repo: Path) -> None:
+    # Mixed leniency: the folder's files keep the folder ceiling, everything
+    # else keeps the global ceiling. A stray root file no longer revokes the
+    # override, it just has to fit the global budget itself.
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "README.md"])
-    assert eff.max_files == gates.MAX_FILES
-    assert eff.folder_override_path is None
+    assert _scope(eff, _VISUAL_REVIEW_FILE).max_files == 50
+    assert _scope(eff, _VISUAL_REVIEW_FILE).files == ("products/visual_review/a.py",)
+    assert _scope(eff, None).max_files == gates.MAX_FILES
+    assert _scope(eff, None).files == ("README.md",)
 
 
-def test_resolve_undelegated_key_invalidates_whole_file(fake_repo: Path) -> None:
-    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_lines: 999")
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        pytest.param("stamphog:\n  size_gate:\n    max_lines: 999", id="undelegated-key"),
+        pytest.param("stamphog:\n  size_gate:\n    max_files: 99", id="over-ceiling"),
+    ],
+)
+def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, frontmatter: str) -> None:
+    _write_folder_policy(fake_repo, frontmatter)
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert eff.max_files == gates.MAX_FILES
-    assert eff.folder_override_invalid is True
+    assert [s.path for s in eff.scopes] == [None]
+    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert eff.invalid_folder_files == (_VISUAL_REVIEW_FILE,)
     assert eff.folder_prose is None
-
-
-def test_resolve_out_of_ceiling_invalidates_whole_file(fake_repo: Path) -> None:
-    _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 99")
-    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
-    assert eff.max_files == gates.MAX_FILES
-    assert eff.folder_override_invalid is True
 
 
 @pytest.mark.usefixtures("fake_repo")
 def test_resolve_no_folder_file_uses_global() -> None:
     eff = resolve(gates.POLICY, ["posthog/api/insight.py"])
-    assert eff.max_files == gates.MAX_FILES
-    assert eff.folder_override_path is None
-    assert eff.folder_override_invalid is False
+    assert [s.path for s in eff.scopes] == [None]
+    assert _scope(eff, None).max_files == gates.MAX_FILES
+    assert eff.invalid_folder_files == ()
+
+
+def test_resolve_prose_only_folder_file_keeps_global_budget(fake_repo: Path) -> None:
+    # No pseudo-scope budget: without a max_files grant the files pool into
+    # the global budget, but the advisory prose still reaches the reviewer.
+    (fake_repo / "products" / "visual_review").mkdir(parents=True)
+    (fake_repo / _VISUAL_REVIEW_FILE).write_text("---\n{}\n---\n\nadvice only\n")
+    eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
+    assert [s.path for s in eff.scopes] == [None]
+    assert _scope(eff, None).files == ("products/visual_review/a.py",)
+    assert eff.folder_prose == "advice only"
 
 
 def test_resolve_carries_sanitized_prose(fake_repo: Path) -> None:
     _write_folder_policy(fake_repo, "stamphog:\n  size_gate:\n    max_files: 50", prose="keep\x07this")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py"])
     assert eff.folder_prose == "keepthis"
+
+
+@pytest.mark.parametrize(
+    "n_global, expected_ok",
+    [
+        pytest.param(19, True, id="both-budgets-fit"),
+        pytest.param(21, False, id="global-budget-exceeded"),
+    ],
+)
+def test_size_gate_applies_mixed_leniency(n_global: int, expected_ok: bool) -> None:
+    # 30 folder-scoped files ride the folder's ceiling while the remaining
+    # files are judged against the global ceiling on their own.
+    vr_files = [{"filename": f"products/visual_review/f{i}.py", "additions": 5, "deletions": 0} for i in range(30)]
+    global_files = [{"filename": f"posthog/api/m{i}.py", "additions": 5, "deletions": 0} for i in range(n_global)]
+
+    pipeline = review_pr.Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = PRData(
+        number=1,
+        repo="PostHog/posthog",
+        title="feat: mixed change",
+        state="OPEN",
+        draft=False,
+        mergeable_state="clean",
+        author="alice",
+        labels=[],
+        base_sha="base",
+        head_sha="head",
+        files=vr_files + global_files,
+        reviews=[],
+        review_comments=[],
+        check_runs=[],
+    )
+    pipeline.effective_policy = EffectivePolicy(
+        max_lines=500,
+        scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=tuple(f["filename"] for f in vr_files)),
+            ScopeBudget(path=None, max_files=20, files=tuple(f["filename"] for f in global_files)),
+        ),
+    )
+
+    ok, message = pipeline._check_size()
+    assert ok is expected_ok
+    if not expected_ok:
+        assert "global" in message
 
 
 # ── 4. A policy-file-only PR is never T0 (deny wins over allow-listed ext) ──

@@ -19,16 +19,17 @@ The loader also hard-fails if that self-governance entry is ever missing, so it 
 A folder may carry an `AGENT_POLICIES.md` with a `stamphog:` frontmatter block plus advisory prose.
 Resolution:
 
-- Overrides apply to a PR only when the nearest such file sits at or above the common ancestor of every changed file. This walks up from the deepest shared directory of the PR's files.
-- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose - and the strict global policy applies.
+- Every changed file is governed by the nearest `AGENT_POLICIES.md` at or above it; files without one belong to the global pool.
+- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose - and its files fall back to the global pool.
 - The prose is untrusted advisory guidance. It is sanitized, length-capped, and injected inside the reviewer prompt's untrusted region; it can never override the deny rules or the refusal criteria.
 
-### The stray-file gotcha
+### Mixed PRs get mixed leniency
 
-Because resolution keys off the common ancestor, one stray file outside the folder disables the override.
-Example: a PR touching only `products/visual_review/*` resolves to `products/visual_review/AGENT_POLICIES.md` and gets its higher file ceiling.
-Add a single root-level file (say a top-level `README.md`) and the common ancestor collapses to the repo root, where no override applies, so the strict global ceiling is used.
-The fail direction is always stricter.
+Each scope's files are counted against that scope's own file ceiling, so a folder's grant covers exactly its own files and nothing else.
+Example: a PR changing 30 files under `products/visual_review/` (ceiling 50) plus 19 files elsewhere (global ceiling 20) passes, because each budget fits.
+Add a 21st global file and the PR is denied for the global budget, no matter how much headroom the folder still has.
+Files under a prose-only or invalid folder file count against the global budget too, so splitting files across pseudo-scopes can never inflate the allowance.
+The line ceiling stays a single global total; it is not delegable.
 
 ## Delegation contract
 
