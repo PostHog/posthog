@@ -2811,7 +2811,7 @@ class RssSourceConfig(config.Config):
 
 @config.config
 class RuddrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
