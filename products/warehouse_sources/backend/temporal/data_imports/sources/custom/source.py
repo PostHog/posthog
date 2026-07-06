@@ -340,10 +340,11 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
 def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     """Reject incremental config values that would deterministically crash at sync time.
 
-    The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
-    non-string ``datetime_format``, or an ``endpoint.incremental`` block missing the
-    required ``start_param``, would otherwise only surface mid-sync as a bare
-    ``KeyError`` the REST engine raises from ``setup_incremental_object``.
+    The structural schema doesn't model ``endpoint.incremental``, so hand-authored
+    mistakes here would otherwise only surface mid-sync: a non-string ``datetime_format``
+    as a strftime error (and only from the second sync onward, once a watermark is
+    stored), and a missing ``start_param`` as a bare ``KeyError`` the REST engine raises
+    from ``setup_incremental_object``.
     """
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
