@@ -2230,11 +2230,11 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
-    # Signature annotations are strings because this viewset defines a `list` method, which shadows the builtin
-    # `list` in the class namespace and would break bare `list[...]` annotations at class-definition time.
+    # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
+    # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
     def _bulk_filter_editable_insights(
-        self, ids: "list[int]", *, deleted: bool
-    ) -> "tuple[list[Insight], list[dict[str, Any]]]":
+        self, ids: Sequence[int], *, deleted: bool
+    ) -> tuple[Sequence[Insight], Sequence[dict[str, Any]]]:
         """Resolve `ids` to insights in this project with the given `deleted` state, split into the ones
         the requester may edit and `skipped` entries (not found, or missing edit permission)."""
         # objects_including_soft_deleted so the restore path (deleted=True) can find soft-deleted insights;
