@@ -165,7 +165,7 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 20
+        timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
