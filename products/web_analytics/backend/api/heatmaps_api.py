@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
+from urllib.parse import urlsplit
 
 from django.core.exceptions import FieldError
 from django.db.models import Q
@@ -923,7 +924,12 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     )
 
     def validate_url(self, value: str) -> str:
-        if any(c in _URL_PATTERN_CHARS for c in value):
+        # A saved heatmap renders one concrete page, so the URL must not be a pattern. Only the
+        # page-identifying part (scheme + host + path) is checked — query strings and fragments
+        # legitimately contain characters like '?', '$' and '[]' and are rendered verbatim.
+        split = urlsplit(value)
+        page_identifier = f"{split.scheme}{split.netloc}{split.path}"
+        if any(c in _URL_PATTERN_CHARS for c in page_identifier):
             raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
         ok, err = is_url_allowed(value)
         if not ok:
@@ -937,7 +943,9 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
             "name": {"required": False, "allow_null": True, "help_text": "Human-readable label for the saved heatmap."},
             "url": {
                 "required": True,
-                "help_text": "Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.",
+                "help_text": "Exact page URL to render and overlay heatmap data on. Query strings are "
+                "allowed (each is rendered as a distinct page); wildcard/pattern characters in the "
+                "host or path are not.",
             },
             "data_url": {
                 "required": False,

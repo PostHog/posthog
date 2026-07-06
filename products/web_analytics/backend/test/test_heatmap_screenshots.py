@@ -57,6 +57,22 @@ class TestHeatmapsAPI(APIBaseTest):
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
         self.assertTrue(saved.block_consent_modals)
 
+    @parameterized.expand(
+        [
+            ("query_string", "https://example.com/page?step=1", 201),
+            ("query_string_multiple_params", "https://example.com/page?x=1&y=2", 201),
+            ("fragment", "https://example.com/page#section", 201),
+            ("wildcard_in_path", "https://example.com/products/*", 400),
+            ("regex_anchor_in_path", "https://example.com/page$", 400),
+        ]
+    )
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_allows_query_strings_but_rejects_path_wildcards(self, _name, url, expected_status, _mock_task):
+        resp = self.client.post(f"/api/environments/{self.team.id}/saved/", {"url": url})
+        self.assertEqual(resp.status_code, expected_status)
+        if expected_status == 201:
+            self.assertEqual(SavedHeatmap.objects.get(id=resp.data["id"]).url, url)
+
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_partial_update_consent_toggle_triggers_regenerate(self, mock_task):
         saved = SavedHeatmap.objects.create(
