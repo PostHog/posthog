@@ -97,7 +97,7 @@ queryset.filter(name__icontains=value)  # SAFE
 
 ## Semgrep Rules
 
-Run `semgrep --config .semgrep/rules/ .` to check for injection issues.
+Run `semgrep --config .semgrep/rules/security/ .` to check for injection issues.
 
 Three rules:
 
@@ -115,8 +115,8 @@ Three rules:
 
 ```bash
 # Local install
-semgrep --test .semgrep/rules/
+semgrep --test .semgrep/rules/security/
 
 # Or via Docker
-docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
+docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```

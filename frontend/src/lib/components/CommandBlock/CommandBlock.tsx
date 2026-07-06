@@ -44,6 +44,13 @@ interface CommandBlockProps {
     /** Skip the "Copied … to clipboard" toast. Set when this block lives inside another
      *  long-lived toast that would otherwise get pushed around by the success info toast. */
     silentCopy?: boolean
+    /** Hide noise (`-y` flags and `@latest` version pins) from the displayed text to keep the
+     *  block compact. The full `command` is still what gets copied. */
+    condensed?: boolean
+}
+
+function condenseCommand(command: string): string {
+    return command.replace(/ -y\b/g, '').replace(/@latest\b/g, '')
 }
 
 export function CommandBlock({
@@ -55,11 +62,13 @@ export function CommandBlock({
     decoration = 'plain',
     onCopy,
     silentCopy = false,
+    condensed = false,
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
     const buttonRef = useRef<HTMLButtonElement>(null)
     const sizeStyle = SIZE_STYLES[size]
     const isStorybook = inStorybook() || inStorybookTestRunner()
+    const displayCommand = condensed ? condenseCommand(command) : command
 
     const handleCopy = (): void => {
         void copyToClipboard(command, copyLabel, { silent: silentCopy })
@@ -96,7 +105,7 @@ export function CommandBlock({
                         'rainbow-text-animating': decoration === 'rainbow' && !isStorybook,
                     })}
                 >
-                    {command}
+                    {displayCommand}
                 </code>
                 {copyKey > 0 && (
                     <code
@@ -104,7 +113,7 @@ export function CommandBlock({
                         className="CommandBlock__flash !bg-transparent !p-0 !border-0"
                         aria-hidden="true"
                     >
-                        {command}
+                        {displayCommand}
                     </code>
                 )}
             </span>

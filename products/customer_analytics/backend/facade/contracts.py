@@ -329,6 +329,7 @@ class AccountNoteView:
     last_modified_at: datetime
     account_id: UUID
     account_name: str
+    created_by: UserBasicInfo | None = None
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
