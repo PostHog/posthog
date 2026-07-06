@@ -394,6 +394,13 @@ type Story = StoryObj<{}>
 
 export const Dashboard: Story = {}
 
+// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
+export const DashboardWithMenuBar: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
+
 export const Sessions: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsSessions(),

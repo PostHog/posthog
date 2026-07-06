@@ -612,7 +612,7 @@
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "enum": ["real_time", "every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {

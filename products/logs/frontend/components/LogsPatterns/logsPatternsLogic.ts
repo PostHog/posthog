@@ -1,6 +1,7 @@
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -23,6 +24,7 @@ const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     total_count: 0,
     sampled: false,
     sample_coverage_pct: 100,
+    sparkline_buckets: [],
 }
 
 // Keyed by the Viewer's `id`: the logic mounts only while the Patterns mode is active (the
@@ -95,6 +97,21 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         patterns: [
             (s) => [s.patternsResponse],
             (response: _LogsPatternsResponseApi): _LogPatternApi[] => response.patterns,
+        ],
+        // Hover labels for the per-pattern sparklines, aligned with each pattern's `sparkline`
+        // values. Buckets under a day apart show time-of-day; wider windows include the date.
+        sparklineLabels: [
+            (s) => [s.patternsResponse],
+            (response: _LogsPatternsResponseApi): string[] => {
+                const buckets = response.sparkline_buckets
+                if (!buckets.length) {
+                    return []
+                }
+                const first = dayjs(buckets[0].start)
+                const last = dayjs(buckets[buckets.length - 1].end)
+                const format = last.diff(first, 'hour') >= 24 ? 'MMM D HH:mm' : 'HH:mm'
+                return buckets.map((b) => `${dayjs(b.start).format(format)} – ${dayjs(b.end).format(format)}`)
+            },
         ],
     }),
 

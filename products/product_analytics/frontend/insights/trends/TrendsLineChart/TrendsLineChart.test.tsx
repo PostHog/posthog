@@ -6,6 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -791,6 +792,26 @@ describe('TrendsLineChart', () => {
 
             // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        describe('shared mode', () => {
+            beforeEach(() => {
+                // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+            })
+
+            afterEach(() => {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+            })
+
+            it('clicking a data point does not open the persons modal', async () => {
+                renderInsight({ query: buildTrendsQuery(), inSharedMode: true })
+
+                await chart.clickAtIndex(2)
+
+                // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+                expect(personsModal.get()).not.toBeInTheDocument()
+            })
         })
     })
 
