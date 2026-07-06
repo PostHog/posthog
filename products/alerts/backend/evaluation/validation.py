@@ -231,7 +231,7 @@ def should_default_check_ongoing_interval(
     Only applies where the toggle is valid — mirrors the UI's ``canCheckOngoingInterval``: a trends
     absolute/increase alert above an upper bound, or a time-series (historical-trend) funnel.
     """
-    if not isinstance(config, dict):
+    if not isinstance(config, dict) or calculation_interval is None:
         return False
     try:
         cadence = AlertCalculationInterval(calculation_interval)

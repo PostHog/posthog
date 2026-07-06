@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -333,7 +332,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ),
                 })
                 if (entitlementCheck.blocked) {
-                    upgradeModalLogic.actions.setUpgradeModalFeatureKey(entitlementCheck.feature)
+                    lemonToast.error(entitlementCheck.message)
                     actions.setAlertFormManualErrors({ calculation_interval: entitlementCheck.message })
                     throw new Error(entitlementCheck.message)
                 }
