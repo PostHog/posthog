@@ -72,7 +72,9 @@ const BillingGaugeItem = ({
                 `BillingGaugeItem BillingGaugeItem--${item.type}`,
                 {
                     'BillingGaugeItem--within-usage-limit': isWithinUsageLimit,
-                    'BillingGaugeItem--alert-only': product ? isAlertOnlyProduct(product) : false,
+                    'BillingGaugeItem--alert-only': product
+                        ? isAlertOnlyProduct(product) && !!product.subscribed
+                        : false,
                 },
                 'absolute top-0 left-0 bottom-0 h-2'
             )}
@@ -125,7 +127,9 @@ export function BillingGauge({ items, product, valueFormatter }: BillingGaugePro
     // ResizeObserver on unrelated re-renders. The ref keeps the effect reading current items.
     const sortedItemsRef = useRef(sortedItems)
     sortedItemsRef.current = sortedItems
-    const itemsKey = sortedItems.map((item) => item.value).join('|')
+    const itemsKey = sortedItems
+        .map((item) => `${item.value}:${typeof item.text === 'string' ? item.text : item.type}`)
+        .join('|')
 
     // Keep each label on its original side (top/bottom alternating), but when it would overlap a
     // closer label on that side, stack it one row further out. Measured from the DOM so it adapts to

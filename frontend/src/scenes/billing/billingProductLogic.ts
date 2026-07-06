@@ -22,6 +22,7 @@ import {
 } from '~/types'
 
 import {
+    isAlertOnlyProduct,
     calculateFreeTier,
     createGaugeItems,
     getSyntheticStorageAddon,
@@ -571,8 +572,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     cappableProjectedTotal: mainProjected * discountMultiplier,
                     hasUncappedStorage: !!storageAddon && storageProjected > 0,
                     discountPercent,
-                    rawCurrentTotal: rawCurrentTotal.toString(),
-                    rawProjectedTotal: rawProjectedTotal.toString(),
                 }
             },
         ],
@@ -840,7 +839,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
-                if (props.product.current_amount_usd && input < props.product.current_amount_usd) {
+                // Alert-only products (e.g. MDW storage) are never enforced: setting an alert below
+                // current or projected spend is the normal use, and the enforced-limit warnings
+                // below ("data being dropped", "limit set to current usage") would be false.
+                const enforced = !isAlertOnlyProduct(props.product)
+                if (enforced && props.product.current_amount_usd && input < props.product.current_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',
@@ -861,7 +864,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
 
-                if (props.product.projected_amount_usd && input < props.product.projected_amount_usd) {
+                if (enforced && props.product.projected_amount_usd && input < props.product.projected_amount_usd) {
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',

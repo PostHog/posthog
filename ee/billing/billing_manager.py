@@ -213,7 +213,7 @@ class BillingManager:
             # is enforced there).
             if usage_limit:
                 product["percentage_usage"] = current_usage / usage_limit
-            elif product.get("alert_only"):
+            elif product.get("alert_only") and product.get("subscribed"):
                 product["percentage_usage"] = product.get("percentage_usage") or 0
             else:
                 product["percentage_usage"] = 0

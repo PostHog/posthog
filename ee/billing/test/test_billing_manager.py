@@ -97,6 +97,17 @@ class TestBillingManager(BaseTest):
                         "percentage_usage": 1.11,
                         "usage_limit": 130200,
                         "alert_only": True,
+                        "subscribed": True,
+                    },
+                    {
+                        # UNSUBSCRIBED alert-only (trial edge: limits nulled for everything) —
+                        # must zero like any other product, not surface billing's >1 percentage
+                        "type": "managed_data_warehouse_endpoints",
+                        "usage_key": "managed_warehouse_endpoints_compute_seconds",
+                        "percentage_usage": 2.2,
+                        "usage_limit": 180000,
+                        "alert_only": True,
+                        "subscribed": False,
                     },
                     {
                         "type": "product_analytics",
@@ -116,6 +127,7 @@ class TestBillingManager(BaseTest):
                 "usage_summary": {
                     # alert-only: no enforcement limit exported
                     "managed_warehouse_storage_gb_hours": {"usage": 144000, "limit": None},
+                    "managed_warehouse_endpoints_compute_seconds": {"usage": 400000, "limit": None},
                     # enforced: recompute from the enforcement limit as before
                     "events": {"usage": 900, "limit": 1000},
                     # standard keys update_org_details requires
@@ -143,6 +155,8 @@ class TestBillingManager(BaseTest):
         assert events["percentage_usage"] == 900 / 1000, "enforced products still recompute from the summary"
         replay = by_type["session_replay"]
         assert replay["percentage_usage"] == 0, "non-alert-only products without an enforcement limit zero out"
+        endpoints = by_type["managed_data_warehouse_endpoints"]
+        assert endpoints["percentage_usage"] == 0, "UNSUBSCRIBED alert-only products zero out too"
 
     @patch(
         "ee.billing.billing_manager.requests.patch",
