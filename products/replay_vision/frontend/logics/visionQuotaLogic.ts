@@ -22,17 +22,20 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
             null as VisionQuotaApi | null,
             {
                 loadQuota: async (_, breakpoint) => {
+                    // Snapshot before any await — the fallback branches must not read a selector on a
+                    // logic that may have unmounted mid-request (navigating away throws otherwise).
+                    const lastKnownQuota = values.quota
                     // Coalesce bursts of post-mutation refetches (e.g. toggling several scanners).
                     await breakpoint(50)
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
-                        return values.quota
+                        return lastKnownQuota
                     }
                     try {
                         return await environmentVisionQuotaRetrieve(String(teamId))
                     } catch {
                         // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
-                        return values.quota
+                        return lastKnownQuota
                     }
                 },
             },

@@ -807,6 +807,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
+                    // Bail if the logic unmounted (or a newer request superseded us) while the request was
+                    // in flight — otherwise the reads below hit a selector on a torn-down logic and throw.
+                    breakpoint()
                     // eslint-disable-next-line no-console
                     console.warn('[replay-vision] scanner estimate failed', error)
                     if (values.estimateRequestVersion !== version) {
