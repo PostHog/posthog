@@ -2165,7 +2165,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 if (newTimestamp == undefined) {
-                    // no newTimestamp is unexpected, bail out
+                    // No frame timestamp yet (e.g. the replayer exists but hasn't started its timer) — keep the loop alive so stuck-recovery can engage, instead of dying silently.
+                    cache.disposables.add(() => {
+                        const timerId = requestAnimationFrame(actions.updateAnimation)
+                        return () => cancelAnimationFrame(timerId)
+                    }, 'animationTimer')
                     return
                 }
 
