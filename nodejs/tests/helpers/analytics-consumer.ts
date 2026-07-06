@@ -91,7 +91,7 @@ export async function startAnalyticsTestConsumer(
     )
 
     const consumerScope = createAnalyticsConsumer(config, sharedScope, createAiEventSubpipeline)
-    const { consumer, stop, container } = await consumerScope.start()
+    const { consumer, stop, container } = await consumerScope.startForTest()
 
     if (!capturedHandler) {
         throw new Error('Kafka consumer handler was not captured — did the test jest.mock the kafka consumer module?')
