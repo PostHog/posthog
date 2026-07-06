@@ -344,13 +344,15 @@ def _sweep_stale_running_jobs(inputs: AcquireV3LockActivityInputs, token: str, l
     """
     try:
         close_old_connections()
-        # NULL workflow_run_id rows are intentionally not swept (exclude() drops them via
-        # SQL three-valued logic) - without a run id there is no workflow to safely verify.
+        # NULL workflow_run_id rows are intentionally not swept - without a run id there is
+        # no workflow to safely verify, and the queue-DB check would match nothing and
+        # wrongly report the run as inactive.
         stale_jobs = (
             ExternalDataJob.objects.filter(
                 team_id=inputs.team_id,
                 schema_id=inputs.schema_id,
                 status=ExternalDataJob.Status.RUNNING,
+                workflow_run_id__isnull=False,
             )
             .exclude(workflow_run_id=token)
             .order_by("created_at")
