@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
@@ -41,6 +41,13 @@ describe('LemonTree virtualization', () => {
     })
 
     afterEach(() => {
+        // RTL's auto-cleanup is inert in this repo (jest.setup.ts imports @testing-library/react
+        // during the setupFiles phase, before afterEach exists, so its hook never registers).
+        // Without unmounting, each test leaves ~50 heavy rows mounted; every later waitFor's
+        // act() then re-flushes all accumulated trees, ballooning 500ms tests to 3s+ and past
+        // the per-test timeout on contended CI runners. Unmount while the synchronous rAF spy
+        // is still installed so unmount work can't schedule timers into the next test.
+        cleanup()
         requestAnimationFrameSpy.mockRestore()
         cancelAnimationFrameSpy.mockRestore()
     })
@@ -199,7 +206,7 @@ describe('LemonTree virtualization', () => {
         await waitFor(() => {
             expect(within(container).getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
-    }, 10000)
+    })
 
     it('supports an overridden virtualized row height', async () => {
         const data: TreeDataItem[] = [
@@ -224,7 +231,7 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
-    }, 10000)
+    })
 
     it('supports an overridden virtualization overscan', async () => {
         const data: TreeDataItem[] = [
@@ -255,5 +262,5 @@ describe('LemonTree virtualization', () => {
             expect(within(container).getByLabelText('tree item: child-0')).toBeInTheDocument()
         })
         expect(within(container).queryByLabelText('tree item: child-1')).not.toBeInTheDocument()
-    }, 10000)
+    })
 })
