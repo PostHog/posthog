@@ -27,21 +27,12 @@ PROJECTS_PREFIX = "api/projects"
 # yet. The middleware skips these (it only rewrites paths that resolve project-side), so
 # they keep working via the legacy route. Shrink this set by registering projects-side
 # counterparts; do NOT grow it — new team-scoped endpoints must register under /api/projects.
-# For `query` and `subscriptions` only specific sub-paths lack counterparts
-# (query/<uuid>/progress and subscriptions/<id>/deliveries) — the rest of those
-# resources is dual-registered and does get rewritten.
+# Only a few sub-paths still lack a counterpart: messaging/customerio/webhook, a bare
+# progress endpoint, and query/<uuid>/progress — everything else is dual-registered.
 KNOWN_ENVIRONMENT_ONLY_RESOURCES = {
-    "conversations",
-    "core_memory",
-    "max_hands_free",
-    "max_tools",
-    "mcp_analytics",
     "messaging",
     "progress",
-    "property_access_controls",
     "query",
-    "session_summaries",
-    "subscriptions",
 }
 
 
