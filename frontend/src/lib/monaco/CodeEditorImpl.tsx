@@ -411,6 +411,7 @@ export function CodeEditor({
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        diffEditorRef.current = null
         editorRef.current = editor
         trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
@@ -549,6 +550,8 @@ export function CodeEditor({
                     theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                     original={originalValue}
                     modified={value}
+                    keepCurrentOriginalModel
+                    keepCurrentModifiedModel
                     options={{
                         ...editorOptions,
                         renderSideBySide: false,
