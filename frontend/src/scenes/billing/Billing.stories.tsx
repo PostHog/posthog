@@ -23,17 +23,6 @@ const billingJsonWithoutIconKeys: BillingType = {
     })),
 }
 
-// Product analytics usage has run past its billing limit — exercises the gauge's paid/over-limit
-// split (solid up to the limit, striped + desaturated above it), which no other fixture triggers.
-const billingJsonWithUsageOverLimit: BillingType = {
-    ...billingJson,
-    products: billingJson.products.map((product) =>
-        product.type === 'product_analytics'
-            ? { ...product, usage_limit: 400000, percentage_usage: 2.2, projected_usage: 1000000 }
-            : product
-    ),
-}
-
 const meta: Meta = {
     title: 'Scenes-Other/Billing',
     parameters: {
@@ -121,20 +110,6 @@ export const BillingWithCreditCTA: Story = {
                     email: 'test@posthog.com',
                     cc_last_four: '1234',
                     cc_brand: 'Visa',
-                },
-            },
-        })
-
-        return <Billing />
-    },
-}
-
-export const BillingWithUsageOverLimit: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/api/billing/': {
-                    ...billingJsonWithUsageOverLimit,
                 },
             },
         })
