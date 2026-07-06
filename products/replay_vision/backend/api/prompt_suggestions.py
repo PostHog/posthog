@@ -195,6 +195,11 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
+        # A stale tab can submit an old suggestion id, silently rolling the prompt back.
+        if suggestion.status not in (SuggestionStatus.PENDING, SuggestionStatus.DISMISSED):
+            raise ValidationError("Only the current recommendation can be applied.")
+        if suggestion.scanner_version != scanner.scanner_version:
+            raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
         config = dict(scanner.scanner_config or {})
         config["prompt"] = suggestion.suggested_prompt
         scanner.scanner_config = config

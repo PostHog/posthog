@@ -33,6 +33,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 logger = structlog.get_logger(__name__)
 
 _SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
@@ -201,7 +202,12 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
 
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmPromptSuggestion:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
+    # The generate endpoint runs this inline in a web worker, so a hung provider call must time out.
+    client = genai.Client(
+        api_key=api_key,
+        posthog_client=posthoganalytics.default_client,
+        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+    )
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
