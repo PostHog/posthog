@@ -81,8 +81,7 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
 
     def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
         series_dicts = _require_list(_current_period_only(result), "trends")
-        # An empty list means no users entered the funnel in the window — benign "no data this
-        # interval", not a misconfiguration — represent it so the comparator skips it.
+        # Empty = no one entered the funnel: benign, not a misconfig.
         if not series_dicts:
             return _no_data_series()
         # By default evaluate the last *complete* period — the latest one is still in progress, so
@@ -147,24 +146,14 @@ def _current_period_only(result: Any) -> Any:
 
 
 def _no_data_series() -> list[ComparableSeries]:
-    """The benign "no data this interval" result for an empty funnel query.
-
-    An empty funnel result means no users entered the funnel in the window — a benign transient
-    state, not a misconfiguration. Represented as a single missing point so the comparator skips it
-    (NOT_FIRING, no error), rather than raising and surfacing a benign empty funnel to error tracking
-    as if it were a crash.
-    """
+    # A missing anchor value the comparator skips (NOT_FIRING, no error), so a benign empty funnel
+    # isn't reported to error tracking as a crash.
     return [ComparableSeries(label="conversion", points=[SeriesPoint(date=None, value=None)], current_index=0)]
 
 
 def _require_list(result: Any, viz_label: str) -> list[Any]:
-    """Normalize a funnel query result to a list, or fail loud on an unexpected shape.
-
-    A genuinely unexpected shape (e.g. None from a swallowed query error) is a hard failure, not
-    "no data" — raise ``AlertExtractionError`` so the alert auto-disables rather than silently
-    reporting no data. An empty list passes through and the caller renders it as a benign no-data
-    series.
-    """
+    # A non-list (e.g. None from a swallowed query error) is a real failure, not "no data" — raise so
+    # the alert auto-disables. An empty list is left for the caller to treat as benign no-data.
     if not isinstance(result, list):
         raise AlertExtractionError(
             f"Funnel {viz_label} alert query returned an unexpected result shape ({type(result).__name__})."
@@ -173,10 +162,7 @@ def _require_list(result: Any, viz_label: str) -> list[Any]:
 
 
 def _steps_per_breakdown(result: list[Any]) -> list[list[dict[str, Any]]]:
-    """Normalize a non-empty steps funnel result into a list of step-lists (one per breakdown value).
-
-    A non-breakdown funnel returns ``list[step]``; a breakdown funnel returns ``list[list[step]]``.
-    """
+    # The runner returns ``list[step]`` without a breakdown and ``list[list[step]]`` with one; unify.
     if isinstance(result[0], list):
         return cast(list[list[dict[str, Any]]], result)
     return [cast(list[dict[str, Any]], result)]

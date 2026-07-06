@@ -86,8 +86,7 @@ def test_result_is_unframed_single_series():
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
         ([{"order": 0}, {"order": 1}], None, None, AlertConditionType.ABSOLUTE_VALUE, "non-numeric count"),
         ([{"order": 0, "count": 100}, "broken"], None, None, AlertConditionType.ABSOLUTE_VALUE, "malformed"),
-        # A falsy non-list result (e.g. {} — an unexpected shape) is a hard failure, not benign
-        # no-data: it must raise so the alert auto-disables rather than silently reporting no data.
+        # A falsy non-list ({}) must raise, not be swallowed as benign empty ([]).
         ({}, None, None, AlertConditionType.ABSOLUTE_VALUE, "unexpected result shape"),
         ({}, None, "trends", AlertConditionType.ABSOLUTE_VALUE, "unexpected result shape"),
     ],
