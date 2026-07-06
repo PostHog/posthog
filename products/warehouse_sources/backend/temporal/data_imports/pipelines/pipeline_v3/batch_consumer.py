@@ -338,7 +338,9 @@ class BatchConsumer:
                             lease_ttl_seconds=self._lease_ttl_seconds,
                         )
                 except TimeoutError:
-                    logger.exception(
+                    # error, not exception: the timeout is the designed recovery
+                    # path and its traceback carries no diagnostic value.
+                    logger.error(  # noqa: TRY400
                         self._event("poll_timed_out"),
                         timeout_seconds=self._config.poll_timeout_seconds,
                     )
@@ -790,7 +792,7 @@ class BatchConsumer:
                     async with asyncio.timeout(self._config.sweep_timeout_seconds):
                         await self._reconcile_failed_runs()
                 except TimeoutError:
-                    logger.exception(
+                    logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
                         self._event("reconcile_sweep_timed_out"),
                         timeout_seconds=self._config.sweep_timeout_seconds,
                     )
@@ -805,7 +807,7 @@ class BatchConsumer:
             async with asyncio.timeout(self._config.sweep_timeout_seconds):
                 await self._recovery_sweep()
         except TimeoutError:
-            logger.exception(
+            logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
                 self._event("recovery_sweep_timed_out"),
                 timeout_seconds=self._config.sweep_timeout_seconds,
             )
