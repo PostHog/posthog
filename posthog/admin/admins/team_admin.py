@@ -700,7 +700,8 @@ class TeamAdmin(admin.ModelAdmin):
         # Audit is keyed by the ledger entry_id, so write it whenever one is missing.
         # The credit (gateway) and this record (Postgres) can't share a transaction,
         # so a replay backfills the audit if an earlier attempt's write was lost after
-        # the money moved. One row per real credit; the existence check dedupes.
+        # the money moved. The existence check dedupes best-effort; admin-only, so a
+        # concurrent-double-submit race writing a second row isn't worth a constraint.
         if not ActivityLog.objects.filter(scope="AIGatewayCredit", item_id=result.entry_id).exists():
             log_activity(
                 organization_id=team.organization_id,

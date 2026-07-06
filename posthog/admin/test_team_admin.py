@@ -507,6 +507,10 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
         entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
         assert entry.item_id == "e1"
+        # The backfill path is where actor capture matters most, so pin it here too.
+        assert entry.user == self.user
+        assert entry.was_impersonated is False
+        assert entry.detail["context"]["reason"] == "x"
 
     def test_add_credit_audit_is_idempotent_per_entry(self) -> None:
         # Two submits resolving to the same ledger entry record exactly one audit row.
@@ -537,6 +541,21 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
 
     def test_credit_history_empty_state(self) -> None:
         rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "no top-ups recorded" in rendered
+
+    def test_credit_history_scoped_to_team(self) -> None:
+        # Another team's top-ups must not render on this team's page.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ActivityLog.objects.create(
+            organization_id=other_team.organization_id,
+            team_id=other_team.id,
+            scope="AIGatewayCredit",
+            activity="credit_added",
+            item_id="other-1",
+            detail={"context": {"amount_usd": "99", "reason": "other-team-secret", "balance_usd": "99"}},
+        )
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "other-team-secret" not in rendered
         assert "no top-ups recorded" in rendered
 
 
