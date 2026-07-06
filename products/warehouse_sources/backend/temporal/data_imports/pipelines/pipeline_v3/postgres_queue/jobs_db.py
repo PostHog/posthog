@@ -692,3 +692,32 @@ class BatchQueue:
             has_non_terminal=non_terminal_count > 0,
             is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
         )
+
+    @staticmethod
+    def count_batches_for_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+    ) -> int:
+        """Count queue batches enqueued for a job, regardless of status.
+
+        Unlike ``get_run_activity_summary`` (which inner-joins the status view and so
+        reports ``has_batches=False`` for batches the loader hasn't claimed yet), this
+        counts raw batch rows. It lets a caller tell a run that enqueued *nothing* (safe
+        to finalize) apart from one whose batches are merely unclaimed — where the loader
+        still owns completion and failing the job would strand a late load. The pruning
+        window bounds the scan to batches the queue still retains, so a ``0`` here is only
+        trustworthy for jobs newer than ``PARTITION_PRUNING_INTERVAL``.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS batch_count
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return int(row["batch_count"]) if row else 0

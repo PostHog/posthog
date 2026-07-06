@@ -127,6 +127,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
     listeners(({ actions, values, props }) => ({
         changeCaptureMethod: async ({ type }) => {
             actions.setType(type)
+            if (type !== 'screenshot') {
+                actions.setScreenshotError(null)
+            }
             if (!values.heatmapId) {
                 return
             }

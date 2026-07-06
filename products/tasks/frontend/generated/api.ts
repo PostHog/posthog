@@ -9,13 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ChannelDTOApi,
+    ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    PaginatedChannelDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
+    PaginatedTaskThreadMessageDTOListApi,
+    PatchedChannelWriteApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
@@ -30,6 +35,7 @@ import type {
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
+    TaskChannelsListParams,
     TaskDetailDTOApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
@@ -55,6 +61,8 @@ import type {
     TaskStagedArtifactsPrepareUploadRequestApi,
     TaskStagedArtifactsPrepareUploadResponseApi,
     TaskSummariesRequestApi,
+    TaskThreadMessageDTOApi,
+    TaskThreadMessageWriteApi,
     TaskWriteApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
@@ -63,6 +71,7 @@ import type {
     TasksRunsStreamRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
+    TasksThreadMessagesListParams,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
 } from './api.schemas'
@@ -323,6 +332,99 @@ export const taskAutomationsRunCreate = async (
     return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/`
+}
+
+/**
+ * All live public channels plus the requester's personal #me channel (created on first list).
+ * @summary List channels
+ */
+export const taskChannelsList = async (
+    projectId: string,
+    params?: TaskChannelsListParams,
+    options?: RequestInit
+): Promise<PaginatedChannelDTOListApi> => {
+    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/`
+}
+
+/**
+ * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * @summary Resolve or create a public channel
+ */
+export const taskChannelsCreate = async (
+    projectId: string,
+    channelWriteApi: ChannelWriteApi,
+    options?: RequestInit
+): Promise<ChannelDTOApi> => {
+    return apiMutator<ChannelDTOApi>(getTaskChannelsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelWriteApi),
+    })
+}
+
+export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/`
+}
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Rename a public channel
+ */
+export const taskChannelsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedChannelWriteApi?: PatchedChannelWriteApi,
+    options?: RequestInit
+): Promise<ChannelDTOApi> => {
+    return apiMutator<ChannelDTOApi>(getTaskChannelsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedChannelWriteApi),
+    })
+}
+
+export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/`
+}
+
+/**
+ * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
+ * provisions the requester's personal "#me" channel; creation is resolve-or-create
+ * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * @summary Delete a public channel
+ */
+export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTaskChannelsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1032,6 +1134,109 @@ export const tasksRunsStreamTokenRetrieve = async (
     return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksThreadMessagesListUrl = (
+    projectId: string,
+    taskId: string,
+    params?: TasksThreadMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/thread_messages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/thread_messages/`
+}
+
+/**
+ * The task's thread in chronological order.
+ * @summary List thread messages
+ */
+export const tasksThreadMessagesList = async (
+    projectId: string,
+    taskId: string,
+    params?: TasksThreadMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskThreadMessageDTOListApi> => {
+    return apiMutator<PaginatedTaskThreadMessageDTOListApi>(getTasksThreadMessagesListUrl(projectId, taskId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksThreadMessagesCreateUrl = (projectId: string, taskId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/`
+}
+
+/**
+ * API for a task's thread — the human-only side conversation around a task. Messages
+ * reach the agent only via the explicit send_to_agent action, gated to the task author.
+ * @summary Post a thread message
+ */
+export const tasksThreadMessagesCreate = async (
+    projectId: string,
+    taskId: string,
+    taskThreadMessageWriteApi: TaskThreadMessageWriteApi,
+    options?: RequestInit
+): Promise<TaskThreadMessageDTOApi> => {
+    return apiMutator<TaskThreadMessageDTOApi>(getTasksThreadMessagesCreateUrl(projectId, taskId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskThreadMessageWriteApi),
+    })
+}
+
+export const getTasksThreadMessagesDestroyUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/${id}/`
+}
+
+/**
+ * API for a task's thread — the human-only side conversation around a task. Messages
+ * reach the agent only via the explicit send_to_agent action, gated to the task author.
+ * @summary Delete own thread message
+ */
+export const tasksThreadMessagesDestroy = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksThreadMessagesDestroyUrl(projectId, taskId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksThreadMessagesSendToAgentCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/${id}/send_to_agent/`
+}
+
+/**
+ * Task author only: forwards the message into the task's latest live run.
+ * @summary Send a thread message to the agent
+ */
+export const tasksThreadMessagesSendToAgentCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskThreadMessageDTOApi: TaskThreadMessageDTOApi,
+    options?: RequestInit
+): Promise<TaskThreadMessageDTOApi> => {
+    return apiMutator<TaskThreadMessageDTOApi>(getTasksThreadMessagesSendToAgentCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskThreadMessageDTOApi),
     })
 }
 
