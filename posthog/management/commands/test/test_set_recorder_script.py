@@ -7,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -117,7 +118,13 @@ class TestSetRecorderScriptCommand(BaseTest):
 
         updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
 
-        assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
+        # sample_on_property is deterministic on str(team.id), and the ids the
+        # test DB hands out depend on suite execution order — a "roughly 50 of
+        # 100" band only holds for lucky id windows and breaks whenever a PR
+        # reshuffles test sharding. Compute the exact expectation from the same
+        # hash over the ids we actually created.
+        expected = sum(1 for team in teams if sample_on_property(str(team.id), 0.5))
+        assert updated_teams == expected, f"Expected {expected} teams updated (deterministic hash), got {updated_teams}"
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
