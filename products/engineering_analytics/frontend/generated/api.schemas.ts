@@ -89,6 +89,32 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface FlakyTestItemApi {
+    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. Best-effort: the file/class boundary and the '.py' suffix are not recoverable from JUnit, so it is not a runnable selector as-is. */
+    nodeid: string
+    /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
+    rerun_passed_count: number
+    /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
+    failed_count: number
+    /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+    failed_pr_count: number
+    /** Distinct git branches across all of the test's flaky-signal spans in the window. */
+    branch_count: number
+    /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
+    xfailed_count: number
+    /** Most recent flaky-signal span for this test in the window. */
+    last_seen_at: string
+}
+
+export interface FlakyTestListApi {
+    /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+    items: FlakyTestItemApi[]
+    /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+    truncated: boolean
+    /** Maximum number of tests returned in `items`. */
+    limit: number
+}
+
 export interface WorkflowJobAggregateApi {
     /** De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded '${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together. */
     job_name: string
@@ -864,6 +890,33 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of tests to return (1-200). Defaults to 50.
+     */
+    limit?: number
+    /**
+     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number
+    /**
+     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

@@ -424,6 +424,46 @@ class CIFailureLogs:
 
 
 @dataclass(frozen=True)
+class FlakyTestItem:
+    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
+
+    Counts are absolute signal counts, never rates: the emitter drops fast passing tests
+    (``--min-duration-seconds``) while always emitting failures/errors/xfails/reruns, so any
+    denominator would be biased. ``rerun_passed_count`` (pass-on-retry, the strongest flaky
+    signal) only flows from CI lanes running with reruns enabled; lanes without reruns surface
+    a flake as a plain failure, which is what ``failed_pr_count`` (distinct PRs hit) catches.
+    """
+
+    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    nodeid: str
+    # Spans where the test failed first, then passed on an automatic retry.
+    rerun_passed_count: int
+    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
+    failed_count: int
+    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
+    failed_pr_count: int
+    # Distinct git branches across all of the test's signal spans in the window.
+    branch_count: int
+    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
+    xfailed_count: int
+    # Most recent signal span for this test in the window.
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class FlakyTestList:
+    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
+    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
+    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
+    at least ``min_failed_prs`` distinct PRs in the window.
+    """
+
+    items: list[FlakyTestItem]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that

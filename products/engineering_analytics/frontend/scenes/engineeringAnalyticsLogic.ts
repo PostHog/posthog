@@ -7,10 +7,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
@@ -398,6 +400,52 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
+/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
+export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+
+export interface FlakyTestRow {
+    /** Reconstructed pytest nodeid (the CI span name) — not a runnable selector as-is. */
+    nodeid: string
+    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
+    rerunPassedCount: number
+    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
+    failedCount: number
+    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    failedPrCount: number
+    /** Distinct branches across the test's flaky-signal spans. */
+    branchCount: number
+    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
+    xfailedCount: number
+    lastSeenAt: string
+}
+
+export interface FlakyTestsData {
+    rows: FlakyTestRow[]
+    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    truncated: boolean
+    limit: number
+}
+
+/**
+ * Best-effort pytest selector from a span nodeid, to pre-fill the quarantine modal
+ * (confirm-then-edit). The emitter folds the file/class boundary into '/' and drops '.py'
+ * ('posthog/api/test/test_x/TestX::test_y'), so this re-splits on the convention that class
+ * segments are CamelCase and everything before them is the module file.
+ */
+export function pytestSelectorFromNodeid(nodeid: string): string {
+    const [classPath, ...testParts] = nodeid.split('::')
+    if (testParts.length === 0 || !classPath.includes('/')) {
+        return nodeid
+    }
+    const segments = classPath.split('/')
+    let moduleEnd = segments.length
+    while (moduleEnd > 1 && /^[A-Z]/.test(segments[moduleEnd - 1])) {
+        moduleEnd--
+    }
+    return [`${segments.slice(0, moduleEnd).join('/')}.py`, ...segments.slice(moduleEnd), ...testParts].join('::')
+}
+
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 
 /** What the tab submits to the write endpoint; the backend opens the issue + PR. */
@@ -421,6 +469,29 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
+    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    confirm?: boolean
+}
+
+/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+ *  cause is unknown until someone investigates, which is the tracking issue's job. */
+export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
+    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
+    const parts: string[] = []
+    if (row.rerunPassedCount > 0) {
+        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    }
+    if (row.failedCount > 0) {
+        parts.push(
+            row.failedPrCount > 0
+                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
+                : `failed ${row.failedCount}x`
+        )
+    }
+    if (row.xfailedCount > 0) {
+        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    }
+    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -492,6 +563,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             resetQuarantineFilters: true,
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
+            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
             refresh: true,
         }),
 
@@ -591,6 +663,32 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             parseWarnings: data.parse_warnings,
                             sourceUrl: data.source_url,
                             repoFullName: data.repo ? `${data.repo.owner}/${data.repo.name}` : null,
+                        }
+                    },
+                },
+            ],
+            flakyTests: [
+                null as FlakyTestsData | null,
+                {
+                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
+                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
+                            date_from: values.flakyTestWindow,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return {
+                            rows: data.items.map(
+                                (it): FlakyTestRow => ({
+                                    nodeid: it.nodeid,
+                                    rerunPassedCount: it.rerun_passed_count,
+                                    failedCount: it.failed_count,
+                                    failedPrCount: it.failed_pr_count,
+                                    branchCount: it.branch_count,
+                                    xfailedCount: it.xfailed_count,
+                                    lastSeenAt: it.last_seen_at,
+                                })
+                            ),
+                            truncated: data.truncated,
+                            limit: data.limit,
                         }
                     },
                 },
@@ -705,6 +803,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: () => false,
                     loadQuarantineSuccess: () => false,
                     loadQuarantineFailure: () => true,
+                },
+            ],
+            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            flakyTestWindow: [
+                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
+                { setFlakyTestWindow: (_, { window }) => window },
+            ],
+            // Any failure hides the leaderboard behind a banner; a 400 (no source) also fails the
+            // quarantine loader, which owns the tab-level "connect a source" state.
+            flakyTestsLoadFailed: [
+                false,
+                {
+                    loadFlakyTests: () => false,
+                    loadFlakyTestsSuccess: () => false,
+                    loadFlakyTestsFailure: () => true,
                 },
             ],
             quarantineModal: [
@@ -891,7 +1004,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
+                actions.loadFlakyTests()
             },
+            setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()

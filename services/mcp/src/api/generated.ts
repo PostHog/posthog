@@ -14205,6 +14205,7 @@ export namespace Schemas {
      * * `date` - date
      * * `datetime` - datetime
      * * `boolean` - boolean
+     * * `select` - select
      */
     export type CustomPropertyDisplayTypeEnum = typeof CustomPropertyDisplayTypeEnum[keyof typeof CustomPropertyDisplayTypeEnum];
 
@@ -14217,7 +14218,65 @@ export namespace Schemas {
       Date: 'date',
       Datetime: 'datetime',
       Boolean: 'boolean',
+      Select: 'select',
     } as const;
+
+    /**
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10
+     */
+    export type CustomPropertyOptionColorEnum = typeof CustomPropertyOptionColorEnum[keyof typeof CustomPropertyOptionColorEnum];
+
+
+    export const CustomPropertyOptionColorEnum = {
+      Preset1: 'preset-1',
+      Preset2: 'preset-2',
+      Preset3: 'preset-3',
+      Preset4: 'preset-4',
+      Preset5: 'preset-5',
+      Preset6: 'preset-6',
+      Preset7: 'preset-7',
+      Preset8: 'preset-8',
+      Preset9: 'preset-9',
+      Preset10: 'preset-10',
+    } as const;
+
+    /**
+     * An allowed value of a select custom property.
+     */
+    export interface CustomPropertyOption {
+      /**
+         * Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.
+         * @nullable
+         */
+      id?: string | null;
+      /**
+         * Display label of the option. Stored as the account's value when picked.
+         * @maxLength 400
+         */
+      label: string;
+      /** Preset color token used to render the option ('preset-1' through 'preset-10').
+       *
+       * * `preset-1` - preset-1
+       * * `preset-2` - preset-2
+       * * `preset-3` - preset-3
+       * * `preset-4` - preset-4
+       * * `preset-5` - preset-5
+       * * `preset-6` - preset-6
+       * * `preset-7` - preset-7
+       * * `preset-8` - preset-8
+       * * `preset-9` - preset-9
+       * * `preset-10` - preset-10 */
+      color: CustomPropertyOptionColorEnum;
+    }
 
     /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
@@ -14292,7 +14351,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -14300,10 +14359,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source: CustomPropertySource | null;
       readonly created_at: string;
@@ -22461,6 +22526,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly supports_column_selection?: boolean;
+      readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
     } | null;
@@ -24153,6 +24219,32 @@ export namespace Schemas {
     export interface FlagValueResponse {
       results: FlagValueItem[];
       refreshing: boolean;
+    }
+
+    export interface FlakyTestItem {
+      /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. Best-effort: the file/class boundary and the '.py' suffix are not recoverable from JUnit, so it is not a runnable selector as-is. */
+      nodeid: string;
+      /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
+      rerun_passed_count: number;
+      /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
+      failed_count: number;
+      /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+      failed_pr_count: number;
+      /** Distinct git branches across all of the test's flaky-signal spans in the window. */
+      branch_count: number;
+      /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
+      xfailed_count: number;
+      /** Most recent flaky-signal span for this test in the window. */
+      last_seen_at: string;
+    }
+
+    export interface FlakyTestList {
+      /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+      items: FlakyTestItem[];
+      /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+      truncated: boolean;
+      /** Maximum number of tests returned in `items`. */
+      limit: number;
     }
 
     /**
@@ -36706,7 +36798,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -36714,10 +36806,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
@@ -37878,6 +37976,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly supports_column_selection?: boolean;
+      readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
     } | null;
@@ -42133,6 +42232,16 @@ export namespace Schemas {
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
       /**
+         * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+         * @nullable
+         */
+      pending_user_message?: string | null;
+      /**
+         * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+         * @items.maxLength 128
+         */
+      pending_user_artifact_ids?: string[];
+      /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
          */
@@ -43100,6 +43209,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _DayBreakdownRow {
+      /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+      day: string;
+      /** Number of $ai_generation + $ai_embedding events on this day for the scoped product. */
+      event_count: number;
+      /** Total cost in USD on this day for the scoped product. */
+      cost_usd: number;
+    }
+
+    export interface _DayBreakdown {
+      /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
+      items: _DayBreakdownRow[];
+      /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
+      truncated: boolean;
+    }
+
     export interface _TopTraceRow {
       /**
          * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -43136,6 +43261,8 @@ export namespace Schemas {
       by_tool: _ToolBreakdown;
       /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
       by_model: _ModelBreakdown;
+      /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
+      by_day: _DayBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
@@ -48540,6 +48667,31 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    export interface SessionRecordingBulkDeleteRequest {
+      /**
+         * Session IDs of the recordings to delete (max 100 per call).
+         * @minItems 1
+         * @maxItems 100
+         */
+      session_recording_ids: string[];
+      /**
+         * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period.
+         * @nullable
+         */
+      date_from?: string | null;
+    }
+
+    export interface SessionRecordingBulkDeleteResponse {
+      /** True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips. */
+      success: boolean;
+      /** Number of recordings that were deleted. */
+      deleted_count: number;
+      /** Number of session recording IDs in the request. */
+      total_requested: number;
+      /** Session IDs that were found but could not be deleted. These can be retried. */
+      failed_ids: string[];
+    }
+
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -53029,6 +53181,16 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+         * @nullable
+         */
+      pending_user_message?: string | null;
+      /**
+         * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+         * @items.maxLength 128
+         */
+      pending_user_artifact_ids?: string[];
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
@@ -62802,6 +62964,33 @@ export namespace Schemas {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum number of tests to return (1-200). Defaults to 50.
+     */
+    limit?: number;
+    /**
+     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     */
+    min_failed_prs?: number;
+    /**
+     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     */
+    min_rerun_passes?: number;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
