@@ -114,7 +114,7 @@ describe('SqlBarGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
             const chart = getHogChart()
             expect(chart.yTicks().length).toBeGreaterThan(0)
@@ -131,7 +131,7 @@ describe('SqlBarGraph', () => {
                 barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => expect(getHogChart().yRightTicks().length).toBeGreaterThan(0))
             expect(getHogChart().yTicks()).toHaveLength(0)
         })
