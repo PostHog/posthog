@@ -41,42 +41,27 @@ const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
 /**
- * react-grid-layout re-renders every grid child on each drag/resize mousemove, cloning it with a freshly built
- * `style` object and freshly created resize-handle `children` even when the tile hasn't moved. Comparing `style`
- * by value and ignoring handle identity lets untouched tiles bail out of re-rendering, which keeps gestures
- * tracking the cursor on dashboards with many tiles.
+ * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
+ * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
+ * with identical content). Lets untouched tiles skip re-rendering during gestures.
  */
-function gridTilePropsEqual<P extends Record<string, any>>(prevProps: P, nextProps: P): boolean {
-    const keys = new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])
-    for (const key of keys) {
-        if (key === 'children') {
-            // Resize handles, recreated each render with identical content. A real handle change (toggling
-            // resizability) always comes with a className change, which forces the re-render anyway.
-            continue
-        }
-        if (key === 'style') {
-            if (!objectsEqual(prevProps.style, nextProps.style)) {
-                return false
-            }
-            continue
-        }
-        if (!Object.is(prevProps[key], nextProps[key])) {
-            return false
-        }
-    }
-    return true
+function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<string, any>): boolean {
+    return [...new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])].every(
+        (key) =>
+            key === 'children' ||
+            (key === 'style'
+                ? objectsEqual(prevProps.style, nextProps.style)
+                : Object.is(prevProps[key], nextProps[key]))
+    )
 }
 
-const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as unknown as typeof InsightCard
-const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as unknown as typeof DashboardTextItem
+const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as typeof InsightCard
+const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as typeof DashboardTextItem
 const MemoizedDashboardButtonTileItem = memo(
     DashboardButtonTileItem,
     gridTilePropsEqual
-) as unknown as typeof DashboardButtonTileItem
-const MemoizedDashboardWidgetItem = memo(
-    DashboardWidgetItem,
-    gridTilePropsEqual
-) as unknown as typeof DashboardWidgetItem
+) as typeof DashboardButtonTileItem
+const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
 export function DashboardItems(): JSX.Element {
     const {
