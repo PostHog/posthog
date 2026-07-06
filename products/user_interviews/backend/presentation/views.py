@@ -495,13 +495,28 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # built from the current Postgres UserInterview field so edits/deletions to the
         # source content are reflected immediately — otherwise an embedding written before
         # an edit would leak the previous text via the search endpoint.
+        #
+        # The distance ranking MUST stay wrapped in a subquery so the outer ORDER BY ... LIMIT
+        # never sits directly on the document_embeddings scan. document_embeddings is a shared
+        # table (all teams and products) carrying an approximate vector (HNSW) index; when the
+        # ORDER BY cosineDistance ... LIMIT is applied directly to the scan, ClickHouse selects
+        # the globally-nearest rows via that index BEFORE applying the team_id/product/
+        # document_type WHERE filter. On a busy project the globally-nearest rows are dominated
+        # by other products, so after filtering none of this team's interviews survive and the
+        # search returns an empty result even when near-verbatim matches are indexed. Ranking in
+        # an inner subquery keeps the pushdown from firing, so ClickHouse pre-filters by the
+        # primary key (which starts with team_id) and computes exact distances over just this
+        # team's rows — correct, and cheap given the bounded per-team row count.
         hogql_query = f"""
-            SELECT
-                document_id,
-                document_type,
-                cosineDistance(embedding, {{embedding}}) AS distance
-            FROM document_embeddings
-            WHERE {" AND ".join(where_clauses)}
+            SELECT document_id, document_type, distance
+            FROM (
+                SELECT
+                    document_id,
+                    document_type,
+                    cosineDistance(embedding, {{embedding}}) AS distance
+                FROM document_embeddings
+                WHERE {" AND ".join(where_clauses)}
+            )
             ORDER BY distance ASC
             LIMIT {{limit}}
         """
