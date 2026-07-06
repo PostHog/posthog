@@ -3,7 +3,6 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -13,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
+import { ScoutTimestamp } from './ScoutTimestamp'
 
 /** Truncated mono identifier rendering for the footer finding id. */
 function MonoId({ label, value }: { label: string; value: string }): JSX.Element {
@@ -103,13 +103,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                         {confidencePercent}% confidence
                     </span>
                     <span className="flex-1" />
-                    <TZLabel
-                        time={emission.emitted_at}
-                        showPopover={false}
-                        formatDate="MMMM DD, YYYY"
-                        formatTime="h:mm:ss A"
-                        className="text-[11px] text-muted"
-                    />
+                    <ScoutTimestamp time={emission.emitted_at} />
                 </button>
                 <LemonButton
                     size="xsmall"
