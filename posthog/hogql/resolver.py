@@ -1602,6 +1602,10 @@ class Resolver(CloningVisitor):
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
+                # The two-arg form duplicates its IP argument across the per-prefix-length range
+                # checks, so it needs the same re-entrancy guard as the lookup builders below.
+                if len(node.args) > 1:
+                    return self._expand_duplicating_macro(node, lambda: is_bot(node=node, args=node.args))
                 return self.visit(is_bot(node=node, args=node.args))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
