@@ -304,8 +304,7 @@ describe('aiObservabilitySessionsViewLogic', () => {
         logic.actions.loadSessions()
         await settleListeners()
 
-        // Hidden tab: the query definition changes but the subscription fires no reload,
-        // so the in-flight request is only caught by the stale-source bail.
+        // No reload fires for a hidden tab, so only the stale-source bail catches this response.
         sharedLogic.actions.applyUrlState(urlState)
         await settleListeners()
 

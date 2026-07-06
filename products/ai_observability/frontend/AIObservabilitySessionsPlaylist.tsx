@@ -14,7 +14,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { DOCS_URLS_BY_TAB } from './constants'
+import { DOCS_URLS } from './constants'
 import {
     SessionListRow,
     SessionsEmptyReason,
@@ -190,8 +190,7 @@ function SessionsErrorState({ errorKind }: { errorKind: NonNullable<SessionsErro
     )
 }
 
-// The shortcut must only ever widen the window, so when the span is unknowable
-// (no lower bound, unparseable) we treat it as already wide and offer nothing.
+// Unknowable spans count as wide — the shortcut must never narrow the window.
 function spansWiderRange(dateFrom: string | null, dateTo: string | null): boolean {
     if (!dateFrom) {
         return true
@@ -216,7 +215,7 @@ function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.El
                     There's AI activity in this time range, but none of it is tagged with a session id, so it can't be
                     grouped into sessions. Set <code>$ai_session_id</code> in your SDK to group related traces.
                 </p>
-                <Link to={DOCS_URLS_BY_TAB.sessions} target="_blank">
+                <Link to={DOCS_URLS.sessions} target="_blank">
                     Learn how to set up sessions
                 </Link>
             </div>

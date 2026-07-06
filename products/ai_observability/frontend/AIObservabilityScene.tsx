@@ -44,7 +44,7 @@ import {
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
-import { DEFAULT_DOCS_URL, DOCS_URLS_BY_TAB } from './constants'
+import { DOCS_URLS } from './constants'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
@@ -606,7 +606,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 actions={
                     <>
                         <LemonButton
-                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            to={DOCS_URLS[activeTab] || DOCS_URLS.installation}
                             type="secondary"
                             targetBlank
                             size="small"

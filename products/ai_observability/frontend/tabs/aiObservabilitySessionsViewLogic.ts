@@ -21,9 +21,7 @@ export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 const SESSIONS_PAGE_SIZE = 50
 const SESSIONS_QUERY_TIMEOUT_MS = 60_000
 
-// `sessions.sql` drops traces with an empty session id, so an empty list alone can't tell
-// "no AI traffic in this window" apart from "traffic exists but isn't tagged with
-// `$ai_session_id`" — this probe checks for any AI trace event in the window instead.
+// Tells "no AI traffic" apart from "traffic without $ai_session_id" — the sessions query filters the latter out.
 const EMPTY_REASON_PROBE_QUERY = `
 SELECT 1
 FROM events
@@ -33,7 +31,7 @@ WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
     AND {filters}
 LIMIT 1
 `
-// Tighter than the main query: the probe holds up the loading state while it runs.
+// Tighter than the main query — the probe holds up the loading state.
 const EMPTY_REASON_PROBE_TIMEOUT_MS = 15_000
 
 export type SessionsErrorKind = 'error' | 'timeout' | null
@@ -180,9 +178,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             }
         }
 
-        // Returns null when the probe fails, times out, or is superseded — callers fall back
-        // to the generic empty copy. `refresh` is deliberately not forwarded: a cached answer
-        // is fine here and keeps the held loading state short.
+        // A cached answer is fine here, so `refresh` is deliberately not forwarded.
         const classifyEmptyReason = async (source: HogQLQuery, requestId: number): Promise<SessionsEmptyReason> => {
             try {
                 const response = await withTimeout(
@@ -225,8 +221,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
                         return
                     }
-                    // Keep the loading state up until the reason is known, so the empty state
-                    // renders once with the right copy instead of swapping under the user.
+                    // Hold the loading state until the reason is known — avoids flashing the generic empty copy.
                     const reason = await classifyEmptyReason(source, requestId)
                     if (requestId !== loadSessionsRequestId) {
                         return

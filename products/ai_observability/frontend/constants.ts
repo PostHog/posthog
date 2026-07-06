@@ -1,6 +1,5 @@
-export const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
-
-export const DOCS_URLS_BY_TAB: Record<string, string> = {
+export const DOCS_URLS: Record<string, string> = {
+    installation: 'https://posthog.com/docs/ai-observability/installation',
     traces: 'https://posthog.com/docs/ai-observability/traces',
     reviews: 'https://posthog.com/docs/ai-observability/trace-reviews',
     generations: 'https://posthog.com/docs/ai-observability/generations',
