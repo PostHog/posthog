@@ -34,8 +34,10 @@ export type PrototypeToggleValue = boolean | 'indeterminate'
 export interface PrototypeSwitchProps {
     value: PrototypeToggleValue
     onChange: (nextChecked: boolean) => void
-    label?: string
+    label?: string | JSX.Element
     size?: 'small' | 'medium'
+    bordered?: boolean
+    fullWidth?: boolean
 }
 
 const CENTERED_TRANSLATE =
@@ -53,6 +55,8 @@ function SwitchShell({
     onChange,
     label,
     size = 'medium',
+    bordered,
+    fullWidth,
     trackStyle,
     handleStyle,
     handleContent,
@@ -63,6 +67,8 @@ function SwitchShell({
         <div
             className={clsx('LemonSwitch', `LemonSwitch--${size}`, {
                 'LemonSwitch--checked': value === true,
+                'LemonSwitch--bordered': bordered,
+                'LemonSwitch--full-width': fullWidth,
             })}
         >
             {label && <label>{label}</label>}

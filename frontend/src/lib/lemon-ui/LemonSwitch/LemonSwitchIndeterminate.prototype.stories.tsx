@@ -6,6 +6,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconGear } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import {
@@ -118,11 +120,51 @@ export const AllVariants: StoryObj = {
     render: () => (
         <div className="flex flex-col gap-4 max-w-160">
             <p className="text-sm text-secondary m-0">
-                Prototype: three treatments for an indeterminate LemonSwitch state. Clicking an indeterminate switch
-                resolves it to checked; after that it toggles normally.
+                Prototype: treatments for an indeterminate LemonSwitch state. Clicking an indeterminate switch resolves
+                it to checked; after that it toggles normally.
             </p>
             {VARIANTS.map((variant) => (
                 <VariantRow key={variant.key} variant={variant} />
+            ))}
+        </div>
+    ),
+}
+
+// Mirrors TestAccountFilterSwitch (lib/components/TestAccountFiltersSwitch.tsx): a bordered,
+// full-width switch with the "Filter out internal and test users" label and gear button.
+function TestAccountFilterContextRow({ variant }: { variant: (typeof VARIANTS)[number] }): JSX.Element {
+    const [value, setValue] = useState<PrototypeToggleValue>('indeterminate')
+    const { Component } = variant
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="text-xs text-secondary">
+                {variant.key} — {variant.name}
+            </div>
+            <Component
+                value={value}
+                onChange={setValue}
+                bordered
+                fullWidth
+                label={
+                    <div className="flex items-center">
+                        <span>Filter out internal and test users</span>
+                        <LemonButton icon={<IconGear />} size="small" noPadding className="ml-1" />
+                    </div>
+                }
+            />
+        </div>
+    )
+}
+
+export const InTestAccountFilterContext: StoryObj = {
+    render: () => (
+        <div className="flex flex-col gap-3 w-120">
+            <p className="text-sm text-secondary m-0">
+                Each variant rendered the way the test account filter shows a switch (bordered, full width, label +
+                gear). Click to resolve indeterminate to checked.
+            </p>
+            {VARIANTS.map((variant) => (
+                <TestAccountFilterContextRow key={variant.key} variant={variant} />
             ))}
         </div>
     ),
