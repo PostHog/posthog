@@ -90,6 +90,43 @@ def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "L
     """
 
 
+def pending_batch_predicate(status_alias: str) -> str:
+    """A batch is pending (still actionable) when it has no status row yet or its latest state is non-terminal."""
+    return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
+
+
+# Shared between the async consumer path and the sync ops command so both agree
+# on what counts as a pending (fail-able) batch.
+FAIL_RUN_SQL = f"""
+    INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+    SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+    FROM {BATCH_TABLE} b
+    {latest_status_lateral("b", "s")}
+    WHERE
+        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+        AND b.run_uuid = %(run_uuid)s
+        AND {pending_batch_predicate("s")}
+"""
+
+
+def _stale_executing_sql(scope_sql: str = "") -> str:
+    """Shared body of the stale-executing sweep (async consumer and its sync ops twin)."""
+    return f"""
+        SELECT
+            {pending_batch_select_columns("s")}
+        FROM {BATCH_TABLE} b
+        {latest_status_lateral("b", "s", join="INNER")}
+        LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+        WHERE
+            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND s.job_state = 'executing'
+            AND s.created_at <= now() - make_interval(secs => %(grace)s)
+            AND (l.team_id IS NULL OR l.expires_at <= now())
+            {scope_sql}
+        ORDER BY b.created_at ASC, b.batch_index ASC
+    """
+
+
 # Retained for the duckgres sink, which still coordinates via session advisory
 # locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
 async def unlock_advisory_locks(
@@ -186,6 +223,34 @@ class RunActivitySummary:
     has_batches: bool
     has_non_terminal: bool
     is_stale: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveRunRef:
+    """Per-run aggregate of queue batches, used by the ops management command."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    source_id: str
+    workflow_run_id: str | None
+    pending_batches: int
+    total_batches: int
+    latest_activity_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class GroupLease:
+    """A ``sourcegrouplease`` row plus computed liveness, for ops inspection."""
+
+    team_id: int
+    schema_id: str
+    owner_token: str
+    acquired_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+    is_live: bool
 
 
 class BatchQueue:
@@ -512,22 +577,7 @@ class BatchQueue:
         this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT
-                    {pending_batch_select_columns("s")}
-                FROM {BATCH_TABLE} b
-                {latest_status_lateral("b", "s", join="INNER")}
-                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s.job_state = 'executing'
-                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND (l.team_id IS NULL OR l.expires_at <= now())
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                """,
-                {"grace": grace_seconds},
-            )
+            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
@@ -541,16 +591,24 @@ class BatchQueue:
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed."""
         cursor = await conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            {latest_status_lateral("b", "s")}
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.run_uuid = %(run_uuid)s
-                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
-            """,
+            FAIL_RUN_SQL,
+            {
+                "run_uuid": run_uuid,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def fail_run_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        run_uuid: str,
+        reason: str,
+    ) -> int:
+        """Sync twin of ``fail_run`` for the ops management command."""
+        cursor = conn.execute(
+            FAIL_RUN_SQL,
             {
                 "run_uuid": run_uuid,
                 "error_response": json.dumps({"error": reason}),
@@ -784,3 +842,173 @@ class BatchQueue:
             )
             row = cur.fetchone()
         return int(row["batch_count"]) if row else 0
+
+    # -- ops / management command helpers (sync) --------------------------------
+
+    @staticmethod
+    def get_active_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+        run_uuid: str | None = None,
+        only_pending: bool = True,
+    ) -> list[ActiveRunRef]:
+        """Aggregate queue batches per run within the targeting scope.
+
+        ``only_pending=True`` keeps only runs with at least one non-terminal
+        batch (no status row yet, or waiting/waiting_retry/executing) — the runs
+        an operator can still act on. ``only_pending=False`` is for direct
+        ``run_uuid`` lookups where a fully-terminal run should still be visible.
+        """
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
+        having = f"HAVING COUNT(*) FILTER (WHERE {pending_batch_predicate('s')}) > 0"
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    b.run_uuid,
+                    b.team_id,
+                    b.schema_id,
+                    MAX(b.job_id) AS job_id,
+                    MAX(b.source_id) AS source_id,
+                    MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
+                    COUNT(*) FILTER (
+                        WHERE {pending_batch_predicate("s")}
+                    ) AS pending_batches,
+                    COUNT(*) AS total_batches,
+                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s")}
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY b.run_uuid, b.team_id, b.schema_id
+                {having if only_pending else ""}
+                ORDER BY latest_activity_at ASC
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [ActiveRunRef(**row) for row in rows]
+
+    @staticmethod
+    def get_state_summary(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Batch counts by latest state within the scope; ``state='unclaimed'`` means no status row yet.
+
+        Each row carries the oldest ``created_at`` in its state so the caller
+        can derive freshness signals (e.g. age of the oldest unclaimed batch).
+        """
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COALESCE(s.job_state, 'unclaimed') AS state,
+                    COUNT(*) AS batch_count,
+                    MIN(b.created_at) AS oldest_created_at
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s")}
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY 1
+                ORDER BY 1
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+    @staticmethod
+    def get_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[GroupLease]:
+        """Group leases within the scope, with computed liveness."""
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT team_id, schema_id, owner_token, acquired_at, updated_at, expires_at,
+                       expires_at > now() AS is_live
+                FROM {LEASE_TABLE} l
+                WHERE true
+                {scope_sql}
+                ORDER BY team_id, schema_id
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [GroupLease(**row) for row in rows]
+
+    @staticmethod
+    def force_release_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        pairs: list[tuple[int, str]],
+    ) -> int:
+        """Delete group leases for ``pairs`` regardless of owner. Ops override only.
+
+        Unlike ``unlock_for_batches`` there is deliberately no ``owner_token``
+        predicate: the operator has decided the holder is dead. Deleting a live
+        lease makes its holder's next ``renew_lease`` return False and abort the
+        group, so callers must gate live leases behind explicit confirmation.
+        """
+        if not pairs:
+            return 0
+        cursor = conn.execute(
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE (team_id, schema_id) IN (
+                SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+            )
+            """,
+            {
+                "team_ids": [team_id for team_id, _ in pairs],
+                "schema_ids": [schema_id for _, schema_id in pairs],
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def get_stale_executing_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        grace_seconds: int = 0,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[PendingBatch]:
+        """Sync, scope-filtered twin of ``get_stale_executing`` for ops inspection."""
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        params["grace"] = grace_seconds
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(_stale_executing_sql(scope_sql), params)
+            rows = cur.fetchall()
+        return [PendingBatch(**row) for row in rows]
+
+
+def _scope_filters(
+    *,
+    team_id: int | None = None,
+    schema_ids: list[str] | None = None,
+    run_uuid: str | None = None,
+    alias: str = "b",
+) -> tuple[str, dict[str, Any]]:
+    """Build optional AND-clauses for the ops helpers' targeting scope."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if team_id is not None:
+        clauses.append(f"AND {alias}.team_id = %(scope_team_id)s")
+        params["scope_team_id"] = team_id
+    if schema_ids is not None:
+        clauses.append(f"AND {alias}.schema_id = ANY(%(scope_schema_ids)s)")
+        params["scope_schema_ids"] = schema_ids
+    if run_uuid is not None:
+        clauses.append(f"AND {alias}.run_uuid = %(scope_run_uuid)s")
+        params["scope_run_uuid"] = run_uuid
+    return "\n".join(clauses), params

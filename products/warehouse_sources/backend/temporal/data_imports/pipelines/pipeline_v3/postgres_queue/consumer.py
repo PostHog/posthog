@@ -223,7 +223,7 @@ class DeltaBatchConsumerAdapter:
         )
         for ref in refs:
             try:
-                reconciled = await sync_to_async(_mark_job_failed_if_not_terminal)(
+                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
                     job_id=ref.job_id,
                     team_id=ref.team_id,
                     error=ref.reason or "run failed (reconciled from queue)",
@@ -330,8 +330,12 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     )
 
 
-def _mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
-    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op)."""
+def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
+    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op).
+
+    Public seam shared by the reconcile sweep and the manage_warehouse_queue ops
+    command, so both fail paths agree on the terminal-status check.
+    """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     close_old_connections()
@@ -357,4 +361,5 @@ __all__ = [
     "RECOVERY_INTERVAL_SECONDS",
     "RETRY_BACKOFF_BASE_SECONDS",
     "_group_by_key",
+    "mark_job_failed_if_not_terminal",
 ]
