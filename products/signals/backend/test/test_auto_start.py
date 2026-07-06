@@ -159,6 +159,8 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
+    # Pipeline-spawned implementation runs are internal so they stay out of the default task list.
+    assert call_kwargs["internal"] is True
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
