@@ -283,7 +283,6 @@ export const clonePayloadPreservingFiles = (value: unknown): unknown => {
         return value.map((item) => clonePayloadPreservingFiles(item))
     }
 
-
     if (value instanceof Date) {
         return new Date(value.getTime())
     }
@@ -295,7 +294,6 @@ export const clonePayloadPreservingFiles = (value: unknown): unknown => {
             ])
         )
     }
-
 
     return value
 }
