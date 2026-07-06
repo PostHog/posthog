@@ -22,8 +22,6 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
-from posthog.schema import ReplayVisionScannerFindingSignalInput
-
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
@@ -115,6 +113,7 @@ from products.replay_vision.backend.temporal.workflow import (
     _root_cause_message,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 from products.signals.backend.models import SignalSourceConfig
 
 

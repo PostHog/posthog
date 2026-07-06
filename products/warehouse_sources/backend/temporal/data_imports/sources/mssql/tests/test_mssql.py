@@ -651,6 +651,16 @@ class TestMSSQLSourceNonRetryableErrors:
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
+    def test_table_not_found_is_non_retryable(self, impl, cursor):
+        # Drive the real raise site so the message and the rule can't drift apart: a table dropped
+        # after schema discovery yields no columns from INFORMATION_SCHEMA and must stop retrying.
+        cursor.__iter__.return_value = iter([])
+        with pytest.raises(ValueError) as exc_info:
+            impl.get_table_metadata(cursor, "dbo", "dropped_table")
+
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
 
 class TestIsTransientConnectionError:
     @pytest.mark.parametrize(

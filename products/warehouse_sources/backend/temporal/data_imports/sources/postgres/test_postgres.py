@@ -2648,6 +2648,36 @@ class TestValidateCredentialsErrorMapping:
         assert valid is False
         assert error == expected
 
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "https://db.example.com/",
+            "postgres://user:secret@db.example.com:5432/mydb",
+        ],
+    )
+    def test_url_in_host_field_rejected_without_echoing_input(self, source, host):
+        config = source.parse_config(
+            {
+                "host": host,
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        # The raw host may embed credentials, so it must never be reflected back.
+        assert host not in (error or "")
+        assert "hostname" in (error or "")
+
 
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
