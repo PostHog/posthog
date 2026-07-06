@@ -444,7 +444,7 @@ def query_cost_per_merge_series(
     buckets: list[CostPerMergeBucket] = []
     for index, bucket in enumerate(spine):
         trailing = spine[max(0, index - window + 1) : index + 1]
-        trailing_costs = [cost_by_bucket[b] for b in trailing if cost_by_bucket.get(b) is not None]
+        trailing_costs = [cost for b in trailing if (cost := cost_by_bucket.get(b)) is not None]
         trailing_cost = sum(trailing_costs) if trailing_costs else None
         trailing_merges = sum(merges_by_bucket.get(b, 0) for b in trailing)
         buckets.append(
