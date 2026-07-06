@@ -80,7 +80,7 @@ impl Fingerprint {
 }
 
 // Versions of the automatic fingerprint algorithm. The grouping stage computes every
-// registered version for each event, keeps the first version already used by an existing issue,
+// registered version for each event, keeps the newest version already used by an existing issue,
 // and falls back to the newest version for new issues. Adding a version = one variant + one arm
 // in `compute()` + appending to `all()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ pub enum FingerprintVersion {
 }
 
 impl FingerprintVersion {
-    // All registered versions, ascending. Order is meaningful: selection keeps the first
+    // All registered versions, ascending. Order is meaningful: selection keeps the newest
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
         &[FingerprintVersion::V1]

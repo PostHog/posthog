@@ -5,7 +5,7 @@ use crate::{
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
-    modes::processing::rules::grouping::{evaluate_grouping_rules, GroupingRule},
+    modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::{grouping::GroupingStage, pipeline::HandledError},
     types::{
         exception_properties::ExceptionProperties,
@@ -15,11 +15,6 @@ use crate::{
 
 #[derive(Clone, Default)]
 pub struct FingerprintGenerator;
-
-struct AutomaticFingerprintSelection {
-    selected: Fingerprint,
-    newest: Fingerprint,
-}
 
 impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
@@ -36,6 +31,16 @@ impl ValueOperator for FingerprintGenerator {
         mut input: ExceptionProperties,
         ctx: GroupingStage,
     ) -> OperatorResult<Self> {
+        // Selection order:
+        // 1. Existing input fingerprint wins and is marked manual.
+        // 2. Matching grouping rule wins and is marked custom.
+        // 3. Automatic versions use the newest already-saved fingerprint, or the newest version.
+        // Manual and rule fingerprints intentionally do not set a fingerprint version.
+        if input.fingerprint.is_some() {
+            apply_manual_fingerprint(&mut input)?;
+            return Ok(Ok(input));
+        }
+
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
         let matched_rule =
@@ -44,37 +49,23 @@ impl ValueOperator for FingerprintGenerator {
             })
             .await?;
 
-        if input.fingerprint.is_some() {
-            apply_manual_fingerprint(&mut input, matched_rule)?;
-            return Ok(Ok(input));
-        }
-
         if let Some(rule) = matched_rule {
             let fingerprint = Fingerprint::from_rule(rule);
-            input.proposed_fingerprint = Some(fingerprint.value.clone());
             input.fingerprint = Some(fingerprint.value);
             input.fingerprint_record = Some(fingerprint.record);
             return Ok(Ok(input));
         }
 
-        let selection = select_automatic_fingerprint(&input, &ctx).await?;
-        input.proposed_fingerprint = Some(selection.newest.value);
-        input.fingerprint = Some(selection.selected.value);
-        input.fingerprint_record = Some(selection.selected.record);
+        let (version, fingerprint) = select_automatic_fingerprint(&input, &ctx).await?;
+        input.fingerprint = Some(fingerprint.value);
+        input.fingerprint_record = Some(fingerprint.record);
+        input.fingerprint_version = Some(version);
 
         Ok(Ok(input))
     }
 }
 
-fn apply_manual_fingerprint(
-    input: &mut ExceptionProperties,
-    matched_rule: Option<GroupingRule>,
-) -> Result<(), UnhandledError> {
-    input.proposed_fingerprint = Some(match matched_rule {
-        Some(rule) => Fingerprint::from_rule(rule).value,
-        None => newest_automatic_fingerprint(input)?.value,
-    });
-
+fn apply_manual_fingerprint(input: &mut ExceptionProperties) -> Result<(), UnhandledError> {
     let Some(fp) = &input.fingerprint else {
         return Err(UnhandledError::Other("Missing manual fingerprint".into()));
     };
@@ -90,42 +81,23 @@ fn apply_manual_fingerprint(
 async fn select_automatic_fingerprint(
     input: &ExceptionProperties,
     ctx: &GroupingStage,
-) -> Result<AutomaticFingerprintSelection, UnhandledError> {
-    let fingerprints = automatic_fingerprints(input);
+) -> Result<(FingerprintVersion, Fingerprint), UnhandledError> {
+    let fingerprints = FingerprintVersion::all()
+        .iter()
+        .map(|version| (*version, version.compute(&input.exception_list)))
+        .collect::<Vec<_>>();
     let newest = fingerprints
         .last()
         .cloned()
         .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))?;
 
-    for fingerprint in &fingerprints {
+    for (version, fingerprint) in fingerprints.into_iter().rev() {
         if fingerprint_exists(ctx, input.team_id, &fingerprint.value).await? {
-            return Ok(AutomaticFingerprintSelection {
-                selected: fingerprint.clone(),
-                newest,
-            });
+            return Ok((version, fingerprint));
         }
     }
 
-    Ok(AutomaticFingerprintSelection {
-        selected: newest.clone(),
-        newest,
-    })
-}
-
-fn newest_automatic_fingerprint(
-    input: &ExceptionProperties,
-) -> Result<Fingerprint, UnhandledError> {
-    automatic_fingerprints(input)
-        .last()
-        .cloned()
-        .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))
-}
-
-fn automatic_fingerprints(input: &ExceptionProperties) -> Vec<Fingerprint> {
-    FingerprintVersion::all()
-        .iter()
-        .map(|version| version.compute(&input.exception_list))
-        .collect()
+    Ok(newest)
 }
 
 async fn fingerprint_exists(

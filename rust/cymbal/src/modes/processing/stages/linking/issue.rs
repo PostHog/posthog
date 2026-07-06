@@ -113,8 +113,9 @@ impl ValueOperator for IssueLinker {
 
 // Resolves an issue by going through the cross-batch `issue_id` cache:
 // - On cache miss we run `fetch_or_create_issue` (the only place that fires
-//   `created` / `reopened` alerts) and cache the stable mapping.
-// - We then re-read by id (cheap PK lookup) and call `maybe_reopen` so
+//   `created` / `reopened` alerts) and return the freshly-loaded Issue directly,
+//   avoiding a redundant PK lookup.
+// - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
 //   suppression and reopen always see current PG state.
 async fn resolve_via_id_cache(
     input: Arc<ExceptionProperties>,
@@ -125,17 +126,34 @@ async fn resolve_via_id_cache(
         .clone()
         .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
     let key = (input.team_id, fingerprint.clone());
+
+    // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly
+    // resolved Issue in a slot when we run the loader ourselves. That lets us reuse it
+    // below and skip a redundant `Issue::load` on the cache-miss path.
+    let just_resolved: Arc<std::sync::Mutex<Option<Issue>>> = Default::default();
+    let slot = just_resolved.clone();
     let app_ctx = ctx.app_context.clone();
     let cloned_input = input.clone();
 
     let issue_id: Uuid = ctx
         .issue_cache
         .try_get_with(key.clone(), async move {
-            let issue = IssueLinker::fetch_or_create_issue(cloned_input.as_ref(), app_ctx).await?;
-            Ok::<Uuid, UnhandledError>(issue.id)
+            let issue = IssueLinker::fetch_or_create_issue(&cloned_input, app_ctx).await?;
+            let id = issue.id;
+            *slot.lock().expect("just_resolved mutex poisoned") = Some(issue);
+            Ok::<Uuid, UnhandledError>(id)
         })
         .await
         .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+    // If we ran the loader, the just-resolved Issue is current — return it directly.
+    if let Some(issue) = just_resolved
+        .lock()
+        .expect("just_resolved mutex poisoned")
+        .take()
+    {
+        return Ok(issue);
+    }
 
     // Cache hit (or we were deduped against a concurrent caller). Refresh by id.
     match load_and_maybe_reopen(
@@ -151,7 +169,7 @@ async fn resolve_via_id_cache(
         None => {
             // Cached id no longer exists in PG. Invalidate and run the slow path.
             ctx.issue_cache.invalidate(&key).await;
-            IssueLinker::fetch_or_create_issue(input.as_ref(), ctx.app_context.clone()).await
+            IssueLinker::fetch_or_create_issue(&input, ctx.app_context.clone()).await
         }
     }
 }
@@ -176,6 +194,7 @@ async fn load_and_maybe_reopen(
         return Ok(Some(issue));
     }
 
+    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(&event_properties.timestamp).unwrap_or_else(|e| {
             warn!(
