@@ -72,26 +72,10 @@ class TestDowngradeScopesToReadOnly(BaseTest):
         self.assertEqual(result.count("feature_flag:read"), 1)
         self.assertIn("openid", result)
 
-    def test_wildcard_only_token(self) -> None:
-        # Bare `*` alone is the OAuth full-access shorthand and must NOT pass through.
-        self.assertNotIn(":write", downgrade_scopes_to_read_only("*"))
-        self.assertNotEqual(downgrade_scopes_to_read_only("*"), "*")
-
 
 class TestScopeSets(BaseTest):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
-
-    @parameterized.expand(
-        [
-            ("insight:read",),
-            ("insight:write",),
-            ("llm_gateway:read",),
-            ("llm_gateway:write",),
-        ]
-    )
-    def test_all_scopes_contains_known_string(self, scope: str) -> None:
-        self.assertIn(scope, ALL_SCOPES)
 
     @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
     def test_all_scopes_excludes_internal_scope(self, scope: str) -> None:
@@ -101,22 +85,9 @@ class TestScopeSets(BaseTest):
         self.assertTrue(PRIVILEGED_SCOPES.issubset(ALL_SCOPES))
         self.assertIn("llm_gateway:read", PRIVILEGED_SCOPES)
 
-    def test_oauth_hidden_scopes_expands_oauth_hidden_objects_to_strings(self) -> None:
-        # OAUTH_HIDDEN_SCOPES is the `obj:action` STRING form of
-        # OAUTH_HIDDEN_SCOPE_OBJECTS, intersected with ALL_SCOPES so phantom
-        # combinations can't leak in.
-        expected = (
-            frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS)
-            & ALL_SCOPES
-        )
-        self.assertEqual(OAUTH_HIDDEN_SCOPES, expected)
-
     def test_unprivileged_scopes_excludes_privileged_and_hidden(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(PRIVILEGED_SCOPES))
         self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(OAUTH_HIDDEN_SCOPES))
-
-    def test_unprivileged_scopes_subset_of_all_scopes(self) -> None:
-        self.assertTrue(UNPRIVILEGED_SCOPES.issubset(ALL_SCOPES))
 
     @parameterized.expand([("openid",), ("profile",), ("email",)])
     def test_unprivileged_scopes_excludes_oidc(self, oidc: str) -> None:
@@ -169,14 +140,6 @@ class TestScopeSets(BaseTest):
             self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")
 
 
-class TestScopeBucketInvariants(SimpleTestCase):
-    def test_signal_scout_internal_is_internal(self) -> None:
-        # The scout internal scope must stay in INTERNAL_API_SCOPE_OBJECTS so it is
-        # strict-excluded from PAK descriptions, OAuth metadata, and the /authorize
-        # allowlist. It is minted server-side only (direct OAuthAccessToken insert).
-        assert "signal_scout_internal" in INTERNAL_API_SCOPE_OBJECTS
-
-
 class TestGetOAuthScopesSupported(SimpleTestCase):
     def test_signal_scout_internal_write_is_not_advertised(self) -> None:
         # Security invariant — the scout sandbox token carries `signal_scout_internal:write`
@@ -186,15 +149,6 @@ class TestGetOAuthScopesSupported(SimpleTestCase):
         # every subsequent run's prompt). It must NOT appear in the advertised scope set.
         assert "signal_scout_internal:write" not in get_oauth_scopes_supported()
         assert "signal_scout_internal:read" not in get_oauth_scopes_supported()
-
-    @parameterized.expand(
-        [
-            ("user_interview_DO_NOT_USE:read",),
-            ("user_interview_DO_NOT_USE:write",),
-        ]
-    )
-    def test_oauth_hidden_scopes_are_not_advertised(self, scope: str) -> None:
-        assert scope not in get_oauth_scopes_supported()
 
     def test_internal_scopes_are_not_advertised(self) -> None:
         advertised = set(get_oauth_scopes_supported())

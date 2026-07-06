@@ -11,7 +11,7 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -29,6 +29,14 @@ use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 common_alloc::used!();
 
 fn main() -> Result<()> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (EndpointSlice discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it panics.
+    // Matches personhog-router / cymbal / kafka-assigner.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 
@@ -71,7 +79,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     tracing_subscriber::registry().with(log_layer).init();
 
-    info!(?config, "Starting ingestion consumer");
+    info!("Starting ingestion consumer");
 
     // Lifecycle manager handles signals, health, and shutdown coordination
     let mut manager = Manager::builder("ingestion-consumer")
@@ -95,31 +103,44 @@ async fn async_main(config: Config) -> Result<()> {
     // Install Prometheus recorder with custom histogram buckets matching the
     // Node.js ingestion consumer, so existing dashboards and alerts work during switchover.
     let recorder_handle = if config.export_prometheus {
+        let mut builder = PrometheusBuilder::new()
+            .set_buckets_for_metric(
+                Matcher::Full("ingestion_lag_ms_histogram".into()),
+                &[
+                    1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0, 300_000.0,
+                    600_000.0, 900_000.0,
+                ],
+            )
+            .expect("ingestion_lag_ms_histogram buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("consumer_batch_size".into()),
+                &[
+                    0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
+                ],
+            )
+            .expect("consumer_batch_size buckets")
+            .set_buckets_for_metric(
+                Matcher::Full("consumer_batch_size_kb".into()),
+                &[
+                    0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0, 102_400.0,
+                    204_800.0,
+                ],
+            )
+            .expect("consumer_batch_size_kb buckets");
+
+        // Global default labels (match the Node.js `initializePrometheusLabels`
+        // defaults): every metric carries ingestion_pipeline / ingestion_lane so
+        // dashboards, alerts, and the lag-based KEDA autoscaler select this
+        // consumer's series — notably `ingestion_lag_ms` for the scaling triggers.
+        if let Some(pipeline) = config.ingestion_pipeline.as_deref() {
+            builder = builder.add_global_label("ingestion_pipeline", pipeline);
+        }
+        if let Some(lane) = config.ingestion_lane.as_deref() {
+            builder = builder.add_global_label("ingestion_lane", lane);
+        }
+
         Some(
-            PrometheusBuilder::new()
-                .set_buckets_for_metric(
-                    Matcher::Full("ingestion_lag_ms_histogram".into()),
-                    &[
-                        1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0,
-                        300_000.0, 600_000.0, 900_000.0,
-                    ],
-                )
-                .expect("ingestion_lag_ms_histogram buckets")
-                .set_buckets_for_metric(
-                    Matcher::Full("consumer_batch_size".into()),
-                    &[
-                        0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
-                    ],
-                )
-                .expect("consumer_batch_size buckets")
-                .set_buckets_for_metric(
-                    Matcher::Full("consumer_batch_size_kb".into()),
-                    &[
-                        0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0,
-                        102_400.0, 204_800.0,
-                    ],
-                )
-                .expect("consumer_batch_size_kb buckets")
+            builder
                 .install_recorder()
                 .expect("failed to install Prometheus recorder"),
         )
@@ -177,38 +198,43 @@ async fn async_main(config: Config) -> Result<()> {
             ))
         }
     };
-    let _discovery_handle = discovery.start(
-        Arc::clone(&registry),
-        Arc::clone(&transport),
-        discovery_token.clone(),
-    );
+    let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
 
-    // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route.
-    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
-        info!("Waiting for the first workers from EndpointSlice discovery");
-        while registry.worker_count() == 0 {
-            tokio::select! {
-                _ = consumer_handle.shutdown_recv() => {
-                    info!("Shutdown received while waiting for worker discovery");
-                    break;
+    // Reap drained workers: once a departed worker has finished its in-flight
+    // batches (or hit the drain timeout), remove it from the registry and prune
+    // its transport semaphore. No-op in static mode (workers never drain).
+    {
+        let registry = Arc::clone(&registry);
+        let transport = Arc::clone(&transport);
+        let dispatcher = Arc::clone(&dispatcher);
+        let token = probe_token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
                 }
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                // A worker that left the pool while idle has no in-flight to
+                // resolve, so `on_sub_batch_resolved` never completes its drain.
+                // Complete it here so it's reaped now rather than at the timeout.
+                for worker in registry.draining_workers() {
+                    if !dispatcher.has_in_flight(&worker) {
+                        registry.complete_drain(&worker);
+                    }
+                }
+                for worker in registry.reapable_workers() {
+                    registry.remove_worker(&worker);
+                    transport.remove_worker(&worker);
+                }
             }
-        }
+        });
     }
 
-    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
-        .context("Failed to create Kafka consumer")?;
-
-    tokio::spawn(async move {
-        consumer.process().await;
-        // Cancel background tasks once the consumer loop exits.
-        probe_token.cancel();
-        discovery_token.cancel();
-    });
-
-    // Build and serve the health/metrics HTTP server
+    // Build and serve the health/metrics HTTP server BEFORE gating on worker
+    // discovery. Otherwise /_readiness and /_liveness stay unbound while we wait
+    // for the first workers, so kubelet sees "connection refused" instead of a
+    // proper 503 — and since /_liveness is meant to always answer 200, an unbound
+    // port lets the liveness probe kill the pod mid-startup.
     let mut app = Router::new()
         .route("/", get(|| async { "ingestion consumer" }))
         .route(
@@ -238,12 +264,42 @@ async fn async_main(config: Config) -> Result<()> {
 
     let bind = config.bind_address();
     info!(address = %bind, "Health/metrics server starting");
-
     let listener = TcpListener::bind(&bind).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(metrics_handle.shutdown_signal())
-        .await?;
-    metrics_handle.work_completed();
+    tokio::spawn(async move {
+        if let Err(err) = axum::serve(listener, app)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await
+        {
+            error!(error = %err, "Health/metrics server error");
+        }
+        metrics_handle.work_completed();
+    });
+
+    // For dynamic discovery, wait for the first workers before consuming so the
+    // first batch has somewhere to route. Readiness stays 503 until the consumer
+    // starts; the server above keeps the probes answering during the wait.
+    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
+        info!("Waiting for the first workers from EndpointSlice discovery");
+        while registry.worker_count() == 0 {
+            tokio::select! {
+                _ = consumer_handle.shutdown_recv() => {
+                    info!("Shutdown received while waiting for worker discovery");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+            }
+        }
+    }
+
+    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
+        .context("Failed to create Kafka consumer")?;
+
+    tokio::spawn(async move {
+        consumer.process().await;
+        // Cancel background tasks once the consumer loop exits.
+        probe_token.cancel();
+        discovery_token.cancel();
+    });
 
     guard.wait().await?;
 

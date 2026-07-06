@@ -187,7 +187,7 @@ describe('example: wake-me-up bundle', () => {
         // Window is (lastTickAt, now] (exclusive at start), so t0 must land
         // strictly BEFORE the 08:00 PT firing for t1 to catch it.
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         // 2026-06-03 is a Wednesday; 08:00 PT (PDT, UTC-7) = 15:00 UTC.
         const t0 = new Date('2026-06-03T14:59:00Z') // 07:59 PT — seeds
         await cronTick({ ...deps, now: () => t0 }, state)

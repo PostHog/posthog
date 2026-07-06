@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +23,7 @@ from posthog.models.team.team import Team
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
+from products.signals.backend.temporal.signal_queries import ReportSignalMeta
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -685,6 +688,33 @@ class TestSignalReportListAPI(APIBaseTest):
             str(report_with_pr.id): "https://github.com/org/repo/pull/42",
         }
 
+    def test_fetch_implementation_pr_urls_issues_constant_queries(self):
+        # N+1 guard: association is batched across the page, so resolving PR urls for many reports
+        # costs the same number of queries as for one. A per-report `associated_task_runs` loop
+        # scaled at two queries per report (one artefact read + one gate-row read), the exact
+        # regression this asserts against.
+        def seed(count: int) -> list[str]:
+            ids = []
+            for i in range(count):
+                report = self._create_report(title=f"PR report {i}")
+                self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+                ids.append(str(report.id))
+            return ids
+
+        single = seed(1)
+        with CaptureQueriesContext(connection) as for_one:
+            fetch_implementation_pr_urls_for_reports(single)
+        baseline = len(for_one.captured_queries)
+
+        page = single + seed(5)
+        with CaptureQueriesContext(connection) as for_many:
+            result = fetch_implementation_pr_urls_for_reports(page)
+
+        assert len(result) == 6
+        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR lookup).
+        assert len(for_many.captured_queries) == baseline
+        assert baseline <= 3
+
     # --- has_implementation_pr filter ---
 
     @parameterized.expand(
@@ -845,12 +875,18 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk", "github"]},
+            return_value={
+                str(report.id): ReportSignalMeta(
+                    source_products=["zendesk", "github"], scout_name="signals-scout-error-tracking"
+                )
+            },
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == ["zendesk", "github"]
+        # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
+        assert response.json()["scout_name"] == "signals-scout-error-tracking"
 
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()
@@ -858,7 +894,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -878,6 +914,27 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
+
+    @parameterized.expand(
+        [
+            ("source_products", "fetch_source_products_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+        ]
+    )
+    def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
+        # A transient failure in either decorative metadata fetch must degrade to empty badges
+        # rather than 500 the whole inbox load — the list still renders from Postgres data.
+        report = self._create_report()
+
+        with patch(
+            f"products.signals.backend.views.{fetch_fn}",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["source_products"] == []
 
     # --- suppressed report reachability ---
     #
@@ -901,7 +958,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -1019,6 +1076,118 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["dismissal_reason"] == "analysis_wrong"
 
 
+class TestAssociatedTaskRunsForReports(APIBaseTest):
+    """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of
+    `associated_task_runs` that backs the inbox list without an N+1."""
+
+    def _create_report(self, **kwargs) -> SignalReport:
+        defaults = {
+            "team": self.team,
+            "status": SignalReport.Status.READY,
+            "title": "Test report",
+            "summary": "Test summary",
+            "signal_count": 1,
+            "total_weight": 1.0,
+        }
+        defaults.update(kwargs)
+        return SignalReport.objects.create(**defaults)
+
+    def _new_task(self) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+
+    def test_empty_report_ids_returns_empty(self):
+        assert SignalReport.associated_task_runs_for_reports(report_ids=[]) == {}
+
+    def test_groups_by_report_and_omits_reports_without_runs(self):
+        report_with_gate = self._create_report()
+        report_with_artefact = self._create_report()
+        report_without_runs = self._create_report()
+        gate_task = self._new_task()
+        artefact_task = self._new_task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report_with_gate.id), task_id=str(gate_task.id))
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report_with_artefact.id),
+            product="signals",
+            type="implementation",
+            task_id=str(artefact_task.id),
+        )
+
+        result = SignalReport.associated_task_runs_for_reports(
+            report_ids=[str(report_with_gate.id), str(report_with_artefact.id), str(report_without_runs.id)]
+        )
+
+        assert set(result.keys()) == {str(report_with_gate.id), str(report_with_artefact.id)}
+        assert [run.task_id for run in result[str(report_with_gate.id)]] == [str(gate_task.id)]
+        assert [run.task_id for run in result[str(report_with_artefact.id)]] == [str(artefact_task.id)]
+
+    def test_matches_per_report_associated_task_runs(self):
+        # Parity with the trusted per-report method across mixed association sources.
+        gate_report = self._create_report()
+        artefact_report = self._create_report()
+        empty_report = self._create_report()
+        gate_task = self._new_task()
+        artefact_task = self._new_task()
+        record_implementation_task(team_id=self.team.id, report_id=str(gate_report.id), task_id=str(gate_task.id))
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(artefact_report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(artefact_task.id),
+        )
+
+        report_ids = [str(gate_report.id), str(artefact_report.id), str(empty_report.id)]
+        batched = SignalReport.associated_task_runs_for_reports(
+            report_ids=report_ids, product="signals", type="implementation"
+        )
+
+        for report_id in report_ids:
+            per_report = SignalReport.associated_task_runs(
+                report_id=report_id, product="signals", type="implementation"
+            )
+            assert batched.get(report_id, []) == per_report
+
+    def test_respects_product_and_type_filters(self):
+        report = self._create_report()
+        impl_task = self._new_task()
+        other_task = self._new_task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(impl_task.id),
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="investigation",
+            task_id=str(other_task.id),
+        )
+
+        result = SignalReport.associated_task_runs_for_reports(
+            report_ids=[str(report.id)], product="signals", type="implementation"
+        )
+
+        assert [run.task_id for run in result[str(report.id)]] == [str(impl_task.id)]
+
+    def test_scopes_by_team_id(self):
+        report = self._create_report()
+        task = self._new_task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        assert SignalReport.associated_task_runs_for_reports(report_ids=[str(report.id)], team_id=other_team.id) == {}
+        assert str(report.id) in SignalReport.associated_task_runs_for_reports(
+            report_ids=[str(report.id)], team_id=self.team.id
+        )
+
+
 class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
@@ -1112,7 +1281,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk"]},
+            return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
         ):
             response = self.client.post(
                 self._state_url(str(report.id)),
@@ -1638,3 +1807,295 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
     def test_reports_list_rejects_malformed_task_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
+    """The artefact list surfaces legacy `SignalReportTask` rows as synthetic `task_run` artefacts so
+    research / implementation associations show up before the backfill has converted the gate rows."""
+
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_report(self, team=None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Report",
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _task_runs(self, report_id: str) -> list[dict]:
+        response = self.client.get(self._artefacts_url(report_id))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [a for a in response.json()["results"] if a["type"] == "task_run"]
+
+    @parameterized.expand(
+        [
+            ("research", "signals", "research"),
+            ("implementation", "signals", "implementation"),
+            ("repo_selection", "signals", "repo_selection"),
+            (None, "tasks", "agent_run"),
+            ("link-only", "tasks", "agent_run"),
+        ]
+    )
+    def test_legacy_task_surfaces_as_synthetic_task_run(self, relationship, expected_product, expected_type):
+        report = self._create_report()
+        task = self._create_task()
+        report_task = SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=relationship
+        )
+
+        task_runs = self._task_runs(str(report.id))
+        assert len(task_runs) == 1
+        artefact = task_runs[0]
+        assert artefact["id"] == str(report_task.id)
+        assert str(artefact["task_id"]) == str(task.id)
+        assert artefact["content"]["task_id"] == str(task.id)
+        assert artefact["content"]["product"] == expected_product
+        assert artefact["content"]["type"] == expected_type
+
+    def test_real_task_run_artefact_wins_over_legacy_row(self):
+        report = self._create_report()
+        task = self._create_task()
+        # Both the gate row and the real artefact exist for the same task: only the real one shows.
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+        )
+
+        task_runs = self._task_runs(str(report.id))
+        assert len(task_runs) == 1
+        # The persisted artefact id is a real row, not the gate row's id.
+        assert SignalReportArtefact.objects.filter(id=task_runs[0]["id"]).exists()
+
+    def test_legacy_rows_are_not_persisted(self):
+        report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="research")
+
+        self._task_runs(str(report.id))
+        # Listing must not write the synthetic artefacts — the backfill owns that.
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    def test_synthetic_rows_count_and_interleave_chronologically(self):
+        report = self._create_report()
+        older_task = self._create_task()
+        newer_task = self._create_task()
+        # A real artefact dated between the two legacy rows, so a correct merge interleaves by time.
+        older = SignalReportTask.objects.create(team=self.team, report=report, task=older_task, relationship="research")
+        SignalReportTask.objects.filter(id=older.id).update(created_at=timezone.now() - timedelta(hours=2))
+        middle = append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="repo_selection",
+            task_id=str(self._create_task().id),
+        )
+        SignalReportArtefact.objects.filter(id=middle.id).update(created_at=timezone.now() - timedelta(hours=1))
+        newer = SignalReportTask.objects.create(
+            team=self.team, report=report, task=newer_task, relationship="implementation"
+        )
+
+        response = self.client.get(self._artefacts_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        # count covers the real artefact plus both synthetic legacy rows.
+        assert body["count"] == 3
+        # Default order is newest-first; the legacy rows land at their own timestamps, not appended last.
+        ids_newest_first = [a["id"] for a in body["results"]]
+        assert ids_newest_first == [str(newer.id), str(middle.id), str(older.id)]
+
+    def test_legacy_rows_do_not_cross_reports(self):
+        report = self._create_report()
+        other_report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=other_report, task=task, relationship="research")
+
+        # The gate row belongs to `other_report`, so `report`'s log stays empty.
+        assert self._task_runs(str(report.id)) == []
+        assert len(self._task_runs(str(other_report.id))) == 1
+
+
+class TestSignalReportContentUpdateAPI(APIBaseTest):
+    def _url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Original title",
+            summary="Original summary",
+            signal_count=3,
+            total_weight=1.5,
+        )
+
+    def test_update_title_and_summary(self):
+        report = self._create_report()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "New title", "summary": "New summary"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["title"] == "New title"
+        assert body["summary"] == "New summary"
+        report.refresh_from_db()
+        assert report.title == "New title"
+        assert report.summary == "New summary"
+
+    def test_update_title_only_leaves_summary_unchanged(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.title == "Just the title"
+        assert report.summary == "Original summary"
+
+    def test_update_summary_trims_whitespace(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"summary": "  padded  "}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.summary == "padded"
+
+    def test_update_with_no_editable_fields_is_rejected(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.title == "Original title"
+
+    @parameterized.expand([("blank_title", "title", ""), ("blank_summary", "summary", "")])
+    def test_update_rejects_blank_values(self, _name, field, value):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={field: value}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_rejects_overlong_title(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"title": "x" * 301}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_other_teams_report_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = self._create_report(team=other_team)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        report.refresh_from_db()
+        assert report.title == "Original title"
+
+    def test_update_deleted_report_returns_404(self):
+        report = self._create_report(report_status=SignalReport.Status.DELETED)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_suppressed_report_returns_404(self):
+        # Suppressed reports are hidden from mutating-by-id actions unless an explicit status
+        # filter asks for them, matching the delete/reingest contract.
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _artefacts(self, report: SignalReport, artefact_type: str) -> list[SignalReportArtefact]:
+        return list(report.artefacts.filter(type=artefact_type).order_by("created_at"))
+
+    def test_update_title_records_title_change_artefact(self):
+        report = self._create_report()
+        self.client.patch(self._url(str(report.id)), data={"title": "New title"}, format="json")
+
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content == {"old_title": "Original title", "new_title": "New title"}
+        # Attributed to the requesting user, not a task, when no task header is present.
+        assert artefacts[0].created_by_id == self.user.id
+        assert artefacts[0].task_id is None
+
+    def test_update_summary_records_summary_change_artefact(self):
+        report = self._create_report()
+        self.client.patch(self._url(str(report.id)), data={"summary": "New summary"}, format="json")
+
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content == {"old_summary": "Original summary", "new_summary": "New summary"}
+
+    def test_update_both_records_one_artefact_per_field(self):
+        report = self._create_report()
+        self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "New title", "summary": "New summary"},
+            format="json",
+        )
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)) == 1
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)) == 1
+
+    def test_no_op_edit_records_no_artefact(self):
+        # Setting a field to its current value isn't a change, so it leaves no edit-history entry.
+        report = self._create_report()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "Original title", "summary": "New summary"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE) == []
+        assert len(self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)) == 1
+
+    def test_edit_attributed_to_task_when_header_present(self):
+        # Mirrors the other artefact-writing paths: an agent's task header overrides user attribution.
+        report = self._create_report()
+        task = self._create_task()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "Agent title"},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
+        assert len(artefacts) == 1
+        assert str(artefacts[0].task_id) == str(task.id)
+        assert artefacts[0].created_by_id is None
+
+    @parameterized.expand([("title_change",), ("summary_change",)])
+    def test_change_artefacts_are_read_only_via_artefact_api(self, artefact_type):
+        # Edit-history artefacts are system-generated; the generic artefact write API must refuse
+        # them so a caller can't fabricate edits that never happened.
+        report = self._create_report()
+        response = self.client.post(
+            self._artefacts_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": {}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "read-only" in response.json()["error"]

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -26,6 +27,7 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -87,6 +89,10 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
+    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    snapshot_mount_path: str | None = None
+    snapshot_source: str = "none"
+    snapshot_restored: bool = False
     ttl_seconds: int = SANDBOX_TTL_SECONDS
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
@@ -103,8 +109,14 @@ class SandboxConfig(BaseModel):
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
 
+    @property
+    def is_vm(self) -> bool:
+        return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
-WORKING_DIR = "/tmp/workspace"
+
+WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
+
+REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
 
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
@@ -121,6 +133,12 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
 
+def sandbox_repo_path(repository: str) -> str:
+    """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
+    org, repo = repository.lower().split("/")
+    return f"{WORKING_DIR}/repos/{org}/{repo}"
+
+
 def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
@@ -133,6 +151,8 @@ def build_agent_runtime_env_prefix(
     model: str | None = None,
     reasoning_effort: str | None = None,
     event_ingest_token: str | None = None,
+    event_ingest_url: str | None = None,
+    event_ingest_keep_stream_open: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -141,6 +161,8 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -193,7 +215,7 @@ class SandboxBase(ABC):
             else f"https://github.com/{org}/{repo}.git"
         )
 
-        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        target_path = sandbox_repo_path(repository)
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
@@ -250,6 +272,10 @@ class SandboxBase(ABC):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -259,13 +285,34 @@ class SandboxBase(ABC):
         ...
 
     @abstractmethod
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+
+    @abstractmethod
+    def mark_repo_ready(self, repo_ready_file: str) -> None: ...
+
+    @abstractmethod
     def create_snapshot(self) -> str: ...
+
+    @abstractmethod
+    def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
     def destroy(self) -> None: ...
 
     @abstractmethod
     def is_running(self) -> bool: ...
+
+    def read_agent_server_session_init_ms(self) -> int | None:
+        return None
+
+    def _read_health_session_init_ms(self, port: int) -> int | None:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
+        except Exception:
+            return None
 
     def __enter__(self) -> Self:
         return self
@@ -419,6 +466,7 @@ __all__ = [
     "SandboxBase",
     "WORKING_DIR",
     "parse_sandbox_repo_mount_map",
+    "sandbox_repo_path",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

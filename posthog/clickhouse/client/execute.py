@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
-from typing import Any, Optional, Union
+from typing import Any, Optional, TypedDict, Union
 
 from django.conf import settings as app_settings
 
@@ -245,6 +245,16 @@ logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
 
+class ClickHouseExternalTable(TypedDict):
+    """A query-scoped external data table sent to ClickHouse alongside the query (the
+    clickhouse_driver `external_tables` format). `structure` is `(column, ClickHouse type)` pairs and
+    `data` is row dicts keyed by column name."""
+
+    name: str
+    structure: list[tuple[str, str]]
+    data: list[dict[str, Any]]
+
+
 @patchable
 @trace_clickhouse_query_decorator
 def sync_execute(
@@ -259,6 +269,7 @@ def sync_execute(
     readonly=False,
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    external_tables: Optional[list[ClickHouseExternalTable]] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -294,6 +305,8 @@ def sync_execute(
     sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
     ch_user (ClickHouseUser): The user context for the query execution. Defaults to
         ClickHouseUser.DEFAULT.
+    external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
+        sent alongside the query instead of inlined.
 
     Returns:
     Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
@@ -455,6 +468,7 @@ def sync_execute(
                 settings=settings,
                 with_column_types=with_column_types,
                 query_id=query_id,
+                external_tables=external_tables,
             )
             if (
                 "INSERT INTO" in prepared_sql

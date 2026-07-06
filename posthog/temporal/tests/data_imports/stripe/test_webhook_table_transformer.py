@@ -2,8 +2,8 @@ import pytest
 
 import orjson
 
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.stripe.stripe import _webhook_table_transformer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import _webhook_table_transformer
 
 
 def _make_event(event_id: str, obj_id: str, event_created: int, obj_fields: dict | None = None) -> dict:

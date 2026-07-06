@@ -1,4 +1,4 @@
-import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
+import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {

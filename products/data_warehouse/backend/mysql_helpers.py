@@ -3,7 +3,7 @@
 Direct-query-only utilities (DataWarehouseTable upserts, the `direct://mysql`
 url_pattern, the option keys that encode source location on a direct table) live
 in `direct_mysql.py`. Generic projection / `schema_metadata` builders live in
-`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
+`products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
 
 Unlike Postgres there is no catalog level — a MySQL "schema" and "database" are
 the same namespace, so a source location is just `(schema, table_name)`.
@@ -17,26 +17,26 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from posthog.temporal.data_imports.sources.common.sql.metadata import (
-    extract_available_column_names,
-    sql_schema_metadata,
-)
-from posthog.temporal.data_imports.sources.common.sql.projection import (
-    filter_columns_by_enabled_columns,
-    filter_dwh_columns_by_enabled_columns,
-    prune_enabled_columns,
-)
-
 from products.data_warehouse.backend.direct_mysql import (
     DIRECT_MYSQL_SCHEMA_OPTION,
     DIRECT_MYSQL_TABLE_OPTION,
     hide_direct_mysql_table,
     upsert_direct_mysql_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import mysql_column_to_dwh_column, mysql_columns_to_dwh_columns
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
+    mysql_column_to_dwh_column,
+    mysql_columns_to_dwh_columns,
+)
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
+    extract_available_column_names,
+    filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
+    prune_enabled_columns,
+    sql_schema_metadata,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -134,7 +134,7 @@ def reconcile_mysql_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every MySQL row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]

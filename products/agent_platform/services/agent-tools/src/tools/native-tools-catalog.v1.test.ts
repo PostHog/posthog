@@ -14,7 +14,7 @@ describe('@posthog/agent-applications-native-tools-list', () => {
         const query = byId.get('@posthog/query')
         expect(query).not.toBeUndefined()
         expect(typeof query!.description).toBe('string')
-        expect(Array.isArray(query!.requires.scopes)).toBe(true)
+        expect(query!.requires.provider).toEqual({ id: 'posthog', scopes: ['query:read'] })
         expect(['cheap', 'medium', 'expensive']).toContain(query!.cost_hint)
         // The catalog tool lists itself — it's a real available tool.
         expect(byId.has('@posthog/agent-applications-native-tools-list')).toBe(true)

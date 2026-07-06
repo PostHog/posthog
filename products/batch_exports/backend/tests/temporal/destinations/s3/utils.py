@@ -453,7 +453,7 @@ async def run_activity(activity_environment: ActivityEnvironment, insert_inputs:
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
     ):
         assert insert_inputs.batch_export_id is not None
-        stage_folder = await activity_environment.run(
+        stage_result = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -469,7 +469,8 @@ async def run_activity(activity_environment: ActivityEnvironment, insert_inputs:
                 destination_default_fields=s3_default_fields(),
             ),
         )
-        insert_inputs.stage_folder = stage_folder
+        insert_inputs.stage_folder = stage_result.stage_folder
+        insert_inputs.records_total = stage_result.records_total
         result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
     return result

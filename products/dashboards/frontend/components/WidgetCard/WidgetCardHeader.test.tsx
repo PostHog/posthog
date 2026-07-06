@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { WidgetCardHeader } from './WidgetCardHeader'
+import { WidgetCardHeader, type DashboardWidgetTopHeadingProps } from './WidgetCardHeader'
 
 describe('WidgetCardHeader', () => {
     afterEach(() => {
@@ -48,7 +48,9 @@ describe('WidgetCardHeader', () => {
                 widgetTypeLabel="Session replay"
                 config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
                 headerMeta={{ showWidgetType: true, showDateRange: true }}
-                TopHeading={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
+                TopHeading={({ widgetTypeLabel }: DashboardWidgetTopHeadingProps) => (
+                    <span>{widgetTypeLabel} • My saved filter</span>
+                )}
             />
         )
 
@@ -125,6 +127,21 @@ describe('WidgetCardHeader', () => {
         )
 
         expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
+    })
+
+    it('forwards the hover refresh control into the dashboard_tile header', () => {
+        const { container } = render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Top issues"
+                topHeading={<span>Error tracking • Last 7 days</span>}
+                moreButtonOverlay={<div>Menu</div>}
+                refreshControl={<button className="CardMeta__refresh" data-attr="dashboard-widget-refresh" />}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="dashboard-widget-refresh"]')).toBeTruthy()
+        expect(container.querySelector('.CardMeta__controls .CardMeta__refresh')).toBeTruthy()
     })
 
     it('renders simple layout without inline refresh', () => {

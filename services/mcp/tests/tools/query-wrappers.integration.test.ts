@@ -660,4 +660,63 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result.results.columns).not.toContain('recordings')
         })
     })
+
+    describe('query-funnel-actors', () => {
+        const funnelSource = {
+            kind: 'FunnelsQuery',
+            series: [
+                { kind: 'EventsNode', event: '$pageview', name: 'Pageview' },
+                { kind: 'EventsNode', event: '$pageview', name: '$pageview' },
+            ],
+            funnelsFilter: { funnelVizType: 'steps' },
+            dateRange: { date_from: '-30d' },
+            interval: 'day',
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: 2 })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery and passes the converted step through', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: 2 })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.orderBy).toEqual([])
+            expect(result.query.source.kind).toBe('FunnelsActorsQuery')
+            expect(result.query.source.funnelStep).toBe(2)
+            expect(result.query.source.source.kind).toBe('FunnelsQuery')
+            // includeRecordings defaults to true, so the recordings column is projected.
+            expect(result.query.select).toEqual(['actor', 'matched_recordings'])
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'recordings'])
+        })
+
+        it('passes a negative funnelStep through for the dropped-off cohort', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, { source: funnelSource, funnelStep: -2 })) as any
+
+            expect(result.query.source.funnelStep).toBe(-2)
+            expect(result.query.source.source.kind).toBe('FunnelsQuery')
+        })
+
+        it('omits the recordings column when includeRecordings is false', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel-actors')
+            const result = (await tool.handler(context, {
+                source: funnelSource,
+                funnelStep: 2,
+                includeRecordings: false,
+            })) as any
+
+            expect(result.query.select).toEqual(['actor'])
+            expect(result.query.select).not.toContain('matched_recordings')
+            expect(result.results.columns).not.toContain('recordings')
+        })
+    })
 })

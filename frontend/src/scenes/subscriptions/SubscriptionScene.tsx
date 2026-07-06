@@ -22,10 +22,11 @@ import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
 function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { setEnabled } = useActions(subscriptionSceneLogic)
-    const { subscriptionLoading } = useValues(subscriptionSceneLogic)
+    const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
+    const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
+    const isDelivering = deliveringSubscriptionId === sub.id
 
     const deleteSubscription = (): void => {
         const name = subscriptionName(sub)
@@ -61,6 +62,15 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
                 </LemonButton>
             ) : null}
             <LemonButton
+                type="primary"
+                onClick={() => deliverSubscription(sub.id)}
+                loading={isDelivering}
+                disabledReason={isDelivering ? 'Sending test delivery…' : null}
+                data-attr="subscription-detail-header-test-delivery"
+            >
+                Test delivery
+            </LemonButton>
+            <LemonButton
                 type="secondary"
                 status="danger"
                 data-attr="subscription-detail-delete"
@@ -76,7 +86,6 @@ export function SubscriptionScene(): JSX.Element {
     const {
         subscription,
         subscriptionLoading,
-        deliveriesEnabled,
         deliveriesPage,
         deliveriesPageLoading,
         deliveringSubscriptionId,
@@ -109,24 +118,24 @@ export function SubscriptionScene(): JSX.Element {
                             <SubscriptionSummary sub={subscription} />
                         </div>
                     ) : null}
-                    {deliveriesEnabled ? (
-                        <SubscriptionDeliveryHistory
-                            deliveriesPage={deliveriesPage}
-                            deliveriesPageLoading={deliveriesPageLoading}
-                            loadDeliveriesPage={loadDeliveriesPage}
-                            deliveryStatusFilter={deliveryStatusFilter}
-                            onDeliveryStatusFilterChange={setDeliveryStatusFilter}
-                            onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
-                            testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
-                            onDeliveryFeedback={
-                                subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
-                                    ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
-                                    : undefined
-                            }
-                            deliveryFeedback={deliveryFeedback}
-                            recentlyThankedDeliveries={recentlyThankedDeliveries}
-                        />
-                    ) : null}
+                    <SubscriptionDeliveryHistory
+                        deliveriesPage={deliveriesPage}
+                        deliveriesPageLoading={deliveriesPageLoading}
+                        loadDeliveriesPage={loadDeliveriesPage}
+                        deliveryStatusFilter={deliveryStatusFilter}
+                        onDeliveryStatusFilterChange={setDeliveryStatusFilter}
+                        // Empty-state CTA intentionally coexists with the header Test delivery button:
+                        // it's the discoverable first-run nudge when a subscription has no deliveries yet.
+                        onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
+                        testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
+                        onDeliveryFeedback={
+                            subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
+                                ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
+                                : undefined
+                        }
+                        deliveryFeedback={deliveryFeedback}
+                        recentlyThankedDeliveries={recentlyThankedDeliveries}
+                    />
                 </div>
             )}
         </SceneContent>

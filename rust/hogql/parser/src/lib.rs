@@ -164,6 +164,32 @@ fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObj
     })
 }
 
+/// Byte-for-byte twin of the C++ wheel's `parse_string_literal_text`, closing the last cpp/rust API gap.
+/// Errors route through the shared converter so `SyntaxError`/`ParsingError` match the C++ wheel's classes.
+#[pyfunction]
+fn parse_string_literal_text(py: Python<'_>, text: &str) -> PyResult<String> {
+    // catch_unwind like the other entry points: a future panic in the decoder must not cross FFI as a PanicException.
+    match std::panic::catch_unwind(AssertUnwindSafe(|| parse::parse_string_literal_text(text))) {
+        Ok(Ok(decoded)) => Ok(decoded),
+        Ok(Err(err)) => Err(raise_parse_error(py, err)),
+        Err(_) => Err(raise_parse_error(
+            py,
+            error::ParseError::not_implemented("internal panic in parse_string_literal_text", 0, 0),
+        )),
+    }
+}
+
+/// Raise the matching `posthog.hogql.errors` exception for `err`, importing only the errors module (not the AST/enum-laden `Converter`).
+fn raise_parse_error(py: Python<'_>, err: error::ParseError) -> PyErr {
+    pyobject::raise_error_envelope(
+        py,
+        err.kind.type_str(),
+        &err.message,
+        Some(err.start as u64),
+        Some(err.end as u64),
+    )
+}
+
 #[pymodule]
 fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_expr_json, m)?)?;
@@ -176,6 +202,7 @@ fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_select_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_program_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_full_template_string_py, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_string_literal_text, m)?)?;
 
     #[cfg(feature = "coverage")]
     {

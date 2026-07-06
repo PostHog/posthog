@@ -83,6 +83,7 @@ pub struct State {
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub ai_gateway_signing_secret: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -151,6 +152,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
 ) -> Router {
     let state = State {
         sink,
@@ -177,6 +179,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -211,6 +214,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .route(
             "/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
+        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .route(
+            "/i/v0/ai/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/batch/",
             post(v0_endpoint::event)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),

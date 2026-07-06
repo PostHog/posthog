@@ -1,5 +1,4 @@
 import type { CommonConfig } from '~/common/config'
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -15,9 +14,14 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '~/config/kafka-topics'
-import type { PostgresRouterConfig } from '~/utils/db/postgres'
-import { isDevEnv, isProdEnv } from '~/utils/env-utils'
+} from '~/common/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_UPSTREAM_PRODUCER,
+    type ProducerName,
+} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -58,27 +62,6 @@ export type RedisConnectionsConfig = Pick<
     | 'POSTHOG_REDIS_PASSWORD'
 >
 
-/** PersonHog gRPC client config */
-export type PersonHogConfig = Pick<
-    CommonConfig,
-    | 'PERSONHOG_ENABLED'
-    | 'PERSONHOG_ADDR'
-    | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_TLS'
-    | 'PERSONHOG_TIMEOUT_MS'
-    | 'PERSONHOG_READ_MAX_BYTES'
-    | 'PERSONHOG_WRITE_MAX_BYTES'
-    | 'PERSONHOG_PING_INTERVAL_MS'
-    | 'PERSONHOG_PING_TIMEOUT_MS'
-    | 'PERSONHOG_PING_IDLE_CONNECTION'
-    | 'PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS'
-    | 'PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS'
-    | 'PLUGIN_SERVER_MODE'
->
-
 /** Kafka consumer loop tuning config */
 export type KafkaConsumerBaseConfig = Pick<
     CommonConfig,
@@ -95,7 +78,16 @@ export type KafkaConsumerBaseConfig = Pick<
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+/**
+ * Real-time lanes process live events and share `main`'s processing-time SLO.
+ * Delayed lanes process backfilled or async events on their own timeline. The
+ * distinction is load-bearing for processing-time logic like dedup, so the lane
+ * type is derived from these two sets to keep the categorization in one place.
+ */
+export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo', 'team2'] as const
+export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
+
+export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
@@ -139,6 +131,10 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    PERSON_MERGE_EVENTS_ENABLED: boolean
+    // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
+    PERSON_MERGE_EVENTS_PARTITION_COUNT: number
 
     // Group batch writing config
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
@@ -178,22 +174,6 @@ export type IngestionConsumerConfig = {
     /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
-
-    // AI event splitting config
-    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
-    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
-    /**
-     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
-     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
-     */
-    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
-    /**
-     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
-     * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
-     * Defaults to '' (no stripping → double-write the full event for everyone).
-     */
-    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -265,6 +245,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
 
         // Group batch writing config
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
@@ -300,12 +282,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
-
-        // AI event splitting config
-        INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
-        INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
-        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
-        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
@@ -372,6 +348,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: string
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     INGESTION_OUTPUT_APP_METRICS_PRODUCER: ProducerName
 
@@ -404,6 +383,9 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_PERSONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: KAFKA_PERSON_DISTINCT_ID,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // Empty topic skips the startup topic-existence check.
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         INGESTION_OUTPUT_APP_METRICS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,

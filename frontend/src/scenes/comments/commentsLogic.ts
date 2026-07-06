@@ -7,7 +7,6 @@ import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -47,16 +46,7 @@ export const commentsLogic = kea<commentsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
         ],
-        values: [
-            userLogic,
-            ['user'],
-            sceneLogic,
-            ['activeTab'],
-            membersLogic,
-            ['meFirstMembers'],
-            teamLogic,
-            ['currentProjectId'],
-        ],
+        values: [userLogic, ['user'], membersLogic, ['meFirstMembers'], teamLogic, ['currentProjectId']],
     })),
 
     actions({

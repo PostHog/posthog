@@ -460,14 +460,20 @@ impl PersonLookup for PostgresStorage {
             &[("operation".to_string(), "delete_persons".to_string())],
             chunks.len() as f64,
         );
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            let client = client.clone();
-            async move { delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client).await }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    let client = client.clone();
+                    // Per-person delete: also clear cohort memberships (no DB cascade).
+                    async move {
+                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, true).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
 
         Ok(results.iter().sum())
     }
@@ -580,14 +586,20 @@ impl PersonLookup for PostgresStorage {
             )],
             chunks.len() as f64,
         );
-        let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
-            let pool = pool.clone();
-            let client = client.clone();
-            async move { delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client).await }
-        }))
-        .buffer_unordered(self.bulk_max_concurrent_chunks)
-        .try_collect()
-        .await?;
+        let results: Vec<i64> =
+            stream::iter(
+                chunks.into_iter().map(|chunk| {
+                    let pool = pool.clone();
+                    let client = client.clone();
+                    // Team teardown clears cohortpeople separately, by cohort, before this runs.
+                    async move {
+                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, false).await
+                    }
+                }),
+            )
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
 
         Ok(results.iter().sum())
     }
@@ -1019,6 +1031,7 @@ async fn delete_persons_by_ids_chunk(
     team_id: i64,
     person_ids: &[i64],
     client: &str,
+    delete_cohortpeople: bool,
 ) -> StorageResult<i64> {
     if person_ids.is_empty() {
         return Ok(0);
@@ -1062,6 +1075,37 @@ async fn delete_persons_by_ids_chunk(
         ],
         did_result.rows_affected() as f64,
     );
+
+    // Cohort memberships have no FK to posthog_person (the constraint was dropped
+    // during person-table partitioning), so they don't cascade — delete them
+    // explicitly for these persons. Gated because the team-teardown path already
+    // clears cohortpeople up front by cohort; only the per-person DeletePersons
+    // path needs this here.
+    if delete_cohortpeople {
+        let cohort_result = sqlx::query!(
+            r#"
+            DELETE FROM posthog_cohortpeople
+            WHERE person_id = ANY($1)
+            "#,
+            person_ids
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "delete_cohortpeople_for_persons".to_string(),
+                ),
+                ("pool".to_string(), "bulk_primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), current_method_name().to_string()),
+            ],
+            cohort_result.rows_affected() as f64,
+        );
+    }
 
     // Delete person rows (hash key overrides cascade at DB level).
     let result = sqlx::query!(

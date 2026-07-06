@@ -12,6 +12,8 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -28,6 +30,7 @@ export function IntegrationView({
     schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const { currentTeam } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -109,6 +112,22 @@ export function IntegrationView({
                                 installationId={integration.config?.installation_id}
                                 accountType={integration.config?.account?.type}
                                 accountName={integration.config?.account?.name}
+                                onBeforeManage={
+                                    currentTeam?.id
+                                        ? async () => {
+                                              await api.create(
+                                                  `api/projects/${currentTeam.id}/integrations/github/prepare_callback/`,
+                                                  {
+                                                      next: urls.project(
+                                                          currentTeam.id,
+                                                          urls.settings('project-integrations')
+                                                      ),
+                                                      installation_id: integration.config?.installation_id,
+                                                  }
+                                              )
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </div>

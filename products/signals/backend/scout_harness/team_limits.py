@@ -131,29 +131,83 @@ def _read_flag_payload() -> dict | None:
         return None
 
 
-def _enrolled_team_ids(payload: dict | None) -> set[int]:
-    """Project ids enrolled in scouts, parsed from the `signals-scout` flag payload.
+# Sentinel inside `guaranteed_team_ids` that enrolls EVERY team which already has scout configs,
+# instead of an explicit per-team allowlist. With `"*"` present, enrollment inverts: the gate
+# becomes "does this team have enabled scout configs" (created via the product-autonomy-gated UI /
+# the on-demand `sync` materialization), not "is this id listed". Explicit numeric ids can still sit
+# alongside `"*"` to force-provision teams that haven't self-enrolled yet (the pinned internal
+# projects), and `skip_team_ids` still hard-excludes. So `["*"]` flips scouts to "on for everyone
+# who turns them on" while keeping per-team control + the kill switch.
+ENROLL_ALL_TOKEN = "*"
 
-    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
-    drain) a team on the next tick; `skip_team_ids` is an override kill-switch.
-    Fail-safe: a missing/invalid payload (`None`) or malformed value falls back to
-    `_fallback_team_ids`.
+
+@dataclass(frozen=True)
+class Enrollment:
+    """Parsed scout enrollment from the `signals-scout` flag payload.
+
+    `wildcard` → `"*"` was present: every team with enabled scout configs participates.
+    `explicit` → the explicit numeric `guaranteed_team_ids` (skip NOT yet removed). Under a
+    wildcard these are still force-provisioned (seeded from nothing); without one they ARE the
+    allowlist. `skip` → `skip_team_ids`, the override kill-switch applied over both.
+    """
+
+    wildcard: bool
+    explicit: set[int]
+    skip: set[int]
+
+
+def _parse_enrollment(payload: dict | None) -> Enrollment:
+    """Parse enrollment (wildcard + explicit ids + skip) from the flag payload in one pass.
+
+    Flag-driven, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll/drain on the next
+    tick; `skip_team_ids` is the override kill-switch. Defensive, matching the historical contract:
+    a missing/unreadable payload or a malformed `guaranteed_team_ids` value falls back to
+    `_fallback_team_ids` (cloud/dev only). A list may mix the `"*"` wildcard token with integer ids;
+    ANY other entry type marks the whole list malformed → fallback, so a typo can't silently widen
+    or narrow enrollment. An explicit empty list is honored as an intentional "drain all" (no
+    wildcard, no ids) — not coerced to the fallback.
     """
     fallback = _fallback_team_ids()
     if payload is None:
-        return set(fallback)
+        return Enrollment(wildcard=False, explicit=set(fallback), skip=set())
 
-    # Absent key or malformed value → fallback. An explicit empty list is honored as an
-    # intentional "drain all teams" — not coerced to the fallback.
-    guaranteed = payload.get("guaranteed_team_ids", fallback)
-    if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
-        guaranteed = fallback
+    raw = payload.get("guaranteed_team_ids", fallback)
+    wildcard = False
+    explicit: set[int] = set()
+    if isinstance(raw, list):
+        malformed = False
+        for entry in raw:
+            if entry == ENROLL_ALL_TOKEN:
+                wildcard = True
+            elif isinstance(entry, int) and not isinstance(entry, bool):
+                explicit.add(entry)
+            else:
+                malformed = True
+                break
+        if malformed:
+            wildcard, explicit = False, set(fallback)
+    else:
+        explicit = set(fallback)
 
-    skip = payload.get("skip_team_ids", [])
-    if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
-        skip = []
+    raw_skip = payload.get("skip_team_ids", [])
+    if isinstance(raw_skip, list) and all(isinstance(t, int) and not isinstance(t, bool) for t in raw_skip):
+        skip = set(raw_skip)
+    else:
+        skip = set()
 
-    return set(guaranteed) - set(skip)
+    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+
+
+def _enrolled_team_ids(payload: dict | None) -> set[int]:
+    """Explicit enrolled project ids (skip removed) — the back-compat view of `_parse_enrollment`
+    for the metadata path and existing callers.
+
+    Does NOT reflect the `"*"` wildcard: the coordinator reads `_parse_enrollment` directly so it
+    can resolve the config-derived wildcard set, while `enrolled` in the UI metadata folds the
+    wildcard in via `_resolve_enrolled`.
+    """
+    enrollment = _parse_enrollment(payload)
+    return enrollment.explicit - enrollment.skip
 
 
 def _team_configs(payload: dict | None) -> dict[int, dict]:
@@ -239,6 +293,29 @@ def _resolve_max_runs_per_day(team_id: int, team_configs: dict[int, dict], defau
     return MAX_RUNS_PER_TEAM_PER_DAY
 
 
+# Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's
+# `MAX_RUNS_PER_TICK`). Read fresh each tick like the per-team caps, so the fleet-wide ceiling can
+# be raised with no deploy if enrollment grows past the default's headroom (e.g. a launch blast
+# enrolls thousands of teams at once via the `"*"` wildcard), or lowered to throttle spend in an
+# incident. Absent / malformed / non-positive → the code default the coordinator passes in.
+GLOBAL_MAX_RUNS_PER_TICK_KEY = "max_runs_per_tick_global"
+
+
+def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int:
+    """Effective global per-tick dispatch ceiling: the flag override if valid, else `default`.
+
+    `default` is the coordinator's `MAX_RUNS_PER_TICK` constant, passed in to avoid a circular
+    import (the coordinator imports this module, not vice versa). A positive-int override wins
+    (raise or lower); anything else falls through to the default rather than failing the tick.
+    """
+    if payload is None:
+        return default
+    override = payload.get(GLOBAL_MAX_RUNS_PER_TICK_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+        return override
+    return default
+
+
 def _resolve_withheld_skills(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> set[str]:
     """Skill names held back from a team, resolved most-specific layer first.
 
@@ -269,6 +346,30 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     return _resolve_withheld_skills(canonical_team_id, team_configs, _default_team_config(payload))
+
+
+def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[str]]:
+    """One flag-payload read → `(seed_config_layers, withheld_skills)` for the on-demand `sync` path.
+
+    The `sync` endpoint needs both the seed posture and the holdback denylist; resolving them from a
+    single read keeps them on the same snapshot (the same single-read discipline the coordinator
+    uses), so the withheld set and the seed layers can't be derived from two different flag states if
+    the flag changes mid-request.
+
+    `seed_config_layers` (most-specific first: the team's `team_configs` override over the fleet
+    `default_team_config`) mirror what the coordinator builds for the scheduled path, so the on-demand
+    materialization (the product-autonomy-gated wizard's self-driving program) seeds the SAME launch
+    posture (e.g. general-only, daily) instead of the full fleet enabled — without this the self-serve
+    path silently bypassed the launch cost posture. `canonical_team_id` must be the parent/project id;
+    `team_configs` keys are canonicalized so a child-keyed override still resolves. A missing/unreadable
+    payload yields `([{}, {}], set())` → the historical full-fleet seed, nothing withheld.
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    default_team_config = _default_team_config(payload)
+    seed_config_layers = [team_configs.get(canonical_team_id) or {}, default_team_config]
+    withheld = _resolve_withheld_skills(canonical_team_id, team_configs, default_team_config)
+    return seed_config_layers, withheld
 
 
 def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int, int]:
@@ -338,6 +439,19 @@ def _is_team_enrolled(canonical_team_id: int, enrolled_ids: set[int]) -> bool:
     return canonical_team_id in canonical_enrolled
 
 
+def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
+    """Whether a project runs scouts, honoring the `"*"` wildcard.
+
+    A skipped team is never enrolled. Otherwise enrolled iff the wildcard is set (everyone is in —
+    the UI gates whether they actually HAVE configs) or the team is in the explicit allowlist.
+    Canonicalizes child-env ids the same way the coordinator does (`_is_team_enrolled`)."""
+    if _is_team_enrolled(canonical_team_id, enrollment.skip):
+        return False
+    if enrollment.wildcard:
+        return True
+    return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+
+
 @dataclass(frozen=True)
 class ScoutTeamLimits:
     """A team's effective scout run caps + current usage, all resolved the way dispatch enforces."""
@@ -393,7 +507,7 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
     runs_remaining_today = None if max_runs_per_day is None else max(0, max_runs_per_day - runs_today)
 
     return ScoutTeamMetadata(
-        enrolled=_is_team_enrolled(canonical_team_id, _enrolled_team_ids(payload)),
+        enrolled=_resolve_enrolled(canonical_team_id, _parse_enrollment(payload)),
         banner_message=read_banner_message(payload),
         limits=ScoutTeamLimits(
             max_runs_per_tick=_resolve_max_runs_per_tick(canonical_team_id, team_configs, default_team_config),

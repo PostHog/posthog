@@ -6,6 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -43,13 +44,12 @@ afterEach(() => {
 
 describe('TrendsLineChart', () => {
     describe('tooltips', () => {
-        it('shows the series value and glyph for a single series', async () => {
+        it('shows the series value for a single series', async () => {
             renderInsight({ query: buildTrendsQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('Pageview')).toContain('134')
-            expect(tooltip.element.querySelector('.graph-series-glyph')).toBeInTheDocument()
         })
 
         it('shows each series with its own value for multiple series', async () => {
@@ -66,9 +66,6 @@ describe('TrendsLineChart', () => {
 
             expect(tooltip.row('Pageview')).toContain('134')
             expect(tooltip.row('Napped')).toContain('5')
-
-            const glyphs = tooltip.element.querySelectorAll('.graph-series-glyph')
-            expect(glyphs.length).toBe(2)
         })
 
         it('sorts tooltip rows by descending value regardless of series order', async () => {
@@ -186,22 +183,6 @@ describe('TrendsLineChart', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('Pageview')).toMatch(/%/)
-        })
-
-        it('hides series glyph for formula insights', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: { formula: 'A + B' },
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                }),
-            })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.element.querySelector('.graph-series-glyph')).not.toBeInTheDocument()
         })
 
         it('shows zero-count series alongside active ones', async () => {
@@ -553,11 +534,16 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(expectedLabels)
-            for (const line of lines) {
-                expect(line.orientation).toBe('horizontal')
-            }
+            await waitFor(
+                () => {
+                    const lines = getHogChart().referenceLines()
+                    expect(lines.map((l) => l.label)).toEqual(expectedLabels)
+                    for (const line of lines) {
+                        expect(line.orientation).toBe('horizontal')
+                    }
+                },
+                { timeout: 5000 }
+            )
         })
     })
 
@@ -676,10 +662,8 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Pageview')).toContain('134')
             // The trend-line carries the same series label; only the main
             // row should appear, so there must be exactly one row matching.
-            const rows = Array.from(tooltip.element.querySelectorAll('tr')).filter((r) =>
-                r.textContent?.includes('Pageview')
-            )
-            expect(rows).toHaveLength(1)
+            const matching = tooltip.rows().filter((label) => label.includes('Pageview'))
+            expect(matching).toHaveLength(1)
         })
     })
 
@@ -808,6 +792,26 @@ describe('TrendsLineChart', () => {
 
             // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        describe('shared mode', () => {
+            beforeEach(() => {
+                // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+            })
+
+            afterEach(() => {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+            })
+
+            it('clicking a data point does not open the persons modal', async () => {
+                renderInsight({ query: buildTrendsQuery(), inSharedMode: true })
+
+                await chart.clickAtIndex(2)
+
+                // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+                expect(personsModal.get()).not.toBeInTheDocument()
+            })
         })
     })
 

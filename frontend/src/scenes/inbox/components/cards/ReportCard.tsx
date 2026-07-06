@@ -5,9 +5,10 @@ import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
+import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
@@ -19,7 +20,12 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import {
+    hasKnownSourceProduct,
+    knownSourceProductEntries,
+    SourceProductIconRow,
+    sourceProductsTooltipTitle,
+} from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -37,19 +43,34 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 }
 
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
-export function InboxCardSourceMeta({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+export function InboxCardSourceMeta({
+    sourceProducts,
+    scoutName,
+}: {
+    sourceProducts?: string[] | null
+    /** Authoring scout's display name, when scout-authored — appended to the "Scout" label. */
+    scoutName?: string | null
+}): JSX.Element | null {
+    const entries = knownSourceProductEntries(sourceProducts)
+    const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
+    const primaryLabel =
+        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+            ? `${primary.meta.label} · ${scoutName}`
+            : primary.meta.label
     return (
-        <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none">
-            <SourceProductIconRow entries={[primary, ...overflow]} className="flex items-center gap-1.5 shrink-0" />
-            <span>
-                {primary.meta.label}
-                {overflow.length > 0 ? ` + ${overflow.length}` : null}
-            </span>
-        </div>
+        <Tooltip title={sourceProductsTooltipTitle(entries)}>
+            <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
+                <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
+                <span>
+                    {primaryLabel}
+                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
+                </span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -200,7 +221,7 @@ export function ReportCard({
                     {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
                     <div
                         className={clsx(
-                            'min-w-0 break-words font-semibold text-sm leading-snug',
+                            'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                             hasPr && 'pr-14 @lg:pr-0'
                         )}
                     >
@@ -211,23 +232,34 @@ export function ReportCard({
                     </div>
 
                     {headline ? (
-                        <div className={clsx('mt-0.5 min-w-0', !hasPr && !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-secondary leading-snug m-0">
-                                {headline}
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !hasPr && !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            )}
+                        >
+                            {headline}
+                        </p>
                     ) : !hasPr ? (
-                        <div className={clsx('mt-0.5 min-w-0', !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0">
-                                No summary yet – still collecting context.
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            )}
+                        >
+                            No summary yet – still collecting context.
+                        </p>
                     ) : null}
 
                     {showMeta ? (
                         <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
                             {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                            <InboxCardSourceMeta sourceProducts={report.source_products} />
+                            <InboxCardSourceMeta
+                                sourceProducts={report.source_products}
+                                scoutName={scoutDisplayName(report.scout_name)}
+                            />
                             {!hasPr && (!isReady || !report.actionability) && (
                                 <SignalReportStatusBadge status={report.status} />
                             )}
@@ -289,6 +321,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
+                                tooltip="Open the full report – summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()

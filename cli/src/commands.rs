@@ -67,6 +67,9 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     match command {
         Commands::Sourcemap { .. } => Some("sourcemap"),
         Commands::Dsym { .. } => Some("dSYM"),
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Upload(_),
+        } => Some("native debug symbols"),
         Commands::Hermes { .. } => Some("hermes sourcemap"),
         Commands::Proguard { .. } => Some("proguard"),
         Commands::Exp { cmd } => match cmd {
@@ -142,7 +145,7 @@ pub enum Commands {
         cmd: ProguardSubcommand,
     },
 
-    #[command(about = "Manage uploaded symbol sets")]
+    #[command(about = "Upload, download, and manage symbol sets")]
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
@@ -337,6 +340,9 @@ impl Cli {
                 }
             },
             Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Upload(args) => {
+                    crate::debug_symbols::upload::upload(&args)?;
+                }
                 SymbolSetsSubcommand::Download(args) => {
                     crate::download::download(&args)?;
                 }

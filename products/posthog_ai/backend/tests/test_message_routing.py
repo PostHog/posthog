@@ -9,6 +9,7 @@ from posthog.exceptions import Conflict, QuotaLimitExceeded
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import (
+    POSTHOG_AI_INTERACTION_ORIGIN,
     SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
     SandboxSession,
     lock_conversation_for_followup,
@@ -79,11 +80,13 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert kwargs["create_pr"] is False
         assert kwargs["mode"] == "interactive"
         assert kwargs["start_workflow"] is False
+        assert kwargs["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         # The sandbox session pins its short interactivity window as a per-task override.
         assert kwargs["inactivity_timeout_seconds"] == SANDBOX_INACTIVITY_TIMEOUT_SECONDS
 
         # Run state enriched with the PostHog AI per-Run keys; full undeduped context.
         run.refresh_from_db()
+        assert run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert run.state["systemPrompt"] == SYS_PROMPT
         assert run.state["initial_permission_mode"] == "auto"
         assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
@@ -270,6 +273,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert str(new_run.id) != str(run.id)
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
+        assert new_run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert new_run.state["systemPrompt"] == SYS_PROMPT
         assert new_run.state["initial_permission_mode"] == "auto"
         assert new_run.state["inactivity_timeout_seconds"] == SANDBOX_INACTIVITY_TIMEOUT_SECONDS
@@ -444,6 +448,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
         assert run is not None
         assert str(run.id) == result.run_id
         assert result.just_created_run is True
+        assert run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert run.state["systemPrompt"] == SYS_PROMPT
         assert run.state["await_user_message"] is True
         assert run.state["initial_permission_mode"] == "auto"

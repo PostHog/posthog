@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING, Any
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -77,6 +78,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # recommended_sample_size, exposure_estimate_config. Canonical home for these keys,
     # which historically lived in `parameters`.
     running_time_calculation = models.JSONField(default=dict, null=True, blank=True)
+
+    # Variant keys dropped from statistical analysis. Canonical home for what historically
+    # lived in `parameters.excluded_variants`. `null`/empty both mean "no exclusions".
+    excluded_variants = ArrayField(models.TextField(), null=True, blank=True)
 
     only_count_matured_users = models.BooleanField(default=False)
 
@@ -170,6 +175,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
+            "saved_metrics_count": self.saved_metrics.count(),
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
@@ -197,6 +203,27 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             },
             should_delete=False,  # always keep in FileSystem
         )
+
+
+def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+    """Single source of truth for the `has_experiment` predicate: a flag has a linked
+    experiment iff a non-deleted Experiment row references it. The Rust flags service
+    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
+    keep the two in lockstep.
+
+    Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
+    """
+    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+
+
+def live_experiment_exists() -> Exists:
+    """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
+    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+
+
+def flag_has_live_experiment(feature_flag_id: int) -> bool:
+    """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
+    return _live_experiments_for_flag(feature_flag_id).exists()
 
 
 def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:

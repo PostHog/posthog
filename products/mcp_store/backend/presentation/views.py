@@ -43,7 +43,10 @@ from ..oauth import (
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
+    oauth_resource,
     register_dcr_client,
+    requested_oauth_scopes,
+    select_token_endpoint_auth_method,
 )
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task
@@ -125,6 +128,15 @@ def _is_valid_posthog_code_callback_url(url: str) -> bool:
 def _get_oauth_redirect_uri() -> str:
     """Get the global OAuth redirect URI."""
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
+
+
+def _oauth_authorize_response(authorize_url: str, install_source: str) -> HttpResponse:
+    if install_source == "posthog-code":
+        return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
+
+    response = HttpResponse(status=302)
+    response["Location"] = authorize_url
+    return response
 
 
 def _template_uses_dcr(template: MCPServerTemplate) -> bool:
@@ -405,7 +417,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def _register_dcr_client_or_raise(
         self, metadata: dict, redirect_uri: str, *, server_url: str = ""
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, str]:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
             return register_dcr_client(metadata, redirect_uri)
@@ -435,8 +447,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := metadata.get("scopes_supported"):
+        if scopes := requested_oauth_scopes(metadata):
             query_params["scope"] = " ".join(scopes)
+        if resource := oauth_resource(metadata):
+            query_params["resource"] = resource
 
         auth_endpoint = metadata.get("authorization_endpoint", "")
         if not auth_endpoint:
@@ -584,7 +598,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                client_id, dcr_client_secret = self._register_dcr_client_or_raise(
+                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
                     metadata,
                     redirect_uri,
                     server_url=template.url,
@@ -607,6 +621,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive = dict(installation.sensitive_configuration or {})
             sensitive["dcr_client_id"] = client_id
             sensitive["dcr_is_user_provided"] = False
+            sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
             if dcr_client_secret:
                 sensitive["dcr_client_secret"] = dcr_client_secret
             else:
@@ -814,12 +829,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         # Resolve per-installation client credentials: either user-supplied or fresh DCR.
         dcr_client_secret: str | None = None
+        token_endpoint_auth_method = "none"
         if user_client_id:
             client_id = user_client_id
             dcr_is_user_provided = True
+            try:
+                token_endpoint_auth_method = select_token_endpoint_auth_method(
+                    metadata, has_client_secret=bool(user_client_secret)
+                )
+            except ValueError as e:
+                logger.warning("OAuth token endpoint auth method unsupported", server_url=mcp_url, error=str(e))
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "OAuth token endpoint auth method is not supported."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             try:
-                client_id, dcr_client_secret = self._register_dcr_client_or_raise(
+                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
                     metadata, redirect_uri, server_url=mcp_url
                 )
             except DCRNotSupportedError:
@@ -851,6 +879,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive["needs_reauth"] = True
         sensitive["dcr_client_id"] = client_id
         sensitive["dcr_is_user_provided"] = dcr_is_user_provided
+        sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
         # A user-supplied secret without a user-supplied client_id is discarded;
         # it would never pair with the DCR-minted client_id.
         effective_secret = user_client_secret if dcr_is_user_provided else dcr_client_secret
@@ -1033,9 +1062,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
         )
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     def _authorize_for_installation(
         self,
@@ -1101,9 +1128,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationToolSerializer(many=True))})
     @action(detail=True, methods=["get"], url_path="tools")

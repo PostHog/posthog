@@ -7,7 +7,7 @@ common module rather than wiring a product-to-product import.
 """
 
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dateutil.rrule import rrulestr
 
@@ -24,6 +24,18 @@ def validate_rrule(rrule_string: str) -> None:
         # rrulestr raises ValueError for most malformed input (bad FREQ/BYDAY/INTERVAL, empty
         # string) and TypeError only for the missing-FREQ case — normalize both to ValueError.
         raise ValueError(str(e)) from e
+
+
+def validate_timezone(timezone_str: str) -> None:
+    """Validate an IANA timezone name. Raises ValueError if unknown/invalid.
+
+    Without this, an unvalidated TZ string is accepted at the API and only blows up later in
+    `compute_next_occurrences` (ZoneInfo lookup) inside the scheduling workflow.
+    """
+    try:
+        ZoneInfo(timezone_str)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise ValueError(f"Unknown timezone: {timezone_str!r}") from e
 
 
 def compute_next_occurrences(

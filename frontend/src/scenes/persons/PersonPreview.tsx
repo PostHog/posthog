@@ -19,7 +19,7 @@ import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperat
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 
-import { asDisplay } from './person-utils'
+import { asDisplay, pickBestPersonDistinctId } from './person-utils'
 import { personLogic } from './personLogic'
 
 export type PersonPreviewProps = {
@@ -78,7 +78,8 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
     }
 
     const display = asDisplay(person)
-    const url = urls.personByDistinctId(person?.distinct_ids[0])
+    const bestDistinctId = pickBestPersonDistinctId(person?.distinct_ids)
+    const url = urls.personByDistinctId(bestDistinctId ?? person?.distinct_ids[0])
 
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
@@ -100,7 +101,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
                         size="small"
                         type="tertiary"
                         iconOnly
-                        distinctId={person?.distinct_ids?.[0]}
+                        distinctId={bestDistinctId}
                         email={typeof person?.properties?.email === 'string' ? person.properties.email : undefined}
                         onCompose={() => props.onClose?.()}
                     />

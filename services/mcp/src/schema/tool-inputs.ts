@@ -29,7 +29,7 @@ export const AgentResolveResourceSchema = z.object({
     resource: z
         .string()
         .describe(
-            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
+            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
         ),
 })
 
@@ -48,7 +48,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -251,10 +251,29 @@ export const FeedbackSubmitSchema = z.object({
     details: z
         .string()
         .optional()
-        .describe(
-            "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
-        ),
+        .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
 })
+
+const SavedMetricAttachItemSchema = z.object({
+    id: z
+        .number()
+        .int()
+        .describe('ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list.'),
+    metadata: z
+        .object({
+            type: z
+                .enum(['primary', 'secondary'])
+                .describe('Whether this metric is a primary or secondary metric on the experiment.'),
+        })
+        .optional()
+        .describe('Optional per-link metadata. Omit to default this metric to primary.'),
+})
+
+export const SavedMetricsAttachSchema = z
+    .array(SavedMetricAttachItemSchema)
+    .describe(
+        "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+    )
 
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),

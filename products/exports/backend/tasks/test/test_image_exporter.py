@@ -810,6 +810,24 @@ class TestDimensionHelpers(SimpleTestCase):
         assert image_exporter._cap_height(raw_height, effective_max, "https://example.com", final=final) == expected
 
 
+class TestMeasureContentWidthJS(SimpleTestCase):
+    # The vertical funnel (FunnelStepsBarChart, quill-charts) renders neither a <table> nor a
+    # .FunnelBarVertical, so the measurement JS must target its own selector. If that selector is
+    # absent — or is checked after the generic <table> fallback — funnel measurement returns null,
+    # _resolve_width keeps the wide 4000px funnel viewport, and the bars end up stranded on the left
+    # of a mostly-empty image. The selector must stay in sync with the data-attr rendered by
+    # FunnelStepsBarChart.tsx.
+    def test_funnel_canvas_selector_is_present_and_measured_before_table_fallback(self) -> None:
+        js = image_exporter.MEASURE_CONTENT_WIDTH_JS
+
+        canvas_index = js.find("funnel-steps-bar-chart-canvas")
+        table_fallback_index = js.find("tableElement")
+
+        assert canvas_index != -1, "vertical funnels would fall through to the table path and never get cropped"
+        assert table_fallback_index != -1
+        assert canvas_index < table_fallback_index
+
+
 class TestIsBrowserlessConnectionError(SimpleTestCase):
     @parameterized.expand(
         [

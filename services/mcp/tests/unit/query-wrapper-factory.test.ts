@@ -96,6 +96,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         pathsActors: ReturnType<typeof vi.fn>
         retentionActors: ReturnType<typeof vi.fn>
         stickinessActors: ReturnType<typeof vi.fn>
+        funnelActors: ReturnType<typeof vi.fn>
     } {
         const actorsResponse = {
             query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery' } },
@@ -108,6 +109,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         const pathsActors = vi.fn().mockResolvedValue(actorsResponse)
         const retentionActors = vi.fn().mockResolvedValue(actorsResponse)
         const stickinessActors = vi.fn().mockResolvedValue(actorsResponse)
+        const funnelActors = vi.fn().mockResolvedValue(actorsResponse)
         const context = {
             api: {
                 query: vi.fn().mockReturnValue({
@@ -116,12 +118,13 @@ describe('createQueryWrapper _posthogUrl', () => {
                     pathsActors,
                     retentionActors,
                     stickinessActors,
+                    funnelActors,
                 }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
         } as unknown as Context
-        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors }
+        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors, funnelActors }
     }
 
     const actorsSchema = z.object({
@@ -135,6 +138,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         'pathsActors',
         'retentionActors',
         'stickinessActors',
+        'funnelActors',
     ] as const
 
     it.each([
@@ -143,6 +147,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         ['PathsQuery', 'pathsActors'],
         ['RetentionQuery', 'retentionActors'],
         ['StickinessQuery', 'stickinessActors'],
+        ['FunnelsQuery', 'funnelActors'],
     ] as const)('dispatches %s source to %s and no other handler', async (sourceKind, expectedHandler) => {
         const ctx = createActorsDispatchContext()
         const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
@@ -325,8 +330,8 @@ describe('createQueryWrapper actors dispatch', () => {
         const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
         const tool = factory()
 
-        await expect(tool.handler(context, { source: { kind: 'FunnelsQuery' } })).rejects.toThrow(
-            'Unsupported source kind for actors query: FunnelsQuery'
+        await expect(tool.handler(context, { source: { kind: 'FunnelCorrelationQuery' } })).rejects.toThrow(
+            'Unsupported source kind for actors query: FunnelCorrelationQuery'
         )
     })
 })

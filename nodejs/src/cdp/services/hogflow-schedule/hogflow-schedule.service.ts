@@ -2,6 +2,8 @@ import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
 import { InternalFetchService } from '~/common/services/internal-fetch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -9,8 +11,6 @@ import {
     PluginServerService,
     PluginsServerConfig,
 } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
 
 const schedulerPollCounter = new Counter({
     name: 'cdp_hogflow_scheduler_polls',

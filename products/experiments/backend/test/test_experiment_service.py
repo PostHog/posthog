@@ -18,7 +18,9 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.models import Team, User
+from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -36,6 +38,9 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -100,6 +105,45 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
         assert experiment.exposure_criteria == {"filterTestAccounts": True}
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
+        # The capture must be deferred to on_commit, not run inside the transaction.
+        service = self._service()
+
+        registered_callbacks: list[Any] = []
+        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+            service.create_experiment(
+                name="Deferred Analytics",
+                feature_flag_key="deferred-flag",
+                event_source=EventSource.API,
+            )
+
+        # Nothing captured yet — it's deferred, not run inside the transaction.
+        mock_report_user_action.assert_not_called()
+        assert registered_callbacks, "expected create_experiment to register an on_commit callback"
+
+        for callback in registered_callbacks:
+            callback()
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
+        # A post-commit capture failure must not roll back or fail the create — experiment still exists.
+        mock_report_user_action.side_effect = RuntimeError("analytics down")
+        service = self._service()
+
+        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            experiment = service.create_experiment(
+                name="Resilient Analytics",
+                feature_flag_key="resilient-flag",
+                event_source=EventSource.API,
+            )
+
+        mock_report_user_action.assert_called_once()
+        assert Experiment.objects.filter(pk=experiment.pk).exists()
 
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
@@ -1698,6 +1742,193 @@ class TestExperimentService(APIBaseTest):
         second_link = experiment.experimenttosavedmetric_set.first()
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
+
+    def _updated_events(self, mock_report_user_action):
+        return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
+
+    def _changed_fields(self, mock_report_user_action):
+        events = self._updated_events(mock_report_user_action)
+        assert len(events) == 1, f"expected exactly one 'experiment updated' event, got {len(events)}"
+        return events[0].args[2]["changed_fields"]
+
+    def _make_saved_metric(self, name: str, event: str = "$pageview") -> ExperimentSavedMetric:
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}},
+        )
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_reports_updated_with_metric_composition(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Shared SM")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        metadata = self._updated_events(mock_report_user_action)[0].args[2]
+        assert metadata["saved_metrics_count"] == 1
+        # _create_draft_experiment seeds one inline primary metric and no secondary
+        assert metadata["metrics_count"] == 1
+        assert metadata["secondary_metrics_count"] == 0
+        assert "saved_metrics" in metadata["changed_fields"]
+        assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
+        assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Renamed experiment"}, "name"),
+            ("description", {"description": "A brand new hypothesis"}, "description"),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        # A scalar edit must not falsely report metric (re)configuration even though the
+        # update pipeline internally re-touches existing inline metrics.
+        assert "metrics" not in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            (
+                "primary",
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "uuid": "m-new",
+                            "source": {"kind": "EventsNode", "event": "checkout_completed"},
+                        }
+                    ]
+                },
+                "metrics",
+            ),
+            (
+                "secondary",
+                {
+                    "metrics_secondary": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "s-new",
+                            "series": [
+                                {"kind": "EventsNode", "event": "$pageview"},
+                                {"kind": "EventsNode", "event": "signed_up"},
+                            ],
+                        }
+                    ]
+                },
+                "metrics_secondary",
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_inline_metric(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment, update_data, serializer_context=service._build_serializer_context(), allow_unknown_events=True
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            # (initial role attached, role sent in the measured update, expect a real change)
+            ("attach", None, "primary", True),
+            ("detach", "primary", None, True),
+            ("retype", "primary", "secondary", True),
+            ("resend_identical", "primary", "primary", False),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_saved_metric_change_detection(self, _name, initial_type, new_type, expect_change, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        ctx = service._build_serializer_context()
+
+        # fresh payload per call — update_experiment mutates update_data in place
+        def attach(metric_type: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+
+        if initial_type is not None:
+            service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
+        mock_report_user_action.reset_mock()
+
+        update_data = {"saved_metrics_ids": []} if new_type is None else attach(new_type)
+        service.update_experiment(experiment, update_data, serializer_context=ctx)
+
+        if expect_change:
+            changed = self._changed_fields(mock_report_user_action)
+            assert "saved_metrics" in changed
+            # the write-side payload key must not leak; inline metrics were untouched
+            assert "saved_metrics_ids" not in changed
+            assert "metrics" not in changed
+        else:
+            assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_no_real_change_does_not_report(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(name="Stable name")
+        service = self._service()
+        service.update_experiment(
+            experiment, {"name": "Stable name"}, serializer_context=service._build_serializer_context()
+        )
+
+        assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_multiple_at_once(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "name": "Renamed and remetered",
+                "saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            },
+            serializer_context=service._build_serializer_context(),
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert "name" in changed
+        assert "saved_metrics" in changed
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_event_source_and_no_request_reports_with_source(self, mock_report_user_action):
+        # Parity with create_experiment: a non-HTTP caller (e.g. an AI/Max tool) that passes
+        # event_source must still emit, attributed to that channel, even without a request.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed by AI"}, event_source=EventSource.POSTHOG_AI)
+
+        event = self._updated_events(mock_report_user_action)[0]
+        assert event.args[2]["source"] == EventSource.POSTHOG_AI
+        assert "name" in event.args[2]["changed_fields"]
+        assert event.kwargs["request"] is None
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_without_request_or_event_source_is_silent(self, mock_report_user_action):
+        # Internal callers that supply neither a request nor an event_source stay invisible.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed internally"})
+
+        assert self._updated_events(mock_report_user_action) == []
 
     def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
         self._create_flag(key="rollback-update")
@@ -5352,47 +5583,148 @@ class TestExperimentService(APIBaseTest):
             )
 
 
-class TestValidateExperimentParametersExcludedVariants:
-    def _base_params(self) -> dict[str, Any]:
+class TestValidateExcludedVariantKeys:
+    _VARIANT_KEYS = {"control", "test-1", "test-2"}
+
+    @pytest.mark.parametrize(
+        "excluded_variants,baseline_key",
+        [
+            ([], "control"),
+            (["test-2"], "control"),
+            (["test-2", "test-2"], "control"),
+        ],
+    )
+    def test_valid_excluded_variants(self, excluded_variants: list[str], baseline_key: str):
+        ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
+
+    @pytest.mark.parametrize(
+        "excluded_variants,baseline_key,match",
+        [
+            (["does-not-exist"], "control", "unknown variants"),
+            (["control"], "control", "baseline variant cannot be excluded"),
+            (["holdout-42"], "control", "cannot exclude holdout"),
+            (["test-1", "test-2"], "control", "at least one test variant"),
+            (["test-1"], "test-1", "baseline variant cannot be excluded"),
+        ],
+    )
+    def test_invalid_excluded_variants_raises(self, excluded_variants: list[str], baseline_key: str, match: str):
+        with pytest.raises(ValidationError, match=match):
+            ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
+
+
+class TestValidateExcludedVariants:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            [],
+            ["test-2"],
+            ["test-1", "test-2"],
+        ],
+    )
+    def test_valid(self, value):
+        ExperimentService.validate_excluded_variants(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "test-2",
+            [123],
+        ],
+    )
+    def test_invalid_raises(self, value):
+        with pytest.raises(ValidationError, match="must be a list of strings"):
+            ExperimentService.validate_excluded_variants(value)
+
+
+@patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_revenue",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Deny this member every warehouse object (warehouse_table inherits the warehouse_objects resource).
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _dw_metric(self) -> dict:
         return {
-            "feature_flag_variants": [
-                {"key": "control", "rollout_percentage": 50},
-                {"key": "test-1", "rollout_percentage": 25},
-                {"key": "test-2", "rollout_percentage": 25},
-            ]
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": self.table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ds",
+                "math": "total",
+            },
         }
 
-    @pytest.mark.parametrize(
-        "extra_params",
-        [
-            {},
-            {"excluded_variants": []},
-            {"excluded_variants": ["test-2"]},
-            {"excluded_variants": ["test-2", "test-2"]},
-        ],
-    )
-    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
-        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_create_experiment_with_restricted_warehouse_metric_is_denied(self):
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-create",
+                metrics=[self._dw_metric()],
+                allow_unknown_events=True,
+            )
 
-    @pytest.mark.parametrize(
-        "extra_params,match",
-        [
-            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
-            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
-            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
-            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
-            ({"excluded_variants": "test-2"}, "must be a list of strings"),
-            ({"excluded_variants": [123]}, "must be a list of strings"),
-            (
-                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
-                "baseline variant cannot be excluded",
-            ),
-        ],
-    )
-    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
-        with pytest.raises(ValidationError, match=match):
-            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_update_experiment_with_restricted_warehouse_metric_is_denied(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-update",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(team=self.team, created_by=self.user, name="E", feature_flag=flag)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.update_experiment(experiment, {"metrics": [self._dw_metric()]})
 
-    def test_excluded_variants_without_feature_flag_variants_raises(self):
-        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
-            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
+    def test_org_admin_can_author_restricted_warehouse_metric(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment allowed",
+            feature_flag_key="dw-allowed",
+            metrics=[self._dw_metric()],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+
+    def test_attaching_saved_metric_on_restricted_table_is_denied(self):
+        # A saved metric on the denied table (authored by someone with access) can't be smuggled in
+        # by attaching it via saved_metrics_ids.
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="DW saved metric",
+            query=self._dw_metric(),
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW via saved metric",
+                feature_flag_key="dw-saved",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )

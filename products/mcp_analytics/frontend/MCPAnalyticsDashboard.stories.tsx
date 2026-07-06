@@ -30,6 +30,34 @@ const TOOL_RESULTS = [
     ['cohort-create', 95, 6, 6.3, 1620],
 ]
 
+// One [day, calls, errors] table drives both time-series charts so they agree with
+// each other and with KPI_RESULTS' daily tool_calls/errors by construction.
+const DAILY_TOTALS: [string, number, number][] = [
+    ['2026-05-31', 4200, 145],
+    ['2026-06-01', 4300, 150],
+    ['2026-06-02', 4500, 165],
+    ['2026-06-03', 4720, 158],
+    ['2026-06-04', 4600, 170],
+    ['2026-06-05', 4900, 182],
+    ['2026-06-06', 5100, 176],
+    ['2026-06-07', 5300, 168],
+]
+
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+
+const TOOL_DAILY_SHARES: [string, number][] = [
+    ['exec', 0.58],
+    ['execute-sql', 0.17],
+    ['read-data-schema', 0.085],
+    ['query-trends', 0.06],
+    ['insight-create', 0.046],
+    ['dashboard-create', 0.029],
+]
+
+const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
+    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+)
+
 const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000001', 42, 18, 42.9, 610, 7, '2026-06-07T10:00:00Z'],
     ['0193f2a1-aaaa-bbbb-cccc-000000000002', 6, 6, 100.0, 95, 2, '2026-06-07T09:30:00Z'],
@@ -39,12 +67,14 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
+// harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
-    ['claude-code/1.2.0', 6200, 240, 820],
-    ['cursor-vscode/0.42', 2100, 96, 410],
-    ['codex-cli', 980, 71, 180],
-    ['claude-ai', 760, 22, 240],
-    ['visual studio code', 540, 12, 120],
+    { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
+    { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
+    { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
+    { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
 ]
 
 const SESSION_LIST = {
@@ -306,11 +336,15 @@ const meta: Meta = {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
-                    // The harness breakdown resolves the client from several signals and
-                    // aliases the result `AS client`; match that output alias rather than any
-                    // one input property so the mock survives changes to the resolution.
-                    if (query.includes('AS client')) {
+                    // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
+                    // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
+                    }
+                    // Onboarding gate: report the project as instrumented so the scene
+                    // renders the dashboard/tabs instead of the empty state.
+                    if (query.includes('has_initialize')) {
+                        return [200, { results: [[true, true]] }]
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
@@ -329,6 +363,12 @@ const meta: Meta = {
                     if (query.includes('count() AS calls') && query.includes('GROUP BY category')) {
                         return [200, { results: CATEGORY_COUNTS }]
                     }
+                    if (query.includes('AS successes')) {
+                        return [200, { results: ACTIVITY_RESULTS }]
+                    }
+                    if (query.includes('GROUP BY day, tool')) {
+                        return [200, { results: TOOL_DAILY_RESULTS }]
+                    }
                     if (query.includes('p95_duration_ms')) {
                         return [200, { results: TOOL_RESULTS }]
                     }
@@ -343,7 +383,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2026-06-07',
+        mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS],
     },
@@ -353,6 +393,13 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Dashboard: Story = {}
+
+// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
+export const DashboardWithMenuBar: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
 
 export const Sessions: Story = {
     parameters: {

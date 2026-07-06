@@ -11,6 +11,7 @@ import {
     PendingElevationRequest,
     SessionAclEntry,
     SessionPrincipal,
+    SessionUsageTotal,
 } from '../spec/spec'
 
 /** Input to the atomic elevation-decision transition (`decideElevationRequest`). */
@@ -59,10 +60,42 @@ export interface ListSessionsOpts {
     states?: AgentSession['state'][]
     /** Filter to a specific revision id within the application. */
     revisionId?: string
+    /**
+     * Filter to sessions started by one agent user. Matches the
+     * `agent_user_id` stamped on the session principal (set today only for
+     * slack-trigger sessions — other kinds don't carry it yet, so they won't
+     * match).
+     */
+    agentUserId?: string
     /** ISO datetime — only return sessions with created_at >= this. */
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
     createdBefore?: string
+    /** Case-insensitive substring over id, external_key, and the conversation digest. */
+    search?: string
+}
+
+/**
+ * Lightweight list row — every summary column except the heavy `conversation`
+ * JSONB. `turns` and `search_text` come off persisted columns, so listing never
+ * detoasts a transcript.
+ */
+export interface SessionSummary {
+    id: string
+    application_id: string
+    revision_id: string
+    team_id: number
+    external_key: string | null
+    idempotency_key: string | null
+    trigger_metadata: Record<string, unknown> | null
+    state: AgentSession['state']
+    principal: AgentSession['principal']
+    usage_total: SessionUsageTotal
+    retry_count: number
+    turns: number
+    search_text: string | null
+    created_at: string
+    updated_at: string
 }
 
 /**
@@ -116,8 +149,20 @@ export interface SessionQueue extends SessionInputsStore {
      * callers (runner claim loop, sweep) that legitimately fetch by id alone.
      */
     getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null>
-    /** Find an existing session matching (application_id, external_key). */
-    findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
+    /**
+     * Find an existing session matching `(application_id, external_key,
+     * revision_id)`. `revisionId` is part of the lookup, not a filter applied
+     * afterward, so resume never crosses a revision boundary: a request routed
+     * to one revision can only resume a session created on that same revision.
+     * This keeps draft-preview runs talking to the draft they targeted —
+     * rather than silently resuming the live session under a shared
+     * external_key — and keeps two draft revisions previewed against the same
+     * external_key isolated, so their conversation histories don't bleed
+     * together. The filter lives in SQL (not an after-the-fact JS guard) so the
+     * `ORDER BY updated_at DESC LIMIT 1` can never return a row from a
+     * different revision.
+     */
+    findByExternalKey(applicationId: string, externalKey: string, revisionId: string): Promise<AgentSession | null>
     /**
      * Find an existing session matching (application_id, idempotency_key).
      * Returns null if no row exists (including when the key was nulled by the
@@ -148,6 +193,12 @@ export interface SessionQueue extends SessionInputsStore {
      * and `offset` are ignored — the count is over the full filtered set.
      */
     countByApplication(applicationId: string, opts?: Omit<ListSessionsOpts, 'limit' | 'offset'>): Promise<number>
+    /**
+     * Like `listByApplication` but returns {@link SessionSummary} rows (no
+     * conversation transcript) for the list view — `turns` + `search_text` read
+     * off persisted columns instead of detoasting JSONB.
+     */
+    listSummariesByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<SessionSummary[]>
     /**
      * Roll up summary stats for an agent — drives the agent-detail
      * overview tiles. `since` filters cost + sessions count to a

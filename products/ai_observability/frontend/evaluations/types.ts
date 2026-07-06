@@ -3,9 +3,20 @@ import { AnyPropertyFilter } from '~/types'
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
+export type EvaluationTarget = 'generation' | 'trace'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
-export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+export type EvaluationStatusReason =
+    | 'trial_limit_reached'
+    | 'model_not_allowed'
+    | 'provider_key_deleted'
+    | 'no_default_model'
+    | 'provider_key_invalid'
+    | 'provider_key_permission_denied'
+    | 'provider_key_quota_exceeded'
+    | 'provider_key_rate_limited'
+    | 'model_not_found'
+    | 'hog_error'
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -16,6 +27,11 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+}
+
+export interface EvaluationTargetConfig {
+    /** For 'trace' target: seconds to wait after the first matching generation before evaluating the trace. */
+    window_seconds?: number
 }
 
 export interface LLMJudgeEvaluationConfig {
@@ -38,9 +54,14 @@ export interface BaseEvaluationConfig {
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
+    status_reason_detail: string | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
+    /** What the evaluation runs on: each matching generation event, or the whole trace once. */
+    target: EvaluationTarget
+    /** Target-specific settings. For 'trace': {window_seconds}. Empty for 'generation'. */
+    target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
     total_runs: number
     last_run_at?: string

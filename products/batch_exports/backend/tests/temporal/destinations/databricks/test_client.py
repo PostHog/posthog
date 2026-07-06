@@ -124,6 +124,7 @@ class TestConnect:
         use_catalog_mock = AsyncMock()
 
         with (
+            patch.object(client, "_check_host_reachable", new=AsyncMock()),
             patch(
                 "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
                 return_value=MagicMock(),
@@ -137,17 +138,37 @@ class TestConnect:
 
         use_catalog_mock.assert_not_called()
 
-    async def test_when_invalid_host(self, client: DatabricksClient):
+    async def test_when_invalid_host(self):
+        """An invalid/unreachable host must fail fast rather than hang for ~5 minutes in the SDK's
+        OIDC discovery (https://github.com/databricks/databricks-sdk-py/issues/1046).
+
+        The TCP reachability preflight must fail the connection — using the configurable
+        ``connect_timeout_seconds`` — *before* ``sql.connect`` is ever called, so no worker thread
+        is left blocking on the hang-prone SDK call.
+        """
+        # 192.0.2.1 is reserved as non-routable (RFC 5737 TEST-NET-1), so the preflight connect fails
+        # fast (no DNS, no real host).
+        client = DatabricksClient(
+            server_hostname="192.0.2.1",
+            http_path="test",
+            client_id="test",
+            client_secret="test",
+            catalog="test",
+            schema="test",
+            connect_timeout_seconds=0.01,
+        )
+
         with patch(
-            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
-            side_effect=ValueError("invalid host"),
-        ):
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect"
+        ) as mock_sql_connect:
             with pytest.raises(
                 DatabricksConnectionError,
                 match="Failed to connect to Databricks. Please check that your connection details are valid.",
             ):
                 async with client.connect():
                     pass
+
+        mock_sql_connect.assert_not_called()
 
 
 class TestQueryBuilders:

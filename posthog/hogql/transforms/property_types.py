@@ -209,6 +209,13 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
 
+    # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
+    # toFloat64OrDefault) require a String first argument and raise
+    # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
+    # Numeric-typed property in one of these, we must not auto-convert the property
+    # to Float — the raw String value has to flow through for the parser to work.
+    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault"}
+
     def __init__(
         self,
         timezone: str,
@@ -227,6 +234,7 @@ class PropertySwapper(CloningVisitor):
         self.setTimeZones = setTimeZones
         self._inside_call_depth = 0
         self._inside_where_depth = 0
+        self._suppress_numeric_conversion = False
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -293,11 +301,18 @@ class PropertySwapper(CloningVisitor):
         if rewritten is not None:
             return rewritten
 
+        # Track whether the immediate enclosing call parses its argument as a
+        # string. Re-evaluated per call, so nested non-parsing calls (e.g.
+        # toFloatOrZero(toString(prop))) correctly reset the flag.
+        saved_suppress = self._suppress_numeric_conversion
+        self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+
         self._inside_call_depth += 1
         try:
             return super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
+            self._suppress_numeric_conversion = saved_suppress
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
         """Rewrite safe direct JSON property extraction to use a materialized column.
@@ -606,6 +621,12 @@ class PropertySwapper(CloningVisitor):
 
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+
+        # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
+        # toFloatOrDefault). Those ClickHouse functions require a String argument, so
+        # leave the raw materialized-column/JSON value in place rather than casting it.
+        if self._suppress_numeric_conversion:
+            return node
 
         # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as

@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGetViewOrTableByName(BaseTest):

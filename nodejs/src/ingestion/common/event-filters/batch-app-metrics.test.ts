@@ -1,6 +1,6 @@
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { EventFiltersBatchAppMetrics } from './batch-app-metrics'
 

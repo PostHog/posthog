@@ -12,9 +12,11 @@ on:
                 required: false
                 type: string
     schedule:
-        # Daily: merge the latest CI timing artifacts and refresh the Actions cache that
-        # ci-backend / ci-dagster restore for sharding. This is the day-to-day freshness.
-        - cron: '0 3 * * *'
+        # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
+        # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
+        # balanced even after large batches of new tests land mid-day. Cheap (~90s on
+        # depot-ubuntu-latest, no test execution).
+        - cron: '0 3,9,15,21 * * *'
         # Monthly (1st): same merge, but this run also commits the .test_durations fallback
         # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
         # need a daily commit. Distinguished from the daily run via github.event.schedule
@@ -56,44 +58,62 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   INPUT_RUN_ID: ${{ inputs.backend_run_id }}
+                  # Optional org/repo variable to tune how many runs the per-segment plan averages
+                  # (default 5). Unset renders empty and the shell default kicks in.
+                  BACKEND_RUNS_TO_AVERAGE: ${{ vars.BACKEND_RUNS_TO_AVERAGE }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
                       echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "run_ids=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
                       echo "Using provided Backend CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
 
-                  # Find a recent successful ci-backend.yml run with timing artifacts
+                  # Find recent successful ci-backend.yml runs with timing artifacts.
                   # Most runs skip tests due to path filtering (~20 sec), so filter by duration first
                   # Runs that actually execute tests take 15+ minutes
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
-                  echo "Searching for Backend CI run with timing artifacts..."
+                  echo "Searching for Backend CI runs with timing artifacts..."
+
+                  # The per-segment file-mode plan (.test_durations.core/.temporal) is averaged over
+                  # the last N runs to damp one run's timing noise (~-8pp makespan/mean on real PRs,
+                  # 1 -> 5 runs; the achievable floor is ~0%). The union .test_durations and the
+                  # JUnit de-tax still use the newest run alone (the primary). N stays small so the
+                  # extra downloads stay modest.
+                  N="${BACKEND_RUNS_TO_AVERAGE:-5}"
+                  # Guard a mis-set variable: a non-integer would make the `-ge` test below error
+                  # out (never breaking the loop) and silently average every candidate run.
+                  [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
+                  found=0  # counts qualifying runs inside the loop below
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
-                  # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
-                  # Filter to runs created in the past 14 days to avoid expired artifacts
-                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                  # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
+                  # artifacts (>=38), up to N. Scan a wider candidate window since most runs skip.
+                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -5 | \
+                      ) | .id' | head -25 | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
                           echo "Run $id has $count timing artifacts" >&2
                           if [ "$count" -ge "38" ]; then
                               echo "$id"
-                              break
+                              found=$((found + 1))
+                              [ "$found" -ge "$N" ] && break
                           fi
                       done)
 
-                  if [ -z "$run_id" ]; then
+                  primary=$(echo "$run_ids" | head -1)
+                  if [ -z "$primary" ]; then
                       echo "::error::No suitable Backend CI run found with timing artifacts"
                       exit 1
                   fi
 
-                  echo "run_id=$run_id" >> $GITHUB_OUTPUT
-                  echo "Found Backend CI run: $run_id"
+                  echo "run_id=$primary" >> $GITHUB_OUTPUT
+                  echo "run_ids=$(echo $run_ids | tr '\n' ' ')" >> $GITHUB_OUTPUT
+                  echo "Found Backend CI runs (newest first): $(echo $run_ids | tr '\n' ' ')"
 
             - name: Find Dagster CI run to use
               id: find-dagster-run
@@ -141,6 +161,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
+                  BACKEND_RUN_IDS: ${{ steps.find-backend-run.outputs.run_ids }}
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
                   # Download backend timing artifacts. Use segment-specific patterns
@@ -162,6 +183,22 @@ jobs:
                       --dir junit_artifacts || \
                       echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
 
+                  # Multi-run: pull timing + JUnit for each run we average into the per-segment
+                  # file-mode plan (Core/Temporal only). Each run is de-taxed + scoped on its own
+                  # below, then averaged. The primary is also downloaded here (into its own dir) so
+                  # the union/JUnit steps above stay untouched. A run with no JUnit just gets its
+                  # per-segment slice skipped, same fallback as the single-run path.
+                  for rid in $BACKEND_RUN_IDS; do
+                      gh run download "$rid" \
+                          --pattern "timing_data-Core-*" \
+                          --pattern "timing_data-Temporal-*" \
+                          --dir "runs/$rid/timing" || { echo "::warning::No timing for run $rid — skipping it"; continue; }
+                      gh run download "$rid" \
+                          --pattern "junit-results-backend-core-*" \
+                          --pattern "junit-results-backend-temporal-*" \
+                          --dir "runs/$rid/junit" || echo "::warning::No JUnit for run $rid — its per-segment slice is skipped"
+                  done
+
                   # Download dagster timing artifacts if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
                       gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
@@ -173,6 +210,7 @@ jobs:
             - name: Process timing data
               env:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
+                  BACKEND_RUN_IDS: ${{ steps.find-backend-run.outputs.run_ids }}
               run: |
                   # Process each segment separately with migration tax correction, then merge.
                   # Core/Temporal use JUnit for precise carrier detection.
@@ -207,22 +245,45 @@ jobs:
                   # JUnit saw run; the run-set is already in the artifacts, so this adds no
                   # collection. The union above is untouched (item-mode + turbo-discover still
                   # read it); these are purely additive, cached per-segment below.
-                  # Non-fatal: --scope-to-junit hard-exits if a segment's JUnit is missing,
-                  # but the union .test_durations above is already built and MUST still be
-                  # cached/committed below. A JUnit miss just skips that segment's per-segment
-                  # file for the day; ci-backend then falls back to scoping the union.
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.core \
-                      --segment Core --junit-dir junit_artifacts --scope-to-junit \
-                      || echo "::warning::Core per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.temporal \
-                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit \
-                      || echo "::warning::Temporal per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
+                  #
+                  # AVERAGED over the last N runs (newest first) to damp one run's timing noise:
+                  # on real PRs a single-run plan lands ~+30-50% makespan/mean, multi-run ~-8pp of
+                  # that, and good vs bad single run is just luck (the floor is ~0%). Each run is
+                  # de-taxed + scoped on its own through the same path as before, then averaged;
+                  # the newest run is passed first so it anchors membership (a test deleted since
+                  # an older run never lingers). Non-fatal throughout: a run with no JUnit is
+                  # skipped, and if none survive ci-backend falls back to scoping the union.
+                  core_files=""
+                  temporal_files=""
+                  for rid in $BACKEND_RUN_IDS; do
+                      if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/core_$rid" \
+                          --segment Core --junit-dir "runs/$rid/junit" --scope-to-junit; then
+                          core_files="$core_files /tmp/core_$rid"
+                      fi
+                      if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/temporal_$rid" \
+                          --segment Temporal --junit-dir "runs/$rid/junit" --scope-to-junit; then
+                          temporal_files="$temporal_files /tmp/temporal_$rid"
+                      fi
+                  done
 
-                  # Also drop junit_artifacts — ghcommit-action defaults file_pattern
-                  # to "." and chokes on leftover download dirs ("read junit_artifacts/:
-                  # is a directory"). The commit steps below also pin file_pattern as a
-                  # belt-and-braces guard.
-                  rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+                  if [ -n "$core_files" ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.core --average-files $core_files \
+                          || echo "::warning::Core multi-run average failed — file-mode falls back to union scoping"
+                  else
+                      echo "::warning::Core per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
+                  fi
+                  if [ -n "$temporal_files" ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.temporal --average-files $temporal_files \
+                          || echo "::warning::Temporal multi-run average failed — file-mode falls back to union scoping"
+                  else
+                      echo "::warning::Temporal per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
+                  fi
+
+                  # Also drop timing/JUnit download dirs (incl. the per-run runs/ tree) —
+                  # ghcommit-action defaults file_pattern to "." and chokes on leftover download
+                  # dirs ("read junit_artifacts/: is a directory"). The commit steps below also
+                  # pin file_pattern as a belt-and-braces guard.
+                  rm -rf timing_artifacts junit_artifacts runs /tmp/core_* /tmp/temporal_* /tmp/products_durations /tmp/dagster_durations
 
             - name: Compute cache key and monthly-commit flag
               id: durations-meta
@@ -231,13 +292,14 @@ jobs:
                   REF: ${{ github.ref }}
                   SCHEDULE: ${{ github.event.schedule }}
               run: |
-                  # Per-day cache key → one new entry per day. Restores match by prefix and only
-                  # ever touch the newest entry, so each prior day's entry ages out 7 days after
-                  # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
-                  # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
-                  TODAY=$(date -u +%F)
-                  echo "date=$TODAY" >> "$GITHUB_OUTPUT"
-                  echo "cache_key=posthog-test-durations-$TODAY" >> "$GITHUB_OUTPUT"
+                  # Full ISO-8601 cache key → each run writes its own entry. Restores match by
+                  # prefix and only ever touch the newest entry, so prior entries age out 7 days
+                  # after they stop being newest. This ensures a manual workflow_dispatch can
+                  # refresh the cache intra-day (GitHub Actions cache keys are immutable, so a
+                  # per-day key blocked same-day updates). ~1 MB zstd each; tiny footprint.
+                  NOW=$(date -u +%FT%H%M%SZ)
+                  echo "date=$NOW" >> "$GITHUB_OUTPUT"
+                  echo "cache_key=posthog-test-durations-$NOW" >> "$GITHUB_OUTPUT"
                   # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
                   # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
                   # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
@@ -275,7 +337,7 @@ jobs:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
-                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}
+                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}-${{ github.run_id }}
 
             - name: Check for changes
               id: check-changes

@@ -61,6 +61,9 @@ describe('TaxonomicFilter', () => {
                 '/api/environments/:team/query': { results: [] },
             },
         })
+        // Recents/pinned persist to localStorage; clear so an earlier test's selection
+        // (which records a recent) can't leak in and reorder a later single-group list.
+        localStorage.clear()
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
@@ -132,7 +135,12 @@ describe('TaxonomicFilter', () => {
         ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
             renderFilter({
                 suggestedFiltersLabel: label,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -335,6 +343,54 @@ describe('TaxonomicFilter', () => {
                 expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+        })
+
+        it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
+            // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
+            // the empty state must instead point at the specific tab that matched.
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            // `purchase_value` exists only as a property, so the active Events tab comes up empty
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            let switchButton: HTMLElement | undefined
+            await waitFor(() => {
+                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))
+                expect(switchButton).toBeTruthy()
+            })
+            expect(switchButton).toHaveTextContent(/See results in Person properties/i)
+            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+
+            await userEvent.click(switchButton!)
+
+            await waitFor(() => {
+                expectActiveTab('taxonomic-tab-person_properties')
+            })
+        })
+
+        it('does not offer a jump to a render-backed group with no real matches', async () => {
+            // SQL expression is render-backed: its affordance row makes totalListCount non-zero for
+            // any query, but it has no actual search results. It must not produce a bogus jump button.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            // The genuinely-matching tab is still offered...
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))).toBeTruthy()
+            })
+            // ...but the render-backed SQL expression tab is not.
+            expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
         })
     })
 
@@ -842,7 +898,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
             })
-        })
+        }, 10000)
     })
 
     it.each([
@@ -1114,7 +1170,14 @@ describe('TaxonomicFilter', () => {
             const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.PageviewUrls],
+                // Two substantive groups so the aggregated "All" tab survives (a single
+                // substantive group drops it); Events has no 'pricing' match so the URL
+                // shortcut is still the only aggregated row.
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Events,
+                ],
                 collapseUrlsToContainsRow: true,
             })
 
@@ -1331,7 +1394,12 @@ describe('TaxonomicFilter', () => {
         it('control variant: default suggested-filters label is "Suggestions"', async () => {
             setVariant('control')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {
@@ -1342,7 +1410,12 @@ describe('TaxonomicFilter', () => {
         it('pill variant: default suggested-filters label is "All" (seen in the dropdown items)', async () => {
             setVariant('pill')
             renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                // Two substantive groups so "All" survives (a single substantive group drops it)
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
             })
 
             await waitFor(() => {

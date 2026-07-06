@@ -31,9 +31,10 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -46,7 +47,6 @@ from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -591,6 +591,13 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
+            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+            allowed_resources = get_allowed_resources()
+
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -601,7 +608,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=site_url,
+                        audience=allowed_resources,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
@@ -720,7 +727,9 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
     """
-    organization = sharing_configuration.team.organization
+    # Fetch the organization directly via the team FK rather than `sharing_configuration.team.organization`,
+    # which would lazy-load the entire wide `posthog_team` row just to hop to the organization.
+    organization = Organization.objects.get(team=sharing_configuration.team_id)
     return (
         organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
         and not organization.allow_publicly_shared_resources
@@ -1001,16 +1010,18 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             or request.headers.get(self.HEADER_NAME.lower())
             or request.headers.get(self.HEADER_NAME.upper())
         )
-        configured_secret = settings.INTERNAL_API_SECRET
+        # Trim the inbound header (e.g. a trailing newline from a mounted secret) so it can't cause
+        # a spurious mismatch. The configured secrets are normalized at load (see data_stores.py).
+        if provided_secret:
+            provided_secret = provided_secret.strip()
 
-        if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
-            logger.error(
-                "Internal API authentication attempted with default development secret in production environment",
-                extra={"path": request.path, "method": request.method},
-            )
-            raise AuthenticationFailed("Internal API authentication is not properly configured.")
+        # Primary secret plus any still-trusted fallbacks (zero-downtime rotation), dropping empties.
+        # This is the runtime guard: a deploy with no usable secret is rejected here (fail closed)
+        # rather than at startup — most Django/Temporal processes never get the secret injected and
+        # never serve these endpoints, so a startup check would wrongly crash them.
+        accepted_secrets = usable_internal_api_secrets()
 
-        if not configured_secret:
+        if not accepted_secrets:
             logger.error(
                 "Internal API authentication attempted without configured secret",
                 extra={"path": request.path, "method": request.method},
@@ -1024,7 +1035,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Missing internal API authentication header.")
 
-        if not hmac.compare_digest(configured_secret, provided_secret):
+        if not any(hmac.compare_digest(secret, provided_secret) for secret in accepted_secrets):
             logger.warning(
                 "Internal API request with invalid secret",
                 extra={"path": request.path, "method": request.method},

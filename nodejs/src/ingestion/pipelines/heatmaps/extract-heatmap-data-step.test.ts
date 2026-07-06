@@ -1,13 +1,13 @@
 import { Message } from 'node-rdkafka'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
+import { cloneObject } from '~/common/utils/utils'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, ProjectId } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
-import { cloneObject } from '~/utils/utils'
 
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'

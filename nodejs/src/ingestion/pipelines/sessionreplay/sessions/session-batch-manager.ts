@@ -1,8 +1,8 @@
+import { logger } from '~/common/utils/logger'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -17,12 +17,14 @@ export interface SessionBatchManagerConfig {
     maxBatchAgeMs: number
     /** Maximum number of events per session per batch before rate limiting */
     maxEventsPerSessionPerBatch: number
+    /** Rollout percentage (0-100) for the per-session ML feature recorder */
+    featuresRolloutPercentage?: number
     /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
     fileStorage: SessionBatchFileStorage
     /** Manages storing session metadata */
-    metadataStore: SessionMetadataStore
+    metadataStore: SessionMetadataSink
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
     /** Manages storing session features for ML scoring */
@@ -76,9 +78,10 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly maxEventsPerSessionPerBatch: number
+    private readonly featuresRolloutPercentage: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly metadataStore: SessionMetadataStore
+    private readonly metadataStore: SessionMetadataSink
     private readonly consoleLogStore: SessionConsoleLogStore
     private readonly featureStore: SessionFeatureStore
     private lastFlushTime: number
@@ -91,6 +94,7 @@ export class SessionBatchManager {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
+        this.featuresRolloutPercentage = config.featuresRolloutPercentage ?? 100
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
@@ -111,7 +115,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.featuresRolloutPercentage
         )
         this.lastFlushTime = Date.now()
     }
@@ -121,6 +126,20 @@ export class SessionBatchManager {
      */
     public getCurrentBatch(): SessionBatchRecorder {
         return this.currentBatch
+    }
+
+    /**
+     * Track the highest Kafka offset reached per partition for a processed batch, so those offsets get
+     * committed on the next flush. This is the single place offset progress is recorded — the caller
+     * derives the offsets from every message's terminal pipeline result (record / drop / dlq / redirect),
+     * so no disposition is missed and the phases can't race.
+     *
+     * @param offsets - Highest offset seen per partition (raw offset, not the next-to-process offset).
+     */
+    public trackProcessedOffsets(offsets: Map<number, number>): void {
+        for (const [partition, offset] of offsets) {
+            this.offsetManager.trackOffset({ partition, offset })
+        }
     }
 
     /**
@@ -139,7 +158,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.featuresRolloutPercentage
         )
         this.lastFlushTime = Date.now()
     }

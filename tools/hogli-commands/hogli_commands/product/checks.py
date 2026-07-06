@@ -890,6 +890,8 @@ class OrphanedTestFilesCheck(ProductCheck):
         # ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
+        "warehouse_sources": ("backend/temporal/",),
+        "signals": ("backend/emission/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:

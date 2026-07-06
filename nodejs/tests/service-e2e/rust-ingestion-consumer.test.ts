@@ -10,18 +10,18 @@ import {
 } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
-import { parseJSON } from '~/utils/json-parse'
-
 import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-} from '../../src/config/kafka-topics'
-import { KafkaProducerWrapper, MessageWithoutTopic } from '../../src/kafka/producer'
-import { UUIDT } from '../../src/utils/utils'
+} from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper, MessageWithoutTopic } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
+
 import { Clickhouse } from '../helpers/clickhouse'
 import {
     DEFAULT_TEAM,
@@ -374,8 +374,14 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         }
     })
 
-    test('Rust consumer exits when all Node ingestion API workers are down', async () => {
-        const { workers, rustConsumer, rustMetricsPort } = await startRustNodeStack(services)
+    test('Rust consumer holds the batch then exits when all Node ingestion API workers stay down', async () => {
+        // During a full worker outage the consumer must hold the batch (nothing
+        // dropped, nothing committed) and retry for the configured deferred-flush
+        // timeout, then exit non-zero so the pod restarts and Kafka redelivers.
+        // A short timeout keeps the bounded-exit contract observable quickly.
+        const { workers, rustConsumer, rustMetricsPort } = await startRustNodeStack(services, {
+            CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS: '5000',
+        })
         const producer = await KafkaProducerWrapper.create(undefined)
         const team = { ...DEFAULT_TEAM, id: TEST_TEAM_ID, api_token: TEST_TEAM_TOKEN }
         const distinctIds = createDistinctIds(8)
@@ -399,7 +405,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const exit = await rustConsumer.waitForExit(60_000)
             expect(exit.exitCode).not.toBe(0)
-            expect(exit.output).toContain('No healthy workers available to route batch')
+            expect(exit.output).toContain('deferred messages could not be flushed within timeout')
             await waitForTopicMessageCount(KAFKA_EVENTS_JSON, 0)
         } finally {
             await producer.disconnect()
@@ -435,7 +441,8 @@ async function startNodeWorkerSet(services: ServiceProcess[]): Promise<NodeWorke
 
 async function startRustConsumerForWorkers(
     services: ServiceProcess[],
-    workers: NodeWorker[]
+    workers: NodeWorker[],
+    extraRustEnv: Record<string, string> = {}
 ): Promise<Omit<RustNodeStack, 'workers'>> {
     const rustMetricsPort = await getFreePort()
     const groupId = `rust-node-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -443,7 +450,8 @@ async function startRustConsumerForWorkers(
         'rust-consumer',
         workers.map((worker) => worker.url),
         rustMetricsPort,
-        groupId
+        groupId,
+        extraRustEnv
     )
     services.push(rustConsumer)
     await rustConsumer.waitForHttpOk(`http://127.0.0.1:${rustMetricsPort}/_readiness`)
@@ -451,9 +459,12 @@ async function startRustConsumerForWorkers(
     return { rustConsumer, rustMetricsPort, groupId }
 }
 
-async function startRustNodeStack(services: ServiceProcess[]): Promise<RustNodeStack> {
+async function startRustNodeStack(
+    services: ServiceProcess[],
+    extraRustEnv: Record<string, string> = {}
+): Promise<RustNodeStack> {
     const workers = await startNodeWorkerSet(services)
-    const rust = await startRustConsumerForWorkers(services, workers)
+    const rust = await startRustConsumerForWorkers(services, workers, extraRustEnv)
     return { workers, ...rust }
 }
 
@@ -498,7 +509,8 @@ function startRustIngestionConsumer(
     name: string,
     workers: string[],
     metricsPort: number,
-    groupId: string
+    groupId: string,
+    extraEnv: Record<string, string> = {}
 ): ServiceProcess {
     return new ServiceProcess(name, 'cargo', ['run', '-p', 'ingestion-consumer'], {
         cwd: RUST_ROOT,
@@ -527,6 +539,7 @@ function startRustIngestionConsumer(
             BIND_HOST: '127.0.0.1',
             BIND_PORT: metricsPort.toString(),
             EXPORT_PROMETHEUS: 'true',
+            ...extraEnv,
         },
     })
 }

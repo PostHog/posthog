@@ -25,10 +25,30 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
 - `prompt.py`
   Assembles the system prompt: persona + skill body + relevant scratchpad entries +
   project profile inventory + recent run summaries. Scratchpad and run history are
-  filtered by skill so a specialist only sees its own past work.
+  filtered by skill so a specialist only sees its own past work. `build_run_prompt`
+  forks on the run's channel via `skill_loader.skill_uses_report_channel`: a scout that
+  opted into the report channel gets the report persona + report-authoring guidance
+  (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
+  to route the report); every other scout gets the signal persona that fires weak
+  `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
+  are shared between both. The report persona is further gated per-tool: it names only
+  the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
+  drops the author-time sections for an edit-only scout — the report endpoints fail
+  closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
+  Orthogonal to the channel fork, the prompt also forks on the skill's origin
+  (`LoadedSkill.origin`, resolved via `lazy_seed.scout_skill_row_origin`): a _custom_ scout —
+  hand-authored, or a seeded canonical row the team has since edited in place (diverged) —
+  gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>`
+  scratchpad suggestions for its own skill body, which the owner reviews via the
+  `exploring-scouts` / `authoring-scouts` meta skills. A pristine canonical scout never sees
+  it — applying such a suggestion would mark the seeded row diverged and cut it off from
+  upstream sync; canonical-skill defects route upstream via the operational-friction
+  (`agent-feedback`) section instead.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools).
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin), plus
+  `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
+  predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
@@ -79,19 +99,37 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution
   (`team_configs[team]` → `default_team_config` → code constant) the coordinator enforces at
-  dispatch, plus enrollment (`guaranteed_team_ids` / `skip_team_ids`, with a cloud/dev-gated
-  fallback) and the editorial banner string. Kept free of the temporalio stack so it stays
-  cheap to import on the API path; both the coordinator and the metadata endpoint import from
-  here so the reported caps never drift from what dispatch allows. `resolve_team_metadata()`
-  backs the metadata viewset.
+  dispatch, plus enrollment (`_parse_enrollment` → `guaranteed_team_ids` / `skip_team_ids`, with a
+  cloud/dev-gated fallback) and the editorial banner string. `guaranteed_team_ids` may contain the
+  `"*"` wildcard (`ENROLL_ALL_TOKEN`): with it, enrollment inverts from an explicit allowlist to
+  "every team that has enabled scout configs" — the self-serve gate, where the product-autonomy-
+  gated UI creates the configs; explicit ids alongside `"*"` are still force-provisioned and
+  `skip_team_ids` still hard-excludes. The global per-tick ceiling is flag-tunable too
+  (`_resolve_global_max_runs_per_tick` ← `max_runs_per_tick_global`, default `MAX_RUNS_PER_TICK`).
+  Kept free of the temporalio stack so it stays cheap to import on the API path; both the
+  coordinator and the metadata endpoint import from here so the reported caps never drift from what
+  dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
+  `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`.
+  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
+  it returns the project's members (those with access to the team) with `user_uuid` / `email` /
+  `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
+  is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object
+  (`scope_object = "signal_scout_internal"`, default `list` → `signal_scout_internal:read`, satisfied by
+  the sandbox token's `…:write`) — so, like `emit-signal`, it is reachable only inside a scout run and
+  never enters a customer's public MCP catalog. (The narrower `signal_scout_report` scope was considered
+  but is transient — kept only while emit-signal and emit-report coexist — so the durable tool stays on
+  `signal_scout_internal`.) Membership is resolved server-side via
+  `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
+  so private-project access control is honored), the project-nested path that the org-nested
+  `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
   config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
@@ -190,8 +228,19 @@ one sandbox session → zero or more emitted signals.
   for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
   run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
   or two instead of wedging until manual intervention.
-- Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
-  the embeddings pipeline or `SignalReport` directly from harness code.
+- Emit path goes through `emit_signal()` and only `emit_signal()` — **with one sanctioned
+  carve-out**: a scout that opts into the report-authoring channel (`emit_report` / `edit_report`
+  in its skill's `allowed_tools`) writes a full `SignalReport` directly. That write does NOT go
+  through harness code touching `SignalReport` or the embeddings pipeline itself — it goes through
+  the `scout_report/` service (`create_scout_report` / `update_scout_report`), which owns the report
+  row + the bound `document_embeddings` signal write (the grouping substrate, minus the matcher).
+  Harness/tool code calls that service; it still never touches `SignalReport` or the embeddings
+  pipeline directly. See `../scout_report/persistence.py` and the `scouts-emit-reports` spec.
+  Both report-channel actions are tracked on the run as queryable columns: `emit_report` appends to
+  `SignalScoutRun.emitted_report_ids` (via `_record_report_emit`), and `edit_report` appends — deduped —
+  to `edited_report_ids` (via `record_report_edit`), so "which reports did this run author vs. edit?"
+  is a column lookup, not an event-stream or artefact-log join. Both writes are best-effort and
+  post-commit (an edit/emit never fails because its tally write did).
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update
   `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`)
   to match.**

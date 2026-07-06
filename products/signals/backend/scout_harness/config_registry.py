@@ -23,11 +23,11 @@ from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
-# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (10–43200). A
+# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (30–43200). A
 # seed interval comes from arbitrary flag JSON and is written via `get_or_create`, which bypasses
 # model validators — so an out-of-range value is validated here and treated as absent rather than
 # persisted (a large enough int would otherwise raise a DB error and abort the coordinator tick).
-MIN_RUN_INTERVAL_MINUTES = 10
+MIN_RUN_INTERVAL_MINUTES = 30
 MAX_RUN_INTERVAL_MINUTES = 43200
 
 
@@ -73,7 +73,7 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     - `enabled_skills`: allowlist of canonical scouts that auto-enable on seed; the rest register
       disabled. `None` (no valid layer) means "no allowlist" — every scout enables, historical.
     - `enabled_interval_minutes`: cadence stamped on the auto-enabled rows, validated against the
-      model's 10–43200 bounds; `None` keeps the model default.
+      model's 30–43200 bounds; `None` keeps the model default.
     """
     layers = [layer for layer in (seed_config_layers or []) if isinstance(layer, dict)]
 
@@ -96,6 +96,31 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
             break
 
     return enabled_skills, enabled_interval
+
+
+def live_scout_skill_names(
+    team_id: int,
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> set[str]:
+    """Live (latest, non-deleted) `signals-scout-*` skill names for a team, minus the holdback set.
+
+    The read-only half of `register_missing_configs`'s skill scan, with no seeding side effects. The
+    coordinator dispatches only configs whose skill is in this set, so a config whose skill was
+    deleted or superseded isn't run. Used on the wildcard (no-seed) dispatch path — a team that
+    self-enrolled through the UI already has its configs, so the per-tick seed/reconcile is skipped
+    and this cheap read is what still gates dispatch correctly.
+    """
+    names = set(
+        LLMSkill.objects.filter(
+            team_id=team_id,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+            is_latest=True,
+            deleted=False,
+        ).values_list("name", flat=True)
+    )
+    if withheld_skill_names:
+        names -= set(withheld_skill_names)
+    return names
 
 
 def register_missing_configs(

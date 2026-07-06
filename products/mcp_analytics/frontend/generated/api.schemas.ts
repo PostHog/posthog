@@ -396,11 +396,22 @@ export type McpAnalyticsMissingCapabilitiesListParams = {
 
 export type McpAnalyticsSessionsListParams = {
     /**
-     * Number of results to return per page.
+     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
+     */
+    date_from?: string
+    /**
+     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number
     /**
@@ -413,13 +424,27 @@ export type McpAnalyticsSessionsListParams = {
     search?: string
 }
 
+export type McpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string
+}
+
 export type McpAnalyticsSessionsToolCallsParams = {
     /**
-     * Number of results to return per page.
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
+     */
+    date_from?: string
+    /**
+     * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number
 }

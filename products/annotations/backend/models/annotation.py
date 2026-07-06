@@ -35,6 +35,7 @@ class Annotation(ModelActivityMixin, models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
+    hidden_in_user_interface = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)

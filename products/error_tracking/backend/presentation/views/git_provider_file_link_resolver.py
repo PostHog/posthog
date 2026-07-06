@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.egress.github.transport import github_request
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
 
 logger = structlog.get_logger(__name__)
@@ -73,8 +74,13 @@ def prepare_gitlab_search_query(q: str | None) -> str:
     return " ".join("".join(result).split())
 
 
-def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
-    """Search GitHub code using the Code Search API. Returns URL to first match or None."""
+def get_github_file_url(
+    code_sample: str, token: str, owner: str, repository: str, file_name: str, installation_id: str | None = None
+) -> str | None:
+    """Search GitHub code using the Code Search API. Returns URL to first match or None.
+
+    ``installation_id`` is set on the integration-token path (private repos) so the installation's
+    rate-limit gauges are recorded; the public PostHog-token path leaves it None (no installation)."""
     code_query = prepare_github_search_query(code_sample)
     search_query = f"{code_query} repo:{owner}/{repository} filename:{file_name}"
     encoded_query = urllib.parse.quote(search_query)
@@ -83,11 +89,12 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.text-match+json",
-        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = github_request(
+            "GET", url, source="error_tracking", headers=headers, installation_id=installation_id, timeout=10
+        )
 
         if response.status_code == 200:
             data = response.json()
@@ -209,6 +216,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     owner=owner,
                     repository=repository,
                     file_name=file_name,
+                    installation_id=github.github_installation_id,
                 )
                 if url:
                     return Response({"found": True, "url": url})

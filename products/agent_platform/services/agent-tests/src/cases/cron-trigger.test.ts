@@ -44,7 +44,7 @@ describe('cron trigger: real e2e', () => {
         const { application, revision } = await c.deployAgent({
             slug: 'cron-digest',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -60,7 +60,7 @@ describe('cron trigger: real e2e', () => {
         })
 
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         // First tick seeds lastTickAt; no firings in (now, now].
         const t0 = new Date('2026-06-01T09:00:00Z')
         const r0 = await cronTick({ ...deps, now: () => t0 }, state)
@@ -108,13 +108,13 @@ describe('cron trigger: real e2e', () => {
     it('manual fire endpoint shape — POST /revisions/:id/cron/fire enqueues + the runner completes', async () => {
         // Uses the janitor HTTP route directly. The endpoint isn't on the
         // ingress (it's an authoring-side surface), so we hit the janitor
-        // app the harness exposes. Same code path the agent-console will
+        // app the harness exposes. Same code path the console UI will
         // call when an author clicks "Fire now."
         c.setScript([fauxText('manual ack')])
         const { application, revision } = await c.deployAgent({
             slug: 'cron-manual',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -155,7 +155,7 @@ describe('cron trigger: real e2e', () => {
         const { revision } = await c.deployAgent({
             slug: 'cron-dedupe',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',

@@ -11,7 +11,7 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
@@ -77,6 +77,24 @@ class OptionallyFailingWorkflowWithPropertiesToLog:
 async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInputsWithPropertiesToLog) -> None:
     if inputs.fail:
         raise ValueError("Activity failed!")
+
+
+@activity.defn
+async def cancelled_activity(inputs: OptionallyFailingInputs) -> None:
+    raise CancelledError()
+
+
+@workflow.defn
+class CancelledActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            cancelled_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
 
 @workflow.defn
@@ -158,6 +176,34 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_not_captured(temporal_client: Client):
+    """A cancelled activity (worker drain, timeout, cancel) is expected control flow, not a defect,
+    so the interceptor must re-raise without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[CancelledActivityWorkflow],
+            activities=[cancelled_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "CancelledActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.asyncio

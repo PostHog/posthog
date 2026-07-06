@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '../../../../schema/hogflow'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -50,6 +51,7 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
+        result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -124,6 +126,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
             }
         }
 

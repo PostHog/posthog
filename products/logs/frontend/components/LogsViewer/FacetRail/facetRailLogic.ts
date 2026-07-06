@@ -5,7 +5,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { facetRailLogicType } from './facetRailLogicType'
-import { FacetFilterKey } from './facets'
+import { FacetSource, toggleResourceAttributeFilter } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -24,17 +24,26 @@ export const facetRailLogic = kea<facetRailLogicType>([
     key((props) => props.id),
 
     connect((props: FacetRailLogicProps) => ({
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames']],
+        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
     })),
 
     actions({
         // Generic toggle: the rail is config-driven, so a single action writes a value into whichever
-        // filter field the facet maps to (see FacetConfig.filterKey).
-        toggleFacetValue: (filterKey: FacetFilterKey, value: string) => ({ filterKey, value }),
+        // filter field/group the facet's source maps to (see FacetConfig.source).
+        toggleFacetValue: (source: FacetSource, value: string) => ({ source, value }),
         toggleFacetCollapsed: (facetKey: string) => ({ facetKey }),
+        // Free-text filter over the facet *fields* shown in the rail (not their values). URL-synced by
+        // logsSceneLogic on the main scene, so deliberately not persisted here.
+        setFacetNameSearch: (search: string) => ({ search }),
     }),
 
     reducers({
+        facetNameSearch: [
+            '',
+            {
+                setFacetNameSearch: (_, { search }) => search,
+            },
+        ],
         collapsedFacets: [
             [] as string[],
             { persist: true },
@@ -46,15 +55,18 @@ export const facetRailLogic = kea<facetRailLogicType>([
     }),
 
     listeners(({ props, actions }) => ({
-        toggleFacetValue: ({ filterKey, value }) => {
-            const { severityLevels, serviceNames } = logsViewerFiltersLogic({ id: props.id }).values
-            if (filterKey === 'severityLevels') {
+        toggleFacetValue: ({ source, value }) => {
+            const { severityLevels, serviceNames, filterGroup } = logsViewerFiltersLogic({ id: props.id }).values
+            if (source.type === 'resourceAttribute') {
+                // Selection lives as a log_resource_attribute filter inside the group.
+                actions.setFilterGroup(toggleResourceAttributeFilter(filterGroup, source.key, value), false)
+            } else if (source.filterKey === 'severityLevels') {
                 actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
-            } else if (filterKey === 'serviceNames') {
+            } else if (source.filterKey === 'serviceNames') {
                 actions.setServiceNames(toggleMembership(serviceNames, value))
             } else {
-                // Adding a new FacetFilterKey without wiring its setter here is a compile error.
-                filterKey satisfies never
+                // Adding a new column filterKey without wiring its setter here is a compile error.
+                source.filterKey satisfies never
             }
         },
     })),

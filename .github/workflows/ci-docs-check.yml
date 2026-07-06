@@ -47,7 +47,9 @@ jobs:
               run: |
                   # Regenerate when the data file OR any additional source (e.g. the generator) changes,
                   # so a generator-only edit can't pass without validating the committed output.
-                  changed_files=$(gh pr diff "$PR_NUMBER" --name-only)
+                  # --repo is required because this step runs before checkout, so gh has no
+                  # local git remote to infer the repo from (otherwise: "not a git repository").
+                  changed_files=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)
                   if printf '%s\n' "$changed_files" \
                       | grep -qFf <(printf '%s\n' "$SOURCE_FILE" "$ADDITIONAL_SOURCE_FILES" | grep -v '^$'); then
                       echo "changed=true" >> $GITHUB_OUTPUT
@@ -82,20 +84,12 @@ jobs:
             - name: Post reminder comment
               if: steps.docs-check.outputs.outdated == 'true'
               env:
-                  GH_TOKEN: ${{ github.token }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_TOKEN: ${{ github.token }}
                   SOURCE_FILE: ${{ inputs.source_file }}
                   BUILD_COMMAND: ${{ inputs.build_command }}
                   OUTPUT_FILE: ${{ inputs.output_file }}
               run: |
-                  # Check if reminder comment already exists
-                  if gh pr view "$PR_NUMBER" --json comments \
-                      --jq '.comments[].body' | grep -q 'Generated Docs Update Required'; then
-                      echo "Comment already exists, skipping"
-                      exit 0
-                  fi
-
-                  gh pr comment "$PR_NUMBER" --body "### 📄 Generated Docs Update Required
+                  message_body="### Generated docs update required
 
                   You updated \`${SOURCE_FILE}\` but the generated docs are out of date.
 
@@ -105,6 +99,25 @@ jobs:
                   \`\`\`
 
                   Then commit the updated \`${OUTPUT_FILE}\` file."
+
+                  # All callers of this reusable workflow share the one generated-docs section —
+                  # if a second caller ever runs on the same PR, they will clobber and false-clear
+                  # each other; give the section id an input (registered in SECTIONS) at that point.
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      BODY="$message_body" node .github/scripts/post-reminder-section.mjs generated-docs warn "regeneration needed"
+                  else
+                      echo "Skipping generated-docs section — script not present on this checkout"
+                  fi
+
+            # Docs are current again — mark any reminder from an earlier push resolved.
+            - name: Clear docs reminder
+              if: steps.docs-check.outputs.outdated == 'false'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      node .github/scripts/post-reminder-section.mjs generated-docs --clear "docs regenerated"
+                  fi
 
             - name: Fail if docs outdated
               if: steps.docs-check.outputs.outdated == 'true' && inputs.fail_on_outdated

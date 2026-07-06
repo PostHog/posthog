@@ -60,20 +60,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             if creator_has_access
             else None
         )
-        logs_deeplink: str | None = (
-            f"posthog-code://task/{task_run.task_id}/run/{task_run.id}" if creator_has_access else None
-        )
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
             if pr_url:
                 handler.update_reaction("hedgehog")
-                if _is_pr_opened_notified(task_run, pr_url):
-                    handler.delete_progress()
-                    return
-
-                handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
-                _mark_pr_opened_notified(task_run, pr_url)
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 handler.update_reaction("hedgehog")
                 handler.post_cancelled(task_url)
@@ -88,7 +80,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             if task_run.error_message and "timed out" in task_run.error_message:
                 handler.delete_progress()
                 return
-            handler.post_completion(pr_url, task_url)
+            if pr_url:
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
+            else:
+                handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
             handler.update_reaction("hedgehog")
             handler.post_cancelled(task_url)
@@ -102,10 +97,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # Task is still running (PR opened mid-run) — keep the :eyes: reaction
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
-                handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, logs_deeplink)
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
@@ -134,6 +128,8 @@ def _post_pr_opened_notification_once(
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
     if _is_pr_opened_notified(task_run, pr_url):
+        # Skip the repost but still clear any lingering progress marker.
+        handler.delete_progress()
         return
 
     # Resolve the reply target from the live mapping so the PR notification

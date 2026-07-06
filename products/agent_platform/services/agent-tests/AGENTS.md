@@ -56,8 +56,7 @@ fine for pure logic (spec parsing, sweep math) but a feature isn't
 ## The "every change ships with its test" rule
 
 Tests aren't optional and they aren't a follow-up. Every code change in
-`services/agent-*`, `packages/agent-chat/`, and `products/agent_platform/`
-ships with a test in the same commit:
+`products/agent_platform/` ships with a test in the same commit:
 
 - **Bug fix → regression test.** The test must fail when the fix is
   reverted. If reverting locally is annoying (formatter rewrites,

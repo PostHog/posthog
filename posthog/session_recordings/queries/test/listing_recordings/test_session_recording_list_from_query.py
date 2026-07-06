@@ -32,7 +32,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Person
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
@@ -46,6 +45,7 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
@@ -139,7 +139,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session = f"{label}-session-{i}"
             sessions.append(session)
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[user],
                 properties=session_one_person_properties if i == 0 else session_two_person_properties,
@@ -163,7 +163,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query(self):
         user = "test_basic_query-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_basic_query-{str(uuid4())}"
         session_id_two = f"test_basic_query-{str(uuid4())}"
@@ -268,7 +268,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         self,
     ):
         user = "test_basic_query-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
         session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
@@ -355,7 +355,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         self,
     ):
         user = "test_sessions_with_current_data-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_inactive = f"test_sessions_with_current_data-inactive-{str(uuid4())}"
         session_id_active = f"test_sessions_with_current_data-active-{str(uuid4())}"
@@ -400,7 +400,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"id_one_test_basic_query_with_paging-{str(uuid4())}"
         session_id_two = f"id_two_test_basic_query_with_paging-{str(uuid4())}"
@@ -512,7 +512,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query_with_ordering(self):
         user = "test_basic_query_with_ordering-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_basic_query_with_ordering-session-1-{str(uuid4())}"
         session_id_two = f"test_basic_query_with_ordering-session-2-{str(uuid4())}"
@@ -569,7 +569,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_first_url_selection(self):
         user = "test_first_url_selection-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"first-url-on-first-event-{str(uuid4())}"
         session_id_two = f"first-url-not-on-first-event-{str(uuid4())}"
@@ -702,8 +702,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_recordings_dont_leak_data_between_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         user = "test_recordings_dont_leak_data_between_teams-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
-        Person.objects.create(team=another_team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=another_team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_recordings_dont_leak_data_between_teams-1-{str(uuid4())}"
         session_id_two = f"test_recordings_dont_leak_data_between_teams-2-{str(uuid4())}"
@@ -741,7 +741,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_event_filter(self):
         user = "test_event_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         session_id_one = f"test_event_filter-{str(uuid4())}"
         produce_replay_summary(
             distinct_id=user,
@@ -793,7 +793,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         session_id_one = f"test_event_filter_has_ttl_applied_too-{str(uuid4())}"
 
         # this is artificially incorrect data, the session events are within TTL
@@ -855,7 +855,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_filter_on_session_ids(self):
         user = "test_session_ids-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         first_session_id = str(uuid4())
         second_session_id = str(uuid4())
@@ -919,7 +919,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def _an_old_recording(self) -> str:
         user = "test_session_ids_date_window-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         ten_days_ago = self.an_hour_ago - relativedelta(days=10)
         old_session_id = str(uuid4())
@@ -1016,7 +1016,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_retention_bound_cannot_hide_live_recordings(self) -> None:
         # anything older than the 5y bound is past every retention period, so never viewable
         user = "test_retention_bound-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         six_years_ago = self.an_hour_ago - relativedelta(years=6)
         ancient_session_id = str(uuid4())
@@ -1042,7 +1042,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         # event subqueries scan within the date range even when bypassing
         user = "test_session_ids_event_window-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         ten_days_ago = self.an_hour_ago - relativedelta(days=10)
         old_session_id = str(uuid4())
@@ -1074,7 +1074,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         self,
     ):
         user = "test_basic_query-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_total_is_61 = f"test_basic_query_active_sessions-total-{str(uuid4())}"
         session_id_active_is_61 = f"test_basic_query_active_sessions-active-{str(uuid4())}"
@@ -1165,7 +1165,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_event_filter_with_properties(self):
         user = "test_event_filter_with_properties-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         session_id_one = f"test_event_filter_with_properties-{str(uuid4())}"
         produce_replay_summary(
             distinct_id=user,
@@ -1293,7 +1293,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_multiple_event_filters(self):
         session_id = f"test_multiple_event_filters-{str(uuid4())}"
         user = "test_multiple_event_filters-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
@@ -1460,7 +1460,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2023-01-04")
     def test_action_filter(self):
         user = "test_action_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         session_id_one = f"test_action_filter-session-one"
         window_id = "test_action_filter-window-id"
         action_with_properties = self.create_action(
@@ -1579,7 +1579,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_all_sessions_recording_object_keys_with_entity_filter(self):
         user = "test_all_sessions_recording_object_keys_with_entity_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         session_id = f"test_all_sessions_recording_object_keys_with_entity_filter-{str(uuid4())}"
         window_id = str(uuid4())
 
@@ -1650,7 +1650,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_duration_filter(self):
         user = "test_duration_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = "session one is 29 seconds long"
         produce_replay_summary(
@@ -1683,10 +1683,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_operand_or_person_filters(self):
         user = "test_operand_or_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
 
         second_user = "test_operand_or_filter-second_user"
-        Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
+        create_person(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
 
         session_id_one = "session_id_one"
         produce_replay_summary(
@@ -1751,10 +1751,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_operand_or_event_filters(self):
         user = "test_operand_or_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "test@posthog.com"})
 
         second_user = "test_operand_or_filter-second_user"
-        Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
+        create_person(team=self.team, distinct_ids=[second_user], properties={"email": "david@posthog.com"})
 
         session_id_one = "session_id_one"
         produce_replay_summary(
@@ -1886,7 +1886,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         expected_session_ids: list[str],
     ) -> None:
         user = "test_operand_or_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_with_both_log_filters = "both_log_filters"
         produce_replay_summary(
@@ -1915,10 +1915,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_operand_or_mandatory_filters(self):
         user = "test_operand_or_filter-user"
-        person = Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        person = create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         second_user = "test_operand_or_filter-second_user"
-        second_person = Person.objects.create(team=self.team, distinct_ids=[second_user], properties={"email": "bla"})
+        second_person = create_person(team=self.team, distinct_ids=[second_user], properties={"email": "bla"})
 
         session_id_one = "session_id_one"
         produce_replay_summary(
@@ -2015,7 +2015,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_date_from_filter(self):
         user = "test_date_from_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         produce_replay_summary(
             distinct_id=user,
@@ -2059,7 +2059,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_date_from_filter_respects_ttl(self, _name: str, days_ago: int):
         with freeze_time(self.an_hour_ago):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
-            Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+            create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
             # Create a session past TTL (32 days old)
             produce_replay_summary(
@@ -2088,7 +2088,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_date_to_filter(self):
         user = "test_date_to_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         produce_replay_summary(
             distinct_id=user,
             session_id="three days before base time",
@@ -2115,7 +2115,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_recording_that_spans_time_bounds(self):
         user = "test_recording_that_spans_time_bounds-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         day_line = datetime(2021, 11, 5)
         session_id = f"session-one-{user}"
         produce_replay_summary(
@@ -2142,7 +2142,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         three_user_ids = [str(uuid4()) for _ in range(3)]
         session_id_one = f"test_person_id_filter-{str(uuid4())}"
         session_id_two = f"test_person_id_filter-{str(uuid4())}"
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=[three_user_ids[0], three_user_ids[1]],
             properties={"email": "bla"},
@@ -2170,7 +2170,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         three_user_ids = [str(uuid4()) for _ in range(3)]
         target_session_id = f"test_all_filters_at_once-{str(uuid4())}"
 
-        p = Person.objects.create(
+        p = create_person(
             team=self.team,
             distinct_ids=[three_user_ids[0], three_user_ids[1]],
             properties={"email": "bla"},
@@ -2247,7 +2247,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_teams_dont_leak_event_filter(self):
         user = "test_teams_dont_leak_event_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         another_team = Team.objects.create(organization=self.organization)
 
         session_id = f"test_teams_dont_leak_event_filter-{str(uuid4())}"
@@ -2320,7 +2320,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         user_distinct_id = "test_event_filter_with_matching_on_session_id-user"
-        Person.objects.create(team=self.team, distinct_ids=[user_distinct_id], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user_distinct_id], properties={"email": "bla"})
         session_id = f"test_event_filter_with_matching_on_session_id-1-{str(uuid4())}"
 
         create_event(
@@ -2384,7 +2384,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_event_filter_with_hogql_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
 
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         create_event(
@@ -2447,7 +2447,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
 
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         create_event(
@@ -2518,7 +2518,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_any_event_filter_with_properties(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         page_view_session_id = f"pageview-session-{str(uuid4())}"
         my_custom_event_session_id = f"my-custom-event-session-{str(uuid4())}"
@@ -2650,7 +2650,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_logs(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         with_logs_session_id = f"with-logs-session-{str(uuid4())}"
         without_logs_session_id = f"no-logs-session-{str(uuid4())}"
@@ -2706,7 +2706,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_warns(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         with_logs_session_id = f"with-logs-session-{str(uuid4())}"
         without_logs_session_id = f"no-logs-session-{str(uuid4())}"
@@ -2758,7 +2758,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_errors(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         with_logs_session_id = f"with-logs-session-{str(uuid4())}"
         without_logs_session_id = f"no-logs-session-{str(uuid4())}"
@@ -2810,7 +2810,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_mixed_console_counts(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         with_logs_session_id = f"with-logs-session-{str(uuid4())}"
         with_warns_session_id = f"with-warns-session-{str(uuid4())}"
@@ -2943,7 +2943,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         operand: Literal["AND", "OR"],
         expected_session_ids: list[str],
     ) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         # Create sessions
         produce_replay_summary(
@@ -3028,7 +3028,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_snapshot_source(self):
         user = "test_duration_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = "session one id"
         produce_replay_summary(
@@ -3062,7 +3062,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_for_recordings_by_snapshot_library(self):
         user = "test_library_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_library_filter-{str(uuid4())}"
         produce_replay_summary(
@@ -3101,7 +3101,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         recording filters for better query performance (avoids events table scan).
         """
         user = "test_lib_conversion-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = f"test_lib_conversion-{str(uuid4())}"
         produce_replay_summary(
@@ -3141,7 +3141,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         aggregated columns that only exist after GROUP BY.
         """
         user = "test_recording_prop_routing-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         short_session = f"test_recording_prop_routing-short-{str(uuid4())}"
         produce_replay_summary(
@@ -3170,7 +3170,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_for_recordings_by_visited_page(self):
         user = "test_visited_page_filter-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         # Session with /pricing page in recording
         session_id_one = "session one id"
@@ -3253,7 +3253,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_duration_always_anded_with_visited_page_under_or(self):
         user = "test_duration_visited_page-user"
-        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         # Visited /pricing but too short to clear the duration control
         short_session = "short pricing session"
@@ -3315,7 +3315,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         produce_replay_summary(
             distinct_id="user",
@@ -3383,8 +3383,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -3495,8 +3495,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -3588,8 +3588,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ]
             self.team.save()
 
-            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            Person.objects.create(
+            create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            create_person(
                 team=self.team,
                 distinct_ids=["user2"],
                 properties={"email": "not-the-other-one"},
@@ -3674,8 +3674,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -3760,8 +3760,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -3844,8 +3844,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         self.team.test_account_filters = [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -3934,8 +3934,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         another_team = Team.objects.create(organization=self.organization)
 
         # two teams, user with the same properties
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
 
         # a recording session with a pageview and a pageleave
         self._a_session_with_two_events(self.team, "1")
@@ -3964,7 +3964,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_event_filter_with_group_filter(self):
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         session_id = f"test_event_filter_with_group_filter-ONE-{uuid4()}"
         different_group_session = f"test_event_filter_with_group_filter-TWO-{uuid4()}"
 
@@ -4127,8 +4127,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-        Person.objects.create(
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(
             team=self.team,
             distinct_ids=["user2"],
             properties={"email": "not-the-other-one"},
@@ -4246,7 +4246,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         # session "1": internal (localhost) AND matches a user filter ($pageview)
         produce_replay_summary(
@@ -4304,8 +4304,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # Create two users with different distinct_ids
         user1 = "test-user-1"
         user2 = "test-user-2"
-        Person.objects.create(team=self.team, distinct_ids=[user1])
-        Person.objects.create(team=self.team, distinct_ids=[user2])
+        create_person(team=self.team, distinct_ids=[user1])
+        create_person(team=self.team, distinct_ids=[user2])
 
         # Create sessions for each user
         session1 = f"session1-{uuid4()}"
@@ -4345,7 +4345,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         identified_id = "identified-user"
         anonymous_id = "anon-uuid-123"
 
-        person = Person.objects.create(team=self.team, distinct_ids=[identified_id, anonymous_id])
+        person = create_person(team=self.team, distinct_ids=[identified_id, anonymous_id])
 
         identified_session = f"identified-session-{uuid4()}"
         anonymous_session = f"anonymous-session-{uuid4()}"
@@ -4770,8 +4770,8 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_id_one = f"test_event_filter_with_person_properties-1-{str(uuid4())}"
             session_id_two = f"test_event_filter_with_person_properties-2-{str(uuid4())}"
 
-            Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-            Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
+            create_person(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+            create_person(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
 
             self._add_replay_with_pageview(session_id_one, user_one)
             produce_replay_summary(
@@ -4869,12 +4869,12 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             session_id_two = f"test_person_id_filter-session-two"
             session_id_three = f"test_person_id_filter-session-three"
 
-            p = Person.objects.create(
+            p = create_person(
                 team=self.team,
                 distinct_ids=[three_user_ids[0], three_user_ids[1]],
                 properties={"email": "bla"},
             )
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[three_user_ids[2]],
                 properties={"email": "bla2"},

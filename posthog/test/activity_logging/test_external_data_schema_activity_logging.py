@@ -4,8 +4,7 @@ from posthog.models.activity_logging.activity_log import ActivityScope, field_ex
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 
 class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):

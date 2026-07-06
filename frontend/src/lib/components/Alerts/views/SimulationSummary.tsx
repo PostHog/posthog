@@ -90,7 +90,8 @@ function SimulationChart({
         getConfig: () => ({
             type: 'line' as const,
             data: {
-                labels: result.dates,
+                // SQL insights carry no dates (their rows aren't a time axis) — label by row position.
+                labels: result.dates.length > 0 ? result.dates : result.data.map((_, i) => `Row ${i + 1}`),
                 datasets: [
                     // Data series (left y-axis)
                     {

@@ -1,7 +1,8 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import litellm
@@ -13,6 +14,8 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
+    CLOUDFLARE_ANTHROPIC_CONFIG,
+    ProviderError,
     _sanitize_request_data,
     handle_llm_request,
     normalize_litellm_model_name,
@@ -24,10 +27,18 @@ from llm_gateway.bedrock import (
     map_to_bedrock_model,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.cloudflare import (
+    cloudflare_litellm_model,
+    ensure_cloudflare_configured,
+    ensure_cloudflare_model_allowed,
+    is_cloudflare_model,
+    make_cloudflare_anthropic_call,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
+    BEDROCK_COUNT_TOKENS_ERRORS,
     BEDROCK_FALLBACK_FAILURE,
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
@@ -201,6 +212,31 @@ def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -
         del data["tools"]
 
 
+async def _send_cloudflare_messages(
+    request_data: dict[str, Any],
+    user: RateLimitedUser,
+    is_streaming: bool,
+    product: str,
+) -> dict[str, Any] | StreamingResponse:
+    ensure_cloudflare_model_allowed(request_data["model"])
+    settings = get_settings()
+    api_base, api_key = ensure_cloudflare_configured(settings)
+
+    data = dict(request_data)
+    original_model = data["model"]
+    llm_call = make_cloudflare_anthropic_call(api_base, api_key)
+
+    return await handle_llm_request(
+        request_data=data,
+        user=user,
+        model=original_model,
+        is_streaming=is_streaming,
+        provider_config=CLOUDFLARE_ANTHROPIC_CONFIG,
+        llm_call=llm_call,
+        product=product,
+    )
+
+
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -253,6 +289,56 @@ async def _maybe_bypass_anthropic(
     return decision.bypass
 
 
+# Substrings that identify Anthropic's billing / spend-limit refusals within a 400 error message.
+# Anthropic returns these as HTTP 400 invalid_request_error — the same status+type as a genuinely
+# malformed request — so the status code can't tell them apart and the message is the only signal.
+# Matched case-insensitively. Keep this a tight allowlist: broadening it to all 400s would fail
+# real bad requests (prompt-too-long, bad image, role ordering) over to Bedrock, which rejects them
+# identically and just adds a wasted round-trip.
+_ANTHROPIC_BILLING_SIGNATURES: tuple[str, ...] = (
+    "credit balance",  # "Your credit balance is too low to access the Anthropic API"
+    "usage limit",  # "You have reached your specified workspace API usage limits"
+    "regain access",  # "...You will regain access on <date>"
+    "plans & billing",  # "...go to Plans & Billing to upgrade or purchase credits"
+)
+
+
+def _is_anthropic_billing_block(exc: HTTPException) -> bool:
+    """True when Anthropic refused the request for billing / spend-limit reasons.
+
+    These surface as HTTP 400 invalid_request_error (e.g. a workspace usage-limit block or an
+    exhausted prepaid balance), not 5xx/429 — so they are genuinely provider-down but look like a
+    caller error. We match the upstream message carried in `detail["error"]["message"]`.
+
+    Gated on `ProviderError` so it only ever fires on a genuine upstream-provider failure: a
+    gateway-local 400 (e.g. unsupported model) echoes the caller's model name into the message, and
+    without this guard a crafted name like "gemini/credit balance is too low" would be misread as a
+    billing block and poison the shared circuit breaker.
+    """
+    if not isinstance(exc, ProviderError):
+        return False
+    if exc.status_code != 400:
+        return False
+    detail = exc.detail
+    if not isinstance(detail, dict):
+        return False
+    error = detail.get("error")
+    if not isinstance(error, dict):
+        return False
+    message = str(error.get("message", "")).lower()
+    return any(signature in message for signature in _ANTHROPIC_BILLING_SIGNATURES)
+
+
+def _anthropic_error_type(exc: HTTPException) -> str:
+    """The provider error type from an Anthropic-style HTTPException detail, or "unknown"."""
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error = detail.get("error")
+        if isinstance(error, dict):
+            return str(error.get("type", "unknown"))
+    return "unknown"
+
+
 def _is_breaker_success(status_code: int) -> bool:
     """4xx are caller-side errors and don't reflect Anthropic health, except 429 — that's
     Anthropic-side throttling and is exactly the kind of degradation the breaker exists for.
@@ -285,7 +371,8 @@ def _wrap_stream_with_breaker(
         success = True
         try:
             async for chunk in inner:
-                yield chunk
+                # body_iterator types loosely as str|bytes|memoryview; our upstream only emits bytes.
+                yield cast(bytes, chunk)
         except asyncio.CancelledError:
             # Client disconnect — neither success nor failure of Anthropic.
             raise
@@ -317,6 +404,16 @@ async def _handle_anthropic_messages(
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
+    # `@cf/` models are Cloudflare-only, so route them to CF by model id — the same way the
+    # chat/completions and responses handlers do. The agent harness derives the provider header from
+    # the runtime (`claude`->anthropic, `codex`->openai) and never sends "cloudflare", so a
+    # claude-runtime scout on a CF-served model (e.g. GLM) arrives here as provider="anthropic".
+    # Without the id check it would fall through to the real Anthropic API and 404. Unlike the
+    # Responses path, this CF route serves tools fine: litellm's Anthropic->chat/completions adapter
+    # translates Anthropic tools into OpenAI function tools that CF's endpoint accepts.
+    if provider == "cloudflare" or is_cloudflare_model(body.model):
+        return await _send_cloudflare_messages(data, user, body.stream or False, product)
+
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
 
@@ -336,12 +433,16 @@ async def _handle_anthropic_messages(
             product=product,
         )
     except HTTPException as exc:
-        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
-        # Fall back to Bedrock for any provider-attributable failure (5xx + 429 throttling).
-        if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
+        # Provider-attributable failures we fail over for: 5xx, 429 throttling, and billing/spend-limit
+        # blocks (which arrive as 400 invalid_request_error). All three are recorded as breaker
+        # failures so the breaker can open; ordinary caller-side 4xx stay a breaker success.
+        billing_block = _is_anthropic_billing_block(exc)
+        fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
+        await _record_anthropic_outcome(breaker, success=not fallback_eligible)
+        if not use_bedrock_fallback or not fallback_eligible:
             raise
 
-        error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
+        error_type = "billing_block" if billing_block else _anthropic_error_type(exc)
         logger.warning(
             "Anthropic request failed, attempting Bedrock fallback",
             model=body.model,
@@ -385,6 +486,25 @@ async def _handle_count_tokens(
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
+    # Route `@cf/` models by model id (see `_handle_anthropic_messages`): a claude-runtime scout on a
+    # CF model counts tokens here with provider="anthropic", and CF has no count_tokens endpoint, so
+    # approximate locally rather than POST a CF model id to the real Anthropic count_tokens API.
+    if provider == "cloudflare" or is_cloudflare_model(body.model):
+        ensure_cloudflare_model_allowed(body.model)
+        # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
+        # serialised payload — callers use this for context-window budgeting, where over-counting
+        # just trims and only under-counting would overflow.
+        aliased_model = cloudflare_litellm_model(body.model)
+        try:
+            count = await asyncio.to_thread(litellm.token_counter, model=aliased_model, text=json.dumps(data))
+        except Exception as exc:
+            logger.exception("cloudflare_count_tokens_failed", model=body.model)
+            raise HTTPException(
+                status_code=502,
+                detail={"error": {"message": "Failed to count tokens", "type": "internal_error"}},
+            ) from exc
+        return {"input_tokens": count}
+
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)
 
@@ -398,7 +518,7 @@ async def _handle_count_tokens(
         if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
             raise
 
-        error_type = exc.detail.get("error", {}).get("type", "unknown") if isinstance(exc.detail, dict) else "unknown"
+        error_type = _anthropic_error_type(exc)
         logger.warning(
             "Anthropic count_tokens failed, attempting Bedrock fallback",
             model=body.model,
@@ -520,6 +640,7 @@ async def _bedrock_count_tokens_impl(
             bedrock_model,
             bedrock_region_name,
             settings.request_timeout,
+            product=product,
         )
         return {"input_tokens": input_tokens}
     except Exception as e:
@@ -532,6 +653,11 @@ async def _bedrock_count_tokens_impl(
             product=product,
             **_bedrock_runtime_exception_log_fields(e),
         )
+        BEDROCK_COUNT_TOKENS_ERRORS.labels(
+            transport="runtime",
+            error_type=type(e).__name__,
+            product=product,
+        ).inc()
         logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
@@ -552,6 +678,11 @@ async def _bedrock_count_tokens_impl(
                 **_exception_log_fields(mantle_exc, prefix="mantle"),
                 **_bedrock_runtime_exception_log_fields(e),
             )
+            BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                transport="mantle",
+                error_type=error_type_name,
+                product=product,
+            ).inc()
             raise HTTPException(
                 status_code=502,
                 detail={

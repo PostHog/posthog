@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-
 use chrono::Utc;
 use cymbal::{
-    fingerprinting::Fingerprint,
-    issue_resolution::{process_assignment, Issue, IssueStatus},
-    modes::processing::rules::assignment::{AssignmentRule, NewAssignment},
+    issue_resolution::{Issue, IssueStatus},
+    modes::processing::rules::assignment::AssignmentRule,
     modes::processing::ProcessingConfig,
+    stages::linking::issue::process_assignment,
     teams::TeamManager,
-    types::{ExceptionList, FingerprintedErrProps},
+    types::exception_properties::ExceptionProperties,
 };
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -44,24 +42,21 @@ fn get_test_rule() -> AssignmentRule {
     }
 }
 
-fn test_fingerprint() -> Fingerprint {
-    Fingerprint {
-        value: String::from("test value"),
-        record: vec![],
-        assignment: None,
-    }
-}
-
-fn test_props(fingerprint: Fingerprint) -> FingerprintedErrProps {
-    FingerprintedErrProps {
-        exception_list: ExceptionList(vec![]),
-        fingerprint,
-        proposed_issue_name: None,
-        proposed_issue_description: None,
-        proposed_fingerprint: String::new(),
-        handled: None,
-        other: HashMap::new(),
-    }
+fn test_props() -> ExceptionProperties {
+    // process_assignment calls to_output(), which requires the materialized
+    // search fields to be present, so seed them (empty, since exception_list is empty).
+    serde_json::from_value(json!({
+        "$exception_list": [],
+        "$exception_types": [],
+        "$exception_values": [],
+        "$exception_sources": [],
+        "$exception_functions": [],
+        "$exception_handled": false,
+        "$exception_fingerprint": "test value",
+        "$exception_proposed_fingerprint": "test value",
+        "test_value": "test_value",
+    }))
+    .unwrap()
 }
 
 fn test_issue() -> Issue {
@@ -79,12 +74,8 @@ fn test_issue() -> Issue {
 async fn test_assignment_processing(db: PgPool) {
     let config = ProcessingConfig::init_with_defaults().unwrap();
 
-    let fingerprint = test_fingerprint();
     let test_team_id = 1;
-    let mut test_props = test_props(fingerprint);
-    test_props
-        .other
-        .insert("test_value".to_string(), JsonValue::from("test_value"));
+    let test_props = test_props();
 
     let issue = test_issue();
 
@@ -97,17 +88,14 @@ async fn test_assignment_processing(db: PgPool) {
 
     let mut conn = db.acquire().await.unwrap();
 
-    let res = process_assignment(&mut conn, &team_manager, &issue, test_props.clone())
+    let res = process_assignment(&mut conn, &team_manager, &issue, &test_props)
         .await
         .unwrap();
 
+    // The assignment returned is the one from the rule
     assert!(res.is_some());
     let res = res.unwrap();
-
-    // Assert that the assignment returned is the one from the rule, because the fingerprint has no assignment
-    assert!(test_props.fingerprint.assignment.is_none());
-    assert!(res.user_id.is_some());
-    assert_eq!(res.user_id.unwrap(), 1);
+    assert_eq!(res.user_id, Some(1));
 
     let existing = res;
 
@@ -121,7 +109,7 @@ async fn test_assignment_processing(db: PgPool) {
         .assignment_rules
         .insert(test_team_id, vec![rule]);
 
-    let res = process_assignment(&mut conn, &team_manager, &issue, test_props.clone())
+    let res = process_assignment(&mut conn, &team_manager, &issue, &test_props)
         .await
         .unwrap();
 
@@ -129,28 +117,4 @@ async fn test_assignment_processing(db: PgPool) {
     let res = res.unwrap();
     assert_eq!(res.user_id, existing.user_id);
     assert_eq!(res.role_id, existing.role_id);
-
-    // Next, change the issue, and put an assignment on the fingerprint. The returned assignment should be the one from
-    // the fingerprint, rather than the rule, because fingerprint assignments take priority over assignment rules
-
-    let mut props_with_fingerprint_assignment = test_props.clone();
-    let fingerprint_assignment = NewAssignment::try_new(Some(3), None).unwrap();
-    props_with_fingerprint_assignment.fingerprint.assignment = Some(fingerprint_assignment);
-
-    let mut new_issue = issue.clone();
-    new_issue.id = Uuid::now_v7(); // So we don't hit the "respect existing assignments" path
-
-    let res = process_assignment(
-        &mut conn,
-        &team_manager,
-        &new_issue,
-        props_with_fingerprint_assignment.clone(),
-    )
-    .await
-    .unwrap();
-
-    assert!(res.is_some());
-    let res = res.unwrap();
-    assert_eq!(res.user_id, Some(3));
-    assert_eq!(res.role_id, None);
 }

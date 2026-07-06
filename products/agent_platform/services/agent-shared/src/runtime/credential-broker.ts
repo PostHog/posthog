@@ -35,18 +35,19 @@ export type Credential =
      */
     | { kind: 'posthog_bearer'; token: string; scopes?: string[]; expires_at?: number }
     /**
+     * Generic OAuth2 bearer from a linked third-party identity provider
+     * (GitHub, Linear, the `dogs` test IdP, …). Usable as
+     * `Authorization: Bearer <token>`; `provider` records which IdP issued it.
+     * Resolved per-principal from the linked-credential store, not a team
+     * integration — this is "act as THIS user on that service".
+     */
+    | { kind: 'oauth_bearer'; token: string; provider: string; scopes?: string[]; expires_at?: number }
+    /**
      * Raw JWT + its decoded claims. The platform doesn't know how the
      * agent author intends to use this — tools either re-send the JWT
      * (e.g. to call back into the issuing system) or read `claims`.
      */
     | { kind: 'jwt'; token: string; claims: Record<string, unknown> }
-    /**
-     * Reference to a team-level integration credential (Slack token,
-     * etc.). The runner resolves to the actual access token through the
-     * existing `IntegrationCredentials` resolver — keeping the integration
-     * shape consistent with native-tool usage today.
-     */
-    | { kind: 'integration_ref'; integration_id: string }
 
 /**
  * Map of target → credential. Targets are author-defined strings; the

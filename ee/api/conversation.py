@@ -6,7 +6,6 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 import pydantic
@@ -27,6 +26,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -599,13 +599,11 @@ class ConversationViewSet(
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
 
-        return StreamingHttpResponse(
-            (
-                async_stream(workflow_inputs)
-                if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(lambda: async_stream(workflow_inputs))
-            ),
-            content_type="text/event-stream",
+        return sse_streaming_response(
+            async_stream(workflow_inputs)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(lambda: async_stream(workflow_inputs)),
+            endpoint="max_conversation",
         )
 
     @action(detail=True, methods=["GET", "POST"], url_path="queue")
@@ -795,7 +793,7 @@ class ConversationViewSet(
 
         Runs only on a first message — no backing Task yet (`task_id is None`) and real content.
         Followups and resumes reuse the existing Task's repository, and warming has no message to
-        route on, so neither triggers the (potentially heavy) selection. Selection never raises;
+        route on, so neither triggers the explicit repository mention match. Selection never raises;
         any failure degrades to None — a repo-less sandbox — so it can't block the conversation.
         """
         if conversation.task_id is not None:

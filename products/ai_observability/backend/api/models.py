@@ -21,7 +21,7 @@ class LLMModelInfoSerializer(serializers.Serializer):
         help_text="Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022')."
     )
     posthog_available = serializers.BooleanField(
-        help_text="Whether this model is available on PostHog's trial credits without bringing a provider key."
+        help_text="True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key."
     )
 
 

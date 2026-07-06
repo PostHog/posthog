@@ -5,7 +5,7 @@ description: 'Guide for writing PostHog agent skills — job-to-be-done template
 
 # Writing skills for PostHog agents
 
-Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md](docs/published/handbook/engineering/ai/writing-skills.md).
+Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md](../../../docs/published/handbook/engineering/ai/writing-skills.md).
 
 ## Quick workflow
 
@@ -66,7 +66,7 @@ Only `references/` and `scripts/` subdirectories are collected. Others are ignor
 ## Template functions
 
 Files ending in `.j2` are rendered with Jinja2 at build time
-by [`products/posthog_ai/scripts/build_skills.py`](products/posthog_ai/scripts/build_skills.py).
+by [`products/posthog_ai/scripts/build_skills.py`](../../../products/posthog_ai/scripts/build_skills.py).
 Extend the build pipeline so the monorepo stays the source of truth —
 when domain knowledge lives in code (Pydantic models, query runners, function registries),
 add a template function rather than duplicating it as static markdown that drifts.
@@ -82,7 +82,7 @@ Available functions:
 - Clear entry point linking to 30+ reference files
 - Progressive disclosure — agents load only what they need
 - Mix of static `.md` and generated `.md.j2` content
-- See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](products/posthog_ai/skills/querying-posthog-data/SKILL.md)
+- See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 
 ## Bad example: `llm-analytics`
 

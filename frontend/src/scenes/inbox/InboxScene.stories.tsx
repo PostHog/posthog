@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import {
     allReports,
     mockArtefacts,
-    mockReportTasks,
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
@@ -32,12 +33,10 @@ const sceneMocks = mswDecorator({
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
         ],
-        '/api/projects/:id/signals/reports/:reportId/tasks': (req) => [
-            200,
-            mockReportTasks(req.params.reportId as string),
-        ],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+        '/api/projects/:id/signals/scout/configs': () => [200, []],
+        '/api/projects/:id/signals/scout/runs': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
     },
@@ -50,6 +49,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY],
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
     },
@@ -61,12 +61,45 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+// Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+                '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+// Fresh project: nothing watching and nothing in the inbox → the single-command takeover.
+export const SelfDrivingOnboarding: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
+                '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+// Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
+// over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
+// inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
+export const SelfDrivingPaused: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: allReports, count: allReports.length, next: null, previous: null },
+                ],
+                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
+                '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
         }),
     ],

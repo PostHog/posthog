@@ -76,7 +76,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
-    - **every_15_minutes**: Check every 15 minutes (Boost+ and feature flag required)
+    - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
     - **weekly**: Check once per week
@@ -150,7 +150,7 @@ class UpdateAlertAction(BaseModel):
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
     calculation_interval: AlertCalculationInterval | None = Field(
         default=None,
-        description="New calculation interval (every_15_minutes requires Boost+ and feature flag)",
+        description="New calculation interval (every_15_minutes requires Boost+)",
     )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -205,11 +205,9 @@ class UpsertAlertTool(MaxTool):
         existing_interval: str | AlertCalculationInterval | None = None,
     ) -> str | None:
         team = self._team
-        user = self._user
         org = await sync_to_async(lambda: team.organization)()
         return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
             calculation_interval=calculation_interval or existing_interval,
-            user_distinct_id=str(user.distinct_id),
             organization=org,
         )
 

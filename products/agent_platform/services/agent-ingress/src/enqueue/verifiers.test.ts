@@ -43,7 +43,7 @@ const REV: AgentRevision = {
     state: 'live',
     bundle_uri: 's3://x/',
     bundle_sha256: null,
-    spec: { model: 'claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: null,
 }
 

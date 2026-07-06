@@ -27,7 +27,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):

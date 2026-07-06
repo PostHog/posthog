@@ -1,7 +1,6 @@
 import './NotebookPanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -35,16 +34,13 @@ export function NotebookPanel(): JSX.Element | null {
         notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover })
     )
     const editable = !notebook?.is_template
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',
     })
 
-    // Markdown notebooks have no width toggle — they always fill the content width.
-    const contentWidthHasEffect = useMemo(
-        () => size === 'medium' && !isMarkdownNotebookContent(content),
-        [size, content]
-    )
+    const contentWidthHasEffect = size === 'medium'
 
     return (
         <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')} {...dropProperties}>
@@ -73,7 +69,13 @@ export function NotebookPanel(): JSX.Element | null {
                             <div className="flex items-center gap-1">
                                 {selectedNotebook && <NotebookPresence shortId={selectedNotebook} />}
                                 <NotebookMenu shortId={selectedNotebook} />
-                                {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
+                                {contentWidthHasEffect && (
+                                    <NotebookExpandButton
+                                        size="small"
+                                        inPanel={true}
+                                        isMarkdownNotebook={isMarkdownNotebook}
+                                    />
+                                )}
                                 <Link
                                     buttonProps={{
                                         iconOnly: true,

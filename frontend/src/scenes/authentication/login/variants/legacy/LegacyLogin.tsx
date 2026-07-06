@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -15,8 +16,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { Skeleton } from 'lib/ui/quill'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
-import { AuthShell } from 'scenes/authentication/shared/AuthShell'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -88,17 +89,7 @@ function Login(): JSX.Element {
     }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
-        <AuthShell
-            view="login"
-            showHedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-            footer={<SupportModalButton />}
-        >
+        <BridgePage view="login" footer={<SupportModalButton />}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>{loginTitle}</h2>
@@ -174,6 +165,9 @@ function Login(): JSX.Element {
                                 data-attr="login-email"
                                 placeholder="email@yourcompany.com"
                                 type="email"
+                                // The `webauthn` token enables passkey autofill (conditional UI), which
+                                // we only offer on WebKit; elsewhere the auto-modal handles passkeys.
+                                autoComplete={isWebKitBrowser() ? 'username webauthn' : undefined}
                                 onBlur={() => precheck({ email: login.email })}
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
@@ -308,7 +302,7 @@ function Login(): JSX.Element {
                     </div>
                 )}
             </div>
-        </AuthShell>
+        </BridgePage>
     )
 }
 
