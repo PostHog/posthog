@@ -35,6 +35,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequestResult,
     RepoOverview,
     RunFailureLogs,
+    WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowJobAggregate,
@@ -182,6 +183,23 @@ def get_workflow_runner_costs(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+    )
+
+
+def list_author_workflow_costs(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowCost]:
+    return logic.build_author_workflow_costs(
+        curated=_authorized_source(team, source_id, user_access_control),
+        author=author,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
