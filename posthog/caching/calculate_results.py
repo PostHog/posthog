@@ -54,7 +54,7 @@ def calculate_for_query_based_insight(
     team: Team,
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
-    user: "Optional[User | SharedLinkUser]",
+    user: Optional[User | SharedLinkUser],
     user_access_control: Optional["UserAccessControl"] = None,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,

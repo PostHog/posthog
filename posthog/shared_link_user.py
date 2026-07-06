@@ -1,6 +1,11 @@
 """Lives outside posthog.auth so the hogql layer can import it without a circular import."""
 
+from typing import TYPE_CHECKING
+
 from django.contrib.auth.models import AnonymousUser
+
+if TYPE_CHECKING:
+    from posthog.models.sharing_configuration import SharingConfiguration
 
 
 class SharedLinkUser(AnonymousUser):
@@ -15,7 +20,7 @@ class SharedLinkUser(AnonymousUser):
     # Django's AnonymousUser has no email; query modifiers read user.email for internal-user tagging.
     email: str | None = None
 
-    def __init__(self, sharing_configuration):
+    def __init__(self, sharing_configuration: "SharingConfiguration"):
         if not sharing_configuration.enabled:
             raise ValueError("SharedLinkUser requires an enabled sharing configuration")
         super().__init__()
