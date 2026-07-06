@@ -56,7 +56,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             integrationsLogic,
             ['loadIntegrations'],
             activeCloudRunLogic,
-            ['setActiveCloudRun'],
+            ['setActiveCloudRun', 'clearActiveCloudRun'],
             onboardingEventUsageLogic,
             ['reportContextOnboardingCloudRunQueued'],
         ],
@@ -81,6 +81,9 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 startCloudRun: () => 'submitting',
                 startCloudRunSuccess: () => 'queued',
                 startCloudRunFailure: () => 'error',
+                // Dismissing the run (the FAB's dismiss or "Run it yourself") drops the handle, so a
+                // lingering 'queued' here would re-show the kickoff banner for a run that's gone.
+                clearActiveCloudRun: () => 'idle',
                 // Picking a different repo after a failure clears the error so the
                 // primary button is actionable again.
                 setSelectedRepository: (state) => (state === 'error' ? 'idle' : state),
