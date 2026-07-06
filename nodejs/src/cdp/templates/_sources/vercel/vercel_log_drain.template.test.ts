@@ -730,6 +730,63 @@ describe('vercel log drain template', () => {
             }
         )
     })
+
+    describe('page_routes_only', () => {
+        const logWithPath = (path: string) => ({
+            ...vercelLogDrain,
+            proxy: { ...vercelLogDrain.proxy, path },
+        })
+
+        it('is off by default: a sub-resource request is still captured', async () => {
+            const response = await tester.invoke(
+                {},
+                { request: createVercelRequest(logWithPath('/static/app.abc123.js')) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(1)
+        })
+
+        it.each([
+            ['root', '/'],
+            ['extension-less route', '/pricing'],
+            ['nested extension-less route', '/docs/getting-started'],
+            ['trailing slash', '/docs/'],
+            ['html document', '/index.html'],
+            ['htm document', '/legacy.htm'],
+            ['uppercase HTML extension', '/INDEX.HTML'],
+            ['extension-less api route', '/api/users'],
+        ])('captures %s when enabled', async (_name, path) => {
+            const response = await tester.invoke(
+                { page_routes_only: true },
+                { request: createVercelRequest(logWithPath(path)) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(1)
+        })
+
+        it.each([
+            ['script bundle', '/static/app.abc123.js'],
+            ['source map', '/static/app.abc123.js.map'],
+            ['stylesheet', '/styles/main.css'],
+            ['gatsby page-data', '/page-data/index/page-data.json'],
+            ['image', '/images/logo.svg'],
+            ['font', '/fonts/inter.woff2'],
+        ])('skips %s when enabled and acknowledges with 200', async (_name, path) => {
+            const response = await tester.invoke(
+                { page_routes_only: true },
+                { request: createVercelRequest(logWithPath(path)) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toEqual(true)
+            expect(response.capturedPostHogEvents).toHaveLength(0)
+            expect(response.execResult).toMatchObject({
+                httpResponse: { status: 200, body: 'OK' },
+            })
+        })
+    })
 })
 
 const createVercelRequest = (body: Record<string, any> | Record<string, any>[]) => {

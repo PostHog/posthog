@@ -155,6 +155,31 @@ fun extractPathname(url) {
     return url
 }
 
+// Extension of the last path segment, lowercased; '' when there is none.
+fun pathExtension(p) {
+    if (empty(p) or typeof(p) != 'string') {
+        return ''
+    }
+    let segments := splitByString('/', p)
+    let lastSegment := segments[length(segments)]
+    if (empty(lastSegment)) {
+        return ''
+    }
+    let parts := splitByString('.', lastSegment)
+    if (length(parts) <= 1) {
+        return ''
+    }
+    return lower(parts[length(parts)])
+}
+
+// Top-level document request: a path with no file extension (e.g. /pricing,
+// /docs/x) or an HTML document. Everything else is a sub-resource (JS, CSS,
+// image, font, JSON, source map).
+fun isPageRoute(p) {
+    let ext := pathExtension(p)
+    return ext == '' or ext == 'html' or ext == 'htm'
+}
+
 // Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
 // one stable ID per client. The active strategy is recorded as $distinct_id_strategy
 // on the event for diagnostics — it is not an analytical breakdown dimension.
@@ -218,6 +243,19 @@ if (strategy == 'rotating_salt') {
 // Parse URL for pathname and UTM parameters
 let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
+
+// Optional: keep only top-level page routes and HTML documents. A single page view
+// fans out into many sub-resource requests (JS, CSS, images, fonts, JSON), so this
+// keeps $http_log close to a document/pageview stream and cuts ingested volume.
+// Skipped requests are acknowledged with 200 so Vercel does not retry them.
+if (inputs.page_routes_only and not isPageRoute(pathname)) {
+    return {
+        'httpResponse': {
+            'status': 200,
+            'body': 'OK'
+        }
+    }
+}
 
 let props := {
     // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
@@ -347,6 +385,16 @@ return {
             type: 'boolean',
             label: 'Log payloads',
             description: 'Logs the incoming request for debugging',
+            secret: false,
+            required: false,
+            default: false,
+        },
+        {
+            key: 'page_routes_only',
+            type: 'boolean',
+            label: 'Only capture page routes',
+            description:
+                'When enabled, only top-level document requests are captured — paths with no file extension (e.g. /pricing, /docs/x) or ending in .html/.htm. Sub-resource requests (JS, CSS, images, fonts, JSON, source maps) are skipped and acknowledged with 200 so Vercel does not retry them. A single page view fans out into many sub-resource requests, so this keeps $http_log close to a document/pageview stream and cuts ingested volume substantially. Off by default (the full HTTP access log is captured). Note: extension-less API routes (e.g. /api/x) are also kept.',
             secret: false,
             required: false,
             default: false,
