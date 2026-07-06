@@ -4,12 +4,12 @@
 // Node services read/write the same Redis stream during the cutover window.
 //
 // HTTP status codes:
-//   200  success: {accepted, duplicate, last_accepted_seq}
+//   200  success, or post-turn client disconnect (sandbox teardown): {accepted, duplicate, last_accepted_seq}
 //   400  bad NDJSON: invalid JSON, non-object, wrong field types, ordering
 //   401  missing / invalid JWT
 //   403  JWT claims don't match URL params
 //   405  wrong HTTP method
-//   408  client disconnected mid-body: {error, last_accepted_seq}
+//   408  client disconnected mid-turn: {error, last_accepted_seq}
 //   409  SequenceGap / AlreadyCompleted / CompletionSequenceMismatch: {error, last_accepted_seq}
 //   413  payload too large: {error, last_accepted_seq}
 
@@ -41,7 +41,7 @@ import {
     type EventIngestResult,
     type SandboxEventIngestTokenPayload,
 } from '../lib/types.js'
-import { observeStreamIngestEvents } from './metrics.js'
+import { observeIngestClientDisconnect, observeStreamIngestEvents } from './metrics.js'
 
 // Diagnostic (temporary): records when request-body chunks arrive at the Node
 // process, to tell a live upload (chunks spread across the request lifetime)
@@ -119,15 +119,25 @@ export async function handleIngest(
         result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
     } catch (err: unknown) {
         if (err instanceof ClientDisconnected) {
+            const classification = await classifyDisconnect(redisStream)
+            observeIngestClientDisconnect(classification)
+            observeStreamIngestEvents({ accepted: err.accepted, duplicate: err.duplicate })
             logger.info('ingest:client_disconnect', {
                 run: claims.runId,
+                classification,
                 accepted: err.accepted,
                 duplicate: err.duplicate,
                 lastSeq: err.lastAcceptedSeq,
                 chunks: bodyTiming.chunks,
                 bodyBytes: bodyTiming.bytes,
             })
-            return c.json({ error: 'Client disconnected', last_accepted_seq: err.lastAcceptedSeq }, 408)
+            if (classification === 'mid_turn') {
+                return c.json({ error: 'Client disconnected', last_accepted_seq: err.lastAcceptedSeq }, 408)
+            }
+            return c.json(
+                { accepted: err.accepted, duplicate: err.duplicate, last_accepted_seq: err.lastAcceptedSeq },
+                200
+            )
         }
         if (err instanceof EventIngestBadRequest) {
             return c.json({ error: err.message }, 400)
@@ -175,6 +185,20 @@ export async function handleIngest(
         },
         200
     )
+}
+
+type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
+
+// Post-turn disconnects are expected sandbox teardown; fail toward 'mid_turn' so real cuts stay visible.
+async function classifyDisconnect(redisStream: TaskRunRedisStream): Promise<DisconnectClassification> {
+    try {
+        if (await redisStream.isComplete()) {
+            return 'run_over'
+        }
+        return (await redisStream.getAgentActive()) ? 'mid_turn' : 'idle'
+    } catch {
+        return 'mid_turn'
+    }
 }
 
 // ---------------------------------------------------------------------------
