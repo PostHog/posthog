@@ -4,4 +4,6 @@ version = 1
 name = "posthog"
 
 [setup]
-script = "direnv allow ."
+script = '''
+direnv allow .
+source /Users/reece/.zshrc'''

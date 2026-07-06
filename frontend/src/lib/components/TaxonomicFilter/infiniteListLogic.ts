@@ -1223,6 +1223,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastActiveTab = activeTab
             actions.resetPinnedRowState()
             actions.reconcilePinnedRowState()
+
+            // A tab switch can cut short this list's in-flight (debounced) remote search before
+            // it lands, leaving the cached results stale for the current query. Nothing else
+            // re-fires the load, so the stale list surfaces as a false "No results" until a later
+            // render or re-type. Reconcile here: if the cached remote query no longer matches the
+            // active search, re-dispatch so switching to (or back to) a tab always reloads against
+            // the current query. Skip when a load is already in flight — it reads the current
+            // query at fetch time and settles correctly on its own.
+            if (
+                values.hasRemoteDataSource &&
+                !values.remoteItemsLoading &&
+                (values.remoteItems.searchQuery ?? '') !== values.searchQuery
+            ) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            }
         },
         setSearchQuery: async () => {
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery

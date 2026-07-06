@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID, type YAxis } from '../core/types'
-import { createXAxisTickCallback, type TimeInterval } from './dates'
+import { DEFAULT_Y_AXIS_ID, type TooltipConfig, type YAxis } from '../core/types'
+import { createTooltipDateFormatter, createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
@@ -57,6 +57,22 @@ export function useXTickFormatter(
         }
         return undefined
     }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, effectiveAllDays])
+}
+
+/** Tooltip config with the header label defaulted to a full formatted date when the x-axis is
+ *  date-driven (`timezone` + `interval` set) — the axis ticks are already auto-formatted then, so
+ *  a raw ISO header would be the odd one out. An explicit `labelFormatter` wins. */
+export function useTimeSeriesTooltipConfig(
+    tooltip: TooltipConfig | undefined,
+    xAxis: XAxisConfig | undefined
+): TooltipConfig | undefined {
+    const { timezone, interval } = xAxis ?? {}
+    return useMemo(() => {
+        if (tooltip?.labelFormatter || !timezone || !interval) {
+            return tooltip
+        }
+        return { ...tooltip, labelFormatter: createTooltipDateFormatter({ interval, timezone }) }
+    }, [tooltip, timezone, interval])
 }
 
 /** Non-hook resolution of a {@link YAxisConfig} into a tick formatter. An explicit `tickFormatter`

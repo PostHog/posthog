@@ -324,6 +324,9 @@ const customPropertyDefinitionsCreate = (): ToolBase<
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
         }
+        if (params.options !== undefined) {
+            body['options'] = params.options
+        }
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/`,
@@ -394,6 +397,9 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
         }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
+        }
+        if (params.options !== undefined) {
+            body['options'] = params.options
         }
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'PATCH',

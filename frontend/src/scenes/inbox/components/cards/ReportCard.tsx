@@ -58,7 +58,7 @@ export function InboxCardSourceMeta({
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
     const primaryLabel =
-        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+        primary.key === SignalSourceProduct.SignalsScout && scoutName
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
