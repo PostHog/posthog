@@ -205,6 +205,11 @@ export interface ElementStatsResponseApi {
     previous: string | null
 }
 
+export interface ElementValueApi {
+    /** A distinct value of the requested element property */
+    name: string
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -7663,9 +7668,10 @@ export interface ActivityLogPaginatedResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsRequestActionEnumApi =
+    (typeof BulkUpdateTagsRequestActionEnumApi)[keyof typeof BulkUpdateTagsRequestActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsRequestActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -7682,7 +7688,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsRequestActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -7806,7 +7812,11 @@ export type ElementsStatsRetrieveParams = {
      */
     date_to?: string
     /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
      */
     include?: string[]
     /**
@@ -7818,9 +7828,24 @@ export type ElementsStatsRetrieveParams = {
      */
     offset?: number
     /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string
+    /**
      * Sampling factor between 0 and 1
      */
     sampling_factor?: number
+}
+
+export type ElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, or attr_id.
+     */
+    key: string
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string
 }
 
 export type InsightsListParams = {

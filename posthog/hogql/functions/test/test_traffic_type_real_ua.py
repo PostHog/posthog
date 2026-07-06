@@ -1,4 +1,5 @@
 import re
+from ipaddress import ip_address, ip_network
 from uuid import uuid4
 
 import pytest
@@ -7,7 +8,19 @@ from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 from posthog.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import BOT_USER_AGENTS, CATEGORY_TO_TRAFFIC_CATEGORY
+
+
+def _expected_ip_bot_name(ip: str) -> str:
+    """Mirror the query-time multiIf: first BOT_IP_DEFINITIONS entry whose ranges contain the ip."""
+    address = ip_address(ip)
+    for ip_def in BOT_IP_DEFINITIONS.values():
+        for cidr in ip_def.networks:
+            network = ip_network(cidr)
+            if network.version == address.version and address in network:
+                return ip_def.name
+    return ""
 
 
 def _find_matching_pattern(ua: str) -> str | None:
@@ -229,6 +242,67 @@ class TestTrafficTypeIntegration(BaseTest):
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
         assert bot_name == ""
+
+    def test_virt_properties_bot_ip_ranges(self):
+        # Google's mobile rendering service: real Android UA with no bot token, only the
+        # source IP (published in Google's crawler ranges) identifies it (posthog#66604).
+        renderer_ua = (
+            "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Mobile Safari/537.36"
+        )
+        google_v6 = next(
+            str(ip_network(cidr).network_address)
+            for ip_def in BOT_IP_DEFINITIONS.values()
+            for cidr in ip_def.networks
+            if ":" in cidr
+        )
+        cases = [
+            # (case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name)
+            ("google-v4", {"$raw_user_agent": renderer_ua, "$ip": "66.249.84.5"}, 1, "Bot", None),
+            ("google-special-v4", {"$raw_user_agent": renderer_ua, "$ip": "74.125.150.10"}, 1, "Bot", None),
+            ("google-v6", {"$raw_user_agent": renderer_ua, "$ip": google_v6}, 1, "Bot", None),
+            ("residential", {"$raw_user_agent": renderer_ua, "$ip": "203.0.113.7"}, 0, "Regular", ""),
+            ("garbage-ip", {"$raw_user_agent": renderer_ua, "$ip": "not-an-ip"}, 0, "Regular", ""),
+            ("missing-ip", {"$raw_user_agent": renderer_ua}, 0, "Regular", ""),
+            # UA classification must keep precedence over the IP lookup
+            (
+                "ua-bot-residential-ip",
+                {"$raw_user_agent": "Googlebot/2.1", "$ip": "203.0.113.7"},
+                1,
+                "Bot",
+                "Googlebot",
+            ),
+        ]
+
+        tag = uuid4().hex
+        for case_id, properties, *_ in cases:
+            self._create_tagged_event(
+                tag=tag,
+                distinct_id=case_id,
+                event="test_bot_ip",
+                team=self.team,
+                properties={**properties, "case_id": case_id},
+            )
+        flush_persons_and_events()
+
+        response = self._query_tagged(
+            "properties.case_id, `$virt_is_bot`, `$virt_traffic_type`, `$virt_bot_name`, `$virt_bot_operator`", tag
+        )
+        results_by_case = {row[0]: row for row in response.results}
+
+        for case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name in cases:
+            row = results_by_case.get(case_id)
+            assert row is not None, f"No result for case {case_id}"
+            _case, is_bot, traffic_type, bot_name, bot_operator = row
+            assert is_bot == expected_is_bot, f"is_bot mismatch for {case_id}: got {is_bot}"
+            assert traffic_type == expected_traffic_type, f"traffic_type mismatch for {case_id}: got {traffic_type}"
+            if expected_bot_name is None:
+                # IP-classified: which Google list an IP sits in shifts across upstream
+                # refreshes, so derive the expected label from the data instead of pinning it
+                expected_bot_name = _expected_ip_bot_name(properties["$ip"])
+            assert bot_name == expected_bot_name, f"bot_name mismatch for {case_id}: got {bot_name}"
+            if expected_is_bot:
+                assert bot_operator == "Google", f"bot_operator mismatch for {case_id}: got {bot_operator}"
 
     def test_virt_properties_empty_user_agent(self):
         tag = uuid4().hex

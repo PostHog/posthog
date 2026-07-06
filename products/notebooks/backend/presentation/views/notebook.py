@@ -309,6 +309,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             raise serializers.ValidationError(str(err))
 
 
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
+
+
 class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
@@ -547,6 +556,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):

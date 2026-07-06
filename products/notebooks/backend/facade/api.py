@@ -134,6 +134,7 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
     creation_source: str = NotebookCreationSource.MAX_AI,
     conversation_id: str | None = None,
     topic: str | None = None,
@@ -145,6 +146,7 @@ async def aupsert_notebook(
         last_modified_by_id=last_modified_by_id,
         title=title,
         content=content,
+        text_content=text_content,
     )
     if created:
         await sync_to_async(capture_notebook_created)(

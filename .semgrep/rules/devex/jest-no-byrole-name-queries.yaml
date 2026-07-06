@@ -1,0 +1,35 @@
+rules:
+    - id: jest-no-byrole-name-queries
+      message: |
+          `*ByRole(..., { name: ... })` in a jest/jsdom test. Role queries walk
+          every element in the DOM, running `getComputedStyle`-based
+          inaccessibility checks and computing accessible names as they go. In
+          jsdom that costs tens of milliseconds per candidate element, so on a
+          component that renders a large DOM (calendars with time columns, the
+          taxonomic filter, whole scenes/dashboards) a single query takes
+          seconds — and inside `waitFor`/`findBy*` the cost multiplies with
+          every retry. This pattern has produced individual tests with p95
+          durations of 40s in CI (see PostHog/posthog#68733).
+
+          Prefer, in order:
+            • `getByText(...)` when the assertion is about visible text
+            • `getByTestId(...)` / a `data-attr` querySelector for interactions
+            • `getByLabelText(...)` when the element is identified by aria-label
+            • scope with `within(<small container>)` if a role query is genuinely needed
+
+          This rule is informational, not blocking: role+name queries on small
+          DOMs (a single button, a dialog) are fine, and are sometimes chosen
+          deliberately for resilience to markup changes. If yours is one of
+          those, add `// nosemgrep: jest-no-byrole-name-queries` with a short
+          reason — but check the suite's runtime first.
+      severity: WARNING
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+      pattern-regex: '(?:get|query|find)(?:All)?ByRole\(\s*[''"][a-z]+[''"]\s*,\s*\{[^}]*\bname\s*:'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

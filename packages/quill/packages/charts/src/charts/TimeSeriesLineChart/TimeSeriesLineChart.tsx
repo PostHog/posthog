@@ -14,7 +14,7 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import type { GoalLineConfig } from '../../utils/goal-lines'
-import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
+import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
 import {
     useDerivedSeries,
@@ -45,6 +45,9 @@ export interface TimeSeriesLineChartConfig {
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
+     *  `yAxis` config, when set, wins. */
+    showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
     showAxisLines?: boolean
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
@@ -95,6 +98,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         comparisonOf,
         percentStackView,
         showCrosshair,
+        showGrid,
         showAxisLines,
         showTickMarks,
         curve,
@@ -111,6 +115,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         primaryYAxis,
         yAxes,
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
 
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
@@ -134,13 +139,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
         hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
-        showGrid: primaryYAxis?.showGrid,
+        showGrid: primaryYAxis?.showGrid ?? showGrid,
         showAxisLines,
         showTickMarks,
         curve,
         percentStackView,
         showCrosshair,
-        tooltip: tooltipConfig,
+        tooltip: timeSeriesTooltipConfig,
         valueDomain,
         floatBaseline,
         yAxes,

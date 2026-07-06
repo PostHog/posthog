@@ -234,6 +234,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -246,6 +247,8 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskThreadMessage
+                              |Channel
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -503,6 +506,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
@@ -515,6 +519,8 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskThreadMessage
+                        |Channel
                         |EmailChannel
                         |EvaluationReport
                         |Text

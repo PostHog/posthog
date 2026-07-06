@@ -54,6 +54,7 @@
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -152,6 +153,7 @@
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -424,6 +426,7 @@
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -522,6 +525,7 @@
          "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
+         "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -7269,6 +7273,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "markdown": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "markdown",
+                  "id": null,
+                  "name": "markdown",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "text_content": {
                   "chain": null,
@@ -15865,6 +15879,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "markdown": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "markdown",
+                  "id": null,
+                  "name": "markdown",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "text_content": {
                   "chain": null,

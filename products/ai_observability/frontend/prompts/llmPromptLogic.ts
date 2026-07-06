@@ -44,6 +44,7 @@ import {
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
+import { getApiErrorDetail, validatePromptName } from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -82,7 +83,6 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
-export const PROMPT_NAME_MAX_LENGTH = 255
 const DEFAULT_PROMPT_ANALYTICS_DATE_FROM = '-1d'
 const STALE_PROMPT_ERROR_MESSAGE =
     'This prompt changed while you were editing it. Your edits are preserved — review the latest version and publish again.'
@@ -129,13 +129,6 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
         created_at: prompt.created_at,
         is_latest: isLatest,
     }
-}
-
-export function getApiErrorDetail(error: unknown): string | undefined {
-    if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
-        return error.detail
-    }
-    return undefined
 }
 
 function isNameFieldValidationError(error: unknown): error is { attr: 'name'; detail: string } {
@@ -265,15 +258,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             options: { showErrorsOnTouch: true },
 
             errors: ({ name, prompt }) => ({
-                name: !name?.trim()
-                    ? 'Name is required'
-                    : name.toLowerCase() === 'new'
-                      ? "'new' is a reserved name and cannot be used"
-                      : name.length > PROMPT_NAME_MAX_LENGTH
-                        ? `Name must be ${PROMPT_NAME_MAX_LENGTH} characters or fewer`
-                        : !/^[a-zA-Z0-9_-]+$/.test(name)
-                          ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
-                          : undefined,
+                name: validatePromptName(name),
                 prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
             }),
 
@@ -308,7 +293,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             base_version: currentPrompt.latest_version,
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
-                        lemonToast.success('Prompt version published successfully')
+                        lemonToast.success(`Published v${savedPrompt.version}`)
 
                         const optimisticVersions = [
                             buildPromptVersionSummary(savedPrompt, true),
@@ -383,6 +368,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         isHistoricalVersion: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? !prompt.is_latest : false)],
+
+        nextVersion: [
+            (s) => [s.prompt],
+            (prompt): number | null => (isPrompt(prompt) ? (prompt.latest_version ?? prompt.version) + 1 : null),
+        ],
 
         promptVariables: [
             (s) => [s.promptForm],
@@ -681,8 +671,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         ...router.values.searchParams,
                         [LLM_PROMPTS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
-                } catch {
-                    lemonToast.error('Failed to archive prompt')
+                } catch (error) {
+                    lemonToast.error(getApiErrorDetail(error) || 'Failed to archive prompt')
                 }
             }
         },

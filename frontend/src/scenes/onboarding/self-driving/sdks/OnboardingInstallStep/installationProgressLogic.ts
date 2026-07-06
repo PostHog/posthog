@@ -1,10 +1,10 @@
-import { afterMount, beforeUnmount, connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, beforeUnmount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import type { installationProgressLogicType } from './installationProgressLogicType'
-import { taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
+import { taskRunPrUrl, taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 
 // The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
 // own sub-progress on. Matches wizardProgressTrackerLogic's WORKFLOW_ID.
@@ -113,10 +113,7 @@ export function cloudProgress(
               })
             : null
 
-    // The agent opens the PR mid-run (while it keeps CI green), so the url arrives via the "pr" progress
-    // step before the run reaches a terminal output. Prefer the terminal output when present.
-    const prStepUrl = progressSteps.find((p) => p.step === 'pr')?.detail
-    const prUrl = taskRunState?.output?.pr_url ?? (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
+    const prUrl = taskRunPrUrl(taskRunState, progressSteps)
 
     return {
         phase,
@@ -196,7 +193,11 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
         ],
         actions: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['connect as connectTaskRun', 'disconnect as disconnectTaskRun'],
+            [
+                'connect as connectTaskRun',
+                'disconnect as disconnectTaskRun',
+                'streamCompleted as taskRunStreamCompleted',
+            ],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['connect as connectSession', 'disconnect as disconnectSession'],
         ],
@@ -226,6 +227,16 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                     : localProgress(latestSession, sessionConnectionStatus),
         ],
     }),
+    listeners(({ actions, props }) => ({
+        // Once the cloud run is terminal there is nothing left for the session source to enrich, and
+        // it has no terminal state of its own to stop on — without this, an undismissed finished run
+        // keeps a session stream/poll alive app-wide until the user clicks "Dismiss this run".
+        taskRunStreamCompleted: () => {
+            if (props.mode === 'cloud') {
+                actions.disconnectSession()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.connectTaskRun()
         actions.connectSession()
