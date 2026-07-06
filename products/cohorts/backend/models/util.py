@@ -336,6 +336,11 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Ordering is meaningless for cohort membership, and an ORDER BY that references a
+        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
+        # SELECT to just the actor column below, breaking HogQL resolution. Drop it.
+        select_query.order_by = None
+
         columns: dict[str, ast.Expr] = {}
 
         for expr in select_query.select:

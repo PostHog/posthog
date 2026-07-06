@@ -668,6 +668,37 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    def test_print_cohort_hogql_query_drops_order_by_on_stripped_alias(self):
+        """An ActorsQuery ordering by a computed select alias must not dangle once we collapse the SELECT.
+
+        Without clearing ORDER BY, the alias is stripped from the SELECT but still referenced by the
+        ORDER BY, so HogQL resolution raises `QueryError: Unable to resolve field: <alias>`.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Ordered Actors Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "select": ["actor_id", "count() as event_count"],
+                "orderBy": ["event_count DESC"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertNotIn("event_count", sql)
+        self.assertNotIn("ORDER BY", sql)
+        self.assertIn("as actor_id", sql)
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):
