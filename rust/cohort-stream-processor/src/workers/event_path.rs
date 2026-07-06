@@ -1,12 +1,12 @@
 //! The per-event read-modify-write — the Stage 1 "brain".
 //!
-//! [`process_event`] folds one re-keyed event into each affected leaf's RocksDB state under one
-//! atomic [`WriteBatch`](crate::store::CohortStore::write_batch) and returns the transitions that
-//! flipped. Transitions are surfaced only after the commit succeeds.
-
-// The sync `process_event`/`process_event_with_memo` compositions are the public test surface and run
-// in blocking contexts, so their direct `CohortStore` I/O is sanctioned.
-#![allow(clippy::disallowed_methods)]
+//! [`plan_event`] decides what to read; [`fold_event`] folds one re-keyed event into each affected
+//! leaf's RocksDB state, staging every write into a [`StagedBatch`](crate::store::StagedBatch) that
+//! commits atomically through [`CohortStore::apply`](crate::store::CohortStore::apply). The sync
+//! [`process_event`] composition (tests, blocking contexts) and the async
+//! [`process_event_offloaded`] composition (production, over the
+//! [`StoreHandle`](crate::store::StoreHandle) facade) share those two cores. Both return the
+//! transitions that flipped, surfaced only after the commit succeeds.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -253,6 +253,10 @@ pub fn process_event(
 /// Fold one event, consulting the per-worker person memo. A hit answers the person conditions from
 /// cache — no JSON parse, no HogVM eval — keyed on `generation` plus a fingerprint of the raw
 /// `person_properties`.
+// The sync composition is the public test surface and runs in blocking contexts, so its direct
+// `multi_get_stage1` + `apply` are sanctioned; production folds through `process_event_offloaded`,
+// which the crate-wide lint keeps free of raw `CohortStore` calls.
+#[allow(clippy::disallowed_methods)]
 pub fn process_event_with_memo(
     partition_id: u16,
     store: &CohortStore,

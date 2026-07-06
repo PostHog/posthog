@@ -8,11 +8,6 @@
 //! lands on a different partition (re-keyed and re-produced). The chain `origin` is always the
 //! straggler's own person id, since it keys into `redirect_dedup`.
 
-// The sync `resolve`/`read_tombstone` here is the section-core surface (called inside drain/apply
-// `run_section` closures), so its direct `CohortStore` I/O is already off the runtime threads; the
-// async `resolve_offloaded` twin goes through the `StoreHandle` facade instead.
-#![allow(clippy::disallowed_methods)]
-
 use metrics::counter;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -95,6 +90,10 @@ pub fn resolve(
 }
 
 /// Read and decode one tombstone, or `None` when absent or corrupt.
+// Section-core surface: `resolve` calls this inside drain/apply `run_section` closures, so its direct
+// `get_tombstone` is already off the runtime threads. The async `resolve_offloaded` twin reads through
+// the `StoreHandle` facade, and the crate-wide lint keeps it free of raw `CohortStore` calls.
+#[allow(clippy::disallowed_methods)]
 fn read_tombstone(
     store: &CohortStore,
     partition_id: u16,
@@ -212,7 +211,9 @@ pub fn record_re_keyed(count: u64) {
     }
 }
 
+// Tests seed and read tombstones directly against the store.
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

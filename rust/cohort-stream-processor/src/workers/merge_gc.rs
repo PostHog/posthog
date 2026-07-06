@@ -15,10 +15,6 @@
 //!   [`crate::merge::redrive`]), not a marker that ages out — GCing it would drop a staged,
 //!   never-produced transfer. It is simply absent from [`GC_CFS`].
 
-// Sync core run on the blocking pool via `StoreHandle::run_section`, so its direct `CohortStore` I/O
-// is sanctioned.
-#![allow(clippy::disallowed_methods)]
-
 use metrics::counter;
 use tracing::warn;
 
@@ -106,6 +102,9 @@ pub fn handle_merge_gc(
 
 /// Scan one CF up to the cap, collect expired/undecodable keys, delete them in one batch, and
 /// advance the cursor (wrapping on exhaustion).
+// Sync GC core; runs on the blocking pool inside `StoreHandle::run_section` (via `handle_merge_gc`),
+// so its direct `CohortStore` I/O is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 fn sweep_one_cf(
     partition_id: u16,
     store: &CohortStore,
@@ -246,7 +245,9 @@ fn stage_delete(
     }
 }
 
+// Tests seed and read merge-CF rows directly against the store.
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
