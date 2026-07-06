@@ -4,6 +4,7 @@ import { IconCheckCircle, IconClock, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { Card } from '../dashboard/Card'
@@ -39,9 +40,7 @@ export function MCPAnalyticsEarlyData(): JSX.Element {
 function ProgressHeader(): JSX.Element {
     const { signals } = useValues(mcpAnalyticsOnboardingLogic)
     const { setDashboardModeOverride } = useActions(mcpAnalyticsOnboardingLogic)
-    const { stats, milestones, nextMilestone, milestoneProgress } = useValues(mcpEarlyDataLogic)
-
-    const totalCalls = signals?.toolCallsTotal ?? 0
+    const { stats, totalCalls, milestones, nextMilestone, milestoneProgress } = useValues(mcpEarlyDataLogic)
     const summaryParts = [
         `${formatNumber(totalCalls)} tool call${totalCalls === 1 ? '' : 's'}`,
         stats.distinctTools > 0 ? `across ${stats.distinctTools} tool${stats.distinctTools === 1 ? '' : 's'}` : null,
@@ -57,10 +56,11 @@ function ProgressHeader(): JSX.Element {
                     <div>
                         <h3 className="text-lg font-semibold m-0">
                             {summaryParts.join(' ')}
-                            {signals?.firstCallAt ? (
+                            {/* Omitted on day one — "since today" is noise. */}
+                            {signals?.firstCallAt && !dayjs(signals.firstCallAt).isSame(dayjs(), 'day') ? (
                                 <span className="text-muted font-normal">
                                     {' '}
-                                    since <TZLabel time={signals.firstCallAt} formatDate="MMM D" formatTime="" />
+                                    since {dayjs(signals.firstCallAt).format('MMM D')}
                                 </span>
                             ) : null}
                         </h3>
@@ -89,6 +89,7 @@ function ProgressHeader(): JSX.Element {
                         >
                             <LemonTag
                                 type={milestone.reached ? 'success' : 'muted'}
+                                className={milestone.reached ? undefined : 'opacity-60'}
                                 icon={milestone.reached ? <IconCheckCircle /> : <IconClock />}
                             >
                                 {milestone.unlocks}

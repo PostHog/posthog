@@ -149,11 +149,18 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         },
     }),
     selectors({
-        milestones: [(s) => [s.signals], (signals): Milestone[] => buildMilestones(signals?.toolCallsTotal ?? 0)],
+        // The onboarding signal poll and the early stats query run on different cadences,
+        // so during active ingestion they can briefly disagree. One number drives the
+        // header, milestones, and progress so the view never contradicts itself.
+        totalCalls: [
+            (s) => [s.signals, s.stats],
+            (signals, stats): number => Math.max(stats.totalCalls, signals?.toolCallsTotal ?? 0),
+        ],
+        milestones: [(s) => [s.totalCalls], (totalCalls): Milestone[] => buildMilestones(totalCalls)],
         nextMilestone: [(s) => [s.milestones], (milestones): Milestone | null => nextMilestone(milestones)],
         milestoneProgress: [
-            (s) => [s.signals, s.milestones],
-            (signals, milestones): number => progressToNextMilestone(signals?.toolCallsTotal ?? 0, milestones),
+            (s) => [s.totalCalls, s.milestones],
+            (totalCalls, milestones): number => progressToNextMilestone(totalCalls, milestones),
         ],
         checklist: [(s) => [s.stats], (stats): ChecklistItem[] => buildChecklist(stats)],
     }),
