@@ -26,6 +26,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     # key the class-level span seed.
     CLASS_DATA_LEVEL_SETUP = True
 
+    recent: datetime
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
