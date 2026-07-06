@@ -427,7 +427,7 @@ describe('dataTableLogic', () => {
         await expectLogic(builtDataNodeLogic).delay(0).toMatchValues({ responseLoading: false })
 
         expect(logic.values.dataTableRows).not.toBe(initialRows)
-        expect(logic.values.dataTableRows?.[0]?.result?.[1]).toEqual('autocapture')
+        expect((logic.values.dataTableRows?.[0]?.result as any[])[1]).toEqual('autocapture')
     })
 
     it('shows results even when columns in query do not match columns in response', async () => {
