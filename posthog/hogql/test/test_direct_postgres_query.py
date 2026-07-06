@@ -1803,7 +1803,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("public.users", sql_by_mode["synced"])
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_for_synced_source_executes_verbatim(self, mock_connect):
+    def test_send_raw_query_for_synced_source_raises_error(self, mock_connect):
+        # A synced source only exposes its `should_sync` catalog through the HogQL-compiled
+        # path — raw SQL has no such projection, so it's restricted to pure-direct connections.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="synced_source",
@@ -1823,15 +1825,6 @@ class TestDirectPostgresQuery(APIBaseTest):
             },
         )
 
-        mocked_cursor = MagicMock()
-        mocked_cursor.fetchall.return_value = [(1,)]
-        column = MagicMock(type_code=23)
-        column.name = "value"
-        mocked_cursor.description = [column]
-        mocked_connection = MagicMock()
-        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
-        mock_connect.return_value.__enter__.return_value = mocked_connection
-
         executor = HogQLQueryExecutor(
             query="SELECT 1 AS value",
             team=self.team,
@@ -1839,9 +1832,8 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        response = executor.execute()
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            executor.execute()
 
-        # The synced source resolves as a connection and keeps the read-only session guarantees.
-        self.assertEqual(response.results, [(1,)])
-        mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        self.assertIn("-c default_transaction_read_only=on", mock_connect.call_args.kwargs["options"])
+        self.assertIn("Invalid connectionId", str(ctx.exception))
+        mock_connect.assert_not_called()
