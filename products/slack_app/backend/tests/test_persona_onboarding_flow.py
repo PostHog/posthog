@@ -535,3 +535,30 @@ class TestBlockKitActionIdUniqueness:
         ]
         assert action_ids, "builder emitted no interactive elements — extractor or builder is broken"
         assert len(action_ids) == len(set(action_ids)), f"duplicate action_ids in one message: {action_ids}"
+
+
+class TestHomeStartFlow(_FlowTestBase):
+    # The Start button must ack inside Slack's 3s budget, so the kickoff work runs in a
+    # background task; this pins the wiring end to end — click → kickoff DM posted, state row
+    # created, home republished — with the background seam collapsed to inline.
+    @patch(WEBCLIENT)
+    def test_click_posts_kickoff_and_republishes_home(self, mock_webclient_class):
+        client = self._client(mock_webclient_class)
+        workspace_result = MagicMock(candidates=[self.integration], integration=self.integration)
+        user_resolution = MagicMock(user=self.user, integration=self.integration, candidates=[self.integration])
+        action = {"action_id": persona_onboarding.START_ACTION_ID}
+        with (
+            patch(FLAG, return_value=True),
+            patch.object(persona_onboarding, "_run_in_background", side_effect=lambda fn, task: fn()),
+            patch.object(persona_onboarding, "load_integrations", return_value=workspace_result),
+            patch.object(persona_onboarding, "resolve_user_for_workspace", return_value=user_resolution),
+            patch.object(persona_onboarding, "_republish_home") as republish,
+        ):
+            response = persona_onboarding.handle_block_action(
+                {"team": {"id": WORKSPACE}, "user": {"id": SLACK_USER}, "actions": [action]}, action
+            )
+        assert response.status_code == 200
+        client.chat_postMessage.assert_called_once()
+        row = self._row()
+        assert row.onboarding_state["step"] == persona_onboarding.STEP_AWAITING_PERSONA
+        republish.assert_called_once()

@@ -33,6 +33,7 @@ from posthog.user_permissions import UserPermissions
 from products.slack_app.backend import persona_onboarding
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
     build_ai_preferences_payload,
@@ -421,29 +422,21 @@ def _header_blocks() -> list[dict]:
 
 def _onboarding_card_blocks(status: str) -> list[dict]:
     if status == "in_progress":
-        return [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "✨ *Onboarding in progress* — check your DMs from me."},
-                "accessory": {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Restart"},
-                    "action_id": persona_onboarding.START_ACTION_ID,
-                },
-            }
-        ]
-    return [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "✨ *New here?* Let me set things up for you — takes under a minute."},
-            "accessory": {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Start onboarding"},
-                "action_id": persona_onboarding.START_ACTION_ID,
-                "style": "primary",
-            },
+        button: dict = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Resume in DMs"},
+            "action_id": persona_onboarding.START_ACTION_ID,
         }
-    ]
+        text = "✨ *Onboarding in progress* — check your DMs from me."
+    else:
+        button = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Start onboarding"},
+            "action_id": persona_onboarding.START_ACTION_ID,
+            "style": "primary",
+        }
+        text = "✨ *New here?* Let me set things up for you — takes under a minute."
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}, "accessory": button}]
 
 
 def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
@@ -1262,14 +1255,20 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
 
 def _get_slack_integration(slack_team_id: str) -> Integration | None:
-
+    # A workspace can carry several installs and stale ones keep dead tokens (re-installs,
+    # revoked projects), so prefer a candidate whose bot token passes the cached auth check —
+    # blindly taking `.first()` routed every home publish through a dead token.
     if not slack_team_id:
         return None
-    return (
+    candidates = list(
         Integration.objects.select_related("team", "team__organization")
         .filter(kind="slack", integration_id=slack_team_id)
-        .first()
+        .order_by("id")
     )
+    if not candidates:
+        return None
+    healthy = check_integrations_auth_and_filter(candidates)
+    return healthy[0] if healthy else candidates[0]
 
 
 def _load_rows(integration: Integration, slack_user_id: str) -> tuple[SlackSettings | None, SlackSettings | None]:

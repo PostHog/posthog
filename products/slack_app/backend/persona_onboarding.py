@@ -10,8 +10,11 @@ only thin wiring.
 
 from __future__ import annotations
 
+import threading
 import dataclasses
+from collections.abc import Callable
 
+from django.db import close_old_connections
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -772,30 +775,49 @@ def maybe_intercept_assistant_surface(
     return True
 
 
+def _run_in_background(fn: Callable[[], None], *, task: str) -> None:
+    """Run best-effort work off the interactivity request thread. Slack voids a block action
+    after 3s and shows a warning on the clicked button; the kickoff path makes far too many
+    Slack API calls to fit, and every step of it is idempotent + user-retryable."""
+
+    def runner() -> None:
+        try:
+            fn()
+        except Exception:
+            logger.exception("persona_onboarding_background_task_failed", task=task)
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=runner, name=f"persona-onboarding-{task}", daemon=True).start()
+
+
 def handle_home_start(payload: dict) -> HttpResponse:
     workspace_id = str((payload.get("team") or {}).get("id") or "")
     slack_user_id = str((payload.get("user") or {}).get("id") or "")
-    if not workspace_id or not slack_user_id:
-        return HttpResponse(status=200)
+    if workspace_id and slack_user_id:
+        _run_in_background(lambda: _run_home_start(workspace_id, slack_user_id), task="home_start")
+    return HttpResponse(status=200)
+
+
+def _run_home_start(workspace_id: str, slack_user_id: str) -> None:
     result = load_integrations(slack_team_id=workspace_id, kinds=["slack"], slack_user_id=slack_user_id)
     if not result.candidates:
-        return HttpResponse(status=200)
+        return
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
     if not is_persona_onboarding_enabled(probe.team):
-        return HttpResponse(status=200)
+        return
     resolution = resolve_user_for_workspace(
         workspace_result=result, slack_team_id=workspace_id, slack_user_id=slack_user_id
     )
     if resolution.user is None:
-        return HttpResponse(status=200)
+        return
     target = resolution.integration or (resolution.candidates[0] if resolution.candidates else probe)
     row = get_or_create_settings_row(workspace_id, slack_user_id)
     if is_onboarded(row):
         _republish_home(target, slack_user_id)
-        return HttpResponse(status=200)
+        return
     start_onboarding_dm(target, slack_user_id, posthog_user_id=resolution.user.id, entry_point="home_button")
     _republish_home(target, slack_user_id)
-    return HttpResponse(status=200)
 
 
 def handle_block_action(payload: dict, action: dict) -> HttpResponse:

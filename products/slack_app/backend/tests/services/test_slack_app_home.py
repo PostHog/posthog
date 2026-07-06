@@ -39,6 +39,7 @@ from products.slack_app.backend.services.slack_app_home import (
     PreferenceSource,
     TaskItem,
     TasksState,
+    _get_slack_integration,
     handle_ai_preferences_block_action,
     handle_app_home_opened,
     handle_app_home_view_submission,
@@ -102,6 +103,18 @@ def non_admin_user():
     with patch(
         "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin",
         return_value=False,
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _all_candidates_healthy():
+    # `_get_slack_integration` auth-checks candidates through slack_auth, which builds its own
+    # WebClient (a real network call in tests). Default every candidate to healthy; the picker
+    # tests override this with their own patch.
+    with patch(
+        "products.slack_app.backend.services.slack_app_home.check_integrations_auth_and_filter",
+        side_effect=lambda candidates, **kwargs: candidates,
     ):
         yield
 
@@ -887,3 +900,36 @@ class TestWorkspaceSubmitAdminGate:
         body = json.loads(response.content)
         assert body["response_action"] == "errors"
         assert not SlackSettings.objects.filter(slack_user_id__isnull=True).exists()
+
+
+class TestGetSlackIntegration:
+    # A workspace with a stale install kept a dead token at the lowest id; `.first()` routed
+    # every home publish through it (`invalid_auth`), so the picker must prefer a candidate
+    # that passes the auth check and only fall back to id order when none do.
+    AUTH_FILTER = "products.slack_app.backend.services.slack_app_home.check_integrations_auth_and_filter"
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        organization = Organization.objects.create(name="Org")
+        self.dead = Integration.objects.create(
+            team=Team.objects.create(organization=organization, name="Stale"),
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb-dead"},
+        )
+        self.live = Integration.objects.create(
+            team=Team.objects.create(organization=organization, name="Live"),
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb-live"},
+        )
+
+    def test_prefers_auth_healthy_integration(self):
+        with patch(self.AUTH_FILTER, side_effect=lambda candidates, **kwargs: [self.live]):
+            picked = _get_slack_integration(SLACK_WORKSPACE_ID)
+        assert picked is not None and picked.id == self.live.id
+
+    def test_falls_back_to_first_when_none_healthy(self):
+        with patch(self.AUTH_FILTER, return_value=[]):
+            picked = _get_slack_integration(SLACK_WORKSPACE_ID)
+        assert picked is not None and picked.id == self.dead.id
