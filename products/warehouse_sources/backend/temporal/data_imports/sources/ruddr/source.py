@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RuddrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import (
     RuddrResumeConfig,
-    check_access,
     ruddr_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import ENDPOINTS, RUDDR_ENDPOINTS
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -107,12 +107,7 @@ You can create a workspace API key under **Settings → API Keys** in [Ruddr](ht
         self, config: RuddrSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Ruddr API key"
-        return False, message or "Could not validate Ruddr API key"
+        return validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RuddrResumeConfig]:
         return ResumableSourceManager[RuddrResumeConfig](inputs, RuddrResumeConfig)
