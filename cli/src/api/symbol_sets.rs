@@ -7,6 +7,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, raise_for_err},
 };
@@ -51,6 +52,12 @@ struct BulkUploadStartRequest {
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
     force: bool,
+    /// When true, keep an existing symbol set's release association instead of
+    /// failing with release_id_mismatch when a different release ID is provided.
+    /// Older servers ignore this field, so the client-side release fallback in
+    /// `upload_with_retry` still applies for them.
+    #[serde(default)]
+    skip_release_on_conflict: bool,
     /// When true, skip symbol sets whose content changed instead of failing.
     #[serde(default)]
     skip_on_conflict: bool,
@@ -67,8 +74,10 @@ struct BulkUploadFinishRequest {
 }
 
 /// Upload symbol sets with optional retry on release_id_mismatch error.
-/// If `skip_release_on_fail` is true and the server returns a release_id_mismatch error,
-/// the upload will be retried without release IDs.
+/// If `skip_release_on_fail` is true, the server is asked to keep the existing release
+/// association of conflicting symbol sets (skip_release_on_conflict) so the rest of the
+/// batch keeps its release; older servers ignore that field and may still return a
+/// release_id_mismatch error, in which case the upload is retried without release IDs.
 /// If `force` is true, symbol sets whose content has changed are overwritten rather than skipped.
 /// If `skip_on_conflict` is true, symbol sets whose content has changed are skipped rather than failing.
 pub fn upload_with_retry(
@@ -78,11 +87,23 @@ pub fn upload_with_retry(
     force: bool,
     skip_on_conflict: bool,
 ) -> Result<()> {
-    let res = upload_inner(&input_sets, batch_size, force, skip_on_conflict);
+    let res = upload_inner(
+        &input_sets,
+        batch_size,
+        force,
+        skip_on_conflict,
+        skip_release_on_fail,
+    );
     match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
-            warn!("Release ID mismatch detected. Retrying upload without release IDs...");
+            let with_release = input_sets.iter().filter(|s| s.release_id.is_some()).count();
+            warn!(
+                "Release ID mismatch: at least one symbol set already belongs to a different release. \
+                 Retrying the upload without release IDs - {with_release} symbol set(s) will not be \
+                 associated with this release. This usually means unchanged artifacts were rebuilt \
+                 under a new release."
+            );
             let sets_without_release: Vec<_> = input_sets
                 .into_iter()
                 .map(|s| SymbolSetUpload {
@@ -91,8 +112,14 @@ pub fn upload_with_retry(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(&sets_without_release, batch_size, force, skip_on_conflict)
-                .map_err(|e| e.into())
+            upload_inner(
+                &sets_without_release,
+                batch_size,
+                force,
+                skip_on_conflict,
+                skip_release_on_fail,
+            )
+            .map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
@@ -103,6 +130,7 @@ fn upload_inner(
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
+    skip_release_on_conflict: bool,
 ) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
@@ -119,7 +147,8 @@ fn upload_inner(
 
     for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force, skip_on_conflict)?;
+        let start_response =
+            start_upload(batch, force, skip_on_conflict, skip_release_on_conflict)?;
 
         let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
 
@@ -156,6 +185,7 @@ fn start_upload(
     symbol_sets: &[&SymbolSetUpload],
     force: bool,
     skip_on_conflict: bool,
+    skip_release_on_conflict: bool,
 ) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
 
@@ -165,15 +195,20 @@ fn start_upload(
             .map(|s| CreateSymbolSetRequest::new(s))
             .collect(),
         force,
+        skip_release_on_conflict,
         skip_on_conflict,
     };
 
-    let res = retry(retry_policy(500, 2, 3), |_| {
-        client.send_post(
-            client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
-            |req| req.json(&request),
-        )
-    });
+    let res = retry_if(
+        retry_policy(500, 2, 3),
+        |_| {
+            client.send_post(
+                client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
+                |req| req.json(&request),
+            )
+        },
+        ClientError::is_retryable,
+    );
 
     match res {
         Ok(response) => Ok(response
@@ -215,12 +250,16 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadEr
     let client = &context().client;
     let request = BulkUploadFinishRequest { content_hashes };
 
-    retry(retry_policy(500, 2, 3), |_| {
-        client.send_post(
-            client.project_url("error_tracking/symbol_sets/bulk_finish_upload")?,
-            |req| req.json(&request),
-        )
-    })
+    retry_if(
+        retry_policy(500, 2, 3),
+        |_| {
+            client.send_post(
+                client.project_url("error_tracking/symbol_sets/bulk_finish_upload")?,
+                |req| req.json(&request),
+            )
+        },
+        ClientError::is_retryable,
+    )
     .map_err(|e| UploadError::Other(anyhow::anyhow!(e).context(FINISH_UPLOAD_ERROR_MESSAGE)))?;
 
     Ok(())
@@ -341,11 +380,21 @@ fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterato
         .take(max_attempts)
 }
 
-fn retry<I, F, E, R>(iterable: I, mut func: F) -> Result<R, E>
+fn retry<I, F, E, R>(iterable: I, func: F) -> Result<R, E>
 where
     I: Iterator<Item = Duration>,
     F: FnMut(usize) -> Result<R, E>,
     E: Debug,
+{
+    retry_if(iterable, func, |_| true)
+}
+
+fn retry_if<I, F, E, R, P>(iterable: I, mut func: F, should_retry: P) -> Result<R, E>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut(usize) -> Result<R, E>,
+    E: Debug,
+    P: Fn(&E) -> bool,
 {
     let mut attempt = 0;
     let mut last_error: Option<E> = None;
@@ -354,9 +403,16 @@ where
         match func(attempt) {
             Ok(res) => return Ok(res),
             Err(e) => {
+                let retryable = should_retry(&e);
                 last_error = Some(e);
                 attempt += 1;
                 warn!("Operation failed: {last_error:?}");
+                if !retryable {
+                    // Deterministic failures (e.g. 4xx API rejections) will never
+                    // succeed on retry - fail fast instead of sleeping through the
+                    // remaining attempts.
+                    break;
+                }
                 if delays.peek().is_some() {
                     warn!("Retrying in {delay:?}, attempt {attempt}");
                     sleep(delay);
@@ -421,6 +477,22 @@ mod tests {
 
         let captured = messages.lock().unwrap().clone();
         captured
+    }
+
+    #[test]
+    fn retry_if_stops_after_first_non_retryable_error() {
+        let mut attempts = 0;
+        let result: Result<(), &str> = retry_if(
+            vec![Duration::ZERO, Duration::ZERO, Duration::ZERO].into_iter(),
+            |_| {
+                attempts += 1;
+                Err("bad request")
+            },
+            |_| false,
+        );
+
+        assert_eq!(result.unwrap_err(), "bad request");
+        assert_eq!(attempts, 1);
     }
 
     #[test]

@@ -52,6 +52,25 @@ mod tests {
 
         assert!(error.has_api_error_code("release_id_mismatch"));
     }
+
+    #[test]
+    fn deterministic_client_errors_are_not_retryable() {
+        let status_error = |status: u16| {
+            ClientError::ApiError(
+                status,
+                Box::new(Url::parse("https://example.com/api/test").unwrap()),
+                String::new(),
+            )
+        };
+
+        assert!(!status_error(400).is_retryable());
+        assert!(!status_error(403).is_retryable());
+        assert!(status_error(408).is_retryable());
+        assert!(status_error(429).is_retryable());
+        assert!(status_error(500).is_retryable());
+        assert!(status_error(503).is_retryable());
+        assert!(!ClientError::InvalidUrl("nope".to_string()).is_retryable());
+    }
 }
 
 #[derive(Error, Debug)]
@@ -99,6 +118,18 @@ impl ClientError {
 
         api_error_code(body).is_some_and(|code| code == expected_code)
             || body.contains(expected_code)
+    }
+
+    /// Whether a retry could plausibly succeed. Deterministic client errors
+    /// (4xx other than 408/429) and unbuildable URLs never will.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            ClientError::RequestError(_) => true,
+            ClientError::ApiError(status, _, _) => {
+                *status >= 500 || *status == 408 || *status == 429
+            }
+            ClientError::InvalidUrl(_) => false,
+        }
     }
 }
 
