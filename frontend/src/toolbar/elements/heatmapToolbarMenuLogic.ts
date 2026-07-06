@@ -1165,11 +1165,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 // focus usually sits on the toolbar button that started the pick, and shadow
                 // retargeting turns document-level targets into the toolbar host, so a
                 // toolbar-membership guard would eat every arrow key; guard on the composed
-                // target being editable instead — arrows step the highlight unless typing
+                // target instead — arrows step the highlight unless the user is typing or
+                // navigating a menu (Lemon dropdowns are ARIA menus, not native selects)
                 const composedTarget = e.composedPath()[0]
                 if (
                     composedTarget instanceof HTMLElement &&
-                    composedTarget.closest('input, textarea, select, [contenteditable]')
+                    (composedTarget.isContentEditable ||
+                        composedTarget.closest(
+                            'input, textarea, select, [role="listbox"], [role="menu"], [role="option"], [role="menuitem"]'
+                        ))
                 ) {
                     return
                 }

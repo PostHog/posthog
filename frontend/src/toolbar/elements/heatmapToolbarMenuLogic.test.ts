@@ -144,7 +144,7 @@ describe('heatmapToolbarMenuLogic', () => {
                 'follows a replaced node via the stored selector',
                 (element: HTMLElement) => {
                     element.remove()
-                    return { element, selector: 'nav#tracked' }
+                    return { element, selector: 'nav#other' }
                 },
                 'replacement',
             ],
@@ -176,12 +176,7 @@ describe('heatmapToolbarMenuLogic', () => {
             document.body.innerHTML =
                 '<nav id="tracked" data-testid="tracked"></nav><nav id="other" data-testid="replacement"></nav>'
             const tracked = document.getElementById('tracked') as HTMLElement
-            const replacement = document.getElementById('other') as HTMLElement
-            // the "follows a replaced node" row re-queries nav#tracked, so the survivor takes over that id
             const filter = buildFilter(tracked)
-            if (!tracked.isConnected) {
-                replacement.id = 'tracked'
-            }
 
             const resolved = resolveAreaElement(filter)
 
