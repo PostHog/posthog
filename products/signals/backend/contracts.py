@@ -200,10 +200,12 @@ class ErrorTrackingSignalInput(SignalInputBase):
 
 
 class PgAnalyzeIssueReference(ContractModel):
-    kind: str | None
-    name: str | None
-    url: str | None
-    queryText: str | None
+    # pganalyze reference objects omit nullable keys entirely (e.g. index/table refs
+    # carry no queryText), so these need defaults to keep such refs valid.
+    kind: str | None = None
+    name: str | None = None
+    url: str | None = None
+    queryText: str | None = None
 
 
 class PgAnalyzeIssueSignalExtra(SignalExtraBase):

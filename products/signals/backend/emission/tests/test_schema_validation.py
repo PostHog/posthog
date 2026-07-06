@@ -8,6 +8,7 @@ from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.emission.conversations_tickets import conversations_ticket_emitter
 from products.signals.backend.emission.github_issues import github_issue_emitter
 from products.signals.backend.emission.linear_issues import linear_issue_emitter
+from products.signals.backend.emission.pganalyze_issues import pganalyze_issue_emitter
 from products.signals.backend.emission.zendesk_tickets import zendesk_ticket_emitter
 
 FIXTURES_DIR = Path(__file__).resolve().parents[5] / "products" / "signals" / "eval" / "fixtures"
@@ -30,6 +31,7 @@ GITHUB_RECORDS = _load_fixture("github_issues.json")
 ZENDESK_RECORDS = _load_fixture("zendesk_tickets.json")
 LINEAR_RECORDS = _load_fixture("linear_issues.json")
 CONVERSATIONS_RECORDS = _load_fixture("conversations_tickets.json")
+PGANALYZE_RECORDS = _load_fixture("pganalyze_issues.json")
 
 
 class TestGithubFixtureSchemaValidation:
@@ -64,6 +66,18 @@ class TestLinearFixtureSchemaValidation:
     )
     def test_emitter_output_matches_schema(self, record):
         output = linear_issue_emitter(team_id=1, record=record)
+        if output is not None:
+            _validate_output(output)
+
+
+class TestPgAnalyzeFixtureSchemaValidation:
+    @pytest.mark.parametrize(
+        "record",
+        PGANALYZE_RECORDS,
+        ids=[r["id"] for r in PGANALYZE_RECORDS],
+    )
+    def test_emitter_output_matches_schema(self, record):
+        output = pganalyze_issue_emitter(team_id=1, record=record)
         if output is not None:
             _validate_output(output)
 
