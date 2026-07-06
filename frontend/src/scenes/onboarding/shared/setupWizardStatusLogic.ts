@@ -11,6 +11,8 @@ import {
 } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
+
 import { tasksList, tasksRunsList } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -121,6 +123,11 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
             null as DiscoveredSetupRun | null,
             {
                 loadDiscoveredRun: async (): Promise<DiscoveredSetupRun | null> => {
+                    // The onboarding wizard is meaningless to a logged-out viewer, and the tasks API
+                    // it hits is team-scoped, so it 403s in a shared/exported view. Skip it entirely.
+                    if (isSharedView()) {
+                        return null
+                    }
                     // Mounted before the team loaded: the currentTeamId subscription below retries
                     if (values.currentTeamId === null) {
                         return null

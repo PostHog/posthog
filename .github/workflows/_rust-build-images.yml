@@ -142,11 +142,17 @@ jobs:
 
             - name: Retrieve sccache configuration
               id: sccache
+              env:
+                  IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  if [ "$IS_FORK_PR" = "true" ]; then
+                      echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
+                      exit 0
+                  fi
                   echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
 
             - name: Build and push image
               id: docker_build
