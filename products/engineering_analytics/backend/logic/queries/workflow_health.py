@@ -10,14 +10,13 @@ so the trend sparkline keeps a readable number of points — per-day buckets are
 for a 24h window and far too many for a year.
 """
 
-import math
 from datetime import date, datetime, timedelta
 from typing import Literal
 
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthBucket, WorkflowHealthItem
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
 Granularity = Literal["hour", "day", "week"]
@@ -50,12 +49,27 @@ _SELECT = f"""
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion
+        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
+"""
+
+# Success rate over the equal-length window before date_from — the delta baseline the UI renders as
+# an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
+# window (and its LIMIT semantics) stay untouched.
+_PREV_SELECT = """
+    SELECT
+        repo_owner,
+        repo_name,
+        workflow_name,
+        countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
+    FROM __RUNS_SOURCE__ AS r
+    WHERE run_started_at >= {prev_from} AND run_started_at < {date_from} __BRANCH__
+    GROUP BY repo_owner, repo_name, workflow_name
 """
 
 _BUCKET_SELECT = f"""
@@ -116,6 +130,18 @@ def query_workflow_health(
         query_type="engineering_analytics.workflow_health_buckets",
         placeholders=placeholders,
     )
+
+    end = date_to or datetime.now(tz=date_from.tzinfo)
+    prev_from = date_from - (end - date_from)
+    prev_response = curated.run(
+        fill(_PREV_SELECT),
+        query_type="engineering_analytics.workflow_health_prev",
+        placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
+    )
+    prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
+        (repo_owner, repo_name, workflow_name): opt_float(success_rate)
+        for repo_owner, repo_name, workflow_name, success_rate in prev_response.results or []
+    }
     buckets_by_workflow: dict[tuple[str, str, str], dict[datetime, WorkflowHealthBucket]] = {}
     for repo_owner, repo_name, workflow_name, bucket_start, run_count, completed, successes, failures in (
         bucket_response.results or []
@@ -132,9 +158,9 @@ def query_workflow_health(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
-            success_rate=_to_opt_float(success_rate),
-            p50_seconds=_to_opt_float(p50_seconds),
-            p95_seconds=_to_opt_float(p95_seconds),
+            success_rate=opt_float(success_rate),
+            p50_seconds=opt_float(p50_seconds),
+            p95_seconds=opt_float(p95_seconds),
             last_failure_at=last_failure_at,
             # argMaxIf defaults to 0 when nothing completed; the completed_count guard tells
             # "latest run passed" apart from "no completed run yet".
@@ -155,8 +181,10 @@ def query_workflow_health(
             estimated_cost_usd=(
                 cost_by_workflow[workflow_name].estimated_cost_usd if workflow_name in cost_by_workflow else None
             ),
+            rerun_cycles=rerun_cycles,
+            success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion in response.results
+        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, rerun_cycles in response.results
     ]
 
 
@@ -199,10 +227,3 @@ def _normalize(value: datetime | date, granularity: Granularity) -> datetime:
     if granularity == "week":
         return midnight - timedelta(days=midnight.weekday())
     return midnight
-
-
-def _to_opt_float(value: float | None) -> float | None:
-    # quantileIf over an empty window returns NaN; nullIf division returns None.
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return None
-    return float(value)

@@ -65,7 +65,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_trends(self, mock_process_query):
@@ -779,7 +779,7 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     async def test_runs_in_async_context(self):
         """Test successful execution and formatting of funnels query"""
@@ -805,7 +805,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_includes_insight_schema_for_trends_query(self, mock_process_query):
@@ -815,7 +815,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         }
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # Verify schema section is present
         self.assertIn("```json", result)
@@ -828,7 +828,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         self.assertIn("kind", result)
         self.assertNotIn("breakdownFilter", result)
@@ -840,7 +840,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
         # Create query with dateRange (which might have None values for date_from/date_to if not set)
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")], breakdownFilter=None)
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # The schema should not contain null values
         self.assertNotIn("null", result)
@@ -853,7 +853,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
         # Create query with dateRange (which might have None values for date_from/date_to if not set)
         query = AssistantHogQLQuery(query="SELECT 1")
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)

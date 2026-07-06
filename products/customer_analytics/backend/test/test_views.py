@@ -249,7 +249,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(journey.created_by, self.user)
         self.assertEqual(journey.team, self.team)
 
@@ -304,7 +304,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         self.assertFalse(
-            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
+            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: idor-lookup-without-team
         )
 
     @parameterized.expand(
@@ -435,7 +435,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(account.created_by, self.user)
         self.assertEqual(account.team, self.team)
         self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
@@ -1902,3 +1902,145 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
+
+
+class TestAccountNotesViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp")
+        self.endpoint_base = f"/api/projects/{self.team.id}/account_notes/"
+
+    def _link_note(self, account: Account | None = None, **kwargs) -> Notebook:
+        kwargs.setdefault("visibility", Notebook.Visibility.INTERNAL)
+        notebook = Notebook.objects.create(team=self.team, **kwargs)
+        ResourceNotebook.objects.create(notebook=notebook, account=account or self.account)
+        return notebook
+
+    def test_list_returns_account_notes_with_account_fields(self):
+        note = self._link_note(title="Renewal", created_by=self.user)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["short_id"], note.short_id)
+        self.assertEqual(results[0]["title"], "Renewal")
+        self.assertEqual(results[0]["account_id"], str(self.account.id))
+        self.assertEqual(results[0]["account_name"], "Acme Corp")
+        self.assertEqual(results[0]["created_by"]["id"], self.user.id)
+        self.assertEqual(results[0]["created_by"]["email"], self.user.email)
+
+    def test_list_excludes_unlinked_deleted_noninternal_and_other_team_notes(self):
+        included = self._link_note(title="Included")
+        Notebook.objects.create(team=self.team, title="Standalone")
+        self._link_note(title="Deleted", deleted=True)
+        self._link_note(title="Default visibility", visibility=Notebook.Visibility.DEFAULT)
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = Account.objects.unscoped().create(team=other_team, name="Other")
+        other_note = Notebook.objects.create(
+            team=other_team, title="Other team", visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=other_note, account=other_account)
+
+        response = self.client.get(self.endpoint_base)
+
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertEqual(short_ids, [included.short_id])
+
+    @parameterized.expand(
+        [
+            ("matches_title", "renewal", {"Renewal planning"}),
+            ("matches_content", "pricing", {"Untitled"}),
+            ("matches_account_name", "acme", {"Renewal planning", "Untitled", "Kickoff"}),
+            ("no_match", "zzzz", set()),
+        ]
+    )
+    def test_list_search(self, _name, search, expected_titles):
+        self._link_note(title="Renewal planning", text_content="")
+        self._link_note(title="Untitled", text_content="pricing discussion")
+        self._link_note(title="Kickoff", text_content="agenda")
+
+        response = self.client.get(f"{self.endpoint_base}?search={search}")
+
+        titles = {n["title"] for n in response.json()["results"]}
+        self.assertEqual(titles, expected_titles)
+
+    def test_list_filter_by_account(self):
+        other_account = Account.objects.unscoped().create(team=self.team, name="Beta LLC")
+        self._link_note(title="Acme note")
+        self._link_note(title="Beta note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?account_id={self.account.id}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Acme note"])
+
+    @parameterized.expand(
+        [
+            ("account_id", "not-a-uuid"),
+            ("created_by", "alice"),
+            ("created_by", "alice,bob"),
+        ]
+    )
+    def test_list_rejects_malformed_filter(self, param, value):
+        response = self.client.get(f"{self.endpoint_base}?{param}={value}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("single", "{uid}"),
+            ("comma_joined", "{uid},999999"),  # the encoding the generated frontend client sends
+            ("repeated", "{uid}&created_by=999999"),
+        ]
+    )
+    def test_list_filter_by_created_by(self, _name, created_by_query):
+        other_user = User.objects.create_and_join(self.organization, "note-author@posthog.com", None)
+        self._link_note(title="Mine", created_by=self.user)
+        self._link_note(title="Theirs", created_by=other_user)
+
+        query = created_by_query.format(uid=self.user.id)
+        response = self.client.get(f"{self.endpoint_base}?created_by={query}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Mine"])
+
+    def test_list_orders_by_last_modified_desc_and_paginates(self):
+        with freeze_time("2024-01-01"):
+            older = self._link_note(title="Older")
+        with freeze_time("2024-01-02"):
+            newer = self._link_note(title="Newer")
+
+        first_page = self.client.get(f"{self.endpoint_base}?limit=1").json()
+        self.assertEqual(first_page["count"], 2)
+        self.assertEqual([n["short_id"] for n in first_page["results"]], [newer.short_id])
+
+        second_page = self.client.get(f"{self.endpoint_base}?limit=1&offset=1").json()
+        self.assertEqual([n["short_id"] for n in second_page["results"]], [older.short_id])
+
+    def test_list_hides_notes_of_accounts_the_caller_cannot_read(self):
+        visible = self._link_note(title="Visible")
+        hidden_account = Account.objects.unscoped().create(team=self.team, name="Hidden Inc")
+        self._link_note(title="Hidden", account=hidden_account)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "notes-viewer@posthog.com", None)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(hidden_account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertEqual(short_ids, [visible.short_id])

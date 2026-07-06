@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -40,6 +41,7 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
@@ -78,6 +80,9 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
+
+# Gates the (log-only for now) experiment-end -> cleanup-PR trigger; enable it per-project in the app.
+EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -1811,6 +1816,46 @@ class ExperimentService:
 
         return experiment
 
+    def _log_cleanup_pr_preview(self, experiment: Experiment) -> None:
+        """Behind a team feature flag, log the cleanup-PR instructions we would open (no PR yet).
+
+        Log-only first step of the experiment-end -> cleanup-PR feature: lets us see, on real
+        experiments, whether the trigger fires and whether the generated instructions look right,
+        before wiring up the coding agent. Never raises — a preview must not break ending an experiment.
+        """
+        try:
+            enabled = posthoganalytics.feature_enabled(
+                EXPERIMENT_CLEANUP_PR_FLAG,
+                str(self.team.id),
+                groups={"project": str(self.team.id)},
+                group_properties={"project": {"id": str(self.team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            conclusion = experiment.conclusion or ""
+            if not enabled or not conclusion:
+                return
+
+            flag_key = experiment.get_feature_flag_key()
+            plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
+            # Build the prompt to catch render errors on real data, but don't log its body: it
+            # embeds the experiment name and full instructions, and these logs are exported widely.
+            # The structured fields below are enough to confirm the trigger fired and the decision.
+            title, _ = build_cleanup_prompt(experiment, flag_key, plan)
+            logger.info(
+                "experiment_cleanup_pr_preview",
+                experiment_id=experiment.id,
+                team_id=experiment.team_id,
+                flag_key=flag_key,
+                conclusion=conclusion,
+                keep_variant=plan.keep_variant,
+                remove_variants=plan.remove_variants,
+                confident=plan.confident,
+                pr_title=title,
+            )
+        except Exception:
+            logger.exception("experiment_cleanup_pr_preview_failed", experiment_id=experiment.id)
+
     def _report_experiment_ended(
         self,
         experiment: Experiment,
@@ -1819,6 +1864,8 @@ class ExperimentService:
     ) -> None:
         if request is None:
             return
+
+        self._log_cleanup_pr_preview(experiment)
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
