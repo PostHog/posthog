@@ -31,6 +31,7 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { scannerQualityLogic } from '../scannerQualityLogic'
 import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
 
 const SUMMARY_LENGTHS = [
@@ -140,8 +141,10 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
 }
 
 function PromptVersionHistory({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { observationStatsApi } = useValues(replayScannerLogic({ id: scannerId }))
-    const markers = observationStatsApi?.labels.version_markers ?? []
+    // The quality logic's stats call is unfiltered; the scene's observationStatsApi inherits the
+    // Observations tab's filters, which would silently drop versions from this history.
+    const { labelStats } = useValues(scannerQualityLogic({ scannerId }))
+    const markers = labelStats?.version_markers ?? []
     if (markers.length === 0) {
         return null
     }

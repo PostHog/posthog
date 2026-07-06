@@ -179,6 +179,8 @@ class ReplayScannerPromptSuggestionViewSet(
         except PromptSuggestionError as e:
             if str(e) == "no rated observations":
                 raise ValidationError("Rate some results first, then generate a suggestion from them.")
+            if str(e) == "not configured":
+                raise ValidationError("Prompt suggestions require a Gemini API key to be configured on this instance.")
             raise ValidationError("Couldn't generate a suggestion right now. Try again in a moment.")
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
@@ -195,16 +197,19 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
-        # A stale tab can submit an old suggestion id, silently rolling the prompt back.
-        if suggestion.status not in (SuggestionStatus.PENDING, SuggestionStatus.DISMISSED):
-            raise ValidationError("Only the current recommendation can be applied.")
-        if suggestion.scanner_version != scanner.scanner_version:
-            raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-        config = dict(scanner.scanner_config or {})
-        config["prompt"] = suggestion.suggested_prompt
-        scanner.scanner_config = config
-        # One transaction so the scanner can't end up changed while the suggestion stays pending.
+        # One transaction, both rows locked: the guards must still hold at write time, and the scanner
+        # can't end up changed while the suggestion stays pending.
         with transaction.atomic():
+            scanner = ReplayScanner.objects.select_for_update().get(pk=scanner.pk)
+            suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(pk=suggestion.pk)
+            # A stale tab can submit an old suggestion id, silently rolling the prompt back.
+            if suggestion.status not in (SuggestionStatus.PENDING, SuggestionStatus.DISMISSED):
+                raise ValidationError("Only the current recommendation can be applied.")
+            if suggestion.scanner_version != scanner.scanner_version:
+                raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
+            config = dict(scanner.scanner_config or {})
+            config["prompt"] = suggestion.suggested_prompt
+            scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
             suggestion.status = SuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
@@ -222,6 +227,12 @@ class ReplayScannerPromptSuggestionViewSet(
         self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
-        suggestion.status = SuggestionStatus.DISMISSED
-        suggestion.save(update_fields=["status"])
+        with transaction.atomic():
+            suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(pk=suggestion.pk)
+            # Dismissed prompts feed the "do not propose again" examples, so an applied or superseded
+            # suggestion (e.g. from a stale tab) must not land there.
+            if suggestion.status != SuggestionStatus.PENDING:
+                raise ValidationError("Only the current recommendation can be dismissed.")
+            suggestion.status = SuggestionStatus.DISMISSED
+            suggestion.save(update_fields=["status"])
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)

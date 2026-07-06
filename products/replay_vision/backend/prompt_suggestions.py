@@ -10,6 +10,7 @@ import hashlib
 import datetime as dt
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
@@ -75,13 +76,13 @@ def _labeled_observations(scanner: ReplayScanner) -> list[ReplayObservation]:
 
 def labels_fingerprint(scanner: ReplayScanner) -> str:
     """Stable hash of the rated set feeding suggestions; a different value means ratings changed."""
-    rows = ReplayObservation.objects.filter(
-        team_id=scanner.team_id,
-        scanner_id=scanner.id,
-        status=ObservationStatus.SUCCEEDED,
-        label__isnull=False,
-    ).values_list("id", "label__is_correct", "label__feedback")
-    material = "\n".join(f"{row[0]}:{row[1]}:{row[2]}" for row in sorted(rows, key=lambda row: str(row[0])))
+    return _fingerprint(_labeled_observations(scanner))
+
+
+def _fingerprint(observations: list[ReplayObservation]) -> str:
+    material = "\n".join(
+        f"{o.id}:{_label(o).is_correct}:{_label(o).feedback}" for o in sorted(observations, key=lambda o: str(o.id))
+    )
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -202,12 +203,9 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
 
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmPromptSuggestion:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    # The generate endpoint runs this inline in a web worker, so a hung provider call must time out.
-    client = genai.Client(
-        api_key=api_key,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    if not api_key:
+        # Self-hosted instances without a Gemini key: fail cleanly instead of 500ing / sweep-retrying.
+        raise PromptSuggestionError("not configured")
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -215,6 +213,12 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmPromp
         temperature=0.3,
     )
     try:
+        # The generate endpoint runs this inline in a web worker, so a hung provider call must time out.
+        client = genai.Client(
+            api_key=api_key,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
         response = client.models.generate_content(
             model=_SUGGESTION_MODEL,
             contents=user_content,
@@ -257,6 +261,9 @@ def generate_prompt_suggestion(scanner: ReplayScanner, user: User | None = None)
     status = SuggestionStatus.NO_CHANGE if suggested_prompt == base_prompt.strip() else SuggestionStatus.PENDING
     up = len([o for o in observations if _label(o).is_correct])
     with transaction.atomic():
+        # Serialize with concurrent generates and applies so two PENDING rows can't coexist.
+        if ReplayScanner.objects.select_for_update().filter(pk=scanner.pk).first() is None:
+            raise PromptSuggestionError("scanner deleted")
         ReplayScannerPromptSuggestion.objects.filter(
             scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.PENDING
         ).update(status=SuggestionStatus.SUPERSEDED)
@@ -269,7 +276,8 @@ def generate_prompt_suggestion(scanner: ReplayScanner, user: User | None = None)
             status=status,
             based_on_up=up,
             based_on_down=len(observations) - up,
-            labels_fingerprint=labels_fingerprint(scanner),
+            # Fingerprint the exact rated set the model saw: ratings made during the call must still read as stale.
+            labels_fingerprint=_fingerprint(observations),
             scanner_version=scanner.scanner_version,
             created_by=user,
         )
@@ -277,6 +285,12 @@ def generate_prompt_suggestion(scanner: ReplayScanner, user: User | None = None)
 
 # The automatic refresh regenerates at most once a day per scanner, and only when ratings changed.
 PROMPT_SUGGESTION_MIN_AGE = dt.timedelta(hours=24)
+# A failed generation persists nothing, so without a marker the 5-minute sweep would retry the LLM call forever.
+REFRESH_FAILURE_BACKOFF_SECONDS = 3600
+
+
+def _refresh_backoff_key(scanner: ReplayScanner) -> str:
+    return f"replay_vision/prompt_suggestion_refresh_backoff/{scanner.id}"
 
 
 def refresh_prompt_suggestion_if_stale(scanner: ReplayScanner) -> str:
@@ -293,10 +307,15 @@ def refresh_prompt_suggestion_if_stale(scanner: ReplayScanner) -> str:
             return "ratings_unchanged"
         if timezone.now() - latest.created_at < PROMPT_SUGGESTION_MIN_AGE:
             return "refreshed_recently"
+    if cache.get(_refresh_backoff_key(scanner)):
+        return "backing_off"
     try:
         generate_prompt_suggestion(scanner)
     except PromptSuggestionError as e:
         if str(e) == "no rated observations":
             return "no_ratings"
+        if str(e) == "not configured":
+            return "not_configured"
+        cache.set(_refresh_backoff_key(scanner), True, REFRESH_FAILURE_BACKOFF_SECONDS)
         raise
     return "generated"

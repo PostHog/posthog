@@ -106,6 +106,10 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(
             scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}}
         )
+        # A malformed snapshot version must be skipped, not 500 the endpoint or emit a bogus marker.
+        ReplayObservation.objects.filter(id=outside_window.id).update(
+            scanner_snapshot={"scanner_version": "not-a-number", "scanner_config": {"prompt": "junk"}}
+        )
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window):
             is_correct = observation is outside_window

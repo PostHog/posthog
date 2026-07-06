@@ -1,8 +1,14 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -10,31 +16,25 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
 )
-from products.replay_vision.backend.prompt_suggestions import _LlmPromptSuggestion, refresh_prompt_suggestion_if_stale
+from products.replay_vision.backend.prompt_suggestions import (
+    PromptSuggestionError,
+    _LlmPromptSuggestion,
+    refresh_prompt_suggestion_if_stale,
+)
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
+_ACCESS_CONTROL_HELPER = "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource"
 
-class TestPromptSuggestions(_VisionAPITestCase):
+
+class _PromptSuggestionTestCase(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.scanner = self._create_scanner()
-        self.generate_patcher = patch(
-            "products.replay_vision.backend.prompt_suggestions._generate",
-            return_value=_LlmPromptSuggestion(
-                suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
-                rationale="Tightened the yes condition using the rated sessions.",
-            ),
-        )
-        self.mock_generate = self.generate_patcher.start()
-
-    def tearDown(self) -> None:
-        self.generate_patcher.stop()
-        super().tearDown()
 
     def _suggestions_url(self, suffix: str = "") -> str:
         return f"{self.scanners_url}{self.scanner.id}/prompt_suggestions/{suffix}"
@@ -54,6 +54,23 @@ class TestPromptSuggestions(_VisionAPITestCase):
         )
         ReplayObservationLabel.objects.create(observation=observation, is_correct=is_correct, feedback=feedback)
         return observation
+
+
+class TestPromptSuggestions(_PromptSuggestionTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.generate_patcher = patch(
+            "products.replay_vision.backend.prompt_suggestions._generate",
+            return_value=_LlmPromptSuggestion(
+                suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
+                rationale="Tightened the yes condition using the rated sessions.",
+            ),
+        )
+        self.mock_generate = self.generate_patcher.start()
+
+    def tearDown(self) -> None:
+        self.generate_patcher.stop()
+        super().tearDown()
 
     def test_generate_persists_suggestion_and_supersedes_previous_pending(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
@@ -96,6 +113,21 @@ class TestPromptSuggestions(_VisionAPITestCase):
         stale = self.client.get(self._suggestions_url("current/")).json()
         self.assertTrue(stale["stale"])
 
+    def test_rating_made_during_generation_still_reads_stale(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+
+        def rate_mid_call(**_kwargs) -> _LlmPromptSuggestion:
+            self._create_rated_observation("sess-2", True)
+            return _LlmPromptSuggestion(suggested_prompt="rewritten", rationale="r")
+
+        self.mock_generate.side_effect = rate_mid_call
+        resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+        # The mid-call rating was not in the model input, so the suggestion must read as stale.
+        current = self.client.get(self._suggestions_url("current/")).json()
+        self.assertTrue(current["stale"])
+
     def test_apply_writes_prompt_and_bumps_scanner_version(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
@@ -130,6 +162,22 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"], "edited by hand")
 
+    def test_apply_allowed_on_dismissed_then_blocks_reapply(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+
+        # The UI offers Apply on a dismissed (change-of-mind) suggestion.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(
+            ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"],
+            "Did the user place an order? Only answer yes on an order confirmation.",
+        )
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+
     def test_dismiss_marks_suggestion_dismissed(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
@@ -137,6 +185,17 @@ class TestPromptSuggestions(_VisionAPITestCase):
         resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "dismissed")
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.get(id=suggestion_id).status, SuggestionStatus.DISMISSED)
+
+    def test_dismiss_rejects_non_pending_suggestions(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+
+        # Dismissing an applied suggestion would feed the live prompt into the "do not propose again" list.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.get(id=suggestion_id).status, SuggestionStatus.APPLIED)
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         self._create_rated_observation("sess-1", True)
@@ -160,6 +219,21 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertIn("Previously rejected rewrites", user_content)
         self.assertIn("Did the user place an order? Only answer yes on an order confirmation.", user_content)
 
+    def test_list_returns_scanner_history_newest_first(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        first_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        second_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        ReplayScannerPromptSuggestion.objects.filter(id=first_id).update(
+            created_at=timezone.now() - timedelta(minutes=1)
+        )
+        sibling = self._create_scanner(name="sibling")
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=sibling, team=self.team, suggested_prompt="other scanner's", scanner_version=0
+        )
+
+        results = self.client.get(self._suggestions_url()).json()["results"]
+        self.assertEqual([row["id"] for row in results], [second_id, first_id])
+
     def test_daily_refresh_gates(self) -> None:
         # No ratings at all: nothing to generate from.
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "no_ratings")
@@ -180,12 +254,103 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
         self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 2)
 
-    def test_mutations_require_editor_access(self) -> None:
+    def test_refresh_backs_off_after_a_failed_generation(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
+        self.mock_generate.side_effect = PromptSuggestionError("model call failed")
+
+        with self.assertRaises(PromptSuggestionError):
+            refresh_prompt_suggestion_if_stale(self.scanner)
+        self.assertEqual(self.mock_generate.call_count, 1)
+
+        # Without the backoff the 5-minute sweep would retry the failing LLM call forever.
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "backing_off")
+        self.assertEqual(self.mock_generate.call_count, 1)
+
+    def test_refresh_reports_not_configured_instead_of_raising(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.mock_generate.side_effect = PromptSuggestionError("not configured")
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "not_configured")
+
+    @parameterized.expand(["generate", "apply", "dismiss"])
+    def test_mutations_require_editor_access(self, action: str) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        prompt_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"]
+        url = self._suggestions_url("generate/" if action == "generate" else f"{suggestion_id}/{action}/")
+
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            _ACCESS_CONTROL_HELPER,
             side_effect=lambda resource, required_level=None, **_: required_level != "editor",
         ):
-            resp = self.client.post(self._suggestions_url("generate/"))
+            resp = self.client.post(url)
+
         self.assertEqual(resp.status_code, 403)
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"], prompt_before)
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 1)
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.get(id=suggestion_id).status, SuggestionStatus.PENDING)
+
+    def test_reading_requires_session_recording_access(self) -> None:
+        with patch(_ACCESS_CONTROL_HELPER, return_value=False):
+            resp = self.client.get(self._suggestions_url("current/"))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_cross_team_scanner_and_cross_scanner_suggestion_are_404(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        resp = self.client.get(f"{self.scanners_url}{other_scanner.id}/prompt_suggestions/current/")
+        self.assertEqual(resp.status_code, 404)
+
+        # A suggestion on a different scanner must not be actionable through this scanner's URL.
+        sibling = self._create_scanner(name="sibling")
+        sibling_suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=sibling, team=self.team, suggested_prompt="p2", scanner_version=sibling.scanner_version
+        )
+        resp = self.client.post(self._suggestions_url(f"{sibling_suggestion.id}/apply/"))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(
+            ReplayScannerPromptSuggestion.objects.get(id=sibling_suggestion.id).status, SuggestionStatus.PENDING
+        )
+
+
+@override_settings(GEMINI_API_KEY="test-key", REPLAY_VISION_GEMINI_API_KEY="")
+class TestPromptSuggestionGenerationFailures(_PromptSuggestionTestCase):
+    """Exercises the real `_generate` against a mocked Gemini client: failures must 400, not 500,
+    and persist nothing."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._create_rated_observation("sess-1", False, "should be yes")
+
+    @parameterized.expand(
+        [
+            ("provider_error", None),
+            ("empty_response", ""),
+            ("invalid_json", "not json"),
+            ("blank_prompt", '{"suggested_prompt": "   ", "rationale": "r"}'),
+        ]
+    )
+    def test_generation_failures_return_400_and_persist_nothing(self, name: str, response_text: str | None) -> None:
+        with patch("products.replay_vision.backend.prompt_suggestions.genai.Client") as mock_client:
+            generate_content = mock_client.return_value.models.generate_content
+            if name == "provider_error":
+                generate_content.side_effect = RuntimeError("provider down")
+            else:
+                generate_content.return_value = SimpleNamespace(text=response_text)
+            resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_generate_without_api_key_is_a_clear_400(self) -> None:
+        with override_settings(GEMINI_API_KEY="", REPLAY_VISION_GEMINI_API_KEY=""):
+            resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Gemini API key", str(resp.json()))
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())

@@ -17,11 +17,6 @@ export function readVerdict(obs: ReplayObservationApi): MonitorVerdict | null {
     return raw === 'yes' || raw === 'no' || raw === 'inconclusive' ? raw : null
 }
 
-export function readReasoning(obs: ReplayObservationApi): string | null {
-    const raw = readModelOutput(obs)?.reasoning
-    return typeof raw === 'string' && raw ? raw : null
-}
-
 function readStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return []

@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { initKeaTests } from '~/test/init'
 
-import { visionObservationsLabelCreate } from '../generated/api'
+import { visionObservationsLabelCreate, visionObservationsLabelDestroy } from '../generated/api'
 import { observationLabelLogic } from './observationLabelLogic'
 
 jest.mock('../generated/api', () => ({
@@ -67,5 +67,53 @@ describe('observationLabelLogic feedback autosave', () => {
             is_correct: true,
             feedback: '',
         })
+    })
+
+    it('an autosave firing while a rating request is in flight attaches to the new rating', async () => {
+        mountLogic(true)
+        let resolveRate: (value: unknown) => void = () => {}
+        ;(visionObservationsLabelCreate as jest.Mock).mockImplementationOnce(
+            () => new Promise((resolve) => (resolveRate = resolve))
+        )
+
+        logic.actions.rate(false, 'old feedback')
+        logic.actions.setFeedbackDraft('now with details')
+        await jest.advanceTimersByTimeAsync(900)
+        // The rating round-trip hasn't landed, so the autosave must wait instead of using the stale label.
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+
+        resolveRate({ is_correct: false, feedback: 'old feedback' })
+        await jest.advanceTimersByTimeAsync(300)
+
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(2)
+        expect(visionObservationsLabelCreate).toHaveBeenLastCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'now with details',
+        })
+    })
+
+    it('flushes an unsynced draft when the logic unmounts before the debounce fires', () => {
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('typed then navigated away')
+        logic.unmount()
+        logic = null as unknown as typeof logic
+
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+        expect(visionObservationsLabelCreate).toHaveBeenCalledWith(TEAM_ID, 'obs-1', {
+            is_correct: false,
+            feedback: 'typed then navigated away',
+        })
+    })
+
+    it('clearRating deletes the label, notifies onChange(null), and clears the draft', async () => {
+        mountLogic(false)
+        ;(visionObservationsLabelDestroy as jest.Mock).mockResolvedValue(undefined)
+        logic.actions.clearRating()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(visionObservationsLabelDestroy).toHaveBeenCalledWith(TEAM_ID, 'obs-1')
+        expect(onChange).toHaveBeenCalledWith(null)
+        expect(logic.values.label).toBeNull()
+        expect(logic.values.feedbackDraft).toBe('')
     })
 })

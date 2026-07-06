@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -56,15 +56,26 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
     listeners(({ actions, props, cache, values }) => ({
         // Autosave feedback once the user pauses typing, so they don't have to remember to press a button.
         setFeedbackDraft: async ({ feedback }, breakpoint) => {
-            const label = values.label
             // Feedback only exists on a rated observation and applies to thumbs-up and thumbs-down alike.
-            if (!label || (label.feedback ?? '') === feedback) {
+            if (!values.label) {
                 return
             }
             const epoch = cache.labelEpoch ?? 0
             await breakpoint(800)
             // A rating/clear click while the debounce was pending wins over the stale autosave.
             if ((cache.labelEpoch ?? 0) !== epoch) {
+                return
+            }
+            // Let an in-flight rating round-trip settle, then re-read, so the autosave attaches to the
+            // rating the user sees instead of reverting to the one snapshotted before the debounce.
+            while (values.saving) {
+                await breakpoint(100)
+                if ((cache.labelEpoch ?? 0) !== epoch) {
+                    return
+                }
+            }
+            const label = values.label
+            if (!label || (label.feedback ?? '') === feedback) {
                 return
             }
             actions.rate(label.is_correct, feedback)
@@ -107,6 +118,28 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             } finally {
                 actions.setSaving(false)
             }
+        },
+    })),
+
+    events(({ props, values }) => ({
+        // Unmounting (row replaced, tab or page change) kills the pending autosave breakpoint; flush the
+        // unsynced draft directly so feedback the UI reported as "Saving…" isn't lost. Skipped while a
+        // rating round-trip is in flight, since that request already carries a fresher rating + draft.
+        beforeUnmount: () => {
+            const label = values.label
+            if (!label || values.saving || (label.feedback ?? '') === values.feedbackDraft) {
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            void visionObservationsLabelCreate(String(teamId), props.observationId, {
+                is_correct: label.is_correct,
+                feedback: values.feedbackDraft,
+            }).catch(() => {
+                // The view is gone; there is nowhere left to surface the failure.
+            })
         },
     })),
 ])

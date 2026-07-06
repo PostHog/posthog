@@ -195,41 +195,46 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
-        loadObservations: async () => {
+    listeners(({ actions, cache, props, values }) => ({
+        loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            await breakpoint(10)
+            // Only succeeded observations carry an output to judge.
+            const params: VisionScannersObservationsListParams = {
+                status: 'succeeded',
+                limit: QUALITY_PAGE_SIZE,
+            }
+            const offset = (values.page - 1) * QUALITY_PAGE_SIZE
+            if (offset > 0) {
+                params.offset = offset
+            }
+            if (values.ratedFilter !== 'all') {
+                params.labeled = values.ratedFilter === 'rated'
+            }
+            if (values.sort) {
+                // The scene keeps the scanner logic mounted, so the type is read lazily for the Result sort key.
+                const scannerType = replayScannerLogic.findMounted({ id: props.scannerId })?.values.scanner
+                    ?.scanner_type
+                const orderKey = resolveOrderByKey(values.sort.columnKey, scannerType)
+                if (orderKey) {
+                    params.order_by = values.sort.order === -1 ? `-${orderKey}` : orderKey
+                }
+            }
+            let response
             try {
-                // Only succeeded observations carry an output to judge.
-                const params: VisionScannersObservationsListParams = {
-                    status: 'succeeded',
-                    limit: QUALITY_PAGE_SIZE,
-                }
-                const offset = (values.page - 1) * QUALITY_PAGE_SIZE
-                if (offset > 0) {
-                    params.offset = offset
-                }
-                if (values.ratedFilter !== 'all') {
-                    params.labeled = values.ratedFilter === 'rated'
-                }
-                if (values.sort) {
-                    // The scene keeps the scanner logic mounted, so the type is read lazily for the Result sort key.
-                    const scannerType = replayScannerLogic.findMounted({ id: props.scannerId })?.values.scanner
-                        ?.scanner_type
-                    const orderKey = resolveOrderByKey(values.sort.columnKey, scannerType)
-                    if (orderKey) {
-                        params.order_by = values.sort.order === -1 ? `-${orderKey}` : orderKey
-                    }
-                }
-                const response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
-                actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
+                response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
             } catch {
                 // Without this the table shows its filter-specific empty state, which reads as "all rated".
                 lemonToast.error("Couldn't load results to rate. Refresh to try again.")
                 actions.loadObservationsFailure()
+                return
             }
+            // A newer load (filter/page/sort click) superseded this one; drop the stale response.
+            breakpoint()
+            actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
         },
 
         setPage: () => actions.loadObservations(),
@@ -243,32 +248,49 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             actions.loadCurrentSuggestion()
         },
 
-        loadLabelStats: async () => {
+        loadLabelStats: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            let response
             try {
-                const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.scannerId, {
+                response = await visionScannersObservationsStatsRetrieve(String(teamId), props.scannerId, {
                     recent_days: LABEL_CHART_DAYS,
                 })
-                actions.loadLabelStatsSuccess(response.labels)
             } catch {
+                // Without this the chart panel's empty state reads as "no rated sessions yet".
+                lemonToast.error("Couldn't load the ratings chart. Refresh to try again.")
                 actions.loadLabelStatsFailure()
+                return
             }
+            breakpoint()
+            actions.loadLabelStatsSuccess(response.labels)
         },
 
-        loadCurrentSuggestion: async () => {
+        loadCurrentSuggestion: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            const epoch = cache.suggestionEpoch ?? 0
+            let response
             try {
-                const response = await visionScannersPromptSuggestionsCurrentRetrieve(String(teamId), props.scannerId)
-                actions.loadCurrentSuggestionSuccess(response)
+                response = await visionScannersPromptSuggestionsCurrentRetrieve(String(teamId), props.scannerId)
             } catch {
+                // Without this the panel's empty state claims there are no ratings and disables Generate.
+                lemonToast.error("Couldn't load the prompt recommendation. Refresh to try again.")
                 actions.loadCurrentSuggestionFailure()
+                return
             }
+            breakpoint()
+            // A generate/apply/dismiss landed while this was in flight; its result is fresher than this
+            // fetch, so drop it (failure here only resets the loading flag, state is untouched).
+            if ((cache.suggestionEpoch ?? 0) !== epoch) {
+                actions.loadCurrentSuggestionFailure()
+                return
+            }
+            actions.loadCurrentSuggestionSuccess(response)
         },
 
         generateSuggestion: async () => {
@@ -279,6 +301,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             }
             try {
                 const suggestion = await visionScannersPromptSuggestionsGenerateCreate(String(teamId), props.scannerId)
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.generateSuggestionSuccess(suggestion)
             } catch (error: any) {
                 lemonToast.error(`Couldn't generate a recommendation${error.detail ? `: ${error.detail}` : ''}`)
@@ -298,6 +321,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     props.scannerId,
                     suggestionId
                 )
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.applySuggestionSuccess(suggestion)
                 lemonToast.success('Prompt applied to the scanner as a new version')
                 // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
@@ -320,6 +344,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     props.scannerId,
                     suggestionId
                 )
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.dismissSuggestionSuccess(suggestion)
             } catch (error: any) {
                 lemonToast.error(`Failed to dismiss the recommendation${error.detail ? `: ${error.detail}` : ''}`)
@@ -327,17 +352,22 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             }
         },
 
-        loadSuggestionHistory: async () => {
+        loadSuggestionHistory: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            let response
             try {
-                const response = await visionScannersPromptSuggestionsList(String(teamId), props.scannerId)
-                actions.loadSuggestionHistorySuccess(response.results ?? [])
+                response = await visionScannersPromptSuggestionsList(String(teamId), props.scannerId)
             } catch {
+                // Without this the history panel's empty state reads as "no past recommendations".
+                lemonToast.error("Couldn't load past recommendations. Refresh to try again.")
                 actions.loadSuggestionHistoryFailure()
+                return
             }
+            breakpoint()
+            actions.loadSuggestionHistorySuccess(response.results ?? [])
         },
     })),
 

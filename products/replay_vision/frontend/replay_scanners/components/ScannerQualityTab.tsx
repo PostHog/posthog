@@ -294,7 +294,10 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="tertiary"
                                 loading={dismissing}
-                                disabledReason={editDisabledReason ?? undefined}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (applying || generating ? 'Another action is in progress' : undefined)
+                                }
                                 onClick={() => dismissSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-dismiss-suggestion"
                             >
@@ -306,7 +309,10 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 size="small"
                                 type="primary"
                                 loading={applying}
-                                disabledReason={editDisabledReason ?? undefined}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (dismissing || generating ? 'Another action is in progress' : undefined)
+                                }
                                 tooltip="Writes this prompt to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-apply-suggestion"
@@ -338,7 +344,9 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             icon={<IconRefresh />}
                             loading={generating}
                             disabledReason={
-                                editDisabledReason ?? (ratedCount === 0 ? 'Rate at least one result first' : undefined)
+                                editDisabledReason ??
+                                (applying || dismissing ? 'Another action is in progress' : undefined) ??
+                                (ratedCount === 0 ? 'Rate at least one result first' : undefined)
                             }
                             onClick={() => generateSuggestion()}
                             data-attr="vision-quality-regenerate-suggestion"
@@ -478,6 +486,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
+    // Totals are all-time but the chart window isn't, so gate the chart on the windowed rows.
+    const windowRated = useMemo(
+        () =>
+            [...(labelStats?.by_day ?? []), ...(labelStats?.by_rating_day ?? [])].some((row) => row.up + row.down > 0),
+        [labelStats]
+    )
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -502,10 +516,11 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 <div className="flex items-center justify-center py-6 text-muted">
                     <Spinner />
                 </div>
-            ) : totalRated === 0 || !chart ? (
+            ) : totalRated === 0 || !windowRated || !chart ? (
                 <div className="text-muted text-sm">
-                    No rated sessions yet. Rate results below to start tracking scanner quality. As the prompt improves,
-                    thumbs down should trend down.
+                    {totalRated > 0
+                        ? `No ratings in the last ${LABEL_CHART_DAYS} days. The totals above are from older ratings.`
+                        : 'No rated sessions yet. Rate results below to start tracking scanner quality. As the prompt improves, thumbs down should trend down.'}
                 </div>
             ) : (
                 <>

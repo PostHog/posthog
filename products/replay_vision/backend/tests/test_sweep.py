@@ -243,15 +243,19 @@ class _SweepMocks:
         self,
         *,
         activity_results: dict[Any, Any] | None = None,
+        activity_errors: dict[Any, Exception] | None = None,
         child_errors_for_ids: dict[str, Exception] | None = None,
     ) -> None:
         self.activity_results = activity_results or {}
+        self.activity_errors = activity_errors or {}
         self.child_errors_for_ids = child_errors_for_ids or {}
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[dict[str, Any]] = []
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
         self.activity_calls.append((activity_fn, activity_input))
+        if activity_fn in self.activity_errors:
+            raise self.activity_errors[activity_fn]
         # Default to 0 in-flight (full headroom) unless a test overrides it.
         if activity_fn is count_in_flight_applies_activity and activity_fn not in self.activity_results:
             return 0
@@ -291,6 +295,8 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
+        # patched() needs the workflow runtime; new executions always take the patched branch.
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -492,6 +498,23 @@ async def test_sweep_vision_action_failure_does_not_block_session_scan() -> None
     await _run_sweep(mocks)
 
     assert [call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity]
+
+
+@pytest.mark.asyncio
+async def test_sweep_prompt_refresh_failure_does_not_block_session_scan() -> None:
+    # An LLM/provider outage in the prompt-suggestion refresh must never block the session scan.
+    candidate = _build_payload("sess-a", dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC))
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[candidate], saturated=False),
+        },
+        activity_errors={refresh_prompt_suggestion_activity: RuntimeError("provider down")},
+    )
+
+    await _run_sweep(mocks)
+
+    assert find_scanner_candidates_activity in [fn for fn, _ in mocks.activity_calls]
+    assert len(mocks.child_calls) == 1
 
 
 @pytest.mark.asyncio
