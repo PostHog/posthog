@@ -42,29 +42,37 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, team_allowlisted, open_cleanup_pr, conclusion, expect_task_created)
-            ("allowlisted_and_opted_in", True, True, "won", True),
+            # (name, flag_enabled, open_cleanup_pr, conclusion, expect_task_created)
+            ("flag_on_and_opted_in", True, True, "won", True),
             ("not_opted_in", True, False, "won", False),
-            ("team_not_allowlisted", False, True, "won", False),
+            ("flag_off", False, True, "won", False),
             ("no_conclusion", True, True, None, False),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    def test_cleanup_pr_fires_only_when_allowlisted_and_opted_in(
-        self, _name, team_allowlisted, open_cleanup_pr, conclusion, expect_task_created, mock_create_task, _mock_report
+    def test_cleanup_pr_fires_only_when_flag_on_and_opted_in(
+        self,
+        _name,
+        flag_enabled,
+        open_cleanup_pr,
+        conclusion,
+        expect_task_created,
+        mock_create_task,
+        mock_feature_enabled,
+        _mock_report,
     ):
+        mock_feature_enabled.return_value = flag_enabled
         experiment = self._running_experiment()
-        allowlist = {self.team.id} if team_allowlisted else set()
 
-        with patch("products.experiments.backend.experiment_service.EXPERIMENT_CLEANUP_ALLOWED_TEAM_IDS", allowlist):
-            with self.captureOnCommitCallbacks(execute=True):
-                ExperimentService(team=self.team, user=self.user).end_experiment(
-                    experiment,
-                    conclusion=conclusion,
-                    open_cleanup_pr=open_cleanup_pr,
-                    request=self._make_request(),
-                )
+        with self.captureOnCommitCallbacks(execute=True):
+            ExperimentService(team=self.team, user=self.user).end_experiment(
+                experiment,
+                conclusion=conclusion,
+                open_cleanup_pr=open_cleanup_pr,
+                request=self._make_request(),
+            )
 
         if expect_task_created:
             mock_create_task.assert_called_once()

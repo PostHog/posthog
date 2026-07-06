@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -81,9 +82,9 @@ from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
-# Teams allowed to auto-open flag-cleanup PRs when an experiment ends (internal dogfood). Gated in
-# code, not a PostHog feature flag: a server-side trigger can't be reliably gated by a flag.
-EXPERIMENT_CLEANUP_ALLOWED_TEAM_IDS = {2}
+# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
+# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
+EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 # Repository the cleanup PR is opened against. Hardcoded for the dogfood; auto-detection comes later.
 EXPERIMENT_CLEANUP_REPOSITORY = "PostHog/posthog"
 
@@ -1721,8 +1722,23 @@ class ExperimentService:
 
         return experiment
 
+    def _cleanup_pr_flag_enabled(self) -> bool:
+        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
+        # customer team by passing it as the "project" group and targeting that group's id on the flag.
+        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENT_CLEANUP_PR_FLAG,
+                str(self.team.id),
+                groups={"project": str(self.team.id)},
+                group_properties={"project": {"id": str(self.team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _maybe_open_cleanup_pr(self, experiment: Experiment, open_cleanup_pr: bool) -> None:
-        """When opted in (the checkbox) and the team is allowlisted, open a draft PR that removes the
+        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
         experiment's feature-flag code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
@@ -1730,7 +1746,7 @@ class ExperimentService:
         """
         try:
             conclusion = experiment.conclusion or ""
-            if not open_cleanup_pr or experiment.team_id not in EXPERIMENT_CLEANUP_ALLOWED_TEAM_IDS or not conclusion:
+            if not open_cleanup_pr or not conclusion or not self._cleanup_pr_flag_enabled():
                 return
 
             flag_key = experiment.get_feature_flag_key()
