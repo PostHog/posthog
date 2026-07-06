@@ -2894,6 +2894,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 warm_task,
                 team_id,
                 message=pending_user_message or description or None,
+                description=description or None,
                 artifact_ids=pending_user_artifact_ids,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
@@ -3216,16 +3217,25 @@ def _attach_staged_artifacts_to_run(
     )
 
 
-def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str | None, artifact_ids: list[str]) -> None:
-    """Activate an idling warm Run: set the draft Task's description (when empty), forward the first
-    message to the already-running agent, and drop the ``await_user_message`` marker so the Run leaves
-    the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent start."""
+def _activate_warm_run(
+    run: TaskRun,
+    task: Task,
+    team_id: int,
+    *,
+    message: str | None,
+    artifact_ids: list[str],
+    description: str | None = None,
+) -> None:
+    """Activate an idling warm Run: set the draft Task's visible description from raw task text,
+    forward the first message to the already-running agent, and drop the ``await_user_message`` marker
+    so the Run leaves the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent
+    start."""
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_prewarmed_activated,
     )
 
-    if message and not (task.description or "").strip():
-        task.description = message
+    if description and not (task.description or "").strip():
+        task.description = description
         task.save(update_fields=["description", "updated_at"])
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
@@ -3400,6 +3410,7 @@ def run_task(
                         task,
                         team_id,
                         message=pending_user_message or (task.description or None),
+                        description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))

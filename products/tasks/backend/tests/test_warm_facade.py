@@ -241,6 +241,19 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         warm_task.refresh_from_db()
         assert warm_task.description == "/millie readme this skill"
 
+    def test_does_not_persist_augmented_pending_message_when_description_empty(self):
+        warm_task, _ = self._warm_run()
+        augmented_message = "<channel_context>\nUse this workspace context.\n</channel_context>"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+            dto = self._create(description="", pending_user_message=augmented_message)
+
+        assert str(dto.id) == str(warm_task.id)
+        _, kwargs = m_signal.call_args
+        assert kwargs["content"] == augmented_message
+        warm_task.refresh_from_db()
+        assert warm_task.description == ""
+
     def test_skips_warm_reuse_when_pending_artifacts_missing_from_warm_run(self):
         warm_task, run = self._warm_run()
         with (
