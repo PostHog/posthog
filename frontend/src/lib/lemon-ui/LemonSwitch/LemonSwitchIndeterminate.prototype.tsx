@@ -7,8 +7,8 @@
  *   A — Centered handle: the handle parks mid-track on a neutral track (position communicates).
  *   B — Dash in handle: track is filled like "checked", the handle carries a minus glyph
  *       (icon communicates, borrowed from indeterminate checkboxes).
- *   C — Half fill: the handle stretches over the left half while the track fades from
- *       gray to accent in a gradient (fill amount communicates, "literally half way").
+ *   C — Half fill: the handle stretches over the left half while the track splits along a
+ *       30° sloped divider, gray left and danger orange/red right (fill amount communicates).
  *   D — Full-width handle with dash: the handle stretches across the entire track and
  *       carries the minus glyph (icon communicates, no position to misread).
  *   E — Dash on track, no handle: the handle disappears entirely; a gray (border-colored)
@@ -16,7 +16,7 @@
  *   F — Same as E, but the track keeps the regular unchecked switch fill gray instead of
  *       the border gray.
  *   G — A + B + C combined: the handle parks mid-track (A), stretches to half the track
- *       width and sits on a gray-to-accent gradient track (C), carrying the minus glyph (B).
+ *       width and sits on the sloped gray/danger split track (C), carrying the minus glyph (B).
  *   H — Same as D, but the full-width handle is filled with the active accent blue and the
  *       dash is white.
  *   I — Same as A (centered handle on a neutral track), but the handle carries a gray
@@ -146,13 +146,13 @@ function Dash({ color, width }: { color: string; width: string }): JSX.Element {
     )
 }
 
-/** C — handle stretches over the left half on a gray-to-accent gradient track: half on. */
+/** C — handle stretches over the left half on a sloped gray/danger split track: half on. */
 export function VariantCHalfFill(props: PrototypeSwitchProps): JSX.Element {
     return (
         <SwitchShell
             {...props}
             trackStyle={{
-                background: 'linear-gradient(90deg, var(--color-bg-fill-switch), var(--color-accent))',
+                background: 'linear-gradient(120deg, var(--color-bg-fill-switch) 0 50%, var(--danger) 50% 100%)',
             }}
             handleStyle={{
                 width: 'calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)',
@@ -217,13 +217,13 @@ export function VariantFNoHandleDashFillGray(props: PrototypeSwitchProps): JSX.E
     )
 }
 
-/** G — A + B + C combined: centered half-width handle carrying the minus glyph on a gray-to-accent gradient track. */
+/** G — A + B + C combined: centered half-width handle carrying the minus glyph on a sloped gray/danger split track. */
 export function VariantGCenteredHandleDash(props: PrototypeSwitchProps): JSX.Element {
     return (
         <SwitchShell
             {...props}
             trackStyle={{
-                background: 'linear-gradient(90deg, var(--color-bg-fill-switch), var(--color-accent))',
+                background: 'linear-gradient(120deg, var(--color-bg-fill-switch) 0 50%, var(--danger) 50% 100%)',
             }}
             handleStyle={{
                 width: 'calc((var(--lemon-switch-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)',
