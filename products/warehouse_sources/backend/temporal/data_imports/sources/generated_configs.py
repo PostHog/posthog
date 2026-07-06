@@ -1691,7 +1691,7 @@ class JiraSourceConfig(config.Config):
 
 @config.config
 class JobNimbusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

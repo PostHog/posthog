@@ -195,6 +195,7 @@ the row lists both.
 | ip2whois                | HTTP                        | requests                                                        | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
+| jobnimbus               | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
 | justcall                | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                | HTTP                        | requests                                                        | ✅                          |
@@ -497,7 +498,6 @@ doesn't conflict with concurrent PRs.
 - invoiced
 - jamf_pro
 - jobber
-- jobnimbus
 - judgeme_reviews
 - justsift
 - kafka
