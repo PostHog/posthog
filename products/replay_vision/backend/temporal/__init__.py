@@ -14,6 +14,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    finalize_evaluation_activity,
     find_scanner_candidates_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
@@ -23,12 +24,15 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
     reap_orphaned_observations_activity,
+    record_evaluation_result_activity,
     refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
+    select_evaluation_sessions_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
+from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
@@ -48,6 +52,7 @@ from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflo
 
 WORKFLOWS = [
     ApplyScannerWorkflow,
+    EvaluatePromptSuggestionWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
@@ -73,6 +78,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     count_in_flight_applies_activity,
     advance_scanner_watermark_activity,
     refresh_prompt_suggestion_activity,
+    select_evaluation_sessions_activity,
+    record_evaluation_result_activity,
+    finalize_evaluation_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
     upsert_scanner_schedule_activity,
@@ -93,6 +101,7 @@ __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "ApplyScannerWorkflow",
+    "EvaluatePromptSuggestionWorkflow",
     "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
@@ -126,7 +135,10 @@ __all__ = [
     "mark_observation_running_activity",
     "mark_observation_succeeded_activity",
     "reap_orphaned_observations_activity",
+    "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
+    "select_evaluation_sessions_activity",
+    "finalize_evaluation_activity",
     "sweep_gemini_files_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

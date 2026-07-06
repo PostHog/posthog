@@ -1,0 +1,276 @@
+from datetime import timedelta
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    ReplayScannerPromptSuggestion,
+    SuggestionStatus,
+)
+from products.replay_vision.backend.prompt_evaluation import (
+    EVALUATION_SESSION_CAP,
+    classify_outcome,
+    primary_outcome,
+    select_evaluation_observations,
+    summarize_results,
+)
+from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
+    finalize_evaluation_activity,
+    record_evaluation_result_activity,
+    select_evaluation_sessions_activity,
+)
+from products.replay_vision.backend.temporal.evaluation_types import (
+    EvaluationSession,
+    FinalizeEvaluationInputs,
+    RecordEvaluationResultInputs,
+    SelectEvaluationSessionsInputs,
+)
+from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+
+
+class TestPromptEvaluation(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+
+    def _create_rated(
+        self, session_id: str, is_correct: bool, verdict: str = "no", days_ago: int = 0
+    ) -> ReplayObservation:
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id=session_id,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            scanner_result={
+                "model_output": {"verdict": verdict, "confidence": 0.9, "scanner_type": "monitor"},
+                "signals_count": 0,
+            },
+        )
+        if days_ago:
+            ReplayObservation.objects.filter(id=observation.id).update(
+                created_at=timezone.now() - timedelta(days=days_ago)
+            )
+        ReplayObservationLabel.objects.create(observation=observation, is_correct=is_correct)
+        return observation
+
+    def _create_suggestion(self, **overrides) -> ReplayScannerPromptSuggestion:
+        defaults = {
+            "scanner": self.scanner,
+            "team": self.team,
+            "suggested_prompt": "Did the user place an order? Only answer yes on a confirmation page.",
+            "base_prompt": "did the user check out?",
+            "status": SuggestionStatus.PENDING,
+            "scanner_version": 1,
+        }
+        defaults.update(overrides)
+        return ReplayScannerPromptSuggestion.objects.create(**defaults)
+
+    @parameterized.expand(
+        [
+            ({"verdict": "Yes "}, "Verdict: yes"),
+            ({"verdict": "no", "tags": ["a"]}, "Verdict: no"),
+            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn, churn"),
+            ({"score": 7}, None),
+            ({}, None),
+            (None, None),
+        ]
+    )
+    def test_primary_outcome_normalizes_discrete_outputs(self, output, expected) -> None:
+        self.assertEqual(primary_outcome(output), expected)
+
+    @parameterized.expand(
+        [
+            (True, "Verdict: yes", "Verdict: yes", "kept"),
+            (True, "Verdict: yes", "Verdict: no", "regressed"),
+            (False, "Verdict: yes", "Verdict: no", "fixed"),
+            (False, "Verdict: yes", "Verdict: yes", "still_wrong"),
+            (True, "Verdict: yes", None, "error"),
+        ]
+    )
+    def test_classify_outcome(self, rated_correct, before, after, expected) -> None:
+        self.assertEqual(classify_outcome(rated_correct, before, after), expected)
+
+    def test_selection_prioritizes_thumbs_down_then_newest_within_cap(self) -> None:
+        for i in range(EVALUATION_SESSION_CAP):
+            self._create_rated(f"up-{i}", True, days_ago=i + 1)
+        newest_down = self._create_rated("down-new", False, days_ago=0)
+        oldest_down = self._create_rated("down-old", False, days_ago=30)
+
+        selected = select_evaluation_observations(self.scanner)
+
+        self.assertEqual(len(selected), EVALUATION_SESSION_CAP)
+        self.assertEqual([o.session_id for o in selected[:2]], [newest_down.session_id, oldest_down.session_id])
+        self.assertTrue(all(o.session_id.startswith("up-") for o in selected[2:]))
+
+    def test_select_activity_builds_suggested_prompt_snapshot_and_marks_running(self) -> None:
+        self._create_rated("sess-1", False)
+        # The scanner moved on since the rated observation: the snapshot must reflect current config.
+        self.scanner.scanner_config = {"prompt": "current prompt", "extra_setting": True}
+        self.scanner.emits_signals = True
+        self.scanner.save()
+        suggestion = self._create_suggestion()
+
+        output = select_evaluation_sessions_activity(
+            SelectEvaluationSessionsInputs(suggestion_id=suggestion.id, team_id=self.team.id)
+        )
+
+        assert output.snapshot is not None
+        self.assertEqual(output.snapshot.scanner_config["prompt"], suggestion.suggested_prompt)
+        self.assertTrue(output.snapshot.scanner_config["extra_setting"])
+        self.assertFalse(output.snapshot.emits_signals)
+        self.assertEqual([s.session_id for s in output.sessions], ["sess-1"])
+        self.assertEqual(output.sessions[0].before_outcome, "Verdict: no")
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        self.assertEqual(suggestion.evaluation["status"], "running")
+        self.assertEqual(suggestion.evaluation["total"], 1)
+        self.assertNotEqual(suggestion.evaluation["labels_fingerprint"], "")
+
+    def test_record_and_finalize_produce_summary_and_dedup_retries(self) -> None:
+        observation = self._create_rated("sess-1", False, verdict="yes")
+        suggestion = self._create_suggestion(evaluation={"status": "running", "results": []})
+        session = EvaluationSession(
+            observation_id=observation.id,
+            session_id="sess-1",
+            rated_correct=False,
+            before_outcome="Verdict: yes",
+        )
+        inputs = RecordEvaluationResultInputs(
+            suggestion_id=suggestion.id,
+            team_id=self.team.id,
+            session=session,
+            after_output={"verdict": "no"},
+        )
+        record_evaluation_result_activity(inputs)
+        record_evaluation_result_activity(inputs)  # an activity retry must not double-count
+
+        finalize_evaluation_activity(FinalizeEvaluationInputs(suggestion_id=suggestion.id, team_id=self.team.id))
+
+        suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
+        self.assertEqual(len(suggestion.evaluation["results"]), 1)
+        self.assertEqual(suggestion.evaluation["results"][0]["outcome"], "fixed")
+        self.assertEqual(suggestion.evaluation["status"], "succeeded")
+        self.assertEqual(
+            suggestion.evaluation["summary"], {"kept": 0, "regressed": 0, "fixed": 1, "still_wrong": 0, "errors": 0}
+        )
+        self.assertIsNotNone(suggestion.evaluation["finished_at"])
+
+    def test_summarize_counts_errors(self) -> None:
+        results = [{"outcome": "kept"}, {"outcome": "error"}, {"outcome": "fixed"}, {"outcome": "fixed"}]
+        self.assertEqual(
+            summarize_results(results), {"kept": 1, "regressed": 0, "fixed": 2, "still_wrong": 0, "errors": 1}
+        )
+
+
+class TestPromptEvaluationApi(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+
+    def _url(self, suggestion_id) -> str:
+        return (
+            f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/"
+            f"prompt_suggestions/{suggestion_id}/evaluate/"
+        )
+
+    def _create_pending_suggestion(self, **overrides) -> ReplayScannerPromptSuggestion:
+        defaults = {
+            "scanner": self.scanner,
+            "team": self.team,
+            "suggested_prompt": "new prompt",
+            "status": SuggestionStatus.PENDING,
+            "scanner_version": 1,
+        }
+        defaults.update(overrides)
+        return ReplayScannerPromptSuggestion.objects.create(**defaults)
+
+    def _create_rated(self) -> None:
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="sess-1",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            scanner_result={"model_output": {"verdict": "no"}, "signals_count": 0},
+        )
+        ReplayObservationLabel.objects.create(observation=observation, is_correct=False)
+
+    def _mock_temporal(self):
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        return patch("products.replay_vision.backend.api.prompt_suggestions.sync_connect", return_value=client), client
+
+    def test_evaluate_starts_workflow_and_stamps_running(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        client.start_workflow.assert_awaited_once()
+        self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
+
+    def test_evaluate_while_running_does_not_restart(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion(evaluation={"status": "running", "results": [], "total": 3})
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["evaluation"]["total"], 3)
+        client.start_workflow.assert_not_awaited()
+
+    def test_evaluate_refuses_when_quota_exhausted(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        quota = MagicMock(exhausted=True, monthly_quota=100, period_end=timezone.now())
+        connect_patch, client = self._mock_temporal()
+        with (
+            connect_patch,
+            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+        ):
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402)
+        client.start_workflow.assert_not_awaited()
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)
+
+    @parameterized.expand(
+        [
+            ("not_pending", {"status": SuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
+            ("unsupported_type", {}, ScannerType.SUMMARIZER, True),
+            ("no_ratings", {}, ScannerType.MONITOR, False),
+        ]
+    )
+    def test_evaluate_gates(self, _name, suggestion_overrides, scanner_type, with_rating) -> None:
+        self.scanner.scanner_type = scanner_type
+        self.scanner.save()
+        if with_rating:
+            self._create_rated()
+        suggestion = self._create_pending_suggestion(**suggestion_overrides)
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 400)
+        client.start_workflow.assert_not_awaited()
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)

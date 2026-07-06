@@ -8,6 +8,7 @@ import {
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersPromptSuggestionsCurrentRetrieve,
+    visionScannersPromptSuggestionsEvaluateCreate,
     visionScannersPromptSuggestionsGenerateCreate,
 } from '../generated/api'
 import { QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
@@ -19,6 +20,7 @@ jest.mock('../generated/api', () => ({
     visionScannersPromptSuggestionsGenerateCreate: jest.fn(),
     visionScannersPromptSuggestionsApplyCreate: jest.fn(),
     visionScannersPromptSuggestionsDismissCreate: jest.fn(),
+    visionScannersPromptSuggestionsEvaluateCreate: jest.fn(),
     visionScannersPromptSuggestionsList: jest.fn(),
 }))
 
@@ -129,6 +131,29 @@ describe('scannerQualityLogic', () => {
             feedback: 'should be yes',
         })
         expect(logic.values.observations.find((obs) => obs.id === 'obs-1')?.label).toBeNull()
+    })
+
+    it('evaluate stores the running test on the current suggestion', async () => {
+        const runningEvaluation = {
+            status: 'running',
+            started_at: '2026-07-05T00:00:00Z',
+            finished_at: null,
+            total: 0,
+            labels_fingerprint: '',
+            results: [],
+            summary: null,
+        }
+        ;(visionScannersPromptSuggestionsEvaluateCreate as jest.Mock).mockResolvedValue({
+            ...PENDING_SUGGESTION,
+            evaluation: runningEvaluation,
+        })
+        await mountLogic()
+        logic.actions.evaluateSuggestion('sug-1')
+        await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
+
+        expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1')
+        expect(logic.values.currentSuggestion?.evaluation).toEqual(runningEvaluation)
+        expect(logic.values.evaluating).toBe(false)
     })
 
     it('never auto-generates on load, even when the recommendation is stale', async () => {
