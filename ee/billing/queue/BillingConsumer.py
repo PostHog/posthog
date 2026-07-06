@@ -234,13 +234,32 @@ class BillingConsumer(SQSConsumer):
             for change in (detail_data.get("changes") or [])
         ]
 
-        log_activity(
+        activity = body.get("activity") or "updated"
+
+        # An "updated" activity with no changes is a no-op that log_activity intentionally
+        # drops. Retrying can never make changes appear, so ack the message instead of
+        # treating the None return below as a transient failure and looping forever.
+        if activity == "updated" and not changes:
+            logger.warning(
+                "billing_activity.no_changes_to_log",
+                extra={"organization_id": organization_id},
+            )
+            return
+
+        written = log_activity(
             organization_id=organization.id,
             team_id=None,
             user=user,
             was_impersonated=False,
             item_id=body.get("item_id") or str(organization.id),
             scope="Billing",
-            activity=body.get("activity") or "updated",
+            activity=activity,
             detail=Detail(name=detail_data.get("name"), changes=changes),
         )
+
+        # This SQS message exists only to create the audit row. log_activity swallows write
+        # errors and returns None in production, so a None here means the write failed: raise
+        # so process_message leaves the message on the queue for SQS to redeliver rather than
+        # deleting it and silently dropping the audit entry.
+        if written is None:
+            raise Exception("Failed to write billing activity to the activity log")

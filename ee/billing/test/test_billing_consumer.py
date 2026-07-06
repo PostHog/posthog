@@ -114,3 +114,20 @@ class TestBillingConsumerBillingActivity(BaseTest):
 
         assert not ActivityLog.objects.filter(scope="Billing").exists()
         mock_capture.assert_called_once()
+
+    def test_acks_updated_activity_with_no_changes(self):
+        # An "updated" message with nothing to record must be acked (no write, no raise) so it
+        # is not retried forever; otherwise the raise-on-failure path below would loop on it.
+        message = self._message()
+        message["detail"] = {"name": "Billing spend limits", "changes": []}
+
+        self._build_consumer()._process_billing_activity(message)
+
+        assert not ActivityLog.objects.filter(scope="Billing").exists()
+
+    @patch(f"{CONSUMER}.log_activity", return_value=None)
+    def test_raises_when_write_fails_so_message_is_retried(self, _mock_log_activity):
+        # log_activity returns None on write failure in production; the consumer must raise so
+        # process_message leaves the message for SQS to redeliver instead of dropping the audit.
+        with self.assertRaises(Exception):
+            self._build_consumer()._process_billing_activity(self._message())
