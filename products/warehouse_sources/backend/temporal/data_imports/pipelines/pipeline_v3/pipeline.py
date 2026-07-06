@@ -205,7 +205,13 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         self._resumable_source_manager = resumable_source_manager
-        self._batcher = Batcher(self._logger)
+        # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
+        # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        self._batcher = Batcher(
+            self._logger,
+            chunk_size=source_response.chunk_size,
+            chunk_size_bytes=source_response.chunk_size_bytes,
+        )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger

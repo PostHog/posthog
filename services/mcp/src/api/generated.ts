@@ -4444,6 +4444,44 @@ export namespace Schemas {
       config: ExperimentResultsWidgetConfig;
     }
 
+    export type SurveyResultsWidgetAddRequestOpenApiWidgetType = typeof SurveyResultsWidgetAddRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const SurveyResultsWidgetAddRequestOpenApiWidgetType = {
+      SurveyResults: 'survey_results',
+    } as const;
+
+    export interface SurveyResultsWidgetConfig {
+      /** Null or omitted means all time (the survey's full lifetime). */
+      dateRange?: WidgetDateRange | null;
+      /** Survey to show performance stats and recent responses for. Null until the user picks one. */
+      surveyId?: string | null;
+      /**
+         * Maximum number of recent responses to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+    }
+
+    export interface SurveyResultsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: SurveyResultsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the survey results widget. */
+      config: SurveyResultsWidgetConfig;
+    }
+
     export type LogsListWidgetAddRequestOpenApiWidgetType = typeof LogsListWidgetAddRequestOpenApiWidgetType[keyof typeof LogsListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -4525,14 +4563,14 @@ export namespace Schemas {
       config: LogsListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7565,7 +7603,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | LogsListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -14543,6 +14581,7 @@ export namespace Schemas {
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
      * * `session_replay_list` - session_replay_list
+     * * `survey_results` - survey_results
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
 
@@ -14554,6 +14593,7 @@ export namespace Schemas {
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
       SessionReplayList: 'session_replay_list',
+      SurveyResults: 'survey_results',
     } as const;
 
     export interface DashboardPatchWidgetOpenApi {
@@ -14566,7 +14606,8 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
-       * * `session_replay_list` - session_replay_list */
+       * * `session_replay_list` - session_replay_list
+       * * `survey_results` - survey_results */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
       config?: DashboardWidgetConfig;
@@ -42376,7 +42417,30 @@ export namespace Schemas {
       config?: SessionReplayListWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi;
+    export type SurveyResultsWidgetUpdateRequestOpenApiWidgetType = typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof SurveyResultsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const SurveyResultsWidgetUpdateRequestOpenApiWidgetType = {
+      SurveyResults: 'survey_results',
+    } as const;
+
+    export interface SurveyResultsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: SurveyResultsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the survey results widget. Omit to leave unchanged. */
+      config?: SurveyResultsWidgetConfig;
+    }
+
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -51569,6 +51633,35 @@ export namespace Schemas {
       offset: number;
     }
 
+    export type SurveyResultsWidgetCatalogEntryOpenApiWidgetType = typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const SurveyResultsWidgetCatalogEntryOpenApiWidgetType = {
+      SurveyResults: 'survey_results',
+    } as const;
+
+    export interface SurveyResultsWidgetCatalogEntryOpenApi {
+      widget_type: SurveyResultsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: SurveyResultsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `survey_results` - survey_results
+     */
+    export type SurveyResultsWidgetTypeEnum = typeof SurveyResultsWidgetTypeEnum[keyof typeof SurveyResultsWidgetTypeEnum];
+
+
+    export const SurveyResultsWidgetTypeEnum = {
+      SurveyResults: 'survey_results',
+    } as const;
+
     export interface SurveySerializerCreateUpdateOnly {
       readonly id: string;
       /** @maxLength 400 */
@@ -53909,7 +54002,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -54338,6 +54431,8 @@ export namespace Schemas {
       examples: string[];
       /** Up to 4 distinct service names this pattern was observed in. */
       services: string[];
+      /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+      sparkline: number[];
     }
 
     /**
@@ -54540,6 +54635,13 @@ export namespace Schemas {
       query: _LogsPatternsBody;
     }
 
+    export interface _LogsPatternsSparklineBucket {
+      /** Bucket start (ISO 8601, inclusive). */
+      start: string;
+      /** Bucket end (ISO 8601, exclusive). */
+      end: string;
+    }
+
     export interface _LogsPatternsResponse {
       /** Mined patterns ordered by `count` descending. */
       patterns: _LogPattern[];
@@ -54551,6 +54653,8 @@ export namespace Schemas {
       sampled: boolean;
       /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
       sample_coverage_pct: number;
+      /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
+      sparkline_buckets: _LogsPatternsSparklineBucket[];
     }
 
     export interface _LogsQueryBody {
