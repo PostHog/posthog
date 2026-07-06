@@ -53,6 +53,11 @@ Person properties are query-time in this project. `person.properties.*` on the e
 # https://platform.openai.com/docs/guides/flex-processing
 OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
 
+# model_kwargs that only the Anthropic API understands. If they ride along into an OpenAI
+# model (e.g. an agent mode or eval that reuses the same config), the OpenAI SDK rejects the
+# unknown argument with a TypeError. Strip them before they reach OpenAI's create().
+ANTHROPIC_ONLY_MODEL_KWARGS = frozenset({"output_config"})
+
 # Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
 _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
 
@@ -190,6 +195,9 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
+        # Drop Anthropic-only kwargs so a config reused across providers can't crash OpenAI's create().
+        for key in ANTHROPIC_ONLY_MODEL_KWARGS:
+            self.model_kwargs.pop(key, None)
         if settings.IN_EVAL_TESTING and not self.service_tier and self.model_name in OPENAI_FLEX_MODELS:
             self.service_tier = "flex"  # 50% cheaper than default tier, but slower
 

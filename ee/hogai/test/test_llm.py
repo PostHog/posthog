@@ -304,6 +304,26 @@ class TestMaxChatOpenAI(BaseTest):
             call_kwargs = mock_generate.call_args.kwargs
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "posthog_ai")
 
+    def test_openai_strips_anthropic_only_model_kwargs(self):
+        # Agent modes reuse an Anthropic-only `output_config` kwarg; it must never reach OpenAI's
+        # create(), which raises TypeError on the unknown argument.
+        llm = MaxChatOpenAI(
+            user=self.user,
+            team=self.team,
+            model_kwargs={"output_config": {"effort": "medium"}, "temperature": 0.5},
+        )
+        self.assertNotIn("output_config", llm.model_kwargs)
+        self.assertEqual(llm.model_kwargs["temperature"], 0.5)
+
+    def test_anthropic_keeps_output_config_model_kwarg(self):
+        llm = MaxChatAnthropic(
+            user=self.user,
+            team=self.team,
+            model="claude",
+            model_kwargs={"output_config": {"effort": "medium"}},
+        )
+        self.assertEqual(llm.model_kwargs["output_config"], {"effort": "medium"})
+
     def test_caller_supplied_ai_product_overrides_default(self):
         llm = MaxChatOpenAI(
             user=self.user,
