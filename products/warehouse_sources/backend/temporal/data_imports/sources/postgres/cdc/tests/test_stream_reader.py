@@ -212,3 +212,59 @@ class TestPgCDCStreamReaderConfirmPosition:
                 reader.confirm_position("0/1234ABCD")
 
         assert connect.call_count == 1
+
+    def _reader_advancing(self, params, execute_side_effect):
+        conn = mock.MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.execute.side_effect = execute_side_effect
+        connect = mock.MagicMock(return_value=conn)
+        reader = PgCDCStreamReader(params)
+        return reader, conn, cur, connect
+
+    def test_confirm_position_retries_while_slot_active(self, params):
+        # The slot is momentarily held while the streaming peek releases it; the advance
+        # self-heals on the next attempt instead of failing the whole extraction.
+        reader, conn, cur, connect = self._reader_advancing(
+            params,
+            [psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 2999'), None],
+        )
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+                connect,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            reader.confirm_position("0/1234ABCD")
+
+        assert cur.execute.call_count == 2
+        # The failed advance aborts the transaction, so the retry must reset it first or real
+        # psycopg raises InFailedSqlTransaction.
+        conn.rollback.assert_called_once()
+        conn.commit.assert_called_once()
+        conn.close.assert_called_once()
+
+    def test_confirm_position_raises_when_slot_stays_active(self, params):
+        # A slot that never frees exhausts the in-process retries and re-raises, so the run
+        # still surfaces as the retryable SLOT_IN_USE classification rather than looping forever.
+        reader, conn, cur, connect = self._reader_advancing(
+            params,
+            psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 2999'),
+        )
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+                connect,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            with pytest.raises(psycopg.errors.ObjectInUse):
+                reader.confirm_position("0/1234ABCD")
+
+        assert cur.execute.call_count == 3
+        conn.commit.assert_not_called()
+        conn.close.assert_called_once()
