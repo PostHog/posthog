@@ -84,7 +84,7 @@ Each PR push fans out to ~40 workflow runs. Restacking force-pushes every branch
 
 - Keep stacks shallow; merge the base before extending.
 - Restack only when you need to — avoid rebasing the whole stack on master repeatedly.
-- When a restack must push many branches, stagger them instead of force-pushing all at once.
+- If you must push many branches, stagger them so each batch lands outside the 10-second dispatch window rather than force-pushing all at once.
 
 #### Pre-push checks — ci:preflight
 
