@@ -252,7 +252,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 if len(parts) != 2 or not parts[0] or not parts[1]:
                     raise ValidationError({"additional_repositories": "Format for repository is organization/repo"})
                 normalized.append(repo.lower())
-            self.additional_repositories = normalized
+            # The primary repo is always cloned via `repository`; keeping it here would
+            # needlessly disable snapshot reuse. Serializer dedupe can't catch a PATCH
+            # that sends extras without `repository`, so enforce it at the model.
+            self.additional_repositories = [repo for repo in normalized if repo != self.repository]
 
         if self.task_number is None:
             self._assign_task_number()

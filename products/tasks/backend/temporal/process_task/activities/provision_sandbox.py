@@ -458,6 +458,12 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                         shallow_clone=shallow_clone,
                     )
                 )
+        elif ctx.additional_repositories:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"No GitHub credentials; skipping {len(ctx.additional_repositories)} additional repositories",
+            )
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(

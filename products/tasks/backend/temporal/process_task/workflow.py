@@ -897,9 +897,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             clone_ms = getattr(clone_output, "clone_ms", None)
             await self._emit_progress("clone", "completed", "Cloned repository", "setup")
 
-        # Extra repos to clone alongside the primary. Empty on resume (already on
-        # disk); the activity itself skips any repo already present, so it stays
-        # idempotent across retries and snapshot reuse.
+        # Extra repos to clone alongside the primary. The activity skips repos
+        # already present on disk, so it is safe to run on every start, whether
+        # first run, retry, or resume.
         if prepared.additional_clones:
             count = len(prepared.additional_clones)
             noun = "repository" if count == 1 else "repositories"

@@ -358,14 +358,16 @@ class TestTask(TestCase):
 
         self.assertIn("Format for repository is organization/repo", str(cm.exception))
 
-    def test_additional_repositories_convert_to_lowercase(self):
+    def test_additional_repositories_normalized_on_save(self):
+        # Lowercased, and the primary repo dropped even when only extras are
+        # written (a PATCH without `repository` bypasses the serializer dedupe).
         task = Task.objects.create(
             team=self.team,
             title="Test Task",
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
-            additional_repositories=["PostHog/PostHog-JS", "posthog/posthog.com"],
+            additional_repositories=["PostHog/PostHog-JS", "POSTHOG/posthog", "posthog/posthog.com"],
         )
 
         self.assertEqual(task.additional_repositories, ["posthog/posthog-js", "posthog/posthog.com"])

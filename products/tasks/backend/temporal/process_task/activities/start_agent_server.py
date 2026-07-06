@@ -281,7 +281,9 @@ def _invoke_start_agent_server(
     try:
         sandbox.start_agent_server(
             repository=ctx.repository,
-            additional_repositories=ctx.additional_repositories,
+            # Without GitHub credentials the extras were never cloned; don't
+            # advertise directories that don't exist.
+            additional_repositories=ctx.additional_repositories if ctx.has_github_credentials else [],
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,
