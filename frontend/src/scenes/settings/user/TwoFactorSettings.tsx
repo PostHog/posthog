@@ -33,11 +33,6 @@ export function TwoFactorSettings(): JSX.Element {
     const hasPasskeys = status?.has_passkeys ?? false
     const passkeysEnabled = status?.passkeys_enabled_for_2fa ?? false
 
-    // The authenticator row sits next to real controls, so its heading/status text read as
-    // interactive. Make the whole content region trigger the row's primary, non-destructive
-    // action instead of leaving dead clicks: set up when not configured, view backup codes when it is.
-    const handleAuthenticatorRowClick = hasTotp ? () => toggleBackupCodesModal(true) : () => openTwoFactorSetupModal()
-
     return (
         <div className="flex flex-col items-start space-y-4">
             {isDisable2FAModalOpen && (
@@ -130,18 +125,7 @@ export function TwoFactorSettings(): JSX.Element {
                     {/* Authenticator app row */}
                     <div className="p-4 border-b last:border-b-0">
                         <div className="flex items-center justify-between">
-                            <div
-                                className="flex-1 cursor-pointer rounded -m-1 p-1 hover:bg-bg-hover"
-                                role="button"
-                                tabIndex={0}
-                                onClick={handleAuthenticatorRowClick}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault()
-                                        handleAuthenticatorRowClick()
-                                    }
-                                }}
-                            >
+                            <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className="font-medium">Authenticator app</span>
                                     <Tooltip
@@ -158,10 +142,7 @@ export function TwoFactorSettings(): JSX.Element {
                                             </div>
                                         }
                                     >
-                                        {/* Standalone info affordance — don't trigger the row's primary action */}
-                                        <span className="inline-flex" onClick={(e) => e.stopPropagation()}>
-                                            <IconInfo className="text-muted text-sm" />
-                                        </span>
+                                        <IconInfo className="text-muted text-sm" />
                                     </Tooltip>
                                 </div>
                                 <p className="text-sm text-muted">
