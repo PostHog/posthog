@@ -17,6 +17,9 @@ config:
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
+        # Standalone ops utility for scrubbing person properties in a PostHog project;
+        # not a local-dev command, so keep it out of the hogli manifest.
+        - scrub_person_properties.py
     env:
         files:
             - .env.development
@@ -1140,8 +1143,4 @@ environment:
     ensure:local:setup:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
-        hidden: true
-    scrub_person_properties:
-        bin_script: scrub_person_properties.py
-        description: Scrub person properties from every person that has them in a PostHog project, via capture events or the persons API
         hidden: true
