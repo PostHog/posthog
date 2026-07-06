@@ -46,6 +46,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
 from posthog.models import Team
@@ -307,6 +308,11 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     Each team's setup and each warming block is isolated: an unexpected error (e.g. a broken warehouse
     source failing Database.create_for) is logged and counted, never aborting the rest of the allowlist.
     """
+    # Tag every ClickHouse query this op drives (schema introspection during Database.create_for and the
+    # materialization INSERTs) so warmer-driven load is attributable in query_log, distinct from the
+    # on-read materialization the query runner triggers. The read path is tagged via its runner context.
+    tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
+
     end = datetime.now(UTC)
     team_ids = get_selected_team_ids()
     context.log.info(
