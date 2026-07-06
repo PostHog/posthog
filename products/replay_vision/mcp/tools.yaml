@@ -353,6 +353,9 @@ tools:
             `vision-scanners-prompt-suggestions-apply` as long as the scanner's prompt hasn't changed since it was
             generated.
         feature_flag: replay-vision
+    vision-scanners-prompt-suggestions-evaluate-create:
+        operation: vision_scanners_prompt_suggestions_evaluate_create
+        enabled: false
     vision-scanners-prompt-suggestions-generate:
         operation: vision_scanners_prompt_suggestions_generate_create
         enabled: true
