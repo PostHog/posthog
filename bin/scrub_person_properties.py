@@ -130,7 +130,7 @@ def scrub_via_events(
         events.append(
             {
                 "event": "$delete_person_property",
-                # distinct_ids are sorted with identified (non-anonymous) IDs first
+                # any of the person's distinct_ids routes the event to the same merged person
                 "distinct_id": person["distinct_ids"][0],
                 "properties": {"$unset": person["matched_properties"]},
             }
