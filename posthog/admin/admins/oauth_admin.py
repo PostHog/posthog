@@ -72,7 +72,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "cimd",
         "first_party",
     )
-    list_display_links = ("name",)
+    list_display_links = ("name", "client_id")
     list_filter = (
         "authorization_grant_type",
         "is_verified",
