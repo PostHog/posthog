@@ -640,7 +640,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         kwargs = {"data": json.dumps(body), "content_type": "application/json"}
         if token is not None:
             kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
-        return self.client.post(self.URL, **kwargs)
+        return self.client.post(self.URL, **kwargs)  # type: ignore[arg-type]
 
     def _token(self, short_id: str | None = None) -> str:
         return mint_data_plane_token(short_id or self.notebook.short_id, self.team.id, self.user.id)
@@ -1038,7 +1038,7 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
             self.assertEqual(rows, 2)
-            table = pa.ipc.open_file(dest).read_all()
+            table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
             self.assertEqual(table.num_rows, 2)
             self.assertEqual(table.column_names, ["id", "v"])
             self.assertFalse(os.path.exists(dest + ".partial"))

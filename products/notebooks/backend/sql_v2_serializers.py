@@ -68,7 +68,9 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
 
 class NotebookSQLV2MediaSerializer(serializers.Serializer):
     mime_type = serializers.CharField(help_text="MIME type of the media, e.g. 'image/png' for a matplotlib figure.")
-    data = serializers.CharField(help_text="Base64-encoded media bytes.")
+    # The kernel sends this key as `data`; the field name collides with DRF's `.data` property at
+    # the type level only (fields live in a dict at runtime), so the ignore is safe.
+    data = serializers.CharField(help_text="Base64-encoded media bytes.")  # type: ignore[assignment]
 
 
 class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
