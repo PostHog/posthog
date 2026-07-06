@@ -170,12 +170,14 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
-    pinnedFilters?: UniversalFiltersGroup
+    pinnedFilters?: UniversalFiltersGroup,
+    urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
-    // Person/group pages (personUUID/pinnedFilters) come with a specific session in mind,
+    // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
+    // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
     // where recency is the better default than relevance
-    const hasSpecificIntent = !!personUUID || !!pinnedFilters
+    const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
@@ -1554,10 +1556,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // omits don't inherit stale values
                     ...(params.filters && !equal(params.filters, values.filters)
                         ? {
-                              ...getDefaultFilters(props.personUUID, props.pinnedFilters),
-                              // deep links with pre-applied filters (e.g. "View recordings" CTAs) come with a
-                              // specific session in mind, where recency is the better default than relevance
-                              order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                              ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
                               ...params.filters,
                           }
                         : {}),

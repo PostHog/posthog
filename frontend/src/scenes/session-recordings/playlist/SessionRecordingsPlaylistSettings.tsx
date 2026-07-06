@@ -43,7 +43,7 @@ const SortingKeyToLabel = {
 }
 
 const RELEVANCE_SORT_EXPLANATION =
-    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, and failed network requests. The highest-scoring recordings appear first.'
+    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
 function getLabel(filters: RecordingUniversalFilters): string {
     const order_field = filters.order || 'start_time'
