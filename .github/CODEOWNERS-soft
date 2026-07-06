@@ -25,6 +25,8 @@ frontend/src/toolbar/product-tours/** @PostHog/team-surveys
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
+# Rust session-replay anonymizer (native counterpart of the sessionreplay anonymize pipeline)
+rust/replay-anonymizer-node/** @PostHog/team-ai-research
 nodejs/src/cdp/ @PostHog/team-workflows
 nodejs/src/session-replay/recording-rasterizer/ @PostHog/team-replay
 
