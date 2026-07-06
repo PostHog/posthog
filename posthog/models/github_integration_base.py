@@ -62,6 +62,29 @@ class GitHubIntegrationError(Exception):
         self.status_code = status_code
 
 
+def _github_repo_optional_fields(repo: dict) -> dict:
+    """Display fields for a repo, taken off the GitHub payload or a cached entry.
+
+    Returns only the keys that are present and well-typed, so repositories cached before these fields
+    existed keep their original (id, name, full_name) shape and don't sprout nulls. Handles both the
+    raw GitHub shape (nested ``permissions.push``) and the already-flattened cache shape (``can_push``).
+    """
+    optional: dict = {}
+    for key in ("default_branch", "language", "pushed_at"):
+        value = repo.get(key)
+        if isinstance(value, str):
+            optional[key] = value
+    for key in ("private", "archived"):
+        value = repo.get(key)
+        if isinstance(value, bool):
+            optional[key] = value
+    permissions = repo.get("permissions")
+    can_push = permissions.get("push") if isinstance(permissions, dict) else repo.get("can_push")
+    if isinstance(can_push, bool):
+        optional["can_push"] = can_push
+    return optional
+
+
 class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
@@ -780,6 +803,7 @@ class GitHubIntegrationBase:
                     "id": repo["id"],
                     "name": repo["name"],
                     "full_name": repo["full_name"],
+                    **_github_repo_optional_fields(repo),
                 }
                 for repo in repositories
                 if isinstance(repo, dict)
@@ -998,6 +1022,7 @@ class GitHubIntegrationBase:
                 "id": repo["id"],
                 "name": repo["name"],
                 "full_name": repo["full_name"],
+                **_github_repo_optional_fields(repo),
             }
             for repo in cached
             if isinstance(repo, dict)
