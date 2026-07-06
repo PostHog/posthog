@@ -783,8 +783,9 @@ function FeedbackThemeChips({ feedbackThemes }: { feedbackThemes: FeedbackThemes
                                 {theme.count} feedback comment{theme.count === 1 ? '' : 's'} describe this failure mode.
                                 Watch for it when rating.
                             </div>
-                            {theme.examples.map((example) => (
-                                <div key={example} className="text-muted italic">
+                            {/* Index keys: the list is static and never reordered, while two raters can write identical quotes. */}
+                            {theme.examples.map((example, index) => (
+                                <div key={index} className="text-muted italic">
                                     "{example}"
                                 </div>
                             ))}

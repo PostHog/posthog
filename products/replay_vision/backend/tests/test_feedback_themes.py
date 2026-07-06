@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -5,8 +7,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.replay_vision.backend.feedback_themes import (
+    _MAX_FEEDBACK_COMMENTS,
     _LlmFeedbackThemes,
     _LlmTheme,
+    feedback_fingerprint,
     refresh_feedback_themes_if_stale,
     theme_lines,
 )
@@ -149,3 +153,32 @@ class TestFeedbackThemes(_VisionAPITestCase):
         self.assertEqual(payload["themes"][0]["theme"], "Review page mistaken for confirmation")
         self.assertEqual(payload["feedback_count"], 5)
         self.assertNotIn("fingerprint", payload)
+
+    def test_fingerprint_ignores_feedback_beyond_the_summary_window(self) -> None:
+        now = timezone.now()
+        observations = ReplayObservation.objects.bulk_create(
+            ReplayObservation(
+                scanner=self.scanner,
+                team=self.team,
+                session_id=f"sess-{i}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=now,
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                scanner_result={"model_output": {"verdict": "no"}},
+            )
+            for i in range(_MAX_FEEDBACK_COMMENTS + 1)
+        )
+        ReplayObservationLabel.objects.bulk_create(
+            ReplayObservationLabel(observation=o, team=self.team, is_correct=False, feedback=f"comment {i}")
+            for i, o in enumerate(observations)
+        )
+        # Deterministic recency: sess-0 newest ... the last one oldest, beyond the summary window.
+        for i, o in enumerate(observations):
+            ReplayObservation.objects.filter(id=o.id).update(created_at=now - timedelta(minutes=i))
+
+        before = feedback_fingerprint(self.scanner)
+        beyond = observations[-1]
+        ReplayObservationLabel.objects.filter(observation=beyond).update(feedback="edited beyond the window")
+
+        # The summary never sees this comment, so it must not read as a change and burn an LLM call.
+        self.assertEqual(feedback_fingerprint(self.scanner), before)

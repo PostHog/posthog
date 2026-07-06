@@ -68,10 +68,19 @@ def _feedback_queryset(scanner: ReplayScanner) -> QuerySet[ReplayObservation]:
 
 
 def feedback_fingerprint(scanner: ReplayScanner) -> str:
-    """Stable hash of the thumbs-down feedback set; a different value means the comments changed."""
-    rows = _feedback_queryset(scanner).values_list("id", "label__feedback")
+    """Stable hash of the thumbs-down feedback slice feeding the summary; a different value means it changed.
+
+    Capped to the same slice `_summarize` receives, so comments beyond the window can't trigger a
+    regeneration whose model input would be identical.
+    """
+    rows = _feedback_queryset(scanner).values_list("id", "label__feedback")[:_MAX_FEEDBACK_COMMENTS]
     material = "\n".join(f"{row[0]}:{row[1]}" for row in sorted(rows, key=lambda row: str(row[0])))
     return hashlib.sha256(material.encode()).hexdigest()
+
+
+def cached_feedback_themes(scanner: ReplayScanner) -> dict | None:
+    """The scanner's cached themes payload, or None when absent or malformed."""
+    return scanner.feedback_themes if isinstance(scanner.feedback_themes, dict) else None
 
 
 def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFeedbackThemes:
@@ -114,7 +123,7 @@ def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFe
 
 def refresh_feedback_themes_if_stale(scanner: ReplayScanner, *, distinct_id: str) -> str:
     """Regenerate the cached themes when the thumbs-down feedback set changed. Returns the outcome for logging."""
-    cached = scanner.feedback_themes if isinstance(scanner.feedback_themes, dict) else None
+    cached = cached_feedback_themes(scanner)
     fingerprint = feedback_fingerprint(scanner)
     if cached and cached.get("fingerprint") == fingerprint:
         return "unchanged"
@@ -142,7 +151,7 @@ def refresh_feedback_themes_if_stale(scanner: ReplayScanner, *, distinct_id: str
 
 def theme_lines(scanner: ReplayScanner) -> list[str]:
     """Cached themes as briefing lines for the prompt-suggestion generation context."""
-    cached = scanner.feedback_themes if isinstance(scanner.feedback_themes, dict) else None
+    cached = cached_feedback_themes(scanner)
     themes = [t for t in (cached or {}).get("themes") or [] if isinstance(t, dict) and t.get("theme")]
     if not themes:
         return []

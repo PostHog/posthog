@@ -35,6 +35,7 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -230,7 +231,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
     def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
-        cached = scanner.feedback_themes if isinstance(scanner.feedback_themes, dict) else None
+        cached = cached_feedback_themes(scanner)
         if not cached:
             return None
         # The staleness fingerprint is internal bookkeeping, not API surface.
