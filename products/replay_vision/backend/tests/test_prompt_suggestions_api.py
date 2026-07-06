@@ -28,7 +28,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
             suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
             rationale="Tightened the yes condition using the rated sessions.",
         )
-        # The agentic loop is exercised by its own tests; API tests mock it out (and its single-shot fallback).
+        # The agentic loop has its own tests. API tests mock it out, along with its single-shot fallback.
         self.agentic_patcher = patch(
             "products.replay_vision.backend.prompt_suggestions._generate_agentic", side_effect=self._agentic
         )

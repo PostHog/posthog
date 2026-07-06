@@ -555,8 +555,8 @@ def refresh_prompt_suggestion_if_stale(scanner: ReplayScanner) -> str:
         if timezone.now() - latest.created_at < PROMPT_SUGGESTION_MIN_AGE:
             return "refreshed_recently"
     try:
-        # Background refresh: the summary tool may generate summaries cold. Attribute to the scanner's
-        # creator when available (summaries need a user); otherwise the agent runs with cached summaries only.
+        # Cold summaries need a user, so attribute them to the scanner's creator. Without one
+        # the agent runs with cached summaries only.
         generate_prompt_suggestion(scanner, scanner.created_by, allow_cold_summaries=True)
     except PromptSuggestionError as e:
         if str(e) == "no rated observations":
