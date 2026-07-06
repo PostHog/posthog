@@ -490,6 +490,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
+    TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRACING_SAVED_VIEWS: 'tracing-saved-views', // owner: #team-apm — gates saved views (saved filter sets) in tracing
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics

@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconList, IconListTree, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconList, IconListTree, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -21,6 +21,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -33,6 +34,7 @@ import {
 } from '~/types'
 
 import { SavedViewsButton } from './savedViews/SavedViewsButton'
+import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
@@ -51,12 +53,26 @@ export function TracingFilterBar(): JSX.Element {
     const { setDateRange, setTimezone, setServiceNames, setFilterGroup, setViewMode, setCompareMode } =
         useActions(tracingFiltersLogic())
     const { dateRange, serviceNames, filterGroup, viewMode, compareMode } = filters
+    const showFacetRail = useFeatureFlag('TRACING_FACET_RAIL')
+    const { facetRailCollapsed } = useValues(tracingConfigLogic)
+    const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
+                        {showFacetRail && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
+                                onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
+                                aria-label={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
+                                tooltip={facetRailCollapsed ? 'Show facets' : 'Hide facets'}
+                                data-attr="tracing-facet-rail-toggle"
+                            />
+                        )}
                         <TracingServiceFilter
                             value={serviceNames}
                             onChange={setServiceNames}
