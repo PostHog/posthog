@@ -158,22 +158,23 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 ...CONTEXT_ONBOARDING_EVENT_PROPS,
             })
         },
-        reportContextOnboardingCloudRunQueued: ({ taskId, runId, repository }) => {
+        // Deliberately NOT capturing the repository name or PR URL: they identify customers'
+        // (often private) repos and this event lands in the shared app analytics project. The
+        // backend task_run_* lifecycle events carry them server-side; task_id/run_id join to them.
+        reportContextOnboardingCloudRunQueued: ({ taskId, runId }) => {
             posthog.capture('onboarding cloud run queued', {
                 task_id: taskId,
                 run_id: runId,
-                repository,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
-        reportContextOnboardingCloudRunCompleted: ({ taskId, runId, status, durationSeconds, prOpened, prUrl }) => {
+        reportContextOnboardingCloudRunCompleted: ({ taskId, runId, status, durationSeconds, prOpened }) => {
             posthog.capture('onboarding cloud run completed', {
                 task_id: taskId,
                 run_id: runId,
                 status,
                 duration_seconds: durationSeconds,
                 pr_opened: prOpened,
-                pr_url: prUrl,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
