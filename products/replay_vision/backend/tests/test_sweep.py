@@ -148,9 +148,15 @@ class TestFindScannerCandidatesActivity:
             for i in range(DEFAULT_CANDIDATE_LIMIT)
         ]
 
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-        ) as MockQuery:
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.pace_candidate_limit",
+                return_value=DEFAULT_CANDIDATE_LIMIT,
+            ),
+        ):
             MockQuery.return_value.run.return_value = candidates
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
