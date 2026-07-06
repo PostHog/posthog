@@ -76,6 +76,7 @@ class DashboardTile(models.Model):
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
+        db_index=False,
     )
     widget = models.ForeignKey(
         "dashboards.DashboardWidget",
