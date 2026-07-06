@@ -173,9 +173,11 @@ export function SurveyContainerAppearance({
             <LemonField.Pure
                 label="Position"
                 info={
-                    surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
-                        ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
-                        : undefined
+                    surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab
+                        ? 'Position is fixed next to the tab button for tab widget surveys.'
+                        : surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
+                          ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
+                          : undefined
                 }
                 className="gap-1"
             >
@@ -183,7 +185,10 @@ export function SurveyContainerAppearance({
                     <SurveyPositionSelector
                         currentPosition={appearance.position}
                         onAppearanceChange={onAppearanceChange}
-                        disabled={disabled}
+                        disabled={
+                            disabled ||
+                            (surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab)
+                        }
                     />
                     <LemonSelect
                         value={appearance.position}
@@ -192,8 +197,15 @@ export function SurveyContainerAppearance({
                             label: positionDisplayNames[position],
                             value: position,
                         }))}
-                        disabled={disabled}
-                        disabledReason={disabledReason || undefined}
+                        disabled={
+                            disabled ||
+                            (surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab)
+                        }
+                        disabledReason={
+                            surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Tab
+                                ? 'Position is fixed next to the tab button for tab widget surveys'
+                                : disabledReason || undefined
+                        }
                     />
                 </div>
                 {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
