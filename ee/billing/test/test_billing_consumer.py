@@ -83,6 +83,7 @@ class TestBillingConsumerBillingActivity(BaseTest):
         assert log.is_system is False
         assert log.item_id == str(self.organization.id)
         assert log.activity == "updated"
+        assert log.detail is not None
         assert log.detail["changes"][0]["field"] == "product_analytics"
         assert log.detail["changes"][0]["after"] == 1000
 

@@ -206,6 +206,11 @@ class BillingConsumer(SQSConsumer):
 
         distinct_id = body.get("distinct_id")
         user = User.objects.filter(distinct_id=distinct_id).first() if distinct_id else None
+        if distinct_id and user is None:
+            logger.warning(
+                "billing_activity.distinct_id_not_found",
+                extra={"distinct_id": distinct_id, "organization_id": organization_id},
+            )
 
         detail_data = body.get("detail") or {}
         changes = [
@@ -224,7 +229,7 @@ class BillingConsumer(SQSConsumer):
             team_id=None,
             user=user,
             was_impersonated=False,
-            item_id=body.get("item_id"),
+            item_id=body.get("item_id") or str(organization.id),
             scope="Billing",
             activity=body.get("activity") or "updated",
             detail=Detail(name=detail_data.get("name"), changes=changes),
