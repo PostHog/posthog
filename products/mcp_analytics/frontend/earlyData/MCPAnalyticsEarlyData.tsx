@@ -45,10 +45,8 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
             <SummaryCard />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="lg:col-span-2">
-                    <LiveActivityCard />
-                </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <LiveActivityCard />
                 <div className="flex flex-col gap-4">
                     <IntentsCard />
                     <ClientsCard />
@@ -202,14 +200,19 @@ function IntentsCard(): JSX.Element {
                     No agent intents captured yet — they show up here as agents explain what they're doing.
                 </span>
             ) : (
-                <ul className="flex flex-col gap-2 m-0 pl-4">
-                    {intentThemes.map(({ intent, count }) => (
-                        <li key={intent} className="text-sm">
-                            {intent}
-                            {count > 1 ? <span className="text-muted text-xs"> ×{count}</span> : null}
-                        </li>
-                    ))}
-                </ul>
+                <div className="flex flex-col gap-2">
+                    <ul className="flex flex-col gap-2 m-0 pl-4">
+                        {intentThemes.map(({ intent, count }) => (
+                            <li key={intent} className="text-sm">
+                                {intent}
+                                {count > 1 ? <span className="text-muted text-xs"> ×{count}</span> : null}
+                            </li>
+                        ))}
+                    </ul>
+                    <span className="text-muted text-xs">
+                        Recent agent intents, verbatim — the AI summary appears once it can be generated.
+                    </span>
+                </div>
             )}
         </Card>
     )
