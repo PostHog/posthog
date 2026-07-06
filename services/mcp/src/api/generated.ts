@@ -17668,6 +17668,13 @@ export namespace Schemas {
       tile_id: number;
     }
 
+    export interface DeleteWarehouseOrgResponse {
+      /** Deletion lifecycle message from the provisioner */
+      status?: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org?: string;
+    }
+
     /**
      * * `pending` - Pending
      * * `delivered` - Delivered
