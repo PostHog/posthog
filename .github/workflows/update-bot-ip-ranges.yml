@@ -1,0 +1,149 @@
+name: Update bot IP ranges
+
+on:
+    workflow_dispatch: # Allow manual triggering
+    schedule:
+        # Weekly, Monday 09:23 UTC — crawler operators shift ranges on the order of weeks
+        - cron: '23 9 * * 1'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: update-bot-ip-ranges
+    cancel-in-progress: false
+
+jobs:
+    update-bot-ip-ranges:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Refresh operator-published crawler IP ranges
+              run: python3 products/web_analytics/scripts/refresh_bot_ip_ranges.py
+
+            - name: Refresh signed agents from Cloudflare Radar
+              # Guarded twice: the script only exists once the signature-agent work is on
+              # master, and the Radar API needs a token — skip gracefully without either
+              # so this workflow never fails for a missing prerequisite.
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_RADAR_API_TOKEN }}
+              run: |
+                  if [ ! -f products/web_analytics/scripts/refresh_signature_agents.py ]; then
+                    echo "refresh_signature_agents.py not on this branch yet — skipping"
+                  elif [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+                    echo "CLOUDFLARE_RADAR_API_TOKEN secret not configured — skipping signed agents refresh"
+                  else
+                    python3 products/web_analytics/scripts/refresh_signature_agents.py
+                  fi
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  GENERATED='products/web_analytics/backend/hogql_queries/bot_ip_networks.py products/web_analytics/backend/hogql_queries/bot_signature_agent_directory.py'
+                  if git diff --quiet -- $GENERATED; then
+                    echo "changes=false" >> $GITHUB_OUTPUT
+                    echo "Vendored bot data matches upstream"
+                  else
+                    echo "changes=true" >> $GITHUB_OUTPUT
+                    git diff --stat -- $GENERATED
+                  fi
+
+            - name: Clean up stale branch
+              if: steps.check-changes.outputs.changes == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/web-analytics-update-bot-ip-ranges" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr comment "$existing_pr" --body "Closing — a fresh run found no drift against upstream, so this PR is no longer needed. A new PR will open automatically the next time the published ranges change." || true
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Capture any open PR before branch reset
+              # Force-resetting the branch below can auto-close the previously open PR;
+              # remember its number so the old and new PRs get cross-linked.
+              id: previous-pr
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  pr=$(gh pr list --head "chore/web-analytics-update-bot-ip-ranges" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+            - name: Reset branch to checked-out SHA
+              # Pin to github.sha (workspace HEAD) so each run is independent of prior
+              # unmerged commits and ghcommit-action never sees a parent mismatch.
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
+              run: |
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/web-analytics-update-bot-ip-ranges >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/web-analytics-update-bot-ip-ranges \
+                      -f sha="$TARGET_SHA" -F force=true
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/web-analytics-update-bot-ip-ranges -f sha="$TARGET_SHA"
+                  fi
+
+            - name: Commit via GitHub API (signed)
+              if: steps.check-changes.outputs.changes == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(web-analytics): update vendored bot ip ranges'
+                  repo: ${{ github.repository }}
+                  branch: chore/web-analytics-update-bot-ip-ranges
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create pull request
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PREVIOUS_PR: ${{ steps.previous-pr.outputs.number }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/web-analytics-update-bot-ip-ranges" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists — updated by commit"
+                    exit 0
+                  fi
+
+                  new_pr_url=$(gh pr create \
+                    --title "chore(web-analytics): update vendored bot ip ranges" \
+                    --body "$(cat <<'BODY'
+                  Automated refresh of the vendored bot classification data from the operator-published sources (Google, Microsoft, Apple, OpenAI, Perplexity, Ahrefs crawler ranges, and the Cloudflare Radar signed-agents directory when configured).
+
+                  ## Reviewer checklist
+
+                  - CI's data-validation tests enforce prefix-width floors and label vocabulary; a red build means upstream published something surprising — do not merge, investigate.
+                  - Eyeball the diff for wholesale removals: an operator list shrinking to near-empty usually means their endpoint broke, not that their crawlers left the internet.
+                  BODY
+                  )" \
+                    --base master \
+                    --head chore/web-analytics-update-bot-ip-ranges \
+                    --label "automated" \
+                    --reviewer "PostHog/team-web-analytics")
+                  echo "Created $new_pr_url"
+
+                  if [ -n "$PREVIOUS_PR" ] && [ -n "$new_pr_url" ]; then
+                    prev_state=$(gh pr view "$PREVIOUS_PR" --json state --jq '.state' 2>/dev/null || echo "")
+                    if [ "$prev_state" = "CLOSED" ]; then
+                      gh pr comment "$PREVIOUS_PR" --body "Superseded by $new_pr_url" || true
+                      current_body=$(gh pr view "$new_pr_url" --json body --jq '.body')
+                      printf '%s\n\nSupersedes #%s.\n' "$current_body" "$PREVIOUS_PR" \
+                        | gh pr edit "$new_pr_url" --body-file - || true
+                    fi
+                  fi
