@@ -7,6 +7,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError as DjangoOperationalError
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
@@ -15,9 +17,17 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import (
+    CDPProducer,
+    PostHogDatabaseConnectionError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+CDP_PRODUCER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer"
 
 
 def _patch_async_producer_scope(mock_producer):
@@ -875,3 +885,35 @@ def test_build_event_id_changes_when_row_data_changes(row_a, row_b):
 def test_build_event_id_changes_with_job_id():
     row = {"id": 1, "name": "Alice"}
     assert _make_producer("job_1")._build_event_id(row) != _make_producer("job_2")._build_event_id(row)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call_site", ["get_dot_notated_table_name", "should_produce_table"])
+async def test_posthog_database_connection_failure_stays_retryable(call_site):
+    # Both reads hit PostHog's own database (ExternalDataSchema / HogFunction), not the customer's
+    # source. A transient blip resolving our host stringifies as "Name or service not known" — the
+    # exact substring postgres/mysql/clickhouse list as non-retryable — so it must surface as a
+    # PostHogDatabaseConnectionError whose message avoids those markers, or a healthy sync gets
+    # permanently stopped by a blip that should have retried.
+    producer = _make_producer("job_1")
+    db_blip = DjangoOperationalError("[Errno -2] Name or service not known")
+
+    if call_site == "get_dot_notated_table_name":
+        with patch(f"{CDP_PRODUCER_MODULE}.ExternalDataSchema") as mock_schema:
+            mock_schema.objects.get.side_effect = db_blip
+            with pytest.raises(PostHogDatabaseConnectionError) as exc_info:
+                await producer.get_dot_notated_table_name()
+    else:
+        producer._table_name_cache = "postgres.some_table"  # skip the metadata read so we exercise the HogFunction read
+        with patch(f"{CDP_PRODUCER_MODULE}.HogFunction") as mock_hog_function:
+            mock_hog_function.objects.filter.side_effect = db_blip
+            with pytest.raises(PostHogDatabaseConnectionError) as exc_info:
+                await producer.should_produce_table()
+
+    error_msg = str(exc_info.value)
+    for source_cls in (PostgresSource, MySQLSource, ClickHouseSource):
+        markers = source_cls().get_non_retryable_errors().keys()
+        colliding = [m for m in markers if m in error_msg]
+        assert not colliding, (
+            f"Retryable message collides with {source_cls.__name__} non-retryable markers: {colliding}"
+        )

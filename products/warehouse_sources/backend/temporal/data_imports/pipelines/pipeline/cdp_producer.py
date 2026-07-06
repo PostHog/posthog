@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 
 from django.conf import settings
+from django.db import OperationalError as DjangoOperationalError
 
 import orjson
 import pyarrow as pa
@@ -24,6 +25,19 @@ from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bu
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+
+class PostHogDatabaseConnectionError(Exception):
+    """Raised when a CDP producer read from PostHog's own database fails to connect.
+
+    `get_dot_notated_table_name` and `should_produce_table` read PostHog-side metadata
+    (`ExternalDataSchema`, `HogFunction`, `HogFlow`), not the customer's source database. A
+    transient failure reaching our database here (e.g. a DNS blip resolving our host) stringifies
+    the same as a customer misconfiguration (e.g. "Name or service not known"), which the
+    postgres/mysql/clickhouse sources all list in `get_non_retryable_errors`. Left unmapped it gets
+    misclassified as a permanent customer config error and stops a healthy sync. This message
+    intentionally avoids those connection-error substrings so it stays retryable.
+    """
 
 
 class CDPProducer:
@@ -91,7 +105,10 @@ class CDPProducer:
 
         @database_sync_to_async_pool
         def _resolve() -> str:
-            schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
+            try:
+                schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
+            except DjangoOperationalError as e:
+                raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
             raw_table_name = build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
@@ -119,28 +136,31 @@ class CDPProducer:
             self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions or workflows")
             self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
 
-            has_matching_hog_function = (
-                HogFunction.objects.filter(
-                    team_id=self.team_id,
-                    enabled=True,
-                    filters__source="data-warehouse-table",
-                    filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
+            try:
+                has_matching_hog_function = (
+                    HogFunction.objects.filter(
+                        team_id=self.team_id,
+                        enabled=True,
+                        filters__source="data-warehouse-table",
+                        filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
+                    )
+                    .exclude(deleted=True)
+                    .exists()
                 )
-                .exclude(deleted=True)
-                .exists()
-            )
 
-            if has_matching_hog_function:
-                return True
+                if has_matching_hog_function:
+                    return True
 
-            # Also gate on active workflows (HogFlows) triggered by this table - without this the
-            # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
-            return HogFlow.objects.filter(
-                team_id=self.team_id,
-                status=HogFlow.State.ACTIVE,
-                trigger__type="data-warehouse-table",
-                trigger__table_name=dot_notated_table_name,
-            ).exists()
+                # Also gate on active workflows (HogFlows) triggered by this table - without this the
+                # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
+                return HogFlow.objects.filter(
+                    team_id=self.team_id,
+                    status=HogFlow.State.ACTIVE,
+                    trigger__type="data-warehouse-table",
+                    trigger__table_name=dot_notated_table_name,
+                ).exists()
+            except DjangoOperationalError as e:
+                raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
 
         self._should_produce_cache = await _check()
         return self._should_produce_cache
