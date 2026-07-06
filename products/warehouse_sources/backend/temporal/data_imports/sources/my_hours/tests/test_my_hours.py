@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.m
     check_access,
     get_rows,
     my_hours_source,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import (
     ENDPOINTS,
@@ -105,47 +104,29 @@ class TestCheckAccess:
         monkeypatch.setattr(my_hours, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "My Hours returned HTTP 500"),
-        ],
+            ("reachable", 200, True, 200, None),
+            ("unauthorized", 401, False, 401, None),
+            ("forbidden", 403, False, 403, None),
+            ("server_error", 500, False, 500, "My Hours returned HTTP 500"),
+        ]
     )
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("mh-key") == (expected_status, expected_message)
+        with pytest.MonkeyPatch().context() as mp:
+            self._patch_session(mp, response)
+            assert check_access("mh-key") == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
         status, message = check_access("mh-key")
         assert status == 0
         assert message is not None and "boom" in message
-
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid My Hours API key"),
-            (403, False, "Invalid My Hours API key"),
-            (500, False, "My Hours returned HTTP 500"),
-        ],
-    )
-    def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        self._patch_session(monkeypatch, response)
-        assert validate_credentials("mh-key") == (expected_valid, expected_message)
 
 
 class TestMyHoursSourceResponse:

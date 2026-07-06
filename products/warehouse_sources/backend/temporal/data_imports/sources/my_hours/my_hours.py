@@ -100,12 +100,3 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
         return response.status_code, f"My Hours returned HTTP {response.status_code}"
 
     return 200, None
-
-
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
-        return True, None
-    if status in (401, 403):
-        return False, "Invalid My Hours API key"
-    return False, message or "Could not validate My Hours API key"
