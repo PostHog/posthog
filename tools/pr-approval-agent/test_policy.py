@@ -16,6 +16,7 @@ import gates  # noqa: E402
 import policy  # noqa: E402
 import reviewer  # noqa: E402
 import review_pr  # noqa: E402
+from familiarity import AuthorFamiliarity  # noqa: E402
 from github import PRData  # noqa: E402
 from policy import (  # noqa: E402
     EffectivePolicy,
@@ -425,3 +426,64 @@ def test_folder_prose_capped_with_marker() -> None:
     assert out.startswith("x" * 2000)
     assert out.endswith("truncated ...]")
     assert len(out) <= 2000 + 64
+
+
+def _body_pipeline(fam) -> "review_pr.Pipeline":
+    pipeline = review_pr.Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = PRData(
+        number=1,
+        repo="PostHog/posthog",
+        title="feat: change",
+        state="OPEN",
+        draft=False,
+        mergeable_state="clean",
+        author="alice",
+        labels=[],
+        base_sha="base",
+        head_sha="91c4be2aaaa",
+        files=[{"filename": "products/visual_review/a.py", "additions": 3, "deletions": 1, "status": "M"}],
+        reviews=[{"user": "greptile-apps[bot]", "state": "COMMENTED", "is_current_head": True}],
+        review_comments=[],
+        check_runs=[],
+    )
+    pipeline.reviewer_output = {"verdict": "APPROVE", "reasoning": "No showstoppers.", "risk": "low", "issues": []}
+    pipeline.classification = {"familiarity": fam}
+    pipeline.effective_policy = EffectivePolicy(
+        max_lines=500,
+        scopes=(
+            ScopeBudget(path=_VISUAL_REVIEW_FILE, max_files=50, files=("products/visual_review/a.py",)),
+            ScopeBudget(path=None, max_files=20, files=()),
+        ),
+    )
+    pipeline.gate_results = [review_pr.GateResult("size", True, "4L, 1F substantive")]
+    return pipeline
+
+
+def test_review_body_leads_with_reasoning_and_folds_mechanics() -> None:
+    fam = AuthorFamiliarity(
+        band="STRONG",
+        blame_overlap_pct=82.0,
+        modified_lines_owned=41,
+        modified_lines_total=50,
+        prior_prs_in_paths=11,
+        days_since_last_touch=12,
+        files_prev_count=1,
+        files_total=1,
+        capped=False,
+        top_prior_authors=(),
+    )
+    body = _body_pipeline(fam)._render_review_body()
+    assert body is not None
+    reasoning_pos = body.index("No showstoppers.")
+    assert reasoning_pos == 0
+    assert body.index("familiarity STRONG") > reasoning_pos
+    assert "greptile-apps[bot] reviewed the current head." in body
+    assert "<details>" in body and body.index("<details>") > body.index("familiarity STRONG")
+    assert "| size | ✓ | 4L, 1F substantive |" in body
+    assert "reviewed head `91c4be2`" in body
+
+
+def test_review_body_without_familiarity_has_no_familiarity_bullet() -> None:
+    body = _body_pipeline(None)._render_review_body()
+    assert body is not None
+    assert "familiarity" not in body.lower()

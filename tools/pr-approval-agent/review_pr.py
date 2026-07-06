@@ -55,7 +55,7 @@ from gates import (
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
-from policy import EffectivePolicy, ScopeBudget, repo_root, resolve
+from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from reviewer import Reviewer
 
 try:
@@ -744,6 +744,60 @@ class Pipeline:
 
     # ── Output ───────────────────────────────────────────────────
 
+    def _render_review_body(self) -> str | None:
+        """The verdict comment body: reasoning first, judgment bullets, mechanics folded.
+
+        Judgment leads and the gate mechanics (budgets, tier, policy version)
+        stay inside a collapsed details block. Built only from GFM constructs a
+        GitHub comment actually renders.
+        """
+        if self.reviewer_output is None:
+            return None
+        reasoning = str(self.reviewer_output.get("reasoning", "")).strip()
+
+        bullets: list[str] = []
+        fam = self.classification.get("familiarity")
+        if fam is not None and fam.band in ("STRONG", "MODERATE"):
+            bullets.append(
+                f"Author wrote {fam.blame_overlap_pct:.0f}% of the modified lines and has "
+                f"{fam.prior_prs_in_paths} merged PRs in these paths (familiarity {fam.band})."
+            )
+        head_reviewers = sorted(
+            {
+                _sanitize_untrusted(r["user"], max_len=50)
+                for r in self.pr.reviews
+                if r.get("is_current_head") and r.get("state") in ("APPROVED", "COMMENTED")
+            }
+        )
+        thumbs = sorted(
+            {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
+        )
+        if head_reviewers:
+            bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
+        elif thumbs:
+            bullets.append(f"👍 on the PR from {', '.join(thumbs)}.")
+        if self.effective_policy is not None:
+            for scope in self.effective_policy.scopes:
+                if scope.path and scope.files:
+                    bullets.append(
+                        f"{len(scope.files)} of the {len(self.pr.files)} changed files are governed by `{scope.path}`."
+                    )
+        bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
+
+        rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
+        rows.append(
+            f"| policy |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
+            f" · reviewed head `{self.pr.head_sha[:7]}` |"
+        )
+        details = (
+            "<details>\n<summary>Gate mechanics and policy version</summary>\n\n"
+            "| Gate |  | Result |\n|---|---|---|\n" + "\n".join(rows) + "\n\n</details>"
+        )
+
+        parts = [part for part in (reasoning, "\n".join(f"- {b}" for b in bullets) if bullets else "") if part]
+        parts.append(details)
+        return "\n\n".join(parts)
+
     def to_dict(self) -> dict:
         return {
             "pr_number": self.pr.number,
@@ -786,6 +840,7 @@ class Pipeline:
                 ),
             },
             "reviewer": self.reviewer_output,
+            "review_body": self._render_review_body(),
             "final_verdict": self.final_verdict,
         }
 
