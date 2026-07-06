@@ -40,7 +40,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
-from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin

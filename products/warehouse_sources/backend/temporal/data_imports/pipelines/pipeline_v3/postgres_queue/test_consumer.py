@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -85,6 +85,18 @@ def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
     conn.closed = closed
     conn.broken = broken
     return conn
+
+
+@pytest.fixture(autouse=True)
+def _lease_renewal_succeeds():
+    # Group dispatch renews the lease before processing; the real SQL can't run
+    # against mock connections. Tests exercising renewal failure re-patch this.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        yield
 
 
 class TestProcessSingle:
@@ -284,6 +296,29 @@ class TestProcessGroup:
 
         assert processed == [0]
 
+    @pytest.mark.asyncio
+    async def test_abandons_group_when_lease_lost_before_dispatch(self):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), [batch])
+
+        # Another pod owns the group now — processing it here would double-write.
+        cast(AsyncMock, consumer._process_batch).assert_not_called()
+        mock_unlock.assert_called_once()
+
 
 class TestRecoverySweep:
     @pytest.mark.asyncio
@@ -369,6 +404,128 @@ class TestRecoverySweep:
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
         )
+
+
+class TestStartupLiveness:
+    @pytest.mark.asyncio
+    async def test_heartbeat_reports_liveness_while_startup_sweep_runs(self):
+        health_reported = asyncio.Event()
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            heartbeat_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock(), health_reporter=health_reported.set)
+
+        release_sweep = asyncio.Event()
+
+        async def blocking_sweep(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            await release_sweep.wait()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=blocking_sweep,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # With the sweep blocked indefinitely, liveness must still be reported.
+            await asyncio.wait_for(health_reported.wait(), timeout=1.0)
+            consumer._shutdown.set()
+            release_sweep.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+
+class TestQueueOperationTimeouts:
+    @pytest.mark.asyncio
+    async def test_hung_poll_times_out_and_consumer_keeps_polling(self):
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            poll_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def hung_fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls >= 2:
+                second_poll_started.set()
+            await asyncio.sleep(3600)
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=hung_fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # A second poll can only start if the first hung one timed out instead of wedging.
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+    @pytest.mark.asyncio
+    async def test_hung_startup_sweep_times_out_and_polling_starts(self):
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            sweep_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        polling_started = asyncio.Event()
+
+        async def hung_sweep(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            await asyncio.sleep(3600)
+            return []
+
+        async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            polling_started.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=hung_sweep,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # Polling can only begin if the hung startup sweep was abandoned by the timeout.
+            await asyncio.wait_for(polling_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
 
 
 class TestFailRun:
