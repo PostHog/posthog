@@ -100,7 +100,7 @@ describe('scannerQualityLogic', () => {
     })
 
     it('never auto-generates on load, even when the recommendation is stale', async () => {
-        // Generation is expensive; the daily backend refresh owns freshness, the tab only reports it.
+        // Generation is expensive. The daily backend refresh owns freshness, the tab only reports it.
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: PENDING_SUGGESTION,
             stale: true,
