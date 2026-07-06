@@ -4,12 +4,7 @@ import type {
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
-import {
-    isPartialDelivery,
-    queryFailureReason,
-    queryStatusLabel,
-    stripDeliveryHistoryPointer,
-} from './SubscriptionDeliveryHistory'
+import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
 
 const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     description: 'q',
@@ -18,21 +13,7 @@ const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     error_type: ok ? null : 'ResolutionError',
 })
 
-describe('SubscriptionDeliveryHistory helpers', () => {
-    describe('stripDeliveryHistoryPointer', () => {
-        it.each([
-            // The degraded notice loses only its "check the delivery history" pointer; the warning + body stay.
-            [
-                "> ⚠️ This report could not be generated — all 2 queries the assistant wrote failed to run. Check the subscription's delivery history in PostHog for the generated queries and errors.\n\n## Report\n\nbody",
-                '> ⚠️ This report could not be generated — all 2 queries the assistant wrote failed to run.\n\n## Report\n\nbody',
-            ],
-            // A report without the pointer is returned unchanged (no over-stripping).
-            ['## Weekly report\n\nAll good.', '## Weekly report\n\nAll good.'],
-        ])('strips the in-app-redundant delivery-history pointer, leaving everything else', (input, expected) => {
-            expect(stripDeliveryHistoryPointer(input)).toBe(expected)
-        })
-    })
-
+describe('SubscriptionAiReportDelivery helpers', () => {
     describe('isPartialDelivery', () => {
         it.each<[string, SubscriptionDeliveryApi['status'], AIReportQueryDiagnosticApi[] | null, boolean]>([
             // A completed delivery that couldn't run some queries is "partial", not a clean success.
@@ -65,8 +46,8 @@ describe('SubscriptionDeliveryHistory helpers', () => {
             ],
             // A generic internal exception (no message) collapses to "Failed", not a cryptic class name.
             ['failed with an internal exception', false, 'Exception', null, 'Failed'],
-        ])('%s', (_name, ok, error_type, error_message, expected) => {
-            expect(queryStatusLabel({ ok, error_type, error_message })).toBe(expected)
+        ])('%s', (_name, ok, error_type, human_readable_error, expected) => {
+            expect(queryStatusLabel({ ok, error_type, human_readable_error })).toBe(expected)
         })
     })
 
@@ -80,8 +61,8 @@ describe('SubscriptionDeliveryHistory helpers', () => {
                 "Unable to resolve field 'x'",
             ],
             ['internal error shows a generic note', false, null, 'This query failed to run due to an internal error.'],
-        ])('%s', (_name, ok, error_message, expected) => {
-            expect(queryFailureReason({ ok, error_message })).toBe(expected)
+        ])('%s', (_name, ok, human_readable_error, expected) => {
+            expect(queryFailureReason({ ok, human_readable_error })).toBe(expected)
         })
     })
 })
