@@ -36,6 +36,10 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+
+// Parse cache keyed on log object identity — leak-free by construction (entries die with their
+// logs) and shared across logic instances, which is safe because parsing is pure per log object.
+const parsedLogCache = new WeakMap<LogMessage, ParsedLogMessage>()
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
 function classifyQueryError(error: unknown): { error_type: string; status_code: number | null } {
@@ -157,6 +161,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         setLogs: (logs: LogMessage[]) => ({ logs }),
+        setNewLogUuids: (newLogUuids: string[]) => ({ newLogUuids }),
         setSparkline: (sparkline: any[] | null) => ({ sparkline }),
         setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
@@ -168,6 +173,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     reducers({
+        // The uuids of the last live-tail batch, for the one-shot row highlight. Tracked outside
+        // the log objects so arriving logs don't force a clone of every existing log per poll.
+        newLogUuids: [
+            new Set<string>(),
+            {
+                setNewLogUuids: (_, { newLogUuids }) => new Set(newLogUuids),
+                // A fresh query result set has no "just arrived" rows.
+                fetchLogsSuccess: () => new Set<string>(),
+                clearLogs: () => new Set<string>(),
+            },
+        ],
         initialLogsLimit: [
             DEFAULT_INITIAL_LOGS_LIMIT as number | null,
             {
@@ -405,6 +421,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         continue
                     }
                     seen.add(log.uuid)
+
+                    // Live-tail prepends keep existing log references, so the cache keeps the
+                    // parsed rows reference-stable too — only genuinely new rows re-render.
+                    const cached = parsedLogCache.get(log)
+                    if (cached) {
+                        result.push(cached)
+                        continue
+                    }
+
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -412,13 +437,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({
+                    const parsed: ParsedLogMessage = {
                         ...log,
                         attributes: stringifyLogAttributes(log.attributes),
                         cleanBody,
                         parsedBody,
                         originalLog: log,
-                    })
+                    }
+                    parsedLogCache.set(log, parsed)
+                    result.push(parsed)
                 }
 
                 return result
@@ -721,11 +748,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
                 if (newLogs.length > 0) {
                     actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
+                    // Existing log references are kept untouched so their parsed rows stay
+                    // reference-stable; replacing newLogUuids un-highlights the previous batch.
+                    actions.setNewLogUuids(newLogs.map((log) => log.uuid))
                     actions.setLogs(
-                        [
-                            ...newLogs.map((log) => ({ ...log, new: true })),
-                            ...values.logs.map((log) => ({ ...log, new: false })),
-                        ]
+                        [...newLogs, ...values.logs]
                             .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
                             .slice(0, DEFAULT_LOGS_PAGE_SIZE)
                     )
