@@ -13,6 +13,7 @@ pydantic-error formatting, and activity logging live behind the facade.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
@@ -228,12 +229,15 @@ class CustomPropertyDefinitionViewSet(
                 description=data.description,
                 display_type=data.display_type,
                 is_big_number=data.is_big_number,
+                options=_custom_property_option_dicts(data.options),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -251,6 +255,8 @@ class CustomPropertyDefinitionViewSet(
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
@@ -284,7 +290,17 @@ def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
         fields["display_type"] = validated.display_type
     if "is_big_number" in raw_data:
         fields["is_big_number"] = validated.is_big_number
+    if "options" in raw_data:
+        fields["options"] = _custom_property_option_dicts(validated.options)
     return fields
+
+
+def _custom_property_option_dicts(options) -> list[dict] | None:
+    """Nested DataclassSerializer fields validate into dataclass instances; the facade and the
+    JSONField speak plain dicts."""
+    if options is None:
+        return None
+    return [asdict(option) for option in options]
 
 
 class CustomPropertySourceViewSet(

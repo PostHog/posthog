@@ -366,7 +366,10 @@ urlpatterns = [
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
     ),
+    # Dual-served on both prefixes while the Customer.io dispatcher is repointed from the
+    # legacy /api/environments/ URL to the canonical /api/projects/ one.
     path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
+    path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
         "api/user_interviews/vapi_webhook/",
         csrf_exempt(vapi_webhook),
