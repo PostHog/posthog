@@ -393,14 +393,16 @@ describe('session-replay-pipeline', () => {
             expect(offsets).toEqual(new Map([[0, 3]]))
         })
 
-        it('drops a rate-limited session before recording but still tracks its offset', async () => {
-            // Block session-2 at the rate limiter. The gate carries it through and the mark-seen step
-            // drops it; unlike the restriction/parse drops above, this verifies the session-key path's
-            // own drop is wired into offset tracking the same way.
+        it('tracks the offset of a rate-limited session even when it is the highest in the partition', async () => {
+            // Block session-3 — the highest offset — at the rate limiter, so nothing recorded advances the
+            // partition past it. That's what forces the blocked drop's own offset tracking to be exercised:
+            // if a lower-offset session were blocked, a later recorded message would move the offset anyway
+            // and mask a regression. Unlike the restriction/parse drops above, this drop happens on the
+            // session-key path (gate blocks it, mark-seen drops it), so it verifies that path is wired in too.
             ;(sessionFilter.isBlocked as jest.Mock).mockImplementationOnce((sessions: SessionSet) => {
                 const blocked = new SessionSet()
                 for (const { teamId, sessionId } of sessions) {
-                    if (sessionId === 'session-2') {
+                    if (sessionId === 'session-3') {
                         blocked.add(teamId, sessionId)
                     }
                 }
@@ -431,8 +433,9 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages)
 
-            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
-            // The blocked session isn't recorded, but its offset still advances the partition.
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
+            // The highest offset on the partition belongs to the blocked session; it must still be tracked
+            // or that partition would never commit past offset 2.
             expect(offsets).toEqual(new Map([[0, 3]]))
         })
 
