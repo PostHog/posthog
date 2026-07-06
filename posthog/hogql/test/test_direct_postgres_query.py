@@ -1679,9 +1679,15 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "prefer")
 
+    @parameterized.expand(
+        [
+            ("us", "db.us.postwh.com"),
+            ("eu", "db.eu.postwh.com"),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, mock_connect):
+    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, _name, host, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1691,7 +1697,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ph3",
             job_inputs={
-                "host": "db.us.postwh.com",
+                "host": host,
                 "port": 5432,
                 "database": "postgres",
                 "user": "postgres",

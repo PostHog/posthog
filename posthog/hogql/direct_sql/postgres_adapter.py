@@ -257,8 +257,9 @@ class PostgresAdapter:
                         "sslkey": "/tmp/no.txt",
                         "sslrootcert": "/tmp/no.txt",
                     }
-                    if host.endswith(".us.postwh.com"):
-                        # DuckLake hosts require SSL but do not use certificate-based auth.
+                    if host.endswith(".postwh.com"):
+                        # DuckLake hosts (any region: .us/.eu/.dev.postwh.com) require SSL
+                        # but do not use certificate-based auth.
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
