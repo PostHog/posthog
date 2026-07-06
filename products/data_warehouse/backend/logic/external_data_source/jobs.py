@@ -11,7 +11,7 @@ from products.data_warehouse.backend.tasks import (
     send_external_data_failure_digest_task,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
