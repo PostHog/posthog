@@ -1011,8 +1011,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Any mask change rebuilds the table via the tested resync path: adds must rewrite the
         # already-synced plaintext (and flip the column's stored type to string), removals must
         # restore original values from the source. CDC re-snapshots through its own path below.
-        # (An in-place re-mask job exists in remask_columns_job.py but is deliberately not
-        # dispatched until it's hardened and integration-validated — see its docstring.)
         if masked_columns_changed and not is_cdc:
             # Billing-paused mask changes were already rejected in validate(). Don't fire a workflow
             # for a disabled schema — reset_pipeline stays set, so the rebuild happens on next enable.
@@ -1088,7 +1086,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             )
             if cdc_table_mode_needs_resnapshot or masked_columns_changed:
                 logger.info(
-                    "cdc_resnapshot_triggered",
+                    "cdc_table_mode_changed_resnapshot_triggered",
                     schema_id=str(updated_instance.id),
                     cdc_table_mode_changed=cdc_table_mode_needs_resnapshot,
                     masked_columns_changed=masked_columns_changed,

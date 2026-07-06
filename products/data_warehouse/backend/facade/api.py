@@ -47,7 +47,6 @@ _LAZY = {
     "sync_external_data_job_workflow": "logic.data_load.service",
     "trigger_external_data_source_workflow": "logic.data_load.service",
     "trigger_external_data_workflow": "logic.data_load.service",
-    "trigger_remask_workflow": "logic.data_load.service",
     "unpause_external_data_schedule": "logic.data_load.service",
     "create_warehouse_templates_for_source": "logic.data_load.source_templates",
     "update_external_job_status": "logic.external_data_source.jobs",

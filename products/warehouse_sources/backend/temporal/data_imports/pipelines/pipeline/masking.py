@@ -107,8 +107,8 @@ def mask_table_columns(
     for index, name in enumerate(list(table.column_names)):
         if fold_column_name(name) not in masked:
             continue
-        # Chunk-wise so peak Python-object memory is one chunk, not the whole column — the remask
-        # job feeds entire tables through here, not just pipeline-sized batches.
+        # Chunk-wise so peak Python-object memory stays bounded to one chunk, whatever the caller's
+        # batch size.
         masked_chunks: list[pa.Array] = []
         for chunk in table.column(index).chunks:
             digests: list[str | None] = []
