@@ -29,6 +29,7 @@ chosen at creation time there.
 
 | Tool                                                   | Purpose                                                                   |
 | ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `external-data-schemas-list`                           | Find a schema id by table name (`search=`), see per-table sync status     |
 | `external-data-schemas-retrieve`                       | Current sync_type, incremental_field, PKs, sync_frequency                 |
 | `external-data-schemas-incremental-fields-create`      | Refresh candidate incremental fields from the live source                 |
 | `external-data-schemas-partial-update`                 | Apply the config change                                                   |
@@ -58,7 +59,13 @@ From the partial-update endpoint:
 
 ## Workflow
 
-### Step 1 — Read the current config
+### Step 1 — Find the schema
+
+The triggers hand you a table _name_, but the rest of the workflow is keyed on the schema `id` (a UUID). If you
+only have a name, call `external-data-schemas-list({search: "<table>"})` to resolve its `id` (and get a first look
+at `status` / `latest_error`), then proceed. If you already have the `id` from a prior diagnosis, skip to Step 2.
+
+### Step 2 — Read the current config
 
 Always start with `external-data-schemas-retrieve({id})`. Understanding the current state prevents mistakes like
 "fixing" an incremental_field that's actually correct.
@@ -70,7 +77,7 @@ Note:
 - `last_synced_at` (so you can tell if the next sync worked)
 - `latest_error` if present (the error often tells you exactly what to change)
 
-### Step 2 — If changing sync_type or incremental_field, refresh candidates
+### Step 3 — If changing sync_type or incremental_field, refresh candidates
 
 Call `external-data-schemas-incremental-fields-create({id})`. Even though the operation name says "create", it
 re-reads the source and returns the current candidate fields — use it to confirm the field you want to set actually
@@ -93,7 +100,7 @@ The response:
 If your target `incremental_field` isn't in the list, tell the user — they need to either pick a different field or
 change the source table to add one.
 
-### Step 3 — Apply the change
+### Step 4 — Apply the change
 
 Call `external-data-schemas-partial-update({id}, {...changed fields})`.
 
@@ -119,7 +126,7 @@ Examples:
 {"should_sync": false}
 ```
 
-### Step 4 — Decide whether existing data is still valid
+### Step 5 — Decide whether existing data is still valid
 
 This is the step that's easy to get wrong. Some config changes invalidate the synced data; others don't.
 
@@ -153,7 +160,7 @@ When the change invalidates data, the clean flow is:
 Or equivalently, `external-data-schemas-delete-data` → `external-data-schemas-reload`. `delete-data` + `reload` is
 cleaner when the table is large and the user wants to start from zero.
 
-### Step 5 — Trigger and confirm
+### Step 6 — Trigger and confirm
 
 For non-destructive changes, call `external-data-schemas-reload({id})` to pick up the new config immediately rather
 than waiting for the schedule.
