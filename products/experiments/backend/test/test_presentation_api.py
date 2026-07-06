@@ -2420,6 +2420,79 @@ class TestExperimentCRUD(APILicensedTest):
         flag = FeatureFlag.objects.get(key="ff-precedence", team_id=self.team.id)
         self.assertEqual([v["key"] for v in flag.variants], ["control", "winner"])
 
+    def test_echoed_feature_flag_object_is_ignored_on_round_trip(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF echo",
+                "feature_flag_key": "ff-echo",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+
+        # Read-modify-write client: the frontend spreads the whole GET response into the save,
+        # including the serialized read-only flag (which carries `id`). The stale echo must not
+        # override the edited `parameters` variants.
+        echoed_flag = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "feature_flag"
+        ]
+        self.assertIn("id", echoed_flag)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 60},
+                        {"key": "test", "rollout_percentage": 40},
+                    ]
+                },
+                "feature_flag": echoed_flag,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag = FeatureFlag.objects.get(key="ff-echo", team_id=self.team.id)
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
+
+    def test_partial_feature_flag_object_preserves_omitted_flag_config(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF partial",
+                "feature_flag_key": "ff-partial",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 34},
+                        {"key": "red", "rollout_percentage": 33},
+                        {"key": "blue", "rollout_percentage": 33},
+                    ],
+                    "aggregation_group_type_index": 1,
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+        flag = FeatureFlag.objects.get(key="ff-partial", team_id=self.team.id)
+        self.assertEqual(flag.filters["aggregation_group_type_index"], 1)
+
+        # A rollout-only config object must not reset the flag's variants to defaults or clear
+        # its aggregation group type — omitted config keeps the flag's current state.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"feature_flag": {"filters": {"groups": [{"properties": [], "rollout_percentage": 30}]}}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "red", "blue"])
+        self.assertEqual(flag.filters["aggregation_group_type_index"], 1)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 30)
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(

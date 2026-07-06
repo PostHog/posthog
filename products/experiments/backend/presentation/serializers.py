@@ -484,9 +484,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         Read from ``initial_data`` because the serializer's ``feature_flag`` field is read-only output
         (the linked flag). This is its write counterpart during the window where ``parameters`` is
         still the internal input shape; callers can stop sending flag config under ``parameters``.
+
+        The write contract is a config-only object (``filters``, ``ensure_experience_continuity``).
+        An object carrying ``id`` is the serialized linked flag echoed back by a read-modify-write
+        client (the GET response's ``feature_flag``, which the frontend spreads into saves); treating
+        that echo as intent would override the client's actual ``parameters`` edits with the flag's
+        pre-edit state, so it is ignored — the pre-existing behavior for the read-only field.
         """
         feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
-        if not isinstance(feature_flag_input, dict):
+        if not isinstance(feature_flag_input, dict) or "id" in feature_flag_input:
             return data
         # On a partial update that omits ``parameters``, DRF drops it from ``data``. Seed the merge
         # from the instance so non-flag params (minimum_detectable_effect, variant_notes, ...) survive.
@@ -496,7 +502,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             base_parameters = self.instance.parameters
         else:
             base_parameters = None
-        merged = ExperimentService.feature_flag_config_to_parameters(feature_flag_input, base_parameters)
+        merged = ExperimentService.feature_flag_config_to_parameters(
+            feature_flag_input,
+            base_parameters,
+            flag=self.instance.feature_flag if self.instance is not None else None,
+        )
         ExperimentService.validate_experiment_parameters(merged)
         data["parameters"] = merged
         return data

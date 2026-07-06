@@ -531,7 +531,9 @@ class ExperimentService:
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
     @staticmethod
-    def feature_flag_config_to_parameters(feature_flag_input: dict, parameters: dict | None) -> dict:
+    def feature_flag_config_to_parameters(
+        feature_flag_input: dict, parameters: dict | None, flag: FeatureFlag | None = None
+    ) -> dict:
         """Translate a ``feature_flag`` config object (the flag's native write shape:
         ``filters.multivariate.variants``, ``filters.groups``, ``filters.aggregation_group_type_index``,
         ``filters.payloads``, ``ensure_experience_continuity``) into the legacy ``parameters`` input
@@ -542,6 +544,11 @@ class ExperimentService:
         ``ExperimentBaseSerializer``): callers send config through the flag object instead of
         ``parameters``, and this normalizes it while ``parameters`` remains the internal input shape.
         Returns a new dict, leaving the caller's input untouched.
+
+        Pass ``flag`` (the experiment's linked flag, on update) to give the object PATCH semantics:
+        config the input omits is backfilled from the flag's current state, because the downstream
+        sync treats a missing variants key as "reset to defaults" and a missing aggregation key as
+        "clear" — a partial object must not silently regress config it never mentioned.
         """
         params = dict(parameters or {})
         filters = feature_flag_input.get("filters") or {}
@@ -559,6 +566,10 @@ class ExperimentService:
             params["feature_flag_payloads"] = filters["payloads"]
         if "ensure_experience_continuity" in feature_flag_input:
             params["ensure_experience_continuity"] = feature_flag_input["ensure_experience_continuity"]
+        if flag is not None:
+            params.setdefault("feature_flag_variants", flag.variants)
+            if "aggregation_group_type_index" not in params and flag.aggregation_group_type_index is not None:
+                params["aggregation_group_type_index"] = flag.aggregation_group_type_index
         return params
 
     @staticmethod
