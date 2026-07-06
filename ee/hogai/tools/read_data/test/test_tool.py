@@ -1699,14 +1699,13 @@ class TestReadDataTool(BaseTest):
             team=self.team, name="Allowed Survey", questions=[{"type": "open", "question": "Test?"}]
         )
 
-        user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
         context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
-            team=self.team, user=user, state=state, context_manager=context_manager
+            team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
