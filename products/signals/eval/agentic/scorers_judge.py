@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 class ResearchSummaryJudge(JudgeScorer):
     """Judges whether the report summary is specific, faithful, and grounded in the findings."""
 
-    pass_threshold = 0.6
-
     def __init__(self) -> None:
         super().__init__("summary_quality_judge")
 
@@ -49,8 +47,6 @@ class ResearchSummaryJudge(JudgeScorer):
 
 class ImplementationFixJudge(JudgeScorer):
     """Judges whether the diff plausibly and correctly addresses the issue."""
-
-    pass_threshold = 0.6
 
     def __init__(self) -> None:
         super().__init__("fix_quality_judge")

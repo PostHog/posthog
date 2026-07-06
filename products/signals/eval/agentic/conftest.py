@@ -18,6 +18,9 @@ def pytest_addoption(parser) -> None:
     group.addoption("--eval-user-id", type=int, default=1)
     group.addoption("--case-filter", default=None)
     group.addoption("--min-pass-rate", type=float, default=None)
+    group.addoption("--sample", type=int, default=None, help="Run a stable per-case-id sample of N cases.")
+    group.addoption("--seed", type=int, default=1337, help="Seed for --sample selection.")
+    group.addoption("--concurrency", type=int, default=4, help="Max concurrent live cases.")
 
 
 @pytest.fixture
@@ -31,4 +34,7 @@ def eval_opts(request) -> dict:
         "user_id": opt("--eval-user-id"),
         "case_filter": opt("--case-filter"),
         "min_pass_rate": opt("--min-pass-rate"),
+        "sample": opt("--sample"),
+        "seed": opt("--seed"),
+        "concurrency": opt("--concurrency"),
     }

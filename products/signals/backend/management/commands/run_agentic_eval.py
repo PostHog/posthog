@@ -17,14 +17,57 @@ Examples::
 
 from __future__ import annotations
 
+import os
 import logging
+import subprocess
+from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from products.signals.eval.agentic.run import run_and_report
 from products.signals.eval.agentic.suites import STEPS
 
 logger = logging.getLogger(__name__)
+
+
+def _docker_reachable() -> bool:
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=15).returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _sandbox_provider() -> str | None:
+    # Provisioning happens in the temporal worker, whose env comes from the stack's
+    # env files — this CLI process often lacks the var, so fall back to those files.
+    provider = getattr(settings, "SANDBOX_PROVIDER", None)
+    if provider:
+        return provider
+    for name in (".env.local", ".env"):
+        path = Path(settings.BASE_DIR) / name
+        if not path.exists():
+            continue
+        for line in path.read_text().splitlines():
+            if line.startswith("SANDBOX_PROVIDER="):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    return None
+
+
+def _preflight_agent_mode(mode: str) -> None:
+    missing: list[str] = []
+    if not settings.DEBUG:
+        missing.append("DEBUG=1 (sandbox runs are local-dev only)")
+    if _sandbox_provider() != "docker":
+        missing.append("SANDBOX_PROVIDER=docker")
+    if not _docker_reachable():
+        missing.append("a reachable Docker daemon (`docker info` failed — is Docker running?)")
+    if missing:
+        raise CommandError(
+            f"mode={mode} drives the real agent but the environment is not ready. Missing:\n  - "
+            + "\n  - ".join(missing)
+            + "\nSee products/signals/eval/agentic/README.md."
+        )
 
 
 class Command(BaseCommand):
@@ -52,6 +95,11 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, default=1337, help="Seed for --sample (reproducible subsets).")
         parser.add_argument("--concurrency", type=int, default=4, help="Max concurrent live cases (live mode only).")
         parser.add_argument(
+            "--include-generated",
+            action="store_true",
+            help="Include the generated bulk cases in live/record mode (replay always includes them).",
+        )
+        parser.add_argument(
             "--min-pass-rate",
             type=float,
             default=None,
@@ -61,10 +109,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         steps = list(STEPS) if options["step"] == "all" else [options["step"]]
         if options["mode"] != "replay":
-            self.stderr.write(
-                f"mode={options['mode']} drives the real agent — requires the local stack + Docker sandbox "
-                "(SANDBOX_PROVIDER=docker, DEBUG=1). See products/signals/eval/agentic/README.md."
-            )
+            _preflight_agent_mode(options["mode"])
+        if options["capture"] and not os.environ.get("POSTHOG_PROJECT_API_KEY"):
+            raise CommandError("--capture requires POSTHOG_PROJECT_API_KEY — events would be silently dropped")
 
         results = run_and_report(
             steps,
@@ -77,6 +124,7 @@ class Command(BaseCommand):
             sample=options["sample"],
             seed=options["seed"],
             concurrency=options["concurrency"],
+            include_generated=options["include_generated"] or None,
         )
 
         min_pass = options["min_pass_rate"]

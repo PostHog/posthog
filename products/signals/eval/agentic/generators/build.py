@@ -11,6 +11,10 @@ builder is pure templating. Run via the ``generate_eval_cases`` management comma
 from __future__ import annotations
 
 import re
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 _STOP = {
     "the",
@@ -100,12 +104,42 @@ _VERDICT_DETAILS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _salient(name: str) -> str:
-    toks = [t for t in re.findall(r"[A-Za-z]{3,}", name.lower()) if t not in _STOP]
-    if toks:
-        return max(toks, key=lambda t: len(t))
-    fallback = re.findall(r"[A-Za-z]{2,}", name.lower())
-    return fallback[0] if fallback else "signal"
+# Minimum length for a summary_must_mention keyword — shorter tokens match almost any summary.
+_MIN_TOKEN_LEN = 5
+
+
+def _case_token(name: str) -> str | None:
+    """A discriminating keyword for ground truth, or None when the name has none.
+
+    No fallback: a name made only of stop-words/short tokens (e.g. an issue literally named
+    'Error') yields a keyword that any summary mentions, so such names produce no case.
+    """
+    toks = [t for t in re.findall(rf"[A-Za-z]{{{_MIN_TOKEN_LEN},}}", name.lower()) if t not in _STOP]
+    return max(toks, key=lambda t: len(t)) if toks else None
+
+
+def _dedupe(cases: list[dict], *, ignore_keys: tuple[str, ...] = ("case_id", "signal_id")) -> list[dict]:
+    """Drop cases whose content (everything but ids) is byte-identical to an earlier one."""
+
+    def _key(d: dict) -> str:
+        def strip(v: object) -> object:
+            if isinstance(v, dict):
+                return {k: strip(x) for k, x in v.items() if k not in ignore_keys}
+            return v
+
+        return json.dumps(strip(d), sort_keys=True)
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for c in cases:
+        k = _key(c)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    if len(out) < len(cases):
+        logger.warning("dropped %d duplicate-content generated cases", len(cases) - len(out))
+    return out
 
 
 def _stem(repo_name: str) -> str:
@@ -114,6 +148,20 @@ def _stem(repo_name: str) -> str:
     n = re.sub(r"^(js|ts|py|go|old|new|the)[-_]?", "", n)
     n = re.sub(r"[-_](old|new|v\d+|copy|fork|mirror|template|example|boilerplate|demo)$", "", n)
     return re.sub(r"[^a-z0-9]", "", n)
+
+
+# A description too short to discriminate the target repo makes the ground truth ambiguous.
+_MIN_DESC_LEN = 25
+# Name-embedding "known as 'X'" cases are trivially passable; keep only a handful as a sanity floor.
+_MAX_NAME_ONLY_CASES = 8
+
+
+def _usable_description(row: dict) -> str | None:
+    desc = (row["description"] or "").strip()
+    name = row["full_name"].split("/")[-1]
+    if len(desc) < _MIN_DESC_LEN or desc.lower() == name.lower():
+        return None
+    return desc
 
 
 def build_repo_selection_cases(team_id: int, *, target: int = 110) -> list[dict]:
@@ -129,32 +177,44 @@ def build_repo_selection_cases(team_id: int, *, target: int = 110) -> list[dict]
     )
     # Group near-duplicate repos by stem so same-domain ambiguity is accepted, not penalized.
     by_stem: dict[str, list[str]] = {}
+    # Repos sharing an identical description are mutually acceptable too — the signal only
+    # carries the description, so any of them is a defensible pick.
+    by_desc: dict[str, list[str]] = {}
     for r in rows:
         name = r["full_name"].split("/")[-1]
         by_stem.setdefault(_stem(name), []).append(r["full_name"])
+        desc = _usable_description(r)
+        if desc:
+            by_desc.setdefault(desc.lower(), []).append(r["full_name"])
 
     cases: list[dict] = []
-    # Prefer described repos first (clearer signals), then the rest, for stable ordering.
-    rows.sort(key=lambda r: (not (r["description"] or "").strip(), r["full_name"]))
+    # Prefer usably-described repos first (clearer signals), then the rest, for stable ordering.
+    rows.sort(key=lambda r: (_usable_description(r) is None, r["full_name"]))
+    name_only_count = 0
     for i, r in enumerate(rows):
         if len(cases) >= target:
             break
         full = r["full_name"]
         name = full.split("/")[-1]
-        desc = (r["description"] or "").strip()
+        desc = _usable_description(r)
         lang = r["primary_language"] or "software"
-        accepted = sorted(set(by_stem.get(_stem(name), [full])))
+        accepted_set = set(by_stem.get(_stem(name), [full]))
         if desc:
+            accepted_set |= set(by_desc.get(desc.lower(), ()))
             content = (
                 f"A user reported a problem in one of our connected projects. The affected product is "
                 f'best described as: "{desc}". They hit a bug in its core functionality and we need to '
                 f"find the repository that owns this code."
             )
         else:
+            if name_only_count >= _MAX_NAME_ONLY_CASES:
+                continue
+            name_only_count += 1
             content = (
                 f"A bug was reported in our {lang} project known as '{name}'. Identify which connected "
                 f"repository owns this code."
             )
+        accepted = sorted(accepted_set)
         cases.append(
             {
                 "case_id": f"reposel_gen_{i:03d}_{_stem(name) or 'repo'}",
@@ -178,7 +238,7 @@ def build_repo_selection_cases(team_id: int, *, target: int = 110) -> list[dict]
                 "expect_null": True,
             }
         )
-    return cases
+    return _dedupe(cases)
 
 
 def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
@@ -188,8 +248,19 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
     from posthog.clickhouse.query_tagging import tag_queries  # noqa: PLC0415
 
     cases: list[dict] = []
+    section_counts: dict[str, int] = {}
+    # A keyword reused across cases can't discriminate which case's summary passed.
+    used_tokens: set[str] = set()
+
+    def _fresh_token(name: str) -> str | None:
+        tok = _case_token(name)
+        if tok is None or tok in used_tokens:
+            return None
+        used_tokens.add(tok)
+        return tok
 
     # 1) Data-grounded from real error-tracking issues (dedupe names).
+    section_start = len(cases)
     try:
         from products.error_tracking.backend.models import ErrorTrackingIssue  # noqa: PLC0415
 
@@ -206,9 +277,12 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
                 seen.add(key)
                 names.append(n)
         for i, name in enumerate(names):
+            tok = _fresh_token(name)
+            if tok is None:
+                continue
             cases.append(
                 {
-                    "case_id": f"research_gen_err_{i:03d}_{_salient(name)}",
+                    "case_id": f"research_gen_err_{i:03d}_{tok}",
                     "signal": {
                         "signal_id": f"sig_err_{i:03d}",
                         "content": (
@@ -218,13 +292,15 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
                         "source_product": "error_tracking",
                         "source_type": "issue_spiking",
                     },
-                    "expectation": {"expect_data_evidence": True, "summary_must_mention": [_salient(name)]},
+                    "expectation": {"expect_data_evidence": True, "summary_must_mention": [tok]},
                 }
             )
     except Exception:
-        pass
+        logger.exception("research case generation: error-tracking section failed; its cases were lost")
+    section_counts["error_tracking"] = len(cases) - section_start
 
     # 2) Data-grounded from real top events.
+    section_start = len(cases)
     try:
         tag_queries(product="max_ai", feature="management_command")
         rows = sync_execute(
@@ -233,7 +309,9 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
             {"t": team_id},
         )
         for i, (event, _c) in enumerate(rows):
-            tok = _salient(event)
+            tok = _fresh_token(event)
+            if tok is None:
+                continue
             cases.append(
                 {
                     "case_id": f"research_gen_evt_{i:03d}_{tok}",
@@ -250,15 +328,19 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
                 }
             )
     except Exception:
-        pass
+        logger.exception("research case generation: top-events section failed; its cases were lost")
+    section_counts["events"] = len(cases) - section_start
 
     # 3) Data-grounded from real experiments.
+    section_start = len(cases)
     try:
         Experiment = apps.get_model("experiments", "Experiment")
         for i, name in enumerate(
             Experiment.objects.filter(team_id=team_id).values_list("name", flat=True).order_by("id")
         ):
-            tok = _salient(name or "experiment")
+            tok = _fresh_token(name or "")
+            if tok is None:
+                continue
             cases.append(
                 {
                     "case_id": f"research_gen_exp_{i:03d}_{tok}",
@@ -275,17 +357,29 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
                 }
             )
     except Exception:
-        pass
+        logger.exception("research case generation: experiments section failed; its cases were lost")
+    section_counts["experiments"] = len(cases) - section_start
+
+    logger.info("research case generation: data-grounded section counts %s", section_counts)
+    if not any(section_counts.values()):
+        raise RuntimeError(
+            "research case generation produced zero data-grounded cases across all sections "
+            f"({section_counts}); the stack/project data is broken — a purely-templated dataset "
+            "would silently lose the live suite's data-grounded coverage"
+        )
 
     # 4) Templated source/verdict variety. These are synthetic (no real data/code), so the verdict
     # is genuinely variable — asserting a tight actionability/priority would just add noise. We assert
     # only the stable dimensions: the summary stays on-topic, and (for clearly-vague signals) the
     # agent must NOT call it immediately actionable. Relative quality is captured by the LLM judge.
-    n_variety = max(0, target - len(cases))
+    # Capped at one case per detail: repeating details pads the suite with verbatim duplicates.
+    n_variety = min(max(0, target - len(cases)), len(_VERDICT_DETAILS))
     for i in range(n_variety):
-        kind, detail = _VERDICT_DETAILS[i % len(_VERDICT_DETAILS)]
+        kind, detail = _VERDICT_DETAILS[i]
         tmpl = next(t for t in _VERDICT_TEMPLATES if t["kind"] == kind)
-        tok = _salient(detail)
+        tok = _case_token(detail)
+        if tok is None:
+            continue
         expectation: dict = {"summary_must_mention": [tok]}
         if kind == "vague":
             expectation["expected_actionability"] = ["requires_human_input", "not_actionable"]
@@ -301,7 +395,7 @@ def build_research_cases(team_id: int, *, target: int = 110) -> list[dict]:
                 "expectation": expectation,
             }
         )
-    return cases
+    return _dedupe(cases)
 
 
 # Auto-verifiable implementation task templates on a small, fast-cloning repo.
@@ -356,4 +450,4 @@ def build_implementation_cases(*, target: int = 110) -> list[dict]:
         cases.append(
             {"case_id": f"impl_gen_{tag}_{arch}", "repo": _IMPL_REPO, "issue_prompt": prompt, "expectation": exp}
         )
-    return cases
+    return _dedupe(cases)

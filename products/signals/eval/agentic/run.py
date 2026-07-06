@@ -7,10 +7,12 @@ entry surfaces stay thin and behave identically.
 from __future__ import annotations
 
 import os
-import random
+import uuid
 import asyncio
+import hashlib
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from products.signals.eval.agentic.harness import AgenticEvalHarness
 from products.signals.eval.agentic.metrics import capture_suite, print_report
@@ -18,7 +20,15 @@ from products.signals.eval.agentic.results import SuiteResult
 from products.signals.eval.agentic.runners import RunContext
 from products.signals.eval.agentic.suites import load_cases
 
+if TYPE_CHECKING:
+    from products.signals.eval.agentic.datasets import EvalCase
+
 logger = logging.getLogger(__name__)
+
+
+def stable_sample(cases: list[EvalCase], sample: int, seed: int) -> list[EvalCase]:
+    """Select by per-case-id hash so adding/removing a case doesn't reshuffle the rest of the subset."""
+    return sorted(cases, key=lambda c: hashlib.sha256(f"{seed}:{c.case_id}".encode()).hexdigest())[:sample]
 
 
 def build_judge(*, enabled: bool, team_id: int):
@@ -41,18 +51,20 @@ async def run_step(
     sample: int | None = None,
     seed: int = 1337,
     concurrency: int = 4,
+    include_generated: bool | None = None,
 ) -> SuiteResult:
-    cases = load_cases(step, mode=mode)
+    # Live/record default to the curated sets — the generated bulk (300+ cases)
+    # is for replay breadth, not sandbox runs.
+    if include_generated is None:
+        include_generated = mode == "replay"
+    cases = load_cases(step, mode=mode, include_generated=include_generated)
     if case_filter:
         cases = [c for c in cases if case_filter in c.case_id]
         if not cases:
             raise ValueError(f"no {step} cases matched filter {case_filter!r}")
     if sample is not None and sample < len(cases):
         # Deterministic sample so subset runs are reproducible across model/prompt comparisons.
-        rng = random.Random(seed)
-        cases = sorted(cases, key=lambda c: c.case_id)
-        rng.shuffle(cases)
-        cases = cases[:sample]
+        cases = stable_sample(cases, sample, seed)
     harness = AgenticEvalHarness(
         ctx=RunContext(team_id=team_id, user_id=user_id, cassette_dir=cassette_dir),
         judge=build_judge(enabled=judge_enabled, team_id=team_id),
@@ -64,10 +76,12 @@ async def run_step(
 def _capture_client():
     from posthoganalytics import Posthog  # noqa: PLC0415
 
-    return Posthog(
-        os.environ.get("POSTHOG_PROJECT_API_KEY", "phx_unused"),
-        host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"),
-    )
+    api_key = os.environ.get("POSTHOG_PROJECT_API_KEY")
+    if not api_key:
+        # The posthoganalytics consumer swallows delivery failures, so a bogus key would
+        # silently drop every event of an expensive run.
+        raise RuntimeError("capture requires POSTHOG_PROJECT_API_KEY to be set")
+    return Posthog(api_key, host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"))
 
 
 def run_and_report(
@@ -83,10 +97,13 @@ def run_and_report(
     sample: int | None = None,
     seed: int = 1337,
     concurrency: int = 4,
+    include_generated: bool | None = None,
 ) -> dict[str, SuiteResult]:
     """Run one or more steps and print a report; optionally capture results to PostHog."""
     results: dict[str, SuiteResult] = {}
     client = _capture_client() if capture else None
+    # One id per invocation so two comparison runs stay distinguishable in report + capture.
+    run_id = str(uuid.uuid4())
     for step in steps:
         suite = asyncio.run(
             run_step(
@@ -100,11 +117,12 @@ def run_and_report(
                 sample=sample,
                 seed=seed,
                 concurrency=concurrency,
+                include_generated=include_generated,
             )
         )
-        print_report(suite)
+        print_report(suite, run_id=run_id)
         if client is not None:
-            capture_suite(client, suite)
+            capture_suite(client, suite, run_id=run_id)
         results[step] = suite
     if client is not None:
         client.flush()

@@ -31,6 +31,7 @@ from products.signals.eval.agentic.datasets import EvalCase, ImplementationCase,
 from products.signals.eval.agentic.session_backends import (
     RecordingMultiTurnSession,
     ReplayMultiTurnSession,
+    _Recorder,
     active_cassette,
     active_recorder,
     inject_session,
@@ -38,6 +39,7 @@ from products.signals.eval.agentic.session_backends import (
 )
 
 if TYPE_CHECKING:
+    from products.signals.backend.agent_runtime import AgentRuntime
     from products.signals.backend.report_generation.research import ReportResearchOutput
 
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ class RunContext:
 class StepRunner(Protocol):
     step: str
 
-    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext) -> Any: ...
+    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None) -> Any: ...
 
     def input_repr(self, case: EvalCase) -> str: ...
 
@@ -83,7 +85,34 @@ def _patched(targets: dict[str, Any]) -> Iterator[None]:
         yield
 
 
-def _build_sandbox_context(ctx: RunContext, repository: str | None) -> Any:
+@contextmanager
+def _no_db() -> Iterator[None]:
+    """Fail fast on any DB access — replay must stay persistence-free (`signal_report_id=None` invariant)."""
+
+    def _blocked(self_: Any) -> None:
+        raise RuntimeError("signals agentic replay attempted a database connection — replay must be persistence-free")
+
+    with mock_patch("django.db.backends.base.base.BaseDatabaseWrapper.ensure_connection", _blocked):
+        yield
+
+
+async def _resolve_runtime(team_id: int, step: str) -> AgentRuntime:
+    """Resolve the `signals-pipeline-models` override the way the production activities do."""
+    from posthog.sync import database_sync_to_async  # noqa: PLC0415
+
+    from products.signals.backend.agent_runtime import resolve_agent_runtime  # noqa: PLC0415
+
+    # Off the event loop: the payload read is blocking network I/O.
+    return await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, step)
+
+
+def _runtime_meta(runtime: AgentRuntime) -> dict[str, str]:
+    values = {"adapter": runtime.runtime_adapter, "model": runtime.model, "effort": runtime.reasoning_effort}
+    # All-None (the agent-server default) reports as {} — the report layer shows nothing for it.
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def _build_sandbox_context(ctx: RunContext, repository: str | None, runtime: AgentRuntime | None = None) -> Any:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext  # noqa: PLC0415
 
     return CustomPromptSandboxContext(
@@ -92,6 +121,9 @@ def _build_sandbox_context(ctx: RunContext, repository: str | None) -> Any:
         repository=repository,
         sandbox_environment_id=ctx.sandbox_environment_id,
         posthog_mcp_scopes="read_only",
+        model=runtime.model if runtime else None,
+        runtime_adapter=runtime.runtime_adapter if runtime else None,
+        reasoning_effort=runtime.reasoning_effort if runtime else None,
     )
 
 
@@ -104,18 +136,36 @@ def _load_cassette(case: EvalCase, ctx: RunContext) -> Cassette:
     return Cassette.load(path)
 
 
+def _save_recorded_cassette(recorder: _Recorder, case: EvalCase, ctx: RunContext, *, meta: dict | None = None) -> None:
+    if not recorder.turns:
+        raise RunnerError(
+            f"record run for case {case.case_id!r} captured no turns — refusing to overwrite the cassette "
+            "(is a MultiTurnSession bind site missing from _PATCH_TARGETS?)"
+        )
+    recorder_to_cassette(recorder, meta=meta).save(ctx.cassette_dir / (case.cassette or f"{case.case_id}.json"))
+
+
 # ── Research ─────────────────────────────────────────────────────────────────────
 
 
 class ResearchRunner:
     step = "research"
 
-    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext) -> ReportResearchOutput:
+    async def run(
+        self, case: EvalCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None
+    ) -> ReportResearchOutput:
         assert isinstance(case, ResearchCase)
         from products.signals.backend.report_generation.research import run_multi_turn_research  # noqa: PLC0415
 
         signals = [spec.to_signal_data() for spec in case.signals]
-        sandbox_context = _build_sandbox_context(ctx, case.repo)
+        runtime = None
+        if mode in ("live", "record"):
+            # Same per-team/per-step resolution as run_agentic_report_activity, so the
+            # `signals-pipeline-models` payload controls the model under eval too.
+            runtime = await _resolve_runtime(ctx.team_id, self.step)
+            if meta is not None:
+                meta["runtime"] = _runtime_meta(runtime)
+        sandbox_context = _build_sandbox_context(ctx, case.repo, runtime=runtime)
         # Live/record stream progress to stderr; replay is silent (no agent to narrate).
         output_fn = (lambda msg: logger.info("research[%s]: %s", case.case_id, msg)) if mode != "replay" else None
 
@@ -134,12 +184,12 @@ class ResearchRunner:
 
         if mode == "replay":
             cassette = _load_cassette(case, ctx)
-            with inject_session(ReplayMultiTurnSession), active_cassette(cassette):
+            with inject_session(ReplayMultiTurnSession), active_cassette(cassette), _no_db():
                 return await _invoke()
         if mode == "record":
             with inject_session(RecordingMultiTurnSession), active_recorder(case.case_id, self.step) as recorder:
                 output = await _invoke()
-            recorder_to_cassette(recorder).save(ctx.cassette_dir / (case.cassette or f"{case.case_id}.json"))
+            _save_recorded_cassette(recorder, case, ctx)
             return output
         if mode == "live":
             return await _invoke()
@@ -173,13 +223,15 @@ class ResearchRunner:
 class RepoSelectionRunner:
     step = "repo_selection"
 
-    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext) -> Any:
+    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None) -> Any:
         assert isinstance(case, RepoSelectionCase)
         from products.signals.backend.report_generation.select_repo import select_repository_for_team  # noqa: PLC0415
         from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
         context_text = case.context or render_signals_to_text([s.to_signal_data() for s in case.signals])
-        candidates = [r.lower() for r in case.candidate_repos]
+        if mode in ("live", "record") and meta is not None:
+            # select_repository_for_team resolves the runtime itself; re-resolve only to report it.
+            meta["runtime"] = _runtime_meta(await _resolve_runtime(ctx.team_id, self.step))
 
         async def _invoke() -> Any:
             return await select_repository_for_team(
@@ -191,16 +243,73 @@ class RepoSelectionRunner:
 
         if mode == "replay":
             cassette = _load_cassette(case, ctx)
-            with inject_session(ReplayMultiTurnSession), active_cassette(cassette), self._replay_patches(candidates):
+            candidates = self._replay_candidates(case, cassette)
+            with (
+                inject_session(ReplayMultiTurnSession),
+                active_cassette(cassette),
+                self._replay_patches(candidates),
+            ):
                 return await _invoke()
         if mode == "record":
-            with inject_session(RecordingMultiTurnSession), active_recorder(case.case_id, self.step) as recorder:
+            shown: dict[str, list[str]] = {}
+            with (
+                inject_session(RecordingMultiTurnSession),
+                active_recorder(case.case_id, self.step) as recorder,
+                self._capture_candidates(shown),
+            ):
                 output = await _invoke()
-            recorder_to_cassette(recorder).save(ctx.cassette_dir / (case.cassette or f"{case.case_id}.json"))
+            _save_recorded_cassette(
+                recorder, case, ctx, meta={"candidates": shown["final"]} if shown.get("final") else None
+            )
             return output
         if mode == "live":
             return await _invoke()
         raise RunnerError(f"unknown mode {mode!r}")
+
+    @staticmethod
+    def _replay_candidates(case: RepoSelectionCase, cassette: Cassette) -> list[str]:
+        """Prefer the candidate list the recorded agent was actually shown over the case's list."""
+        recorded = cassette.meta.get("candidates")
+        if not (isinstance(recorded, list) and recorded):
+            return [r.lower() for r in case.candidate_repos]
+        candidates = [str(r).lower() for r in recorded]
+        case_list = [r.lower() for r in case.candidate_repos]
+        if case_list and case_list != candidates:
+            logger.warning(
+                "repo_selection[%s]: cassette recorded candidates %s differ from the case list %s — replaying "
+                "with the recorded ones",
+                case.case_id,
+                candidates,
+                case_list,
+            )
+        return candidates
+
+    @contextmanager
+    def _capture_candidates(self, shown: dict[str, list[str]]) -> Iterator[None]:
+        """Capture the eligible candidate list a live record run shows the agent, for the cassette meta."""
+        from products.tasks.backend.logic.repo_selection import agent as rs_agent  # noqa: PLC0415
+
+        real_candidates = rs_agent._list_candidate_repos
+        real_eligible = rs_agent._list_eligible_full_names
+
+        def _capturing_candidates(github: Any, team_id: int) -> list[str]:
+            result = real_candidates(github, team_id)
+            shown["candidates"] = list(result)
+            return result
+
+        def _capturing_eligible(github: Any, team_id: int) -> set[str]:
+            result = real_eligible(github, team_id)
+            # Mirror select_repository's eligibility filter so the meta holds what the agent saw.
+            shown["final"] = [r for r in shown.get("candidates", []) if r in result]
+            return result
+
+        with _patched(
+            {
+                "products.tasks.backend.logic.repo_selection.agent._list_candidate_repos": _capturing_candidates,
+                "products.tasks.backend.logic.repo_selection.agent._list_eligible_full_names": _capturing_eligible,
+            }
+        ):
+            yield
 
     @contextmanager
     def _replay_patches(self, candidates: list[str]) -> Iterator[None]:
@@ -278,28 +387,45 @@ Do not open a pull request or push; just make the local edit and report the diff
 
 
 def _files_from_diff(diff: str) -> list[str]:
+    """File paths from a unified diff's per-file headers.
+
+    Only trusts ``---``/``+++`` (and rename/copy) lines in header position — between a
+    ``diff --git`` line and the first hunk — because hunk body lines can legitimately
+    start with ``--- ``/``+++ `` (e.g. a removed SQL ``-- comment`` line).
+    """
     files: list[str] = []
+
+    def _add(path: str) -> None:
+        for prefix in ("a/", "b/"):
+            if path.startswith(prefix):
+                path = path[len(prefix) :]
+        if path and path != "/dev/null" and path not in files:
+            files.append(path)
+
+    in_header = False
     for raw in diff.splitlines():
-        if raw.startswith("+++ ") or raw.startswith("--- "):
-            path = raw[4:].strip()
-            for prefix in ("a/", "b/"):
-                if path.startswith(prefix):
-                    path = path[len(prefix) :]
-            if path and path != "/dev/null" and path not in files:
-                files.append(path)
-        elif raw.startswith("diff --git "):
+        if raw.startswith("diff --git "):
+            in_header = True
             parts = raw.split()
             if len(parts) >= 4:
-                path = parts[2][2:] if parts[2].startswith("a/") else parts[2]
-                if path not in files:
-                    files.append(path)
+                _add(parts[2])
+        elif raw.startswith("@@"):
+            in_header = False
+        elif in_header and raw.startswith(("rename to ", "copy to ")):
+            _add(raw.split(" ", 2)[2].strip())
+        elif in_header and raw.startswith(("--- ", "+++ ")):
+            _add(raw[4:].strip())
+            if raw.startswith("+++ "):
+                in_header = False
     return files
 
 
 class ImplementationRunner:
     step = "implementation"
 
-    async def run(self, case: EvalCase, *, mode: str, ctx: RunContext) -> ImplementationOutput:
+    async def run(
+        self, case: EvalCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None
+    ) -> ImplementationOutput:
         assert isinstance(case, ImplementationCase)
         if mode == "replay":
             if not case.patch:
@@ -309,10 +435,12 @@ class ImplementationRunner:
                 raise RunnerError(f"patch not found: {patch_path}")
             return ImplementationOutput(patch_path.read_text(encoding="utf-8"))
         if mode in ("live", "record"):
-            return await self._run_live(case, ctx, record=mode == "record")
+            return await self._run_live(case, ctx, record=mode == "record", meta=meta)
         raise RunnerError(f"unknown mode {mode!r}")
 
-    async def _run_live(self, case: ImplementationCase, ctx: RunContext, *, record: bool) -> ImplementationOutput:
+    async def _run_live(
+        self, case: ImplementationCase, ctx: RunContext, *, record: bool, meta: dict[str, Any] | None = None
+    ) -> ImplementationOutput:
         """Drive the coding agent against the checked-out repo and capture its unified diff.
 
         Reuses the same ``MultiTurnSession`` seam as the other steps: the agent edits files in the
@@ -324,20 +452,19 @@ class ImplementationRunner:
 
         from products.signals.eval.agentic import repos as repo_registry  # noqa: PLC0415
         from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
-        from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession  # noqa: PLC0415
+        from products.tasks.backend.facade.agents import MultiTurnSession  # noqa: PLC0415
 
         class ImplementationDiffOutput(BaseModel):
             diff: str = Field(description="The full unified diff from `git diff --cached`.")
             summary: str = Field(description="One sentence describing the change.")
 
+        # "implementation" isn't a payload step name — coding-agent runs resolve
+        # via the custom_agent slot, matching the production autostart analog.
+        runtime = await _resolve_runtime(ctx.team_id, "custom_agent")
+        if meta is not None:
+            meta["runtime"] = _runtime_meta(runtime)
         full_name = repo_registry.get(case.repo).full_name if case.repo in repo_registry.REGISTRY else case.repo
-        context = CustomPromptSandboxContext(
-            team_id=ctx.team_id,
-            user_id=ctx.user_id,
-            repository=full_name,
-            sandbox_environment_id=ctx.sandbox_environment_id,
-            posthog_mcp_scopes="read_only",
-        )
+        context = _build_sandbox_context(ctx, full_name, runtime=runtime)
         session, result = await MultiTurnSession.start(
             prompt=_build_impl_prompt(case, full_name),
             context=context,
@@ -353,8 +480,11 @@ class ImplementationRunner:
             diff = result.diff
         finally:
             await session.end()
-        if record and case.patch:
-            (ctx.cassette_dir / case.patch).write_text(diff, encoding="utf-8")
+        if record:
+            patch_path = ctx.cassette_dir / (case.patch or f"{case.case_id}.patch")
+            patch_path.parent.mkdir(parents=True, exist_ok=True)
+            patch_path.write_text(diff, encoding="utf-8")
+            logger.info("impl[%s]: recorded diff to %s", case.case_id, patch_path)
         return ImplementationOutput(diff)
 
     def input_repr(self, case: EvalCase) -> str:

@@ -24,11 +24,16 @@ class CaseResult:
     expected_repr: str = ""
     error: str | None = None
     duration_s: float = 0.0
+    # Resolved execution identity ({"adapter", "model", "effort"}), set by live runners.
+    runtime: dict[str, str] | None = None
 
     @property
     def passed(self) -> bool:
         """A case passes when it produced an output and every non-skipped score passed."""
         if self.error is not None:
+            return False
+        # An errored scorer means a dimension went ungraded — fail closed, don't drop it.
+        if any(s.status == "error" for s in self.scores):
             return False
         graded = [s for s in self.scores if s.status == "ok"]
         return bool(graded) and all(s.passed for s in graded)

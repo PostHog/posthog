@@ -151,16 +151,16 @@ class JudgeScorer:
             return [Score(name=self.name, value=0.0, passed=False, status="skipped", reasoning="judge disabled")]
         system, prompt, rubric = self.build_judge_call(case, output)
         verdict = await ctx.judge(system=system, prompt=prompt, rubric=rubric)
+        # The judge's own verdict is the pass source of truth; the score stays informational.
         return [
-            Score.numeric(
-                self.name,
-                verdict.score,
-                threshold=self.pass_threshold,
+            Score(
+                name=self.name,
+                value=verdict.score,
+                passed=verdict.passed,
+                score_type=ScoreType.NUMERIC,
                 reasoning=verdict.reasoning,
             )
         ]
-
-    pass_threshold: float = 0.6
 
     def build_judge_call(self, case: EvalCase, output: Any) -> tuple[str, str, str | None]:  # pragma: no cover
         raise NotImplementedError

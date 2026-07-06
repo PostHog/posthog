@@ -26,7 +26,7 @@ CASSETTE_SCHEMA_VERSION = 1
 
 def prompt_fingerprint(prompt: str) -> str:
     """Stable short fingerprint of a prompt, used for drift detection on replay."""
-    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass
@@ -98,14 +98,26 @@ class CassetteExhaustedError(RuntimeError):
     """
 
 
+class CassetteDriftError(RuntimeError):
+    """Raised when a replayed turn no longer matches what the step is asking for.
+
+    The step's turn sequence or prompt construction changed since the cassette was
+    recorded — replaying the stale text would grade the wrong behavior. Re-record.
+    """
+
+
 class TurnCursor:
-    """Yields a cassette's turns in order, with a clear error when it runs dry."""
+    """Yields a cassette's turns in order, with a clear error when it runs dry or drifts.
+
+    Drift checks are opt-in per recorded field: a turn with an empty ``label``/``model``
+    or no ``prompt_sha`` (hand-authored cassettes) skips that check.
+    """
 
     def __init__(self, cassette: Cassette):
         self._cassette = cassette
         self._pos = 0
 
-    def next(self, *, label: str, model: str) -> RecordedTurn:
+    def next(self, *, label: str, model: str, prompt: str | None = None) -> RecordedTurn:
         if self._pos >= len(self._cassette.turns):
             raise CassetteExhaustedError(
                 f"cassette {self._cassette.case_id!r} ({self._cassette.step}) has "
@@ -113,6 +125,27 @@ class TurnCursor:
                 f"(label={label!r}, model={model!r}) — re-record the cassette"
             )
         turn = self._cassette.turns[self._pos]
+        turn_no = self._pos + 1
+        if turn.label and turn.label != label:
+            raise CassetteDriftError(
+                f"replay drift at turn #{turn_no} of cassette {self._cassette.case_id!r}: step requested "
+                f"label={label!r} but cassette recorded label={turn.label!r} — the turn sequence changed; "
+                "re-record the cassette"
+            )
+        if turn.model and turn.model != model:
+            raise CassetteDriftError(
+                f"replay drift at turn #{turn_no} of cassette {self._cassette.case_id!r} (label={label!r}): "
+                f"step requested model={model!r} but cassette recorded model={turn.model!r} — the turn "
+                "sequence changed; re-record the cassette"
+            )
+        if turn.prompt_sha and prompt is not None:
+            got = prompt_fingerprint(prompt)
+            if got != turn.prompt_sha:
+                raise CassetteDriftError(
+                    f"replay drift at turn #{turn_no} of cassette {self._cassette.case_id!r} (label={label!r}): "
+                    f"prompt fingerprint {got!r} does not match recorded {turn.prompt_sha!r} — the prompt "
+                    "changed; re-record the cassette"
+                )
         self._pos += 1
         return turn
 

@@ -1,7 +1,8 @@
 """Tests for the generated (committed JSON) datasets and the broadened live suite.
 
-These assert the suite is actually broad (>=100 cases/step) and that generated cases load into
-valid, scorable Case objects. DB-free; the committed JSON under cases/generated/ is the source.
+These assert the suite is broad (>=60 unique-content cases/step — a higher gate incentivizes
+padding with duplicates) and that generated cases load into valid, scorable Case objects.
+DB-free; the committed JSON under cases/generated/ is the source.
 """
 
 from __future__ import annotations
@@ -11,12 +12,22 @@ from products.signals.eval.agentic.datasets import RepoSelectionCase
 from products.signals.eval.agentic.suites import STEPS, load_cases
 
 
+def _content_key(c) -> tuple:
+    return (
+        tuple(s.content for s in getattr(c, "signals", ()) or ()),
+        getattr(c, "issue_prompt", None),
+        repr(c.expected),
+    )
+
+
 def test_generated_suite_is_broad():
     for step in STEPS:
         cases = load_generated(step)
-        assert len(cases) >= 100, f"{step} generated only {len(cases)} cases (want >=100)"
+        assert len(cases) >= 60, f"{step} generated only {len(cases)} cases (want >=60)"
         ids = [c.case_id for c in cases]
         assert len(ids) == len(set(ids)), f"{step} has duplicate case ids"
+        contents = [_content_key(c) for c in cases]
+        assert len(contents) == len(set(contents)), f"{step} has duplicate-content cases"
         for c in cases:
             assert c.step == step
             assert c.scorers, f"{c.case_id} has no scorers"
@@ -26,7 +37,7 @@ def test_live_suite_includes_generated_and_curated():
     for step in STEPS:
         live = load_cases(step, mode="live")
         replay = load_cases(step, mode="replay")
-        assert len(live) >= 100
+        assert len(live) >= 60
         assert len(live) > len(replay)
         ids = [c.case_id for c in live]
         assert len(ids) == len(set(ids)), f"{step} live suite has duplicate ids"
@@ -39,12 +50,12 @@ def test_live_suite_excludes_generated_when_disabled():
     assert len(full) > len(base)
 
 
-def test_total_signal_count_is_a_few_hundred():
+def test_total_signal_count_is_large():
     total = 0
     for step in STEPS:
         for c in load_cases(step, mode="live"):
             total += len(getattr(c, "signals", ()) or ())
-    assert total >= 200, f"only {total} signals across the live suite"
+    assert total >= 150, f"only {total} signals across the live suite"
 
 
 def test_repo_selection_generated_has_null_and_multi_value_cases():

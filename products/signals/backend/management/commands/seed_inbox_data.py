@@ -16,12 +16,13 @@ DEBUG only.
 """
 
 import json
+import random
 import asyncio
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 
 from posthog.models import OrganizationMembership, Team
 
@@ -35,8 +36,8 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
     TaskRunArtefact,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.signals.backend.report_generation.research import ReportResearchOutput
+from products.signals.backend.models import ArtefactAttribution, AutonomyPriority, SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.research import ActionabilityChoice, ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
 from products.tasks.backend.facade import api as tasks_facade
@@ -84,6 +85,17 @@ class Command(BaseCommand):
             action="store_false",
             help="Skip creating task runs + logs (reports and artefacts only)",
         )
+        parser.add_argument(
+            "--bulk",
+            type=int,
+            default=None,
+            help=(
+                "Fast-path: bulk-seed N synthetic reports (skips the agentic persist path) for "
+                "filter/perf testing at scale, e.g. --bulk 100000. Seeds priority / actionability / "
+                "reviewer artefacts on a spread of reports, plus task_run artefacts backed by a pool "
+                "of real PR-bearing task runs so the priority and has_implementation_pr filters work."
+            ),
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -91,6 +103,13 @@ class Command(BaseCommand):
 
         team = self._get_team(options["team_id"])
         user_id = self._resolve_user_id(team, options["user_id"])
+
+        if options["bulk"]:
+            if options["clear"]:
+                self._clear_existing(team)
+            self._seed_bulk(team, user_id, options["bulk"], with_runs=options["with_runs"])
+            return
+
         fixtures = self._load_fixtures()
         count = options["count"] or len(fixtures)
 
@@ -309,6 +328,190 @@ class Command(BaseCommand):
             ),
             attribution=ArtefactAttribution.from_task(task_id),
         )
+
+    # ── bulk fast-path (perf testing at scale) ──────────────────────────────────
+
+    # Status spread across seeded reports — ready-heavy (the actionable inbox state), with a tail
+    # of the other pipeline stages so every tab/filter has data.
+    _BULK_STATUSES = [
+        SignalReport.Status.READY,
+        SignalReport.Status.READY,
+        SignalReport.Status.READY,
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.IN_PROGRESS,
+        SignalReport.Status.CANDIDATE,
+        SignalReport.Status.POTENTIAL,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
+    ]
+    _BULK_BATCH = 5000
+    _BULK_TITLE_PREFIX = "SEEDBULK report "
+
+    def _resolve_team_reviewer_logins(self, team: Team) -> list[str]:
+        # Seed suggested reviewers across the team's actual org members' github logins, so the
+        # "For you" scope (which filters by the logged-in user's github login) actually surfaces
+        # reports for whoever is testing. Falls back to a known handle if no member has one linked.
+        logins: list[str] = []
+        seen: set[str] = set()
+        members = OrganizationMembership.objects.filter(organization_id=team.organization_id).select_related("user")
+        for membership in members:
+            login = membership.user.get_github_login()
+            if login and login.lower() not in seen:
+                seen.add(login.lower())
+                logins.append(login.lower())
+        return logins or ["timgl"]
+
+    def _seed_bulk(self, team: Team, user_id: int, n: int, *, with_runs: bool) -> None:
+        priorities = list(AutonomyPriority.values)
+        actionabilities = [choice.value for choice in ActionabilityChoice]
+        reviewers = self._resolve_team_reviewer_logins(team)
+        self.stdout.write(f"Bulk-seeding {n} reports for team {team.id} ({team.name})… reviewers={reviewers}")
+
+        # A small pool of real PR-bearing task runs. The has_implementation_pr filter joins a
+        # report's task_run-artefact task ids to TaskRuns with a non-empty pr_url, so pointing
+        # many reports' task_run artefacts at this pool is enough to exercise the filter at scale.
+        task_pool: list[tuple[str, str]] = []
+        if with_runs:
+            pool_size = min(max(n // 500, 1), 100)
+            task_pool = self._build_bulk_task_pool(team, user_id, pool_size)
+            self.stdout.write(f"  built pool of {len(task_pool)} PR-bearing task runs")
+
+        total_reports = 0
+        total_artefacts = 0
+        for start in range(0, n, self._BULK_BATCH):
+            end = min(start + self._BULK_BATCH, n)
+            # Reports and their artefacts land together or not at all, so an interrupted
+            # run never leaves artefact-less reports behind.
+            reports = [
+                SignalReport(
+                    team=team,
+                    status=self._BULK_STATUSES[i % len(self._BULK_STATUSES)],
+                    signal_count=random.randint(1, 40),
+                    total_weight=round(random.random() * 50, 2),
+                    title=f"{self._BULK_TITLE_PREFIX}{i}",
+                    summary="Bulk-seeded report for local filter/perf testing.",
+                )
+                for i in range(start, end)
+            ]
+            with transaction.atomic():
+                SignalReport.objects.bulk_create(reports)
+
+                artefacts: list[SignalReportArtefact] = []
+                for report in reports:
+                    rid = str(report.id)
+                    if random.random() < 0.7:
+                        artefacts.append(
+                            self._bulk_artefact(
+                                team.id,
+                                rid,
+                                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                                json.dumps(
+                                    {"priority": random.choice(priorities), "explanation": "seed", "dollar_value": None}
+                                ),
+                            )
+                        )
+                    if random.random() < 0.6:
+                        artefacts.append(
+                            self._bulk_artefact(
+                                team.id,
+                                rid,
+                                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                                json.dumps(
+                                    {
+                                        "actionability": random.choice(actionabilities),
+                                        "explanation": "seed",
+                                        "already_addressed": False,
+                                    }
+                                ),
+                            )
+                        )
+                    if random.random() < 0.4:
+                        logins = random.sample(reviewers, random.randint(1, min(3, len(reviewers))))
+                        artefacts.append(
+                            self._bulk_artefact(
+                                team.id,
+                                rid,
+                                SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                                json.dumps([{"github_login": login} for login in logins]),
+                            )
+                        )
+                    if task_pool and random.random() < 0.5:
+                        task_id, content = random.choice(task_pool)
+                        artefacts.append(
+                            self._bulk_artefact(
+                                team.id, rid, SignalReportArtefact.ArtefactType.TASK_RUN, content, task_id=task_id
+                            )
+                        )
+                SignalReportArtefact.objects.bulk_create(artefacts)
+            total_reports += len(reports)
+            total_artefacts += len(artefacts)
+            self.stdout.write(f"  · {total_reports}/{n} reports, {total_artefacts} artefacts")
+
+        self._spread_bulk_timestamps(team)
+        self.stdout.write(
+            self.style.SUCCESS(f"Bulk-seeded {total_reports} reports + {total_artefacts} artefacts for team {team.id}.")
+        )
+
+    @staticmethod
+    def _bulk_artefact(
+        team_id: int, report_id: str, artefact_type: str, content: str, task_id: str | None = None
+    ) -> SignalReportArtefact:
+        return SignalReportArtefact(
+            team_id=team_id, report_id=report_id, type=artefact_type, content=content, task_id=task_id
+        )
+
+    def _build_bulk_task_pool(self, team: Team, user_id: int, size: int) -> list[tuple[str, str]]:
+        pool: list[tuple[str, str]] = []
+        for i in range(size):
+            try:
+                created = tasks_facade.create_and_run_task(
+                    team=team,
+                    title=f"SEEDBULK task {i}",
+                    description="Bulk-seeded implementation task for local testing.",
+                    origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                    user_id=user_id,
+                    repository=_DEFAULT_REPOSITORY,
+                    create_pr=False,
+                    start_workflow=False,
+                    internal=False,
+                )
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"    pool task {i} skipped (creation failed: {e})"))
+                continue
+            run = created.latest_run
+            if run is None:
+                continue
+            task_id, run_id = str(created.task_id), str(run.id)
+            branch = f"signals/seedbulk-{i}"
+            tasks_facade.update_task_run(
+                run_id,
+                task_id,
+                team.id,
+                validated_data={
+                    "status": "completed",
+                    "stage": "build",
+                    "branch": branch,
+                    "output": {"pr_url": f"https://github.com/{_DEFAULT_REPOSITORY}/pull/{9000 + i}", "branch": branch},
+                },
+            )
+            content = TaskRunArtefact(
+                task_id=task_id, run_id=run_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+            ).model_dump_json()
+            pool.append((task_id, content))
+        return pool
+
+    def _spread_bulk_timestamps(self, team: Team) -> None:
+        # bulk_create stamps created_at/updated_at at now(); spread them so the recency sort and
+        # date display aren't all identical. A single UPDATE (bypasses auto_now) over the seeded set.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE signals_signalreport "
+                "SET created_at = now() - random() * interval '30 days', "
+                "    updated_at = now() - random() * interval '14 days' "
+                "WHERE team_id = %s AND title LIKE %s",
+                [team.id, self._BULK_TITLE_PREFIX + "%"],
+            )
 
 
 # ── synthetic transcript ───────────────────────────────────────────────────────

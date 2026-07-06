@@ -9,10 +9,17 @@ something replay needs.
 from __future__ import annotations
 
 import logging
+import datetime as dt
 
 from products.signals.eval.agentic.project.manifest import DEFAULT_MANIFEST, EvalProjectManifest
 
 logger = logging.getLogger(__name__)
+
+# Fixed simulation "now": generate_demo_data anchors its -120d..+30d event window to this
+# instant (defaulting to wall-clock time), so without a pin a re-seed on a later date shifts
+# every timestamp and drifts from the committed ground truth. 2026-06-27 matches the seed the
+# manifest's `seeded_data` was observed on.
+SIMULATION_NOW = dt.datetime(2026, 6, 27, 12, 0, 0, tzinfo=dt.UTC)
 
 
 def seed_eval_project(
@@ -24,7 +31,8 @@ def seed_eval_project(
 
     With ``team_id`` the data is seeded into that existing project; without it a fresh demo
     org/user/project is created and its credentials printed by ``generate_demo_data``. The
-    deterministic ``seed`` keeps the simulation reproducible across re-seeds.
+    deterministic ``seed`` plus the pinned ``SIMULATION_NOW`` keep the simulation reproducible
+    across re-seeds regardless of when they run.
     """
     from django.core.management import call_command  # noqa: PLC0415 — Django entrypoint, lazy by design
 
@@ -32,6 +40,7 @@ def seed_eval_project(
         "product": manifest.product,
         "seed": manifest.seed,
         "n_clusters": manifest.n_clusters,
+        "now": SIMULATION_NOW,
     }
     if team_id is not None:
         kwargs["team_id"] = team_id

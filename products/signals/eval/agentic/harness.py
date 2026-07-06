@@ -9,6 +9,7 @@ lets the same engine cover research, repo selection, implementation, and future 
 
 from __future__ import annotations
 
+import os
 import time
 import asyncio
 import logging
@@ -21,6 +22,20 @@ from products.signals.eval.agentic.scoring import JudgeFn, Score, ScoringContext
 
 logger = logging.getLogger(__name__)
 
+# Wall-clock budget per live/record case, so one wedged sandbox turns into an errored
+# case instead of stalling the whole suite. Generous: a research case is N+3 real turns.
+CASE_TIMEOUT_ENV = "SIGNALS_AGENTIC_EVAL_CASE_TIMEOUT_S"
+DEFAULT_CASE_TIMEOUT_S = 1800.0
+
+
+def _default_case_timeout_s() -> float:
+    raw = os.environ.get(CASE_TIMEOUT_ENV, "")
+    try:
+        return float(raw) if raw else DEFAULT_CASE_TIMEOUT_S
+    except ValueError:
+        logger.warning("ignoring non-numeric %s=%r", CASE_TIMEOUT_ENV, raw)
+        return DEFAULT_CASE_TIMEOUT_S
+
 
 class AgenticEvalHarness:
     def __init__(
@@ -29,10 +44,12 @@ class AgenticEvalHarness:
         ctx: RunContext | None = None,
         judge: JudgeFn | None = None,
         concurrency: int = 4,
+        case_timeout_s: float | None = None,
     ):
         self.ctx = ctx or RunContext()
         self.judge = judge
         self.concurrency = concurrency
+        self.case_timeout_s = case_timeout_s if case_timeout_s is not None else _default_case_timeout_s()
 
     def _runner_for(self, step: str) -> StepRunner:
         if step not in RUNNERS:
@@ -46,14 +63,28 @@ class AgenticEvalHarness:
         result.expected_repr = str(expected) if expected is not None else ""
         result.input_repr = _safe(runner.input_repr, case)
         started = time.monotonic()
+        meta: dict[str, Any] = {}
+        output: Any = None
         try:
-            output = await runner.run(case, mode=mode, ctx=self.ctx)
+            run = runner.run(case, mode=mode, ctx=self.ctx, meta=meta)
+            if mode == "replay":
+                output = await run
+            else:
+                # Live/record hold real sandboxes that can wedge — bound each case's wall clock.
+                output = await asyncio.wait_for(run, timeout=self.case_timeout_s)
+        except TimeoutError:
+            result.error = (
+                f"TimeoutError: case exceeded {self.case_timeout_s:.0f}s wall clock (override with {CASE_TIMEOUT_ENV})"
+            )
+            logger.error("eval case %s timed out after %.0fs", case.case_id, self.case_timeout_s)  # noqa: TRY400 — a timeout has no useful traceback
         except Exception as exc:  # a step that blew up is a failed case, not a crashed suite
             result.error = f"{type(exc).__name__}: {exc}"
-            result.duration_s = time.monotonic() - started
             logger.exception("eval case %s failed to produce output", case.case_id)
-            return result
         result.duration_s = time.monotonic() - started
+        # Which runtime/model actually ran, for the report layer's runtime display.
+        result.runtime = meta.get("runtime")
+        if result.error is not None:
+            return result
         result.output_repr = _safe(runner.output_repr, output)
         result.scores = await self._score(case, output)
         return result

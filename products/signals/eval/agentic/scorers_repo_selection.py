@@ -27,7 +27,10 @@ class RepoSelectionCorrectnessScorer(DeterministicScorer):
         raw = exp.expected_repository
         acceptable = (raw,) if isinstance(raw, str) else tuple(raw or ())
         acceptable = tuple(r.lower() for r in acceptable)
-        ok = actual in acceptable if acceptable else actual is not None
+        if not acceptable:
+            # Fail closed: with no ground truth the scorer would pass any non-null pick.
+            return [Score.errored(self.name, f"case {case.case_id!r} sets neither expected_repository nor expect_null")]
+        ok = actual in acceptable
         return [Score.boolean(self.name, ok, reasoning=f"expected one of {acceptable} actual={actual!r}")]
 
 

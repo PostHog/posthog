@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
-from products.signals.eval.agentic.cassette import Cassette, RecordedTurn, TurnCursor
+from products.signals.eval.agentic.cassette import Cassette, RecordedTurn, TurnCursor, prompt_fingerprint
 
 # Import the real session via the tasks facade (the documented cross-product surface). We keep
 # this module-level reference to the genuine class so replay reuses its real `_parse_and_validate`
@@ -141,7 +141,7 @@ class ReplayMultiTurnSession:
         session = cls(_require_cursor())
         if on_task_run_created is not None:
             await on_task_run_created(session.task_run)
-        turn = session._cursor.next(label="initial turn", model=model.__name__)
+        turn = session._cursor.next(label="initial turn", model=model.__name__, prompt=prompt)
         try:
             parsed = MultiTurnSession._parse_and_validate(turn.raw_text, model, "initial turn")
         except Exception:
@@ -162,15 +162,15 @@ class ReplayMultiTurnSession:
         session = cls(_require_cursor())
         if on_task_run_created is not None:
             await on_task_run_created(session.task_run)
-        turn = session._cursor.next(label="initial turn", model="raw")
+        turn = session._cursor.next(label="initial turn", model="raw", prompt=prompt)
         return session, turn.raw_text
 
     async def send_followup(self, message: str, model: type[_ModelT], *, label: str = "") -> _ModelT:
-        turn = self._cursor.next(label=label or "followup", model=model.__name__)
+        turn = self._cursor.next(label=label or "followup", model=model.__name__, prompt=message)
         return MultiTurnSession._parse_and_validate(turn.raw_text, model, label or "followup")
 
     async def send_followup_raw(self, message: str, *, label: str = "") -> str:
-        turn = self._cursor.next(label=label or "followup", model="raw")
+        turn = self._cursor.next(label=label or "followup", model="raw", prompt=message)
         return turn.raw_text
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
@@ -186,8 +186,20 @@ class _Recorder:
     step: str
     turns: list[RecordedTurn]
 
-    def append(self, *, label: str, model: str, raw_text: str) -> None:
-        self.turns.append(RecordedTurn(index=len(self.turns), label=label, model=model, raw_text=raw_text))
+    def append(self, *, label: str, model: str, raw_text: str, prompt_sha: str | None = None) -> None:
+        self.turns.append(
+            RecordedTurn(index=len(self.turns), label=label, model=model, raw_text=raw_text, prompt_sha=prompt_sha)
+        )
+
+    def upgrade_last(self, *, raw_text: str, label: str, model: str) -> None:
+        """Refine the label/model of the turn the raw hooks just recorded — never append.
+
+        The structured ``start``/``send_followup`` route through the raw entry points, so
+        appending here would record every structured turn twice and corrupt the cassette.
+        """
+        if self.turns and self.turns[-1].raw_text == raw_text:
+            self.turns[-1].label = label
+            self.turns[-1].model = model
 
 
 @contextmanager
@@ -208,17 +220,19 @@ def recorder_to_cassette(recorder: _Recorder, *, meta: dict | None = None) -> Ca
 class RecordingMultiTurnSession(MultiTurnSession):
     """Live session that also records each turn's raw text into the active recorder.
 
-    Hooks ``_parse_and_validate`` (which both ``start`` and ``send_followup`` route through,
-    and which receives the turn ``label`` and target ``model``) and the raw entry points used
-    by custom agents. Everything else is the real live behaviour, so a recording run is a real
-    sandbox run that happens to leave a replayable cassette behind.
+    The raw entry points (which every turn — structured or raw — routes through) are the
+    single recording chokepoint; they capture the raw text plus the prompt fingerprint,
+    with the same labels replay will request. ``_parse_and_validate`` only upgrades the
+    just-recorded turn's label/model in place for structured turns — appending there too
+    would double-record every structured turn. Everything else is the real live behaviour,
+    so a recording run is a real sandbox run that leaves a replayable cassette behind.
     """
 
     @staticmethod
     def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
         recorder = _active_recorder.get()
         if recorder is not None:
-            recorder.append(label=label, model=model.__name__, raw_text=text)
+            recorder.upgrade_last(raw_text=text, label=label, model=model.__name__)
         return MultiTurnSession._parse_and_validate(text, model, label)
 
     @classmethod
@@ -226,12 +240,14 @@ class RecordingMultiTurnSession(MultiTurnSession):
         session, raw = await super().start_raw(prompt, context, **kwargs)
         recorder = _active_recorder.get()
         if recorder is not None:
-            recorder.append(label="initial turn (raw)", model="raw", raw_text=raw)
+            recorder.append(label="initial turn", model="raw", raw_text=raw, prompt_sha=prompt_fingerprint(prompt))
         return session, raw
 
     async def send_followup_raw(self, message: str, *, label: str = "") -> str:
         raw = await super().send_followup_raw(message, label=label)
         recorder = _active_recorder.get()
         if recorder is not None:
-            recorder.append(label=label or "followup (raw)", model="raw", raw_text=raw)
+            recorder.append(
+                label=label or "followup", model="raw", raw_text=raw, prompt_sha=prompt_fingerprint(message)
+            )
         return raw

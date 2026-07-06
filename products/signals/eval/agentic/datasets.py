@@ -84,10 +84,14 @@ class ResearchExpectation:
     is defensible (e.g. a vague signal that could be ``immediately_actionable`` or
     ``requires_human_input``) — this keeps live evals robust to LLM variance without lowering the
     bar on the deterministic dimensions (code paths, commits, summary).
+
+    A ``None`` inside the ``expected_priority`` tuple accepts "no priority produced" — required
+    whenever ``not_actionable`` is an acceptable verdict, since a not-actionable report carries no
+    priority assessment.
     """
 
     expected_actionability: str | tuple[str, ...] | None = None  # ActionabilityChoice value(s)
-    expected_priority: str | tuple[str, ...] | None = None  # Priority value(s), e.g. "P1" or ("P1","P2")
+    expected_priority: str | tuple[str | None, ...] | None = None  # Priority value(s), e.g. "P1" or ("P1", None)
     expected_already_addressed: bool | None = None
     expect_verified: bool | None = None
     # Per-signal: signal_id -> substrings at least one of which must appear in relevant_code_paths.

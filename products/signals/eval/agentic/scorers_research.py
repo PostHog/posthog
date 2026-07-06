@@ -8,6 +8,7 @@ failure is legible.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from products.signals.eval.agentic.datasets import EvalCase, ResearchCase
@@ -22,7 +23,7 @@ def _expectation(case: EvalCase):
     return case.expected
 
 
-def _acceptable(expected: str | tuple[str, ...]) -> tuple[str, ...]:
+def _acceptable(expected: str | tuple[str | None, ...]) -> tuple[str | None, ...]:
     """Normalize a single value or tuple of acceptable values to a tuple."""
     return (expected,) if isinstance(expected, str) else tuple(expected)
 
@@ -164,17 +165,26 @@ class DataEvidenceScorer(DeterministicScorer):
     def __init__(self) -> None:
         super().__init__("data_evidence_used")
 
+    @staticmethod
+    def _substantive(blob: str) -> bool:
+        if len(blob) < 40:
+            return False
+        lowered = blob.lower()
+        if not any(m in lowered for m in _NO_DATA_MARKERS):
+            return True
+        # A marker inside a long, number-bearing narrative is incidental ("recordings were
+        # not available for these users") — only disqualify when the blob is short or
+        # carries no concrete result.
+        return len(blob) >= 120 and bool(re.search(r"\d", blob))
+
     def grade(self, case: EvalCase, output: ReportResearchOutput) -> list[Score]:
         exp = _expectation(case)
         if not exp.expect_data_evidence:
             return []
-        findings = output.effective_findings()
         best = ""
-        for f in findings:
+        for f in output.effective_findings():
             blob = (f.data_queried or "").strip()
-            lowered = blob.lower()
-            substantive = len(blob) >= 40 and not any(m in lowered for m in _NO_DATA_MARKERS)
-            if substantive:
+            if self._substantive(blob):
                 return [Score.boolean(self.name, True, reasoning=f"queried data: {blob[:160]}")]
             if len(blob) > len(best):
                 best = blob

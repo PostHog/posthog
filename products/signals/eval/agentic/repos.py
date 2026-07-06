@@ -19,9 +19,13 @@ and prompt normalize candidate names.
 from __future__ import annotations
 
 import os
+import shutil
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_DIR = Path(os.environ.get("SIGNALS_EVAL_REPO_CACHE", str(Path.home() / ".cache" / "signals-eval-repos")))
 
@@ -129,16 +133,61 @@ def candidate_full_names(keys: list[str]) -> list[str]:
     return [get(k).full_name for k in keys]
 
 
+def _git(dest: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(dest), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _ensure_pinned_ref(repo: OSSRepo, dest: Path) -> bool:
+    """Reset an existing checkout to the pinned ref and drop leftover edits.
+
+    Checkouts are bind-mounted read-write into the sandbox (SANDBOX_REPO_MOUNT_MAP), so
+    without this a prior case's uncommitted edits leak into the next case's diff, and a
+    checkout at the wrong ref silently drifts from the case ground truth.
+    """
+    try:
+        try:
+            want = _git(dest, "rev-parse", f"{repo.ref}^{{commit}}")
+        except subprocess.CalledProcessError:
+            _git(dest, "fetch", "--depth", "1", "origin", repo.ref)
+            want = _git(dest, "rev-parse", "FETCH_HEAD^{commit}")
+        head = _git(dest, "rev-parse", "HEAD^{commit}")
+        dirty = bool(_git(dest, "status", "--porcelain"))
+        if head != want or dirty:
+            logger.warning(
+                "checkout %s at %s is %s; resetting to pinned ref %s",
+                repo.full_name,
+                dest,
+                "dirty" if head == want else f"at {head[:12]} (want {want[:12]})",
+                repo.ref,
+            )
+            _git(dest, "reset", "--hard", want)
+            _git(dest, "clean", "-fdx")
+    except (subprocess.CalledProcessError, OSError) as exc:
+        detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and exc.stderr else exc
+        logger.warning(
+            "could not verify/reset %s at pinned ref %s in %s (%s) — discarding the cached checkout for a fresh clone",
+            repo.full_name,
+            repo.ref,
+            dest,
+            detail,
+        )
+        return False
+    return True
+
+
 def checkout(repo: OSSRepo, *, cache_dir: Path | None = None, depth: int = 1) -> Path:
     """Shallow-clone ``repo`` at its pinned ref into the cache and return the path.
 
-    Idempotent: an existing checkout at the right ref is reused. Live mode only — this
+    Idempotent: an existing checkout is reused after being verified against (and if needed
+    reset to) the pinned ref, since the sandbox mounts it read-write. Live mode only — this
     is the one function in the module that touches the network/disk.
     """
     cache_dir = cache_dir or DEFAULT_CACHE_DIR
     dest = cache_dir / repo.key
     if (dest / ".git").exists():
-        return dest
+        if _ensure_pinned_ref(repo, dest):
+            return dest
+        shutil.rmtree(dest, ignore_errors=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["git", "clone", "--depth", str(depth), "--branch", repo.ref, repo.clone_url, str(dest)],
