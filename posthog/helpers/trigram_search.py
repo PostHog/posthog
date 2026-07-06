@@ -154,6 +154,9 @@ def apply_trigram_search(
     exact_only = annotated.filter(exact_q)
 
     # Prefer exact matches; only fall back to the fuzzy tier when there are none.
+    # Deliberate double round-trip: the exists() probe is cheap (index scan, no data
+    # transfer) and keeps the two tiers as independent lazy querysets — callers can
+    # still chain .filter()/.order_by() after this call without re-evaluating the probe.
     if exact_only.exists():
         result = exact_only
     else:

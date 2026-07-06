@@ -2047,7 +2047,7 @@ class SurveyFilterSet(FilterSet):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+                description="Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
             ),
         ],
     ),

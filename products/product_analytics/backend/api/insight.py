@@ -1294,9 +1294,9 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="search",
                 type=OpenApiTypes.STR,
                 description=(
-                    "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive "
-                    "substring matches and fuzzy trigram matches together in one list, ordered exact-first; each "
-                    "result's `search_match_type` is `exact` or `similar`."
+                    "Search term matched across name, derived_name, description, and tag names. Returns exact "
+                    "(case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy "
+                    "trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
                 ),
             ),
             OpenApiParameter(

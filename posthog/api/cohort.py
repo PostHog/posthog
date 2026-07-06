@@ -1415,11 +1415,11 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Match against cohort `name`. Returns case-insensitive substring matches and "
-                    "fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered "
-                    "exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. "
-                    "When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries "
-                    "return a 400 error."
+                    "Optional. Match against cohort `name`. Returns exact (case-insensitive substring) "
+                    "matches only; if no exact match exists, returns similar (fuzzy trigram — typos, "
+                    "transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` "
+                    "is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at "
+                    "200 characters; longer queries return a 400 error."
                 ),
             ),
             OpenApiParameter(
