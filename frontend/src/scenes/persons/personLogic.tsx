@@ -59,10 +59,15 @@ export const personLogic = kea<personLogicType>([
             {
                 loadPerson: async (): Promise<PersonType | null> => {
                     if (props.distinctId != null) {
-                        const response = await api.persons.list({ distinct_id: props.distinctId })
-                        const person = response.results[0]
-                        if (person != null) {
-                            return person
+                        try {
+                            const response = await api.persons.list({ distinct_id: props.distinctId })
+                            const person = response.results[0]
+                            if (person != null) {
+                                return person
+                            }
+                        } catch (error) {
+                            posthog.captureException(error)
+                            return null
                         }
                     }
                     if (props.id == null) {
