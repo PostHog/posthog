@@ -26416,6 +26416,8 @@ export namespace Schemas {
       orderBy?: TraceOrderColumn | null;
       /** Order direction. Defaults to DESC. */
       orderDirection?: OrderDirection2 | null;
+      /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+      personId?: string | null;
       /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
@@ -26458,6 +26460,8 @@ export namespace Schemas {
       kind?: 'TraceSpansAggregationQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+      personId?: string | null;
       response?: TraceSpansAggregationQueryResponse | null;
       serviceNames?: string[] | null;
       tags?: QueryLogTags | null;
@@ -26514,6 +26518,8 @@ export namespace Schemas {
       kind?: 'TraceSpansTreeQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+      personId?: string | null;
       response?: TraceSpansTreeQueryResponse | null;
       /** Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services. */
       serviceName: string;
@@ -26577,6 +26583,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Order rows by span count or error count, descending. Defaults to count. */
       orderBy?: TraceSpanBreakdownOrderBy | null;
+      /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+      personId?: string | null;
       response?: TraceSpansAttributeBreakdownQueryResponse | null;
       serviceNames?: string[] | null;
       tags?: QueryLogTags | null;
@@ -42338,6 +42346,14 @@ export namespace Schemas {
       readonly events_retention_enforced?: boolean;
     }
 
+    export interface PatchedTeamTracingConfig {
+      /**
+         * Span attribute key whose value should match a person's distinct_id. Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — the same convention logs use (see https://posthog.com/docs/logs/link-session-replay). Traces arrive via plain OTel, so instrumentation must attach the key itself (e.g. via baggage and a BaggageSpanProcessor). Override only if your pipeline emits a different attribute.
+         * @maxLength 200
+         */
+      tracing_distinct_id_attribute_key?: string;
+    }
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -53235,6 +53251,14 @@ export namespace Schemas {
       readonly events_retention_enforced: boolean;
     }
 
+    export interface TeamTracingConfig {
+      /**
+         * Span attribute key whose value should match a person's distinct_id. Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — the same convention logs use (see https://posthog.com/docs/logs/link-session-replay). Traces arrive via plain OTel, so instrumentation must attach the key itself (e.g. via baggage and a BaggageSpanProcessor). Override only if your pipeline emits a different attribute.
+         * @maxLength 200
+         */
+      tracing_distinct_id_attribute_key: string;
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {
@@ -55520,6 +55544,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Property filters applied to spans in both windows. */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
     }
 
     export interface _TracingAggregationRequest {
@@ -55560,6 +55586,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
     }
 
     export interface _TracingAttributeBreakdownRequest {
@@ -55600,6 +55628,8 @@ export namespace Schemas {
       statusCodes?: number[];
       /** Property filters for the count. */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
     }
 
     export interface _TracingCountRequest {
@@ -55623,6 +55653,8 @@ export namespace Schemas {
       statusCodes?: number[];
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
       /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
       rootSpans?: boolean;
     }
@@ -55682,6 +55714,8 @@ export namespace Schemas {
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
     }
 
     export interface _TracingQueryRequest {
@@ -55698,6 +55732,8 @@ export namespace Schemas {
       statusCodes?: number[];
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
       /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
       rootSpans?: boolean;
     }
@@ -55732,6 +55768,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Additional property filters applied to spans in both windows. */
       filterGroup?: _SpanPropertyFilter[];
+      /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+      personId?: string;
     }
 
     export interface _TracingTreeRequest {

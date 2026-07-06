@@ -9101,6 +9101,23 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Mirrors the env-router action so /api/projects/:id/tracing_config/ resolves
+ * alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeyMax = 200
+
+export const OrganizationsProjectsTracingConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tracing_distinct_id_attribute_key: zod
+        .string()
+        .max(organizationsProjectsTracingConfigPartialUpdateBodyTracingDistinctIdAttributeKeyMax)
+        .optional()
+        .describe(
+            "Span attribute key whose value should match a person's distinct_id. Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — the same convention logs use (see https:\/\/posthog.com\/docs\/logs\/link-session-replay). Traces arrive via plain OTel, so instrumentation must attach the key itself (e.g. via baggage and a BaggageSpanProcessor). Override only if your pipeline emits a different attribute."
+        ),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({

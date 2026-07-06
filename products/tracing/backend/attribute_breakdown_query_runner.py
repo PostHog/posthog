@@ -117,6 +117,7 @@ def run_attribute_breakdown_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Facade-friendly entry point for running an attribute breakdown query."""
     query = TraceSpansAttributeBreakdownQuery(
@@ -127,6 +128,7 @@ def run_attribute_breakdown_query(
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        personId=person_id,
     )
     runner = TraceSpansAttributeBreakdownQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

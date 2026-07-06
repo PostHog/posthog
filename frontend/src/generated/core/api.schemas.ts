@@ -2774,6 +2774,22 @@ export interface PatchedProjectBackwardCompatApi {
     readonly events_retention_enforced?: boolean
 }
 
+export interface TeamTracingConfigApi {
+    /**
+     * Span attribute key whose value should match a person's distinct_id. Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — the same convention logs use (see https://posthog.com/docs/logs/link-session-replay). Traces arrive via plain OTel, so instrumentation must attach the key itself (e.g. via baggage and a BaggageSpanProcessor). Override only if your pipeline emits a different attribute.
+     * @maxLength 200
+     */
+    tracing_distinct_id_attribute_key: string
+}
+
+export interface PatchedTeamTracingConfigApi {
+    /**
+     * Span attribute key whose value should match a person's distinct_id. Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — the same convention logs use (see https://posthog.com/docs/logs/link-session-replay). Traces arrive via plain OTel, so instrumentation must attach the key itself (e.g. via baggage and a BaggageSpanProcessor). Override only if your pipeline emits a different attribute.
+     * @maxLength 200
+     */
+    tracing_distinct_id_attribute_key?: string
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string

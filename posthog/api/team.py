@@ -97,6 +97,7 @@ from products.feature_flags.backend.models.evaluation_context import (
 )
 from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
+from products.tracing.backend.models import TeamTracingConfig
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -134,6 +135,41 @@ def handle_logs_config(request: request.Request, team: Team) -> response.Respons
         return response.Response(serializer.data)
 
     return response.Response(TeamLogsConfigSerializer(config).data)
+
+
+class TeamTracingConfigSerializer(serializers.ModelSerializer):
+    tracing_distinct_id_attribute_key = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Span attribute key whose value should match a person's distinct_id. "
+            "Used by the person profile Traces tab. Defaults to 'posthogDistinctId' — "
+            "the same convention logs use (see "
+            "https://posthog.com/docs/logs/link-session-replay). Traces arrive via "
+            "plain OTel, so instrumentation must attach the key itself (e.g. via "
+            "baggage and a BaggageSpanProcessor). Override only if your pipeline "
+            "emits a different attribute."
+        ),
+    )
+
+    class Meta:
+        model = TeamTracingConfig
+        fields = ["tracing_distinct_id_attribute_key"]
+
+
+def handle_tracing_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the tracing_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamTracingConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamTracingConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamTracingConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamTracingConfigSerializer(config).data)
 
 
 def handle_default_evaluation_contexts(
@@ -2088,6 +2124,17 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage logs product configuration for this environment."""
         return handle_logs_config(request, self.get_object())
+
+    @extend_schema(request=TeamTracingConfigSerializer, responses=TeamTracingConfigSerializer)
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this environment."""
+        return handle_tracing_config(request, self.get_object())
 
     @action(
         methods=["GET", "PATCH"],

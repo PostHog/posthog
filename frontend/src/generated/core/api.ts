@@ -65,6 +65,7 @@ import type {
     PatchedOrganizationDomainApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedTeamTracingConfigApi,
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
@@ -75,6 +76,7 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    TeamTracingConfigApi,
     UserApi,
     UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
@@ -1230,6 +1232,49 @@ export const organizationsProjectsSettingsAsOfRetrieve = async (
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsTracingConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Mirrors the env-router action so /api/projects/:id/tracing_config/ resolves
+ * alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsTracingConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Mirrors the env-router action so /api/projects/:id/tracing_config/ resolves
+ * alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamTracingConfigApi?: PatchedTeamTracingConfigApi,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamTracingConfigApi),
     })
 }
 

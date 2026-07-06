@@ -102,6 +102,12 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansAggregateCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters applied to spans in both windows.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
         })
         .describe('The span aggregation query to execute.'),
 })
@@ -218,6 +224,12 @@ export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.obje
                 )
                 .default(tracingSpansAttributeBreakdownCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters scoping the spans the breakdown runs over (e.g. only error spans).'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
         })
         .describe('The attribute breakdown query to execute.'),
 })
@@ -343,6 +355,12 @@ export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansCountCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the count.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
         })
         .describe('The span count query to execute.'),
 })
@@ -428,6 +446,12 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 )
                 .default(tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
             rootSpans: zod
                 .boolean()
                 .default(tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault)
@@ -569,6 +593,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
                 ),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
         })
         .describe('The tracing spans query to execute.'),
 })
@@ -667,6 +697,12 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
             rootSpans: zod
                 .boolean()
                 .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
@@ -826,6 +862,12 @@ export const TracingSpansTreeCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansTreeCreateBodyQueryOneFilterGroupDefault)
                 .describe('Additional property filters applied to spans in both windows.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+                ),
         })
         .describe('The span call-tree aggregation query to execute.'),
 })

@@ -45442,6 +45442,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "personId": {
+                    "description": "Show spans for a given person, matched via the team's configured distinct-id span attribute",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/TraceSpansAggregationQueryResponse"
                 },
@@ -45552,6 +45556,10 @@
                 "orderBy": {
                     "$ref": "#/definitions/TraceSpanBreakdownOrderBy",
                     "description": "Order rows by span count or error count, descending. Defaults to count."
+                },
+                "personId": {
+                    "description": "Show spans for a given person, matched via the team's configured distinct-id span attribute",
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
@@ -45673,6 +45681,10 @@
                 "orderDirection": {
                     "description": "Order direction. Defaults to DESC.",
                     "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "personId": {
+                    "description": "Show spans for a given person, matched via the team's configured distinct-id span attribute",
                     "type": "string"
                 },
                 "prefetchSpans": {
@@ -45885,6 +45897,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "personId": {
+                    "description": "Show spans for a given person, matched via the team's configured distinct-id span attribute",
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"

@@ -129,6 +129,7 @@ import {
     TeamVariables,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TracingDistinctIdAttributeKey } from './environment/TracingDistinctIdAttributeKey'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -1187,6 +1188,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#customizing-the-look-and-feel',
                 component: <SurveyDefaultAppearance />,
                 keywords: ['appearance', 'style', 'theme', 'customization', 'popup'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-tracing',
+        title: 'Tracing',
+        flag: 'TRACING',
+        group: 'Products',
+        settings: [
+            {
+                id: 'tracing-distinct-id-attribute-key',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The span attribute PostHog reads to identify which person a trace belongs to. Matched against
+                        the person&apos;s distinct IDs to surface traces on their profile. Defaults to{' '}
+                        <code>posthogDistinctId</code> — the same convention logs use. Traces arrive via OpenTelemetry,
+                        so your instrumentation must attach the key itself, e.g. via baggage and a baggage span
+                        processor.
+                    </>
+                ),
+                searchDescription:
+                    "The span attribute PostHog reads to identify which person a trace belongs to. Matched against the person's distinct IDs to surface traces on their profile. Defaults to posthogDistinctId — the same convention logs use. Traces arrive via OpenTelemetry, so your instrumentation must attach the key itself, e.g. via baggage and a baggage span processor.",
+                component: <TracingDistinctIdAttributeKey />,
+                flag: 'TRACING',
+                keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'profile', 'link', 'otel'],
             },
         ],
     },

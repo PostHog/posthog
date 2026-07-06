@@ -3521,6 +3521,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     prefetchSpans?: integer
     /** Omit the per-span `attributes` map from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+    personId?: string
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3555,6 +3557,8 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+    personId?: string
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
@@ -3617,6 +3621,8 @@ export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryRespons
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+    personId?: string
 }
 
 export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
@@ -3655,6 +3661,8 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Show spans for a given person, matched via the team's configured distinct-id span attribute */
+    personId?: string
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {

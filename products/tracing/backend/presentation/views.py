@@ -179,6 +179,14 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
+    )
 
 
 class _TracingQueryRequestSerializer(serializers.Serializer):
@@ -207,6 +215,14 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Property filters for the query.",
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
     )
 
 
@@ -356,6 +372,14 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters applied to spans in both windows.",
     )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
@@ -394,6 +418,14 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Property filters scoping the spans the breakdown runs over (e.g. only error spans).",
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
     )
 
 
@@ -436,6 +468,14 @@ class _TracingTreeQueryBodySerializer(serializers.Serializer):
         default=[],
         help_text="Additional property filters applied to spans in both windows.",
     )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
+    )
 
 
 class _TracingTreeRequestSerializer(serializers.Serializer):
@@ -468,6 +508,14 @@ class _TracingCountBodySerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Property filters for the count.",
+    )
+    personId = serializers.CharField(
+        required=False,
+        help_text=(
+            "Show spans for a given person (person UUID). Expanded server-side to the person's "
+            "distinct IDs and matched against the team's configured distinct-id span attribute "
+            "(see the tracing_config endpoint; defaults to 'posthogDistinctId')."
+        ),
     )
 
 
@@ -684,6 +732,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             flatSpans=flat_spans,
             prefetchSpans=prefetch_spans,
             excludeAttributes=query_data.get("excludeAttributes", False),
+            personId=query_data.get("personId", None),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
@@ -775,6 +824,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
+            person_id=query_data.get("personId", None),
         )
 
         report_user_action(
@@ -886,6 +936,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
             rootSpans=query_data.get("rootSpans", False),
+            personId=query_data.get("personId", None),
         )
 
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
@@ -917,6 +968,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
             root_spans=query_data.get("rootSpans", True),
+            person_id=query_data.get("personId", None),
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -951,6 +1003,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+            person_id=query_data.get("personId", None),
         )
 
         return Response(
@@ -1006,6 +1059,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_name=service_name,
             compare_filter=compare_filter,
             filter_group=filter_group,
+            person_id=query_data.get("personId", None),
             service_names=query_data.get("serviceNames", None),
         )
 
@@ -1076,6 +1130,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+            person_id=query_data.get("personId", None),
         )
 
         return Response(

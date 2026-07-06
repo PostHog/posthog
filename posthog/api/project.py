@@ -35,12 +35,14 @@ from posthog.api.team import (
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamTracingConfigSerializer,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_logs_config,
+    handle_tracing_config,
     validate_secret_token_generation,
     validate_team_attrs,
 )
@@ -1584,6 +1586,20 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         alongside the legacy /api/environments/:id/logs_config/ alias."""
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
+
+    @extend_schema(request=TeamTracingConfigSerializer, responses=TeamTracingConfigSerializer)
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this project's canonical environment.
+        Mirrors the env-router action so /api/projects/:id/tracing_config/ resolves
+        alongside the legacy /api/environments/:id/tracing_config/ alias."""
+        project = self.get_object()
+        return handle_tracing_config(request, project.passthrough_team)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):

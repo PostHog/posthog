@@ -24452,6 +24452,10 @@ class TraceSpansAggregationQuery(BaseModel):
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansAggregationQuery"] = "TraceSpansAggregationQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    personId: str | None = Field(
+        default=None,
+        description=("Show spans for a given person, matched via the team's configured distinct-id span attribute"),
+    )
     response: TraceSpansAggregationQueryResponse | None = None
     serviceNames: list[str] | None = None
     tags: QueryLogTags | None = None
@@ -24483,6 +24487,10 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
     orderBy: TraceSpanBreakdownOrderBy | None = Field(
         default=None,
         description=("Order rows by span count or error count, descending. Defaults to count."),
+    )
+    personId: str | None = Field(
+        default=None,
+        description=("Show spans for a given person, matched via the team's configured distinct-id span attribute"),
     )
     response: TraceSpansAttributeBreakdownQueryResponse | None = None
     serviceNames: list[str] | None = None
@@ -24524,6 +24532,10 @@ class TraceSpansQuery(BaseModel):
         ),
     )
     orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
+    personId: str | None = Field(
+        default=None,
+        description=("Show spans for a given person, matched via the team's configured distinct-id span attribute"),
+    )
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),
@@ -24551,6 +24563,10 @@ class TraceSpansTreeQuery(BaseModel):
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansTreeQuery"] = "TraceSpansTreeQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    personId: str | None = Field(
+        default=None,
+        description=("Show spans for a given person, matched via the team's configured distinct-id span attribute"),
+    )
     response: TraceSpansTreeQueryResponse | None = None
     serviceName: str = Field(
         ...,

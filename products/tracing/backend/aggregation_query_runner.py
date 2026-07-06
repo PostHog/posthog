@@ -55,7 +55,12 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .logic import (
+    TIME_BUCKET_DATE_RANGE_WHERE,
+    person_scope_expr,
+    translate_span_filter,
+    with_span_attribute_type_suffix,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -231,6 +236,9 @@ class _SpanAggregationMixin:
                 exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
             for resource_filter in self.resource_attribute_filters:
                 exprs.append(property_to_expr(resource_filter, team=self.team))
+
+        if self.query.personId:
+            exprs.append(person_scope_expr(self.team, self.query.personId))
 
         return ast.And(exprs=exprs)
 

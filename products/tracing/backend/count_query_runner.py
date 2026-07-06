@@ -92,6 +92,7 @@ def run_count_query(
     service_names: list[str] | None = None,
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Facade-friendly entry point for running a span count query."""
     query = TraceSpansQuery(
@@ -99,6 +100,7 @@ def run_count_query(
         serviceNames=service_names,
         statusCodes=status_codes,
         filterGroup=filter_group,
+        personId=person_id,
     )
     runner = TraceSpansCountQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

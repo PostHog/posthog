@@ -45,6 +45,11 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+
+from products.tracing.backend.models import DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEY, TeamTracingConfig
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -232,6 +237,36 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+def person_scope_expr(team: "Team", person_id: str) -> ast.Expr:
+    """WHERE clause scoping spans to one person, matched via the team's configured distinct-id span attribute.
+
+    Expand personId server-side: person pages cap how many distinct ids they load
+    (groupArray(101) / list serializer), so a client-built distinct-ids filter would
+    silently drop ids on persons with many of them. Mirrors the logs query runner's
+    person scoping.
+    """
+    with personhog_caller_tag("persons/tracing-query"):
+        person = get_person_by_pk_or_uuid(team.pk, str(person_id), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS)
+    distinct_ids = get_distinct_ids_for_subquery(person, team)
+    if not distinct_ids:
+        # Unknown person (or another team's person): match nothing. property_to_expr
+        # treats an empty value list as always-true, which would return every span.
+        return ast.Constant(value=False)
+    config = TeamTracingConfig.objects.filter(team=team).first()
+    attribute_key = config.tracing_distinct_id_attribute_key if config else DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEY
+    # Exact routes to the __str map via the shared suffix router — all-numeric distinct ids
+    # must not land on attributes_map_float, which only holds numeric-parsed values.
+    prop = with_span_attribute_type_suffix(
+        SpanPropertyFilter(
+            key=attribute_key,
+            operator=PropertyOperator.EXACT,
+            type=SpanPropertyFilterType.SPAN_ATTRIBUTE,
+            value=list(distinct_ids),
+        )
+    )
+    return property_to_expr(prop, team=team)
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -308,6 +343,9 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         if self.resource_attribute_filters:
             for f in self.resource_attribute_filters:
                 exprs.append(property_to_expr(f, team=self.team))
+
+        if self.query.personId:
+            exprs.append(person_scope_expr(self.team, self.query.personId))
 
         if self.query.traceId:
             trace_id_b64 = base64.b64encode(bytes.fromhex(self.query.traceId)).decode("ascii")
@@ -1069,6 +1107,7 @@ def run_aggregation_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1079,6 +1118,7 @@ def run_aggregation_query(
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        personId=person_id,
     )
     runner = TraceSpansAggregationQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
@@ -1095,6 +1135,7 @@ def run_tree_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
     """Facade-friendly entry point for running a span call-tree aggregation query."""
     # Same circular import as run_aggregation_query above.
@@ -1107,6 +1148,7 @@ def run_tree_query(
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        personId=person_id,
     )
     runner = TraceSpansTreeQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

@@ -109,6 +109,7 @@ def run_duration_histogram_query(
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
     root_spans: bool = True,
+    person_id: str | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Facade-friendly entry point for running a duration histogram query."""
     query = TraceSpansQuery(
@@ -117,6 +118,7 @@ def run_duration_histogram_query(
         statusCodes=status_codes,
         filterGroup=filter_group,
         rootSpans=root_spans,
+        personId=person_id,
     )
     runner = TraceSpansDurationHistogramQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

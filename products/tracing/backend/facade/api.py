@@ -61,6 +61,7 @@ def run_count_query(
     service_names: list[str] | None = None,
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Run a cheap scalar count of trace spans matching the given filters."""
     return _run_count_query(
@@ -69,6 +70,7 @@ def run_count_query(
         service_names=service_names,
         status_codes=status_codes,
         filter_group=filter_group,
+        person_id=person_id,
     )
 
 
@@ -82,6 +84,7 @@ def run_attribute_breakdown_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    person_id: str | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Run a span breakdown grouped by one attribute's value within a filtered span set."""
     return _run_attribute_breakdown_query(
@@ -93,6 +96,7 @@ def run_attribute_breakdown_query(
         compare_filter=compare_filter,
         filter_group=filter_group,
         service_names=service_names,
+        person_id=person_id,
     )
 
 
@@ -120,6 +124,7 @@ def run_duration_histogram_query(
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
     root_spans: bool = True,
+    person_id: str | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Run the per-bucket duration histogram, stacked by service.
 
@@ -133,6 +138,7 @@ def run_duration_histogram_query(
         status_codes=status_codes,
         filter_group=filter_group,
         root_spans=root_spans,
+        person_id=person_id,
     )
 
 

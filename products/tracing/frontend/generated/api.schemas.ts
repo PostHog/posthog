@@ -107,6 +107,8 @@ export interface _TracingAggregationQueryBodyApi {
     serviceNames?: string[]
     /** Property filters applied to spans in both windows. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
 }
 
 export interface _TracingAggregationRequestApi {
@@ -158,6 +160,8 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
     serviceNames?: string[]
     /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
 }
 
 export interface _TracingAttributeBreakdownRequestApi {
@@ -209,6 +213,8 @@ export interface _TracingCountBodyApi {
     statusCodes?: number[]
     /** Property filters for the count. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
 }
 
 export interface _TracingCountRequestApi {
@@ -232,6 +238,8 @@ export interface _TracingDurationHistogramQueryBodyApi {
     statusCodes?: number[]
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
     /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
     rootSpans?: boolean
 }
@@ -307,6 +315,8 @@ export interface _TracingQueryBodyApi {
     prefetchSpans?: number
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
 }
 
 export interface _TracingQueryRequestApi {
@@ -323,6 +333,8 @@ export interface _TracingSparklineQueryBodyApi {
     statusCodes?: number[]
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
     /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
     rootSpans?: boolean
 }
@@ -480,6 +492,8 @@ export interface _TracingTreeQueryBodyApi {
     serviceNames?: string[]
     /** Additional property filters applied to spans in both windows. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Show spans for a given person (person UUID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id span attribute (see the tracing_config endpoint; defaults to 'posthogDistinctId'). */
+    personId?: string
 }
 
 export interface _TracingTreeRequestApi {
