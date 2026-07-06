@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -178,56 +178,49 @@ class TestFetchPage:
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
+    def _patch_session(self, response: Any) -> Any:
         session = MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
-        monkeypatch.setattr(persistiq, "make_tracked_session", lambda **kwargs: session)
-        return session
+        return patch.object(persistiq, "make_tracked_session", lambda **kwargs: session)
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
             (200, True, 200, None),
             (401, False, 401, None),
             (403, False, 403, None),
             (500, False, 500, "PersistIQ returned HTTP 500"),
-        ],
+        ]
     )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
+    def test_status_mapping(self, status: int, ok: bool, expected_status: int, expected_message: str | None) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("pq-key") == (expected_status, expected_message)
+        with self._patch_session(response):
+            assert check_access("pq-key") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("pq-key")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with self._patch_session(requests.ConnectionError("boom")):
+            status, message = check_access("pq-key")
         assert status == 0
         assert message is not None and "boom" in message
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
             (200, True, None),
             (401, False, "Invalid PersistIQ API key"),
             (403, False, "Invalid PersistIQ API key"),
             (500, False, "PersistIQ returned HTTP 500"),
-        ],
+        ]
     )
-    def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
-    ) -> None:
+    def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = status < 400
-        self._patch_session(monkeypatch, response)
-        assert validate_credentials("pq-key") == (expected_valid, expected_message)
+        with self._patch_session(response):
+            assert validate_credentials("pq-key") == (expected_valid, expected_message)
 
 
 class TestPersistiqSourceResponse:

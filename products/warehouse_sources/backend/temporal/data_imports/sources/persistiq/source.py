@@ -23,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersistIqSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.persistiq import (
     PersistiqResumeConfig,
-    check_access,
     persistiq_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.settings import (
     ENDPOINTS,
@@ -113,12 +113,7 @@ You can find your API key under **Profile → Integrations → PersistIQ API** i
         self, config: PersistIqSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid PersistIQ API key"
-        return False, message or "Could not validate PersistIQ API key"
+        return validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PersistiqResumeConfig]:
         return ResumableSourceManager[PersistiqResumeConfig](inputs, PersistiqResumeConfig)
