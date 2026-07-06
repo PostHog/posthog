@@ -180,7 +180,9 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                 <div className="flex flex-col gap-1">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered report</div>
                     <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
-                        <LemonMarkdown>{report}</LemonMarkdown>
+                        {/* LLM-generated content: disableImages so an image URL in the report can't auto-fire a
+                            request (tracking pixel / IP leak / internal-address probe) when a teammate opens this. */}
+                        <LemonMarkdown disableImages>{report}</LemonMarkdown>
                     </div>
                 </div>
             ) : null}
