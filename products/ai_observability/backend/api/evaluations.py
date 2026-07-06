@@ -42,21 +42,12 @@ from ..models.evaluation_configs import (
     validate_target_config,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation, EvaluationStatusReason, EvaluationTarget
+from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
-
-
-PROVIDER_KEY_ERROR_STATUS_REASONS = {
-    EvaluationStatusReason.PROVIDER_KEY_DELETED,
-    EvaluationStatusReason.PROVIDER_KEY_INVALID,
-    EvaluationStatusReason.PROVIDER_KEY_PERMISSION_DENIED,
-    EvaluationStatusReason.PROVIDER_KEY_QUOTA_EXCEEDED,
-    EvaluationStatusReason.PROVIDER_KEY_RATE_LIMITED,
-}
 
 
 @extend_schema_field(
@@ -411,18 +402,11 @@ class EvaluationSerializer(serializers.ModelSerializer):
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
+        # _validate_can_run mirrors runtime resolution, so it already rejects a re-enable whose key is
+        # missing/unhealthy or whose keyless config can't resolve — no separate provider-key gate needed.
         self._validate_can_run(data)
 
-        provider_key = self._effective_provider_key(data)
-        has_usable_byok = provider_key is not None and provider_key.state == LLMProviderKey.State.OK
         status_reason = getattr(self.instance, "status_reason", None)
-
-        # Provider key failures: the eval must now point at a usable provider key.
-        if status_reason in PROVIDER_KEY_ERROR_STATUS_REASONS:
-            if not has_usable_byok:
-                raise serializers.ValidationError(
-                    {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
-                )
 
         if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
             raise serializers.ValidationError(

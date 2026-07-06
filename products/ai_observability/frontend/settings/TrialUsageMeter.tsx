@@ -5,7 +5,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
+import { EvaluationTrialConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
 
 function TrialDeprecationBanner({
     deprecationDate,
@@ -66,7 +66,7 @@ function TrialUsageMeterDisplay({
     showSettingsLink = false,
     noun = 'evaluations',
 }: {
-    evaluationConfig: EvaluationConfig
+    evaluationConfig: EvaluationTrialConfig
     showSettingsLink?: boolean
     noun?: string
 }): JSX.Element {

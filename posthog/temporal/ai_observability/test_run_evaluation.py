@@ -127,6 +127,13 @@ def setup_data():
     return {"organization": organization, "team": team, "evaluation": evaluation}
 
 
+@pytest.fixture
+def grandfathered(setup_data, settings):
+    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
+    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
+
+
 class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -163,7 +170,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity(self, setup_data):
+    def test_execute_llm_judge_activity(self, setup_data, grandfathered):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -562,7 +569,7 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "hog_error"
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -604,7 +611,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -743,7 +750,9 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(self, error_props: dict[str, Any], setup_data):
+    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
+        self, error_props: dict[str, Any], setup_data, grandfathered
+    ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1018,7 +1027,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
-        self, raised_exception: Exception, expected_label: str, setup_data
+        self, raised_exception: Exception, expected_label: str, setup_data, grandfathered
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]

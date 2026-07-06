@@ -173,7 +173,7 @@ describe('llmEvaluationsLogic', () => {
                 updated_at: '2024-01-01T00:00:00Z',
             })
 
-            const explicitKeyless = {
+            const explicitKeyless: LLMJudgeEvaluation = {
                 ...evaluationWithKey('llm-explicit', null),
                 model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },
             }
