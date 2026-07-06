@@ -183,6 +183,8 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
                 "batch_export.destination": workflow_type.removesuffix("-export") if workflow_type else None,
                 "batch_export.interval": interval,
                 "batch_export.model": getattr(model, "name", None),
+                "batch_export.run_id": getattr(details, "run_id", None),
+                "attempt": activity.info().attempt,
             }
         )
 
