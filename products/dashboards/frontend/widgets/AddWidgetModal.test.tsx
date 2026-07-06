@@ -101,8 +101,7 @@ describe('AddWidgetModal', () => {
         renderAddWidgetModal({ onAdd, onClose })
 
         await userEvent.click(screen.getByLabelText('Top issues'))
-        // "Add widget" is also the modal title, so target the footer button's content span
-        await userEvent.click(screen.getByText('Add widget', { selector: '.LemonButton__content' }))
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
 
         expect(onAdd).toHaveBeenCalledWith([expect.objectContaining({ widgetType: 'error_tracking_list' })])
         expect(onClose).toHaveBeenCalled()
