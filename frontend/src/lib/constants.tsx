@@ -200,15 +200,12 @@ export const FEATURE_FLAGS = {
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     BOX_PLOT_INSIGHT: 'box-plot-insight', // owner: @pauldambra #team-product-analytics
     CALENDAR_HEATMAP_INSIGHT: 'calendar-heatmap-insight', // owner: @jabahamondes #team-web-analytics
-    COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: #team-web-analytics
-    EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     /* The below flag is used to activate unmounting charts outside the viewport, as we're currently investigating frontend performance
     issues related to this and want to know the impact of having it on vs. off. */
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
     HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
-    IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-modeling
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     METRIC_INSIGHT: 'metric-insight', // owner: @sampennington #team-product-analytics
@@ -216,7 +213,6 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
-    REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -241,8 +237,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_REFERRER_URL_DRILLDOWN: 'web-analytics-referrer-url-drilldown', // owner: @jabahamondes #team-web-analytics
 
     // Temporary feature flags, still WIP, should be removed eventually
-    AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
-    AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_GATEWAY: 'ai-gateway', // owner: #team-ai-gateway, gates the AI gateway UI and llm_gateway:read on project secret API keys
@@ -466,7 +460,6 @@ export const FEATURE_FLAGS = {
     SEARCH_RE_RANK: 'search-re-rank', // owner: @adamleithp #team-platform-ux
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
     SHOPIFY_DWH: 'shopify-dwh', // owner: #team-warehouse-sources
-    SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
