@@ -42,7 +42,8 @@ describe('DatePicker', () => {
         const onApply = jest.fn()
         render(<DatePicker value={VALUE} maxDate={MAX} showTime onApply={onApply} />)
 
-        await userEvent.click(screen.getByRole('switch', { name: 'Include time' })) // nosemgrep: jest-no-byrole-name-queries — small DOM, asserts accessibility contract of the toggle // turn time off
+        // nosemgrep: jest-no-byrole-name-queries — small DOM, asserts accessibility contract of the toggle
+        await userEvent.click(screen.getByRole('switch', { name: 'Include time' })) // turn time off
         await userEvent.click(screen.getByLabelText('Apply date'))
 
         const applied: Date = onApply.mock.calls[0][0]
