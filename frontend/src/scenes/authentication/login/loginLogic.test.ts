@@ -1,11 +1,24 @@
+import { startAuthentication } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
-import { testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
+
+// isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
+const WEBKIT_VENDOR = 'Apple Computer, Inc.'
+const CHROMIUM_VENDOR = 'Google Inc.'
+
+function setVendor(vendor: string): void {
+    Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
+}
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
@@ -61,5 +74,101 @@ describe('loginLogic', () => {
                 expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
+    })
+
+    describe('passkey auto-trigger after precheck', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let beginHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(CHROMIUM_VENDOR)
+            // Treat the passkey prompt as a user cancellation so it resolves without a page reload.
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                Object.assign(new Error('cancelled'), { name: 'AbortError' })
+            )
+            beginHandler = jest.fn(() => [
+                200,
+                {
+                    challenge: 'abc',
+                    timeout: 60000,
+                    rpId: 'localhost',
+                    allowCredentials: [],
+                    userVerification: 'preferred',
+                },
+            ])
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [
+                        200,
+                        { saml_available: false, webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }] },
+                    ],
+                    '/api/webauthn/login/begin/': beginHandler,
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            passkeyLogic().mount()
+        })
+
+        afterEach(() => {
+            passkeyLogic().unmount()
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('auto-triggers the passkey prompt on non-WebKit browsers', async () => {
+            logic.actions.precheck({ email: 'user@example.com' })
+            // Drain the whole passkey flow (begin request included) so nothing leaks into the next test.
+            await expectLogic(passkeyLogic)
+                .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
+                .toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
+            setVendor(WEBKIT_VENDOR)
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            expect(beginHandler).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('precheck dedupe', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let precheckHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger, isolate precheck
+            precheckHandler = jest.fn(() => [200, { saml_available: false }])
+            useMocks({ post: { '/api/login/precheck': precheckHandler } })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('skips a redundant precheck for an already-resolved email but re-runs for a new one', async () => {
+            logic.actions.precheck({ email: 'a@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            logic.actions.precheck({ email: 'a@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            expect(precheckHandler).toHaveBeenCalledTimes(1)
+
+            logic.actions.precheck({ email: 'b@example.com' })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess'])
+            expect(precheckHandler).toHaveBeenCalledTimes(2)
+        })
     })
 })

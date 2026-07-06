@@ -17,7 +17,6 @@ logger = structlog.get_logger(__name__)
 class DuckgresServerAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "team_id",
         "organization_id",
         "host",
         "port",
@@ -27,12 +26,12 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    search_fields = ("=team__id", "=organization__id", "host", "bucket")
+    search_fields = ("=organization__id", "host", "bucket")
     # bucket / bucket_region are control-plane-owned: provisioning persists them
     # and status_for() self-heals them on every read, so a manual admin edit
     # would just be overwritten. Show them, but read-only.
     readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region")
-    raw_id_fields = ("team", "organization")
+    raw_id_fields = ("organization",)
 
     # Custom templates add the provision / enable-backfill / deprovision buttons.
     change_list_template = "admin/posthog/duckgres_server/change_list.html"
@@ -42,13 +41,19 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ("id", "team", "organization"),
+                "fields": ("id", "organization"),
             },
         ),
         (
             "Connection",
             {
                 "fields": ("host", "port", "flight_port", "database", "username"),
+            },
+        ),
+        (
+            "DuckLake catalog connection",
+            {
+                "fields": ("catalog_host", "catalog_port", "catalog_database", "catalog_username"),
             },
         ),
         (
@@ -72,13 +77,19 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ("team", "organization"),
+                "fields": ("organization",),
             },
         ),
         (
             "Connection",
             {
                 "fields": ("host", "port", "flight_port", "database", "username", "password"),
+            },
+        ),
+        (
+            "DuckLake catalog connection",
+            {
+                "fields": ("catalog_host", "catalog_port", "catalog_database", "catalog_username", "catalog_password"),
             },
         ),
         (
@@ -116,9 +127,9 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         """Provision a brand-new managed warehouse for an org + its first team.
 
         Runs the same path as the in-product provision API: the duckgres control-plane
-        /provision call, then the DuckgresServer, DuckgresServerTeam, and DuckLakeBackfill
-        records. The org's feature flag is bypassed (require_enabled=False) so ops can
-        provision before the org is entitled to the in-product UI.
+        /provision call, then the DuckgresServer and DuckgresServerTeam records. The org's
+        feature flag is bypassed (require_enabled=False) so ops can provision before the org
+        is entitled to the in-product UI.
         """
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
@@ -142,14 +153,39 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
             team.organization_id, database_name, team.id, table_name, require_enabled=False
         )
-        self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
         if 200 <= resp.status_code < 300:
-            return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+            # The control plane returns the root password exactly once, in this
+            # response; afterwards it's stored only encrypted and can't be read
+            # back. Show it once here. Deliberately NOT routed through the message
+            # framework (which persists to the session/cookie store) or the audit
+            # log — only the action + actor are logged, never the credential.
+            user = cast(User, request.user)
+            logger.info(
+                "admin_managed_warehouse_action",
+                action=f"Provisioned managed warehouse for org {team.organization_id}",
+                triggered_by=user.email,
+            )
+            body = resp.data if isinstance(resp.data, dict) else {}
+            return render(
+                request,
+                "admin/posthog/duckgres_server/provision_result.html",
+                {
+                    **self.admin_site.each_context(request),
+                    "title": "Managed warehouse provisioned",
+                    "organization_id": str(team.organization_id),
+                    "team_id": team.id,
+                    "connection": managed_warehouse._present_connection(
+                        {"database": database_name, "username": body.get("username", "root")}
+                    ),
+                    "password": body.get("password", ""),
+                },
+            )
+        self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
         return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
     def enable_backfill_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
@@ -179,7 +215,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.enable_backfill(server.organization_id, team.id, table_name, require_enabled=False)
         self._report(request, resp, f"Enabled warehouse backfill for team {team.id}")
@@ -207,7 +243,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
-        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")

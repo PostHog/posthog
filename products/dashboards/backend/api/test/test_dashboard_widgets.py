@@ -2,7 +2,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -1147,6 +1147,315 @@ class TestDashboardWidgets(APIBaseTest):
         assert shared_widget["config"]["limit"] == 10
 
 
+class TestDashboardWidgetsBatchUpdate(APIBaseTest):
+    _WIDGETS_FLAG_PATCH_TARGETS = TestDashboardWidgets._WIDGETS_FLAG_PATCH_TARGETS
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        self._widgets_flag_patchers = [patch(target, return_value=True) for target in self._WIDGETS_FLAG_PATCH_TARGETS]
+        for patcher in self._widgets_flag_patchers:
+            patcher.start()
+
+    def tearDown(self) -> None:
+        for patcher in self._widgets_flag_patchers:
+            patcher.stop()
+        super().tearDown()
+
+    def _batch_update(self, dashboard_id: int, widgets: list[dict[str, Any]], team_id: int | None = None) -> Any:
+        team_id = team_id or self.team.id
+        return self.client.patch(
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}/widgets/batch_update/",
+            {"widgets": widgets},
+        )
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_widget_config_in_place(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "config": {"limit": 15, "orderBy": "occurrences"}}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["config"]["limit"] == 15
+        assert updated_tile["widget"]["config"]["orderBy"] == "occurrences"
+        # The widget row is edited in place, not recreated.
+        assert updated_tile["widget"]["id"] == tile["widget"]["id"]
+        assert updated_tile["id"] == tile["id"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_widget_name_and_description(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "name": "My top errors", "description": "Worst issues this week"}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "My top errors"
+        assert updated_tile["widget"]["description"] == "Worst issues this week"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_partial_update_preserves_other_settings(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "name": "Renamed"}])
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "Renamed"
+        assert updated_tile["widget"]["config"]["limit"] == 5
+        assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_sets_session_replay_saved_filter_id(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 5}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "config": {"limit": 5, "savedFilterId": "abc123"}}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["config"]["savedFilterId"] == "abc123"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_multiple_widgets_atomically(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tiles = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+        assert len(tiles) == 2
+
+        response = self._batch_update(
+            dashboard_id,
+            [
+                {"tile_id": tiles[0]["id"], "config": {"limit": 11}},
+                {"tile_id": tiles[1]["id"], "config": {"limit": 22}},
+            ],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        limits = sorted(t["widget"]["config"]["limit"] for t in response.json()["tiles"])
+        assert limits == [11, 22]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_batch_update_is_atomic(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tiles = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+
+        # Second entry has an out-of-range limit; the whole batch must roll back.
+        response = self._batch_update(
+            dashboard_id,
+            [
+                {"tile_id": tiles[0]["id"], "config": {"limit": 15}},
+                {"tile_id": tiles[1]["id"], "config": {"limit": 999}},
+            ],
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        after = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+        assert all(t["widget"]["config"]["limit"] == 5 for t in after)
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_change_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "widget_type": "session_replay_list", "config": {"limit": 10}}],
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "widget_type cannot be changed" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_non_widget_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        insight = Insight.objects.create(team=self.team, name="an insight")
+        insight_tile = DashboardTile.objects.create(
+            dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={}
+        )
+
+        response = self._batch_update(dashboard_id, [{"tile_id": insight_tile.id, "config": {"limit": 5}}])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not a widget tile" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_unknown_tile_id(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self._batch_update(dashboard_id, [{"tile_id": 99999999, "config": {"limit": 5}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_update_tile_from_another_dashboard(self) -> None:
+        dashboard_a, _ = self.dashboard_api.create_dashboard({"name": "a"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_a, config={"limit": 5})
+        foreign_tile_id = dashboard_json["tiles"][0]["id"]
+        dashboard_b, _ = self.dashboard_api.create_dashboard({"name": "b"})
+
+        response = self._batch_update(dashboard_b, [{"tile_id": foreign_tile_id, "config": {"limit": 9}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_requires_feature_flag(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+
+        for patcher in self._widgets_flag_patchers:
+            patcher.stop()
+        try:
+            with patch(
+                "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
+                return_value=False,
+            ):
+                response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+        finally:
+            for patcher in self._widgets_flag_patchers:
+                patcher.start()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not enabled" in response.json()["detail"].lower()
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_empty_list(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self._batch_update(dashboard_id, [])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_does_not_touch_tile_placement(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        layout = {"sm": {"x": 0, "y": 3, "w": 6, "h": 4}}
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "layouts": layout}]},
+        )
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 12}}])
+        assert response.status_code == status.HTTP_200_OK
+
+        after = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]
+        assert after["widget"]["config"]["limit"] == 12
+        assert after["layouts"] == layout
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_does_not_fire_tile_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        mock_report_user_action.reset_mock()
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 15}}])
+        assert response.status_code == status.HTTP_200_OK
+
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_fires_widget_updated_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        mock_report_user_action.reset_mock()
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "name": "Renamed"}])
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_events = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget updated"
+        ]
+        assert len(updated_events) == 1
+        properties = updated_events[0][0][2]
+        assert properties["tile_id"] == tile["id"]
+        assert properties["fields_changed"] == ["name"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_edit_permission(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.can_edit",
+            new_callable=PropertyMock,
+            return_value=False,
+        ):
+            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_update_on_deleted_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        Dashboard.objects.filter(id=dashboard_id).update(deleted=True)
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_product_access(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 12}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+
+
 class TestDashboardWidgetOpenApiSchema(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1165,6 +1474,13 @@ class TestDashboardWidgetOpenApiSchema(APIBaseTest):
     def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)
         component = schema["components"]["schemas"]["AddDashboardWidgetRequest"]
+
+        assert component["discriminator"]["propertyName"] == "widget_type"
+        assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)
+
+    def test_update_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        component = schema["components"]["schemas"]["UpdateDashboardWidgetRequest"]
 
         assert component["discriminator"]["propertyName"] == "widget_type"
         assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)

@@ -1,7 +1,7 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { CyclotronInvocationQueueParametersFetchSchema } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 
 import { registerAsyncFunction } from '../async-function-registry'
 

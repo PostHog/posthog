@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +22,7 @@ import {
 } from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
     PropertyDefinition,
@@ -235,6 +237,12 @@ export function OperatorValueSelect({
             )
         ) {
             propertyType = PropertyType.StringArray
+        } else if (type === PropertyFilterType.Recording && propertyKey) {
+            // Recording properties have no entry in propertyDefinitions, so resolve their type from
+            // the authoritative taxonomy (e.g. numeric activity counts get range operators + a numeric
+            // input). Reading CORE_FILTER_DEFINITIONS_BY_GROUP keeps this in sync with the one source
+            // of truth rather than a hardcoded key list that drifts as new recording filters are added.
+            propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)

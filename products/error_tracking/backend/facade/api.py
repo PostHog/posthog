@@ -12,7 +12,13 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..models import resolve_fingerprints_for_issues
+from ..models import (
+    ErrorTrackingIssue,
+    override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
+    resolve_fingerprints_for_issues,
+    sync_issues_to_clickhouse as sync_issues_to_clickhouse,
+)
+from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
@@ -341,9 +347,15 @@ def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAs
     return _to_assignment_rule(rule) if rule is not None else None
 
 
-def create_assignment_rule(team_id: int, *, filters: dict, assignee: dict) -> contracts.ErrorTrackingAssignmentRule:
+def create_assignment_rule(
+    team_id: int, *, filters: dict, assignee: dict, order_key: int = 0
+) -> contracts.ErrorTrackingAssignmentRule:
     rule = logic.create_assignment_rule(
-        team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
+        team_id,
+        filters=filters,
+        assignee_type=assignee["type"],
+        assignee_id=assignee["id"],
+        order_key=order_key,
     )
     return _to_assignment_rule(rule)
 
@@ -455,6 +467,46 @@ def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
 
 def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return logic.get_client_safe_suppression_rules(team_id)
+
+
+def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
+    return contracts.ErrorTrackingBypassRule(
+        id=rule.id,
+        filters=rule.filters,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_bypass_rules(team_id: int) -> list[contracts.ErrorTrackingBypassRule]:
+    return [_to_bypass_rule(rule) for rule in logic.list_bypass_rules(team_id)]
+
+
+def get_bypass_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingBypassRule | None:
+    rule = logic.get_bypass_rule(team_id, rule_id)
+    return _to_bypass_rule(rule) if rule is not None else None
+
+
+def create_bypass_rule(team_id: int, *, filters: dict) -> contracts.ErrorTrackingBypassRule:
+    rule = logic.create_bypass_rule(team_id, filters=filters)
+    return _to_bypass_rule(rule)
+
+
+def update_bypass_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None
+) -> contracts.ErrorTrackingBypassRule | None:
+    rule = logic.update_bypass_rule(team_id, rule_id, filters=filters)
+    return _to_bypass_rule(rule) if rule is not None else None
+
+
+def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
+    return logic.delete_bypass_rule(team_id, rule_id)
+
+
+def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
+    logic.reorder_bypass_rules(team_id, orders)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
@@ -580,3 +632,7 @@ def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
 
 def build_ingestion_failures_url(team_id: int) -> str:
     return weekly_digest.build_ingestion_failures_url(team_id)
+
+
+def has_resolved_issues(team_id: int) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()

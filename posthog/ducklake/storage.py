@@ -470,7 +470,7 @@ def ensure_ducklake_bucket_exists(
         else:
             config = get_config()
 
-    from products.data_warehouse.backend.s3 import ensure_bucket_exists
+    from products.data_warehouse.backend.facade.api import ensure_bucket_exists
 
     settings = _get_django_settings()
     raw_endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") if settings else ""

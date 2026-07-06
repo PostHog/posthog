@@ -33,9 +33,16 @@
  * `pending_inputs` — handled in `getSteeringMessages`.
  */
 
-import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
+import type {
+    AgentContext,
+    AgentEvent,
+    AgentEventSink,
+    AgentMessage,
+    AgentToolResult,
+    StreamFn,
+} from '@earendil-works/pi-agent-core'
 import { runAgentLoop } from '@earendil-works/pi-agent-core'
-import type { AssistantMessage, Message, Model } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
 import { randomUUID } from 'node:crypto'
 
@@ -54,6 +61,7 @@ import {
     CredentialBroker,
     createLogger,
     FRAMEWORK_PROMPT_VERSION,
+    GatewayCatalog,
     GatewayClient,
     generationSpanId,
     HttpFetcher,
@@ -61,7 +69,6 @@ import {
     IdentityLinkStateStore,
     IdentityStore,
     isDeltaEventKind,
-    isSlackTriggerMetadata,
     LogLevel,
     LogSink,
     MemoryStore,
@@ -81,18 +88,43 @@ import {
     TabularStore,
     ToolContext,
     toolSpanId,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
-import { lookupMcpToolApproval } from './mcp-tool-lookup'
+import {
+    isProxyReadOnlyHelper,
+    lookupMcpToolApproval,
+    PREFIX_SEPARATOR,
+    proxiedPrefixesFromCallTools,
+    resolveApprovedExecutor,
+} from './mcp-tool-lookup'
 import { providerSafeName } from './provider-safe-names'
 
+/** The model id that served the most recent assistant turn, if any. Seeds the
+ *  fallback wrapper's sticky lead / cost-mode pin so it survives suspend→resume,
+ *  not just consecutive in-process turns. */
+function lastServedModelId(conversation: ConversationMessage[]): string | undefined {
+    for (let i = conversation.length - 1; i >= 0; i--) {
+        const message = conversation[i]
+        if (message.role === 'assistant' && message.model) {
+            return message.model
+        }
+    }
+    return undefined
+}
+
 export interface RunSessionDeps {
-    /** The pi-ai Model to invoke for this session (resolved from rev.spec.model). */
-    model: Model<string>
+    /**
+     * Priority-ordered models the loop tries (primary first, fallbacks after).
+     * Resolved once per session from `modelPolicyToList(rev.spec)`. On a
+     * fallback-eligible provider failure the wrapper retries the next entry.
+     */
+    models: ResolvedModel[]
     /** Per-call API key (provider-specific). */
     apiKey?: string
     /**
@@ -141,8 +173,13 @@ export interface RunSessionDeps {
     analytics?: AnalyticsSink
     /** Agent display name, used to name the `$ai_trace`. Falls back to the slug, then the app id. */
     applicationName?: string
-    /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
-    useGatewayCost?: boolean
+    /**
+     * True on the ai-gateway path: the gateway emits its own `$ai_generation`
+     * (settled cost + the `X-PostHog-Properties` attribution), so the runner
+     * suppresses its duplicate. Still emits `$ai_span`/`$ai_trace` and still
+     * settles cost into the session row via `gatewayUsage`.
+     */
+    gatewayEmitsGenerations?: boolean
     /** Approval-gated tool store. MANDATORY — gated tools queue instead of
      * executing and resume via the decided-marker path in getSteeringMessages.
      * `runSession` throws if it's missing rather than running gated tools
@@ -159,24 +196,29 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
-     * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
-     * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
-     * attribute correctly. The `gatewayMetadataStreamFn` wrapper merges
-     * these with a per-turn `Idempotency-Key` + `X-Request-Id` of the form
-     * `agent:<session>:<turn>` and forwards them to pi-ai's per-call
-     * `options.headers`. Presence also signals `errorContext()` to mark
-     * failures as `source: ai_gateway`.
+     * On the ai-gateway path this carries `X-PostHog-Distinct-Id`,
+     * `X-PostHog-Trace-Id`, and `X-PostHog-Properties` (the `$agent_*`
+     * attribution) so the gateway-emitted `$ai_generation` events attribute to
+     * the right user, trace, and agent application. The `gatewayMetadataStreamFn`
+     * wrapper merges these with a per-turn `Idempotency-Key` of the form
+     * `agent:<session>:<turn>:<nonce>` and forwards them to pi-ai's per-call
+     * `options.headers` (it does NOT send `X-Request-Id` — the gateway mints its
+     * own and returns it in the response header). Presence also signals
+     * `errorContext()` to mark failures as `source: ai_gateway`.
      */
     gatewayHeaders?: Record<string, string>
     /**
      * Gateway read client + the team's `phc_` bearer. When set, after every
      * pi-ai turn the runner fetches `GET /v1/usage/<request_id>` (using the
-     * id stamped by `gatewayMetadataStreamFn`) and merges the
-     * gateway-computed cost into `usage_total.cost_total`. Best-effort: a
-     * transient fetch failure or NaN body is logged + skipped so a gateway
-     * blip can't strand the turn.
+     * gateway's settlement id captured from the response by
+     * `gatewayMetadataStreamFn`) and merges the gateway-computed cost into
+     * `usage_total.cost_total`. Best-effort: a transient fetch failure, a
+     * missing id, or a NaN body is logged/skipped so a gateway blip can't
+     * strand the turn.
      */
     gatewayUsage?: {
         client: GatewayClient
@@ -208,6 +250,8 @@ export interface RunSessionDeps {
     http: HttpFetcher
     /** Base URL for the PostHog API. Forwarded into `ToolContext.posthogApiBaseUrl`. */
     posthogApiBaseUrl: string
+    /** Gateway model catalog; forwarded into `ToolContext.gatewayCatalog`. */
+    gatewayCatalog?: GatewayCatalog
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
     maxOutputTokensOverride?: number
     /**
@@ -237,11 +281,21 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     if (!deps.approvals) {
         throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
     }
+    if (deps.models.length === 0) {
+        throw new Error('RunSessionDeps.models is required — resolve via modelPolicyToList(rev.spec).')
+    }
+    // Primary (highest-priority) model — identity for max-tokens, error context,
+    // and the analytics fallback tag. Fallbacks (if any) live after it.
+    const primaryModel = deps.models[0].model
     // Slack-triggered sessions: the runner relays each finalized assistant
     // message into the thread (see the turn_end handler). The model is told as
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
-    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    //
+    // Slack-triggered sessions relay the model's reply back into the originating
+    // thread (the system prompt below tells the model to answer in natural
+    // language instead of calling a slack tool).
+    const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -429,6 +483,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
+            webSearchProviders: deps.webSearchProviders,
             dispatchClientTool,
             emitClientToolCall: async (callId, toolId, args) => {
                 await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })
@@ -438,8 +493,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
+            gatewayCatalog: deps.gatewayCatalog,
         }
-        const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, mcpProxyCallTools } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -496,8 +552,90 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
+            // Shared by the static wrap and the dynamic proxy wrap. Every gated
+            // call queues for a human decision — being the asker is not consent
+            // to the specific call (the model could have been steered by content
+            // it read). `toolName` is what the approval row records.
+            const queueGated = async (
+                toolName: string,
+                toolCallId: string,
+                args: Record<string, unknown>,
+                policy: ApprovalPolicy
+            ): Promise<AgentToolResult<ToolResultDetails>> => {
+                const queued = await queueApprovalResult({
+                    approvals,
+                    buildApprovalUrl: deps.buildApprovalUrl,
+                    session,
+                    revisionId: rev.id,
+                    turn,
+                    toolName,
+                    toolCallId,
+                    args,
+                    policy,
+                })
+                // `principal` + Slack: post Approve/Reject buttons in-thread
+                // (best-effort; skip a deduped re-queue).
+                const reqId = queued.details?.requestId
+                if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
+                    void postSlackApprovalButtons(deps.http, {
+                        token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                        channel: slackReply.channel,
+                        thread_ts: slackReply.thread_ts,
+                        sessionId: session.id,
+                        requestId: reqId,
+                        toolName,
+                        logger: {
+                            warn: (meta, msg) => log('warn', msg, meta),
+                            info: (meta, msg) => log('info', msg, meta),
+                        },
+                    }).catch(() => {})
+                }
+                return queued
+            }
+
+            // Prefixes whose connection is proxied (`<prefix>__call_tool` exists),
+            // so the synthetic read-only helpers below can be recognised as ours.
+            const proxiedPrefixes = proxiedPrefixesFromCallTools(mcpProxyCallTools.keys())
+
             for (const tool of tools) {
                 const id = tool.name
+                // Proxy `call_tool` gates dynamically: the underlying tool is
+                // only known at call time (the `tool_name` arg), so re-key the
+                // gate on `<prefix>__<tool_name>` per call.
+                const proxyEntry = mcpProxyCallTools.get(id)
+                if (proxyEntry) {
+                    const realProxyExecute = tool.execute as RealToolExecute
+                    tool.execute = async (toolCallId, args) => {
+                        const a = (args ?? {}) as Record<string, unknown>
+                        const raw = typeof a.tool_name === 'string' ? a.tool_name : ''
+                        // Resolve the same way `call_tool` will at dispatch time
+                        // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
+                        // name when it exists in the exposed catalog, only strip
+                        // `<prefix>__` when the stripped name does. Unconditionally
+                        // stripping was a bypass: a remote tool whose RAW name was
+                        // `<prefix>__delete` would gate as `delete` (no entry,
+                        // policy=allow) while dispatch ran the raw `<prefix>__delete`.
+                        // Sharing the resolver keeps the two paths in lockstep.
+                        const remoteName = proxyEntry.resolveRemoteName(raw)
+                        const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
+                        const gate = lookupMcpToolApproval(exposedName, rev.spec)
+                        if (gate?.requires_approval) {
+                            return queueGated(exposedName, toolCallId, a, gate.approval_policy)
+                        }
+                        return realProxyExecute(toolCallId, a)
+                    }
+                    continue
+                }
+                // Synthetic proxy read-only helpers (`explore_tools` /
+                // `get_tool_schema`) for a PROXIED connection are ungated catalog/
+                // schema browsing — gating them would block enumeration on a human
+                // and defeat the proxy. The blanket exemption was removed from
+                // `lookupMcpToolApproval` (which can't tell a synthetic helper from
+                // a real same-named tool); the proxy-aware check lives here.
+                if (isProxyReadOnlyHelper(id, proxiedPrefixes)) {
+                    continue
+                }
+
                 // Native + custom tools carry their approval policy on
                 // `spec.tools[]`. MCP tools materialise at session start
                 // from `client.listTools()` so they can't appear there;
@@ -521,49 +659,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                       ? mcpGate.approval_policy
                       : null
                 if (policy) {
-                    tool.execute = async (toolCallId, args) => {
-                        // Every gated call queues — there is no auto-dispatch.
-                        // Being the asker is not consent to the specific call the
-                        // model emitted (a prompt injection in content the agent
-                        // read could have steered it), so a deterministic human
-                        // decision is always required: `principal` clears it via
-                        // the ingress decision API, `agent` via the console.
-                        const queued = await queueApprovalResult({
-                            approvals,
-                            buildApprovalUrl: deps.buildApprovalUrl,
-                            session,
-                            revisionId: rev.id,
-                            // `turn` is the live counter — at call time it's the
-                            // turn that proposed this gated call.
-                            turn,
-                            toolName: id,
-                            toolCallId,
-                            args: (args ?? {}) as Record<string, unknown>,
-                            policy,
-                        })
-                        // For a `principal` approval on a Slack session, post
-                        // Approve/Reject buttons into the thread so the session
-                        // owner can decide in-place (the ingress interactivity
-                        // handler enforces principal-match on the click). Skip on
-                        // a deduped re-queue so we don't spam the same buttons.
-                        // Best-effort — a Slack hiccup must not break the loop.
-                        const reqId = queued.details?.requestId
-                        if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
-                            void postSlackApprovalButtons(deps.http, {
-                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
-                                channel: slackReply.channel,
-                                thread_ts: slackReply.thread_ts,
-                                sessionId: session.id,
-                                requestId: reqId,
-                                toolName: id,
-                                logger: {
-                                    warn: (meta, msg) => log('warn', msg, meta),
-                                    info: (meta, msg) => log('info', msg, meta),
-                                },
-                            }).catch(() => {})
-                        }
-                        return queued
-                    }
+                    tool.execute = async (toolCallId, args) =>
+                        queueGated(id, toolCallId, (args ?? {}) as Record<string, unknown>, policy)
                 }
             }
         }
@@ -574,6 +671,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     turn++
                     controlThisTurn = undefined
                     partialAssistantText = ''
+                    // Reset fallback tracking; the wrapper's hooks repopulate it
+                    // for this turn's outbound call(s).
+                    modelAttempt = 0
+                    fellBackFrom = undefined
                     await emit('turn_started', { turn })
                     // Show "working on it" in the thread while this turn runs.
                     await slackStatus?.start(':hourglass_flowing_sand: _Working on it…_')
@@ -642,7 +743,19 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         // session conversation shows on reload. Without
                         // this the client sees only `ok`/`error`.
                         output: event.isError ? undefined : (details?.output ?? null),
-                        ...(details?.queued ? { approval: { request_id: details.requestId, state: 'queued' } } : {}),
+                        // Mirror the persisted synthetic envelope so a live viewer
+                        // and a reload-from-transcript viewer build the same card
+                        // (request id, edit affordance, principal-vs-agent scope).
+                        ...(details?.queued
+                            ? {
+                                  approval: {
+                                      request_id: details.requestId,
+                                      state: 'queued',
+                                      allow_edit: details.allowEdit,
+                                      approver_scope: { type: details.approverType },
+                                  },
+                              }
+                            : {}),
                     })
                     // A queued gated call didn't really execute — no span for it
                     // (the approved dispatch emits its own span on resume).
@@ -690,9 +803,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         errorMessage: msg.errorMessage,
                         timestamp: msg.timestamp,
                     }
-                    session.usage_total = accumulateUsage(session.usage_total, record, {
-                        useGatewayCost: deps.useGatewayCost,
-                    })
+                    session.usage_total = accumulateUsage(session.usage_total, record)
 
                     for (const b of msg.content) {
                         if (b.type === 'text' && b.text) {
@@ -729,14 +840,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         }
                     }
 
-                    // Gateway settled-cost recovery: pi-ai's `usage.cost.*` numbers
-                    // are client-side estimates on the gateway path (zeroed by
-                    // `accumulateUsage` when `useGatewayCost`), so fetch the real
-                    // cost from `GET /v1/usage/<request_id>` and merge it. Best-
-                    // effort — a transient fetch failure leaves cost_total
-                    // unchanged for that turn (the gateway also emits its own
-                    // `$ai_generation` event with the cost, so the loss is
-                    // bounded to the session row's running total).
+                    // Gateway settled-cost recovery: `accumulateUsage` never
+                    // trusts pi-ai estimates, so `GET /v1/usage/<request_id>` is
+                    // the sole source of the session row's cost on this path.
+                    // Best-effort — a failed/NaN fetch leaves cost_total
+                    // unchanged (the gateway's own $ai_generation still carries
+                    // the cost).
                     if (deps.gatewayUsage) {
                         const requestId = turnRequestIds.get(turn)
                         if (requestId) {
@@ -770,33 +879,45 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         turnRequestIds.delete(turn)
                     }
 
-                    await analytics.write([
-                        {
-                            kind: 'generation',
-                            ts: new Date(msg.timestamp).toISOString(),
-                            team_id: session.team_id,
-                            application_id: session.application_id,
-                            revision_id: rev.id,
-                            session_id: session.id,
-                            turn,
-                            span_id: genSpan,
-                            distinct_id: distinctId,
-                            model: msg.model ?? deps.model.id,
-                            provider: msg.provider ?? deps.model.provider,
-                            input: inputSnapshot,
-                            output: msg.content,
-                            input_tokens: msg.usage?.input ?? 0,
-                            output_tokens: msg.usage?.output ?? 0,
-                            cache_read_tokens: msg.usage?.cacheRead,
-                            cache_write_tokens: msg.usage?.cacheWrite,
-                            total_tokens: msg.usage?.totalTokens,
-                            latency_ms: Date.now() - turnStart,
-                            cost_usd: deps.useGatewayCost ? undefined : msg.usage?.cost?.total,
-                            stop_reason: msg.stopReason,
-                            is_error: msg.stopReason === 'error',
-                            error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
-                        },
-                    ])
+                    // Gateway path: the gateway emits the `$ai_generation` (with
+                    // cost), so skip ours to avoid double-counting. Direct path:
+                    // emit without cost and let ingestion price it — pi-ai's
+                    // estimate is never used.
+                    if (!deps.gatewayEmitsGenerations) {
+                        await analytics.write([
+                            {
+                                kind: 'generation',
+                                ts: new Date(msg.timestamp).toISOString(),
+                                team_id: session.team_id,
+                                application_id: session.application_id,
+                                revision_id: rev.id,
+                                session_id: session.id,
+                                turn,
+                                span_id: genSpan,
+                                distinct_id: distinctId,
+                                // The model that ACTUALLY answered: pi-ai stamps the
+                                // answering model on `msg`, so a fallback turn tags the
+                                // fallback model. Falls back to the resolved primary id.
+                                model: msg.model ?? deps.models[modelAttempt]?.model.id ?? primaryModel.id,
+                                provider:
+                                    msg.provider ?? deps.models[modelAttempt]?.model.provider ?? primaryModel.provider,
+                                // Marker when this turn fell over to a non-primary model.
+                                model_attempt: modelAttempt > 0 ? modelAttempt : undefined,
+                                fallback_from: fellBackFrom,
+                                input: inputSnapshot,
+                                output: msg.content,
+                                input_tokens: msg.usage?.input ?? 0,
+                                output_tokens: msg.usage?.output ?? 0,
+                                cache_read_tokens: msg.usage?.cacheRead,
+                                cache_write_tokens: msg.usage?.cacheWrite,
+                                total_tokens: msg.usage?.totalTokens,
+                                latency_ms: Date.now() - turnStart,
+                                stop_reason: msg.stopReason,
+                                is_error: msg.stopReason === 'error',
+                                error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
+                            },
+                        ])
+                    }
                     await deps.onTurnPersist?.(session)
                     return
                 }
@@ -828,8 +949,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 session.conversation.push({
                     role: 'assistant',
                     content: [{ type: 'text', text: partialAssistantText }],
-                    model: deps.model.id,
-                    provider: deps.model.provider,
+                    model: primaryModel.id,
+                    provider: primaryModel.provider,
                     stopReason: 'aborted',
                     timestamp: Date.now(),
                 } satisfies AssistantMessageRecord)
@@ -868,25 +989,56 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'completed', turns: turn }
         }
 
-        // Tools are registered under their original ids so the loop matches calls
-        // by name. Sanitize names on the wire (strict providers reject `@`/`/`) and
-        // translate provider-echoed names back to the original before the loop sees
-        // the assistant message. The faux provider echoes the script's (original)
-        // name verbatim — the reverse map misses and leaves it unchanged.
+        // Tools register under their original ids; the loop matches calls by name.
+        // Sanitize names on the wire (strict providers reject `@`/`/`) and translate
+        // provider-echoed names back before the loop sees the assistant message.
         //
-        // Two wrappers compose: the gateway-metadata wrapper (when active) stamps
-        // per-call request ids + headers; the sanitizing wrapper rewrites tool
-        // names. Order doesn't change behaviour — both touch separate fields —
-        // but gateway is outer so the request id is generated at the top of the
-        // chain, before name sanitization mutates the context payload pi-ai sees.
-        let baseStreamFn: StreamFn = deps.streamFn ?? streamSimple
+        // Compose inner→outer: gateway-metadata (per-call request id + headers),
+        // multi-model fallback (walks the priority list), sanitizing. Sanitizing
+        // MUST be outermost: the fallback wrapper re-emits the winning attempt into
+        // a fresh stream whose result() resolves from the forwarded `done` event,
+        // which still carries provider-safe names — only the outer sanitizing
+        // result() runs last and maps them back to `@posthog/...`. Fallback inside
+        // sanitizing → every multi-model tool call dispatches as "tool not found".
+        let coreStreamFn: StreamFn = deps.streamFn ?? streamSimple
         if (deps.gatewayHeaders || deps.gatewayUsage) {
-            baseStreamFn = gatewayMetadataStreamFn(baseStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
+            coreStreamFn = gatewayMetadataStreamFn(coreStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
         }
-        const streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
+
+        // Which model answered this turn, for the `$ai_generation` tag. Reset per
+        // `turn_start`; the fallback hooks repopulate it. Single-model sessions
+        // skip the wrapper → identical to today.
+        let modelAttempt = 0
+        let fellBackFrom: string | undefined
+        if (deps.models.length > 1) {
+            // Session-sticky model selection (see `spec.models.optimize_for`):
+            //  - `cost` (default): pin to the model that served the first turn so
+            //    its prompt cache stays warm; no cross-model failover after.
+            //  - `availability`: lead with the last-served model but fail over.
+            // Seed from the conversation's last assistant turn so the pin / sticky
+            // lead survives a suspend→resume, not just consecutive in-process turns.
+            coreStreamFn = fallbackStreamFn(
+                coreStreamFn,
+                deps.models,
+                {
+                    onAttempt: (index) => {
+                        modelAttempt = index
+                    },
+                    onFallback: (fromIndex, fromModel, reason) => {
+                        fellBackFrom = fromModel.id
+                        runLog.warn({ from: fromModel.id, attempt: fromIndex, reason }, 'model.fallback')
+                    },
+                },
+                {
+                    optimizeFor: rev.spec.models.optimize_for,
+                    initialServedId: lastServedModelId(session.conversation),
+                }
+            )
+        }
+        const streamFn = sanitizingStreamFn(coreStreamFn, nameToId)
 
         const resolvedMaxTokens = resolveMaxOutputTokens({
-            modelMaxTokens: deps.model.maxTokens,
+            modelMaxTokens: primaryModel.maxTokens,
             configOverride: deps.maxOutputTokensOverride,
             specRequested: rev.spec.limits.max_output_tokens,
             reasoning: rev.spec.reasoning,
@@ -897,7 +1049,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     requested: resolvedMaxTokens.clamped.requested,
                     ceiling: resolvedMaxTokens.clamped.ceiling,
                     source: resolvedMaxTokens.clamped.source,
-                    model: deps.model.id,
+                    model: primaryModel.id,
                 },
                 'max_output_tokens.clamped'
             )
@@ -916,11 +1068,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 [],
                 context,
                 {
-                    model: deps.model,
+                    // The fallback wrapper owns model selection across the list;
+                    // this is the loop's identity model (primary) for any model
+                    // metadata it reads outside the stream.
+                    model: primaryModel,
                     apiKey: deps.apiKey,
                     maxTokens: resolvedMaxTokens.value,
-                    // pi-ai ignores `reasoning` for non-reasoning models, so forward unconditionally.
-                    reasoning: rev.spec.reasoning,
+                    // Primary entry's reasoning (folds in spec default); the wrapper
+                    // overrides per-attempt. pi-ai ignores it for non-reasoning models.
+                    reasoning: deps.models[0].reasoning,
                     convertToLlm: (messages) => messages as unknown as Message[],
                     // The loop contract requires this hook to never throw. Drain
                     // atomically from PG so a `/send` that lands during this turn
@@ -1023,7 +1179,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 // dispatch (tracked follow-up).
                                 const d = await dispatchApprovedResult({
                                     approvals: deps.approvals,
-                                    realExecute: realExecute.get(row.tool_name),
+                                    // A proxy-routed row is keyed `<prefix>__<remoteName>` (the gate
+                                    // re-keyed onto the underlying tool) but its executor is the
+                                    // connection's `call_tool`, whose args are the row's stored args.
+                                    // resolveApprovedExecutor falls back to it so the approved call
+                                    // actually replays instead of erroring "unknown tool".
+                                    realExecute: resolveApprovedExecutor(row.tool_name, realExecute, mcpProxyCallTools),
                                     row,
                                 })
                                 // Secure the wake before observability so a failing
@@ -1133,9 +1294,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         function errorContext(): Record<string, unknown> {
             return {
                 source: deps.gatewayHeaders ? 'ai_gateway' : 'provider',
-                model: deps.model.id,
-                provider: deps.model.provider,
-                api: deps.model.api,
+                model: primaryModel.id,
+                provider: primaryModel.provider,
+                api: primaryModel.api,
             }
         }
 
@@ -1281,23 +1442,30 @@ export function translateAssistantNamesBack(
 }
 
 /**
- * Stamp `Idempotency-Key` + `X-Request-Id` on every outbound model call,
- * plus any caller-supplied gateway headers (`X-PostHog-Distinct-Id`,
- * `X-PostHog-Trace-Id`). The id is recorded in `turnRequestIds` keyed by the
- * loop's outbound-call counter so the sink can fetch settled cost via
- * `GET /v1/usage/<request_id>` after `turn_end`.
+ * Stamp `Idempotency-Key` + any caller-supplied gateway headers
+ * (`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`) on every outbound model call,
+ * and capture the gateway's settlement reference into `turnRequestIds` (keyed
+ * by the outbound-call counter) so the sink can fetch settled cost via
+ * `GET /v1/usage/<id>` after `turn_end`.
  *
- * The id MUST be globally unique per outbound call. `outboundTurn` is a
+ * Idempotency-Key MUST be unique per outbound call. `outboundTurn` is a
  * per-`runSession` counter that resets to 0 on every resume, so a key of just
- * `agent:<session>:<turn>` collides across turns: the first model call of
- * every follow-up reuses `agent:<session>:1`, which the gateway already has
- * cached under its 24h Idempotency-Key window from the session's first turn.
- * The gateway then replays that stale response instead of calling the model,
- * so the follow-up turn ends instantly with no output (0 tokens). The
- * per-call `randomUUID()` nonce keeps the id unique across resumes while
- * staying stable within a single call — pi-ai's SDK-level retries on
- * transient 5xx reuse these same headers, so the gateway still collapses one
- * call's retries onto a single billed usage row.
+ * `agent:<session>:<turn>` collides across turns: the first call of every
+ * follow-up reuses `agent:<session>:1`, which the gateway already has cached
+ * under its 24h Idempotency-Key window from the session's first turn, so the
+ * follow-up replays that stale response with no output (0 tokens). The per-call
+ * `randomUUID()` nonce keeps it unique across resumes yet stable within a call,
+ * so pi-ai's SDK-level retries on transient 5xx still collapse onto one billed
+ * row.
+ *
+ * The usage lookup keys off the GATEWAY's id, not ours. The gateway mints its
+ * own settlement reference server-side — a client-chosen id would let a caller
+ * collapse every debit as a duplicate — and returns it in the `X-Request-ID`
+ * response header; it ignores any inbound `X-Request-Id`. We read it back via
+ * pi-ai's `onResponse` (header keys are lowercased). Keying off the
+ * runner-chosen id never matched the ledger → `getUsage` 404'd every turn and
+ * cost stayed $0. A missing header (no `onResponse`, gateway misroute) just
+ * leaves the turn's entry unset → cost merge is skipped (fail-open).
  */
 function gatewayMetadataStreamFn(
     base: StreamFn,
@@ -1308,15 +1476,20 @@ function gatewayMetadataStreamFn(
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
-        const requestId = `agent:${sessionId}:${outboundTurn}:${randomUUID()}`
-        turnRequestIds.set(outboundTurn, requestId)
-        const headers = {
-            ...gatewayHeaders,
-            ...options?.headers,
-            'Idempotency-Key': requestId,
-            'X-Request-Id': requestId,
-        }
-        return base(model, context, { ...options, headers })
+        const turnIndex = outboundTurn
+        const idempotencyKey = `agent:${sessionId}:${turnIndex}:${randomUUID()}`
+        const priorOnResponse = options?.onResponse
+        return base(model, context, {
+            ...options,
+            headers: { ...gatewayHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey },
+            onResponse: async (response, m) => {
+                const id = response.headers['x-request-id']
+                if (id) {
+                    turnRequestIds.set(turnIndex, id)
+                }
+                await priorOnResponse?.(response, m)
+            },
+        })
     }
 }
 

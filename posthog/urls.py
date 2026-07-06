@@ -29,7 +29,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -40,7 +40,6 @@ from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
-from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -48,7 +47,8 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.cdp.backend.api import hog_function_template
-from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
+from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
+from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
@@ -59,6 +59,11 @@ from products.slack_app.backend.api import (
     posthog_code_event_handler,
     posthog_code_interactivity_handler,
     slack_workspace_claims_view,
+)
+from products.slack_app.backend.views import (
+    slack_app_command_handler,
+    slack_user_link_authorize,
+    slack_user_link_callback,
 )
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
@@ -156,13 +161,78 @@ def handler500(request):
     return HttpResponseServerError(template.render({"request": request}, request))
 
 
+APP_POSTHOG_HOST = "app.posthog.com"
+# Canonical per-region hosts a `ph_current_instance` cookie is allowed to resolve to.
+# Restricting to this set keeps the cookie from being turned into an open redirect.
+_REGION_HOSTS = {"us.posthog.com", "eu.posthog.com"}
+
+
+def region_host_from_current_instance(cookie_value: str | None) -> str | None:
+    """Map a `ph_current_instance` cookie (an instance SITE_URL) to its canonical region
+    host, or None when it isn't a recognized cloud region. Mirrors the frontend
+    `cleanedCookieSubdomain` in RedirectToLoggedInInstance.tsx — the value is sometimes
+    wrapped in quotes by the cookie serializer, so strip those before parsing."""
+    if not cookie_value:
+        return None
+    hostname = urlparse(cookie_value.replace('"', "")).hostname
+    return hostname if hostname in _REGION_HOSTS else None
+
+
+def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
+    """For `app.posthog.com` page loads, send the browser to the region the user is
+    actually logged into (per the `ph_current_instance` cookie), preserving the path and
+    query. Falls back to the `REDIRECT_APP_TO_US` instance setting when there's no region
+    cookie. Returns None when no redirect applies so callers render normally.
+
+    This has to run before the `login_required` auth gate: `app.posthog.com` is the US
+    backend, so an EU user hitting a deep link like /organization/billing is otherwise
+    bounced to /login on US first, and only the login page honors the cookie."""
+    if request.method not in ("GET", "HEAD"):
+        return None
+    if request.get_host().split(":")[0] != APP_POSTHOG_HOST:
+        return None
+
+    target_host = region_host_from_current_instance(request.COOKIES.get("ph_current_instance"))
+    if target_host is None and get_instance_setting("REDIRECT_APP_TO_US"):
+        target_host = "us.posthog.com"
+    if target_host is None:
+        return None
+
+    url = "https://{}{}".format(target_host, request.get_full_path())
+    if url_has_allowed_host_and_scheme(url, target_host, True):
+        return HttpResponseRedirect(url)
+    return None
+
+
 @ensure_csrf_cookie
-def home(request, *args, **kwargs):
-    if request.get_host().split(":")[0] == "app.posthog.com" and get_instance_setting("REDIRECT_APP_TO_US"):
-        url = "https://us.posthog.com{}".format(request.get_full_path())
-        if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
-            return HttpResponseRedirect(url)
+def _render_home(request, *args, **kwargs):
     return render_template("index.html", request)
+
+
+# Wrapped once at import time (as `login_required(home)` used to be) so the catch-all
+# authenticated route doesn't rebuild the wrapper on every request.
+_login_required_render_home = login_required(_render_home)
+
+
+def home(request, *args, **kwargs):
+    """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
+    cross-region redirect before rendering so `app.posthog.com` visitors land on their
+    logged-in region (see `app_region_redirect`)."""
+    region_redirect = app_region_redirect(request)
+    if region_redirect is not None:
+        return region_redirect
+    return _render_home(request, *args, **kwargs)
+
+
+def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    """Catch-all entrypoint for authenticated frontend routes. The cross-region redirect
+    runs before `login_required` so `app.posthog.com` deep links reach the right region
+    without a detour through the login page (see `app_region_redirect`). It wraps
+    `_render_home` rather than `home` so the redirect check runs exactly once per request."""
+    region_redirect = app_region_redirect(request)
+    if region_redirect is not None:
+        return region_redirect
+    return _login_required_render_home(request, *args, **kwargs)
 
 
 _CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}
@@ -387,6 +457,10 @@ urlpatterns = [
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
     ),
     path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
+    ),
+    path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
@@ -450,11 +524,19 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     # GitHub account linking (identity-only, separate from the login pipeline).
     # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
-    path("complete/github-link/", github_link_complete, name="github_link_complete"),
+    path("complete/github-link/", github_oauth_callback, name="github_link_complete"),
+    opt_slash_path(
+        "integrations/github/callback", github_setup_callback, name="github_team_integration_setup_callback"
+    ),
+    # Slack user-identity linking — mirrors the GitHub per-user pattern above,
+    # and likewise must precede `social_django.urls` for the same reason.
+    path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
+    path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
@@ -481,7 +563,7 @@ if settings.CLOUD_DEPLOYMENT == "EU":
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/unit_metrics.py
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
     # for details on the production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
@@ -540,6 +622,8 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;
@@ -549,4 +633,4 @@ frontend_unauthenticated_routes = [
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
-urlpatterns.append(re_path(r"^.*", login_required(home)))
+urlpatterns.append(re_path(r"^.*", home_with_region_redirect))

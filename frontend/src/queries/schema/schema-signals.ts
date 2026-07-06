@@ -396,6 +396,26 @@ export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
     session_id: string
     /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
     confidence: number
+    /** Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open so new categories don't fail validation. */
+    problem_type: string
+    /** When the issue starts in the recording, in seconds from recording start (the footer's REC_T value). */
+    start_time: number
+    /** When the issue ends in the recording, in seconds (the footer's REC_T value). */
+    end_time: number
+    /** The page the issue happened on (the footer's URL value). */
+    url: string
+    /** The rasterized MP4 asset the scanner analysed. */
+    exported_asset_id: number
+    // Recording-level metadata, present when recording metadata is available. These are the *recording*
+    // (snapshot) bounds, which can begin well after the session does depending on customer config —
+    // `recording_start_time` is the REC_T=0 anchor for `start_time`/`end_time`.
+    distinct_id?: string
+    /** ISO 8601 recording start (the REC_T=0 anchor). */
+    recording_start_time?: string
+    /** ISO 8601 recording end. */
+    recording_end_time?: string
+    recording_duration?: number
+    recording_active_seconds?: number
 }
 
 export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {

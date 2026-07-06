@@ -76,7 +76,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
-    - **every_15_minutes**: Check every 15 minutes (Boost+ and feature flag required)
+    - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
     - **weekly**: Check once per week
@@ -150,7 +150,7 @@ class UpdateAlertAction(BaseModel):
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
     calculation_interval: AlertCalculationInterval | None = Field(
         default=None,
-        description="New calculation interval (every_15_minutes requires Boost+ and feature flag)",
+        description="New calculation interval (every_15_minutes requires Boost+)",
     )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -205,12 +205,27 @@ class UpsertAlertTool(MaxTool):
         existing_interval: str | AlertCalculationInterval | None = None,
     ) -> str | None:
         team = self._team
-        user = self._user
         org = await sync_to_async(lambda: team.organization)()
         return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
             calculation_interval=calculation_interval or existing_interval,
-            user_distinct_id=str(user.distinct_id),
             organization=org,
+        )
+
+    async def _validate_real_time_alert(
+        self,
+        calculation_interval: str | AlertCalculationInterval | None,
+        *,
+        enabled: bool,
+        existing: AlertConfiguration | None = None,
+    ) -> str | None:
+        team = self._team
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(AlertConfiguration.real_time_alert_validation_error)(
+            team_id=team.id,
+            organization=org,
+            calculation_interval=calculation_interval,
+            enabled=enabled,
+            existing=existing,
         )
 
     async def _handle_create(self, action: CreateAlertAction) -> tuple[str, dict[str, Any]]:
@@ -228,6 +243,11 @@ class UpsertAlertTool(MaxTool):
 
             if interval_msg := await self._validate_every_15_minutes_interval(action.calculation_interval):
                 return interval_msg, {"error": "validation_failed"}
+
+            if real_time_msg := await self._validate_real_time_alert(
+                action.calculation_interval, enabled=action.enabled
+            ):
+                return real_time_msg, {"error": "plan_limit_reached"}
 
             try:
                 insight, was_auto_saved = await self._resolve_and_validate_insight(
@@ -312,6 +332,13 @@ class UpsertAlertTool(MaxTool):
                 existing_interval=alert.calculation_interval,
             ):
                 return interval_msg, {"error": "validation_failed"}
+
+            new_interval = (
+                action.calculation_interval if action.calculation_interval is not None else alert.calculation_interval
+            )
+            new_enabled = action.enabled if action.enabled is not None else alert.enabled
+            if real_time_msg := await self._validate_real_time_alert(new_interval, enabled=new_enabled, existing=alert):
+                return real_time_msg, {"error": "plan_limit_reached"}
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False

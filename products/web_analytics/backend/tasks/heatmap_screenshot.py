@@ -346,7 +346,7 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     return content
 
 
-def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> bytes:
+def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_consent_modals: bool) -> bytes:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
@@ -366,7 +366,7 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> byt
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
     # them when enabled.
-    if settings.HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS:
+    if block_consent_modals:
         body["blockConsentModals"] = True
     if settings.HEATMAP_BROWSERLESS_BLOCK_ADS:
         body["blockAds"] = True
@@ -501,7 +501,7 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     )
     count = 0
     for w in widths:
-        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w)
+        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w, screenshot.block_consent_modals)
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count

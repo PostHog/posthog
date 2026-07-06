@@ -5,7 +5,6 @@ import { toast } from 'react-toastify'
 import { IconX } from '@posthog/icons'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -36,11 +35,7 @@ export interface TryShowMCPHintOptions {
 export function tryShowMCPHint(surfaceKey: SurfaceKey, options: TryShowMCPHintOptions = {}): void {
     try {
         const mounted = mcpHintLogic.findMounted()
-        if (!mounted?.values.featureEnabled) {
-            return
-        }
-
-        mounted.actions.tryShowHint(surfaceKey, options.derivedPrompt)
+        mounted?.actions.tryShowHint(surfaceKey, options.derivedPrompt)
     } catch (error) {
         console.warn('[mcpHint] dispatch failed; host listener will continue', { surfaceKey, error })
     }
@@ -110,11 +105,6 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         ],
     }),
     selectors({
-        featureEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: Record<string, boolean | string>): boolean =>
-                featureFlags[FEATURE_FLAGS.MCP_HINTS] === 'test',
-        ],
         effectiveOptOut: [
             (s) => [s.localGlobalOptOut, s.user],
             (localOptOut: boolean, user: UserType | null): boolean => Boolean(localOptOut || user?.hide_mcp_hints),
@@ -141,14 +131,15 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                     icon: false,
                     // Clicking the X is the only way to permanently hide this surface — auto-dismiss
                     // (timeout) shouldn't count, so we wire dismissSurface here, not in onClose.
+                    // Close first so the toast always dismisses, independent of the bookkeeping action.
                     closeButton: ({ closeToast }) => (
                         <LemonButton
                             type="tertiary"
                             size="small"
                             icon={<IconX />}
                             onClick={(e) => {
-                                actions.dismissSurface(surfaceKey)
                                 closeToast(e)
+                                actions.dismissSurface(surfaceKey)
                             }}
                             data-attr="mcp-hint-close"
                         />

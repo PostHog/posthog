@@ -44,7 +44,6 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -75,6 +74,7 @@ import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
 import { TagsTabContent } from './components/TagsTabContent'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -85,16 +85,14 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
-import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
+import { sentimentEvaluationAvailabilityLogic } from './sentimentEvaluationAvailabilityLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard, exportTraceToFile } from './traceExportUtils'
@@ -445,6 +443,7 @@ function TraceSceneWrapper(): JSX.Element {
     const traceDataLogic = useMountedLogic(aiObservabilityTraceDataLogic)
     useMountedLogic(traceReviewsLazyLoaderLogic)
     const { traceId, searchQuery, commentCount, viewMode } = useValues(traceLogic)
+    const { setEventId } = useActions(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -540,6 +539,11 @@ function TraceSceneWrapper(): JSX.Element {
                             </div>
                         </div>
                     </div>
+                    <TraceTimeline
+                        events={trace.events}
+                        selectedEventId={effectiveEventId ?? null}
+                        onSelectEvent={setEventId}
+                    />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
@@ -610,9 +614,18 @@ function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
     )
+    const { hasLoadedSentimentEvaluations, hasSentimentEvaluations, sentimentEvaluationsLoading } = useValues(
+        sentimentEvaluationAvailabilityLogic
+    )
     const hasSentimentEvaluationRun = generationEvaluationRuns.some(isSentimentRun)
 
-    if (generationEvaluationRunsLoading || hasSentimentEvaluationRun) {
+    if (
+        generationEvaluationRunsLoading ||
+        sentimentEvaluationsLoading ||
+        !hasLoadedSentimentEvaluations ||
+        hasSentimentEvaluations ||
+        hasSentimentEvaluationRun
+    ) {
         return null
     }
 
@@ -1001,17 +1014,7 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
-    const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
-
-    const sentimentResult = getTraceSentiment(trace.id)
-    const sentimentLoading = isTraceLoading(trace.id)
-    if (sentimentResult === undefined && !sentimentLoading) {
-        ensureSentimentLoaded(trace.id, {
-            dateFrom: trace.createdAt,
-            dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-        })
-    }
+    const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
 
@@ -1053,7 +1056,7 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
-            {sentimentResult && !sentimentLoading && (
+            {sentimentResult && (
                 <Chip title="Sentiment">
                     <SentimentBar
                         label={sentimentResult.label ?? 'neutral'}
@@ -1099,10 +1102,7 @@ function TraceSidebar({
     }
 
     return (
-        <aside
-            className="flex flex-col gap-3 w-full md:w-80 md:min-h-0 md:self-start md:max-h-full"
-            id="trace-events-sidebar"
-        >
+        <aside className="flex flex-col gap-3 w-full md:w-80 md:min-h-0" id="trace-events-sidebar">
             <TraceWorkflowPanel traceId={trace.id} />
             <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col flex-1 min-h-0">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -1208,8 +1208,6 @@ const TreeNode = React.memo(function TraceNode({
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { eventTypeExpanded } = useValues(traceLogic)
     const { searchParams } = useValues(router)
-    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -1219,13 +1217,7 @@ const TreeNode = React.memo(function TraceNode({
         !!(item as LLMTraceEvent).properties?.$ai_billable
 
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
-    const genSentiment = isGeneration ? getGenerationSentiment(item.id) : undefined
-    if (isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
-        ensureGenerationSentimentLoaded(item.id, {
-            dateFrom: topLevelTrace.createdAt,
-            dateTo: dayjs(topLevelTrace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-        })
-    }
+    const genSentiment = isGeneration ? (item as LLMTraceEvent).sentiment : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -1507,7 +1499,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 min-h-0 md:min-w-0 md:self-start md:max-h-full bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 min-h-0 md:min-w-0 bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
@@ -1694,6 +1686,7 @@ const EventContent = React.memo(
                                                                 eventId={event.id}
                                                                 generationEventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
                                                                     event.properties.$ai_output_choices ??
@@ -1706,11 +1699,13 @@ const EventContent = React.memo(
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}
+                                                                generationSentiment={event.sentiment}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentConversation
                                                                 eventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput="Embedding vector generated"
                                                                 searchQuery={searchQuery}
@@ -1720,6 +1715,7 @@ const EventContent = React.memo(
                                                             <EventContentConversation
                                                                 eventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input_state}
                                                                 rawOutput={event.properties.$ai_output_state}
                                                                 errorData={event.properties.$ai_error}

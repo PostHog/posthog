@@ -26,6 +26,7 @@ import {
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
+    externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
     readDataWarehouseSchema,
@@ -98,6 +99,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-preview-resource': externalDataSourcesPreview,
     'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sync-logs': externalDataSyncLogs,
 

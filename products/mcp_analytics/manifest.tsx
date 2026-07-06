@@ -66,7 +66,7 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.mcpAnalyticsDashboard(),
             flag: FEATURE_FLAGS.MCP_ANALYTICS,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },
     ],

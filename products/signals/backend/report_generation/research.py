@@ -61,16 +61,25 @@ If the report already has a title that is PR-specific and still accurate after y
     )
     summary: str = Field(
         description="""
-An Axios-style summary in four brief paragraphs:
-- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
-- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
-- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
-- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly and resolves the symptom described in **What's happening** (not merely an adjacent issue). Skip if the report is not actionable.
+Write this the way a sharp colleague would explain it to you – first person, plain Silicon Valley English, direct and easy to read. Approachable and a little casual, never robotic or bureaucratic. The prose inside each section should read like a person talking, not a status report.
 
-Principles:
-- Be direct and specific. Every sentence must carry information.
-- No filler phrases ("various issues detected", "it's worth noting").
-- Bold the section labels exactly as shown above.
+The bar to clear: if someone dropped this report (or the PR) on you and said nothing else, this summary alone should make you get it – what's wrong, why it's worth caring about, and what the fix is. They don't need the line-by-line (the code diff is right there); they need the high-level rationale and the gist of the change.
+
+Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
+
+Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
+- '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
+- '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
+- '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
+
+Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
+
+Hard rules:
+- Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
+- Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
+- No filler ("various issues detected", "it's worth noting", "in conclusion").
+- Never use em dashes (—). Use an en dash (–) where you'd otherwise reach for a dash.
+- Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
 """
     )
 
@@ -321,6 +330,8 @@ We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 We never use the em-dash, only the en-dash (–).
+When naming a PostHog product, we use its real name (for example "error tracking", not a third-party equivalent like "Sentry"). We only name an external vendor if the source data explicitly does.
+Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays").
 </writing_guide>
 
 You have two investigation tools:
@@ -338,7 +349,7 @@ _RESEARCH_PROTOCOL = """## Research protocol
 For each signal, find **code evidence** and **data evidence**:
 
 - **Code:** Trace the code path behind the signal's claim — find the relevant files, read the implementation, and understand how the logic actually works. Even if the signal doesn't mention specific files, search for the feature/component and dig in. Also look for `posthog.capture` calls or feature flag checks nearby — these show what the team tracks and gates, which helps gauge importance.
-- **Git blame:** Once you've identified the most critical code paths, run `git blame` on the key files/regions to find the commits most relevant to this signal. Prioritize causative commits (e.g. the commit that introduced a bug or changed behavior) over general authorship. If no causative commit is clear, include the commits that authored the bulk of the relevant code.
+- **Git blame:** Once you've identified the most critical code paths, run `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on the key files/regions to find the commits most relevant to this signal. The `--ignore-revs-file` flag skips blame-ignored mechanical commits so blame points at the real author instead of a bulk reformat. Prioritize causative commits (e.g. the commit that introduced a bug or changed behavior) over general authorship. If no causative commit is clear, include the commits that authored the bulk of the relevant code. Never include commits authored by bots (any GitHub login ending in `[bot]`), commits authored by known LLM authors (such as Claude, OpenAI, etc.), and commits whose only relationship to the code is a repo-wide mechanical change (linting, formatting, import sorting, bulk refactor) — those authors have no real context on this code and must not be surfaced as reviewers.
 - **Data:** Use PostHog MCP tools (`execute-sql`, `query-run`, `read-data-schema`, etc.) to check real impact — error rates, user counts, conversion metrics. If the signal references a specific insight, experiment, or feature flag, look it up directly.
 
 Cross-reference code and data — does the data corroborate what the code suggests?

@@ -52,6 +52,26 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
+    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+
+    Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
+    events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
+    Uses a calendar-month interval so the boundary lands on the exact date (no leap-year / 365-day drift).
+    """
+    field_table_type = _table_filter_type(table_type)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Gt,
+        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Call(name="now", args=[]),
+            right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
+        ),
+        type=ast.BooleanType(),
+    )
+
+
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
@@ -435,6 +455,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
@@ -816,6 +838,46 @@ class ClickHousePrinter(BasePrinter):
             and node_type is not None
         ):
             return team_id_guard_for_table(node_type, self.context)
+
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")
+        if not system_node or table_type.table.name not in system_node.children:
+            return None
+
+        if not table_type.table.primary_key:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        from posthog.hogql.database.schema.events import EventsTable
+
+        months = self.context.events_retention_months
+        if months is None or node_type is None or not isinstance(table_type, ast.TableType):
+            return None
+        if not isinstance(table_type.table, EventsTable):
+            return None
+        return retention_floor_for_table(node_type, months)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)

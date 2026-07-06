@@ -48,7 +48,7 @@ jobs:
               id: canary
               env:
                   GEOIP_LIVE_TEST: '1'
-              run: cd nodejs && pnpm jest src/utils/geoip-live.test.ts --runInBand --forceExit
+              run: cd nodejs && pnpm jest src/common/utils/geoip-live.test.ts --runInBand --forceExit
 
             # Only the canary test itself failing means the live GeoLite2 build dropped
             # location data for the anchor IPs — i.e. a bad MaxMind release is already

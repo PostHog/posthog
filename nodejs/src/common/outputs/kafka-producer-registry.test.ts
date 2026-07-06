@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '~/kafka/producer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 

@@ -1,5 +1,5 @@
+import { isCloud } from '~/common/utils/env-utils'
 import { KeyStore, RecordingDecryptor, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { isCloud } from '~/utils/env-utils'
 
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
 import { CleartextRecordingEncryptor } from './cleartext-encryptor'

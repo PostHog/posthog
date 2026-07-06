@@ -15,7 +15,14 @@ from google.genai.errors import APIError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    TimeoutType,
+)
+
+from posthog.schema import ReplayVisionScannerFindingSignalInput
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -40,10 +47,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
-from products.replay_vision.backend.temporal.activities.embed_observation import (
-    embed_observation_activity,
-    embed_summarizer_observation_activity,
-)
+from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
@@ -88,7 +92,6 @@ from products.replay_vision.backend.temporal.types import (
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedObservationInputs,
-    EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationSignalInputs,
     EnsureSessionAssetInputs,
@@ -102,12 +105,34 @@ from products.replay_vision.backend.temporal.types import (
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerResult,
+    ScannerSnapshot,
     SessionMetadata,
     UploadedVideo,
 )
-from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
+from products.replay_vision.backend.temporal.workflow import (
+    _activity_timeout_kind,
+    _extract_kind_for_type,
+    _root_cause_message,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 from products.signals.backend.models import SignalSourceConfig
+
+
+def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> None:
+    snapshot = ScannerSnapshot.load_for(
+        uuid.uuid4(),
+        {
+            "name": "old-scanner",
+            "scanner_type": "monitor",
+            "scanner_version": 1,
+            "model": "gemini-1.0-flash-retired-preview",
+            "provider": "hooli",
+            "emits_signals": False,
+            "scanner_config": {"prompt": "p"},
+        },
+    )
+    assert snapshot.model == "gemini-1.0-flash-retired-preview"
+    assert snapshot.provider == "hooli"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -210,6 +235,36 @@ class TestCreateObservationActivity:
         # The original row wasn't touched.
         existing.refresh_from_db()
         assert existing.workflow_id != "wf-second"
+
+    @pytest.mark.parametrize(
+        "status, completed_at, expect_reclaimed",
+        [
+            pytest.param(ObservationStatus.PENDING, None, True, id="own_pending_insert_is_reclaimed"),
+            pytest.param(ObservationStatus.FAILED, timezone.now(), False, id="own_terminal_row_is_not_reclaimed"),
+        ],
+    )
+    def test_unique_conflict_with_own_workflow_id(
+        self, status: str, completed_at: dt.datetime | None, expect_reclaimed: bool
+    ) -> None:
+        # A lost-result retry hits the UNIQUE constraint on its own insert; disowning it strands the row in `pending`.
+        scanner = _make_scanner()
+        existing = _make_observation(
+            scanner, session_id="sess-retry", workflow_id="wf-retry", status=status, completed_at=completed_at
+        )
+
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+
+        assert result.observation_id == existing.id
+        assert result.was_created is expect_reclaimed
 
     def test_propagates_non_unique_integrity_errors(self) -> None:
         # FK/CHECK violations must surface as activity failures, not silently fall into the dedup path.
@@ -1096,17 +1151,21 @@ class TestFetchSessionEventsActivity:
         assert m.click_count == 23
         assert m.start_url == "https://app.example.com/dashboard"
         assert m.console_error_count == 3
-        assert m.events_truncated is False
 
     @pytest.mark.asyncio
-    async def test_marks_events_truncated_when_first_page_has_more(self) -> None:
+    async def test_loads_every_page_until_source_is_exhausted(self) -> None:
+        # No event cap: when a page reports `has_more`, keep paging and load the whole session.
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
+        cols = ["event", "timestamp", "$session_id"]
         mock_obj = self._make_session_replay_events_mock(
-            metadata, [(["event", "timestamp", "$session_id"], full_page, True)]
+            metadata,
+            [
+                (cols, [("$pageview", start, "a"), ("$autocapture", start, "b")], True),
+                (cols, [("$click", start, "c")], False),
+            ],
         )
 
         with patch(
@@ -1121,17 +1180,18 @@ class TestFetchSessionEventsActivity:
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
         stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
-        assert stored.metadata.events_truncated is True
+        assert mock_obj.get_events.call_count == 2  # paged through both, not capped at one page
+        assert len(stored.events.rows) == 3  # every event from both pages
 
     @pytest.mark.asyncio
-    async def test_does_not_mark_truncated_when_first_page_exactly_fills_budget(self) -> None:
+    async def test_stops_paging_once_no_more(self) -> None:
+        # `has_more=False` on the first page → no further page fetched.
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
         mock_obj = self._make_session_replay_events_mock(
-            metadata, [(["event", "timestamp", "$session_id"], full_page, False)]
+            metadata, [(["event", "timestamp", "$session_id"], [("$pageview", start, "a")], False)]
         )
 
         with patch(
@@ -1142,11 +1202,7 @@ class TestFetchSessionEventsActivity:
                 FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
-        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
-        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
-        assert stored is not None
-        assert stored.metadata.events_truncated is False
+        assert mock_obj.get_events.call_count == 1
 
     @pytest.mark.asyncio
     async def test_raises_non_retryable_when_session_duration_below_min(self) -> None:
@@ -1382,12 +1438,13 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
     # fetch + ensure_asset run in parallel — order between them is non-deterministic.
     assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # Success is persisted before any downstream emission so a late transient failure can't discard the result.
     assert activity_order[4:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
-        embed_observation_activity,
-        emit_observation_event_activity,
         mark_observation_succeeded_activity,
+        emit_observation_event_activity,
+        embed_observation_activity,
         cleanup_gemini_file_activity,
     ]
     assert len(mocks.child_calls) == 1
@@ -1485,6 +1542,58 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
     assert mark_observation_succeeded_activity in called
     assert emit_observation_event_activity in called
     assert cleanup_gemini_file_activity in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_stays_succeeded_when_post_success_emissions_fail() -> None:
+    # Once the result is persisted, event/embedding outages must not demote the observation to FAILED.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+            ),
+        },
+        activity_errors={
+            emit_observation_event_activity: RuntimeError("kafka down"),
+            embed_observation_activity: RuntimeError("embedding service down"),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-flaky"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_succeeded_activity in called
+    assert emit_observation_event_activity in called
+    assert embed_observation_activity in called
+    assert mark_observation_failed_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_marks_failed_when_mark_running_fails() -> None:
+    # An exhausted mark_running must land the row in FAILED, not strand it in PENDING.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+        },
+        activity_errors={mark_observation_running_activity: ApplicationError("db down", non_retryable=True)},
+    )
+
+    with pytest.raises(ApplicationError, match="db down"):
+        await _run_workflow(_build_inputs(session_id="sess-db-down"), mocks)
+
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.observation_id == new_observation_id
 
 
 @pytest.mark.asyncio
@@ -1659,32 +1768,6 @@ async def test_embed_observation_emits_reasoning_for_non_summarizer(_name, model
 
 
 @pytest.mark.asyncio
-async def test_embed_summarizer_observation_alias_still_emits_facets() -> None:
-    # Back-compat: the renamed activity keeps the old name registered so summarizer workflows already in flight
-    # at deploy time resolve. It takes the old input shape and emits facets with the old (scanner-less) metadata.
-    out = SummarizerOutput(
-        title="Investigation",
-        summary="User browsed dashboards.",
-        intent="Investigate slow query response",
-        outcome="No issue reproduced.",
-        keywords=["dashboard"],
-        confidence=0.8,
-    )
-    inputs = EmbedSummarizerObservationInputs(
-        team_id=99, session_id="sess-legacy", observation_id=uuid.uuid4(), summarizer_output=out
-    )
-    with patch(
-        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
-    ) as mock_emit:
-        await embed_summarizer_observation_activity(inputs)
-
-    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["intent", "outcome", "keywords"]
-    metadata = mock_emit.call_args_list[0].kwargs["metadata"]
-    assert metadata["session_id"] == "sess-legacy"
-    assert "scanner_id" not in metadata  # old metadata shape, pre-rename
-
-
-@pytest.mark.asyncio
 async def test_embed_observation_raises_propagates_failure() -> None:
     inputs = EmbedObservationInputs(
         team_id=99,
@@ -1707,17 +1790,16 @@ async def test_emit_classifier_tags_produces_kafka_payload() -> None:
         team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
-    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
 
     with (
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-        ) as mock_se_cls,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+            return_value=("user-77", session_start),
+        ),
         patch(
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
         ) as mock_producer_scope,
     ):
-        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
         producer = mock_producer_scope.return_value.__enter__.return_value
 
         await emit_classifier_tags_activity(inputs)
@@ -1742,10 +1824,10 @@ async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
         team_id=99, session_id="sess-missing", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-    ) as mock_se_cls:
-        mock_se_cls.return_value.get_metadata.return_value = None
-        with pytest.raises(ApplicationError, match="No replay metadata"):
+        "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+        return_value=None,
+    ):
+        with pytest.raises(ApplicationError, match="No persisted session metadata"):
             await emit_classifier_tags_activity(inputs)
 
 
@@ -1774,19 +1856,18 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
         team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
-    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
 
     with (
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-        ) as mock_se_cls,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+            return_value=("user-77", session_start),
+        ),
         patch(
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
         ) as mock_producer_scope,
     ):
-        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
         producer = mock_producer_scope.return_value.__enter__.return_value
         producer.produce.return_value = failed_result
 
@@ -1817,9 +1898,9 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facet
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_observation_activity
+    assert activity_order[call_idx + 1] == mark_observation_succeeded_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
-    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 3] == embed_observation_activity
     assert emit_classifier_tags_activity not in activity_order
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
@@ -1871,13 +1952,13 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
 
     await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
 
-    # Classifiers embed their reasoning AND fan out tags; embedding runs first.
+    # Classifiers embed their reasoning AND fan out tags; both run after success is persisted, embedding first.
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_observation_activity
-    assert activity_order[call_idx + 2] == emit_classifier_tags_activity
-    assert activity_order[call_idx + 3] == emit_observation_event_activity
-    assert activity_order[call_idx + 4] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 1] == mark_observation_succeeded_activity
+    assert activity_order[call_idx + 2] == emit_observation_event_activity
+    assert activity_order[call_idx + 3] == embed_observation_activity
+    assert activity_order[call_idx + 4] == emit_classifier_tags_activity
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
     assert embed_input.model_output == model_output
@@ -1911,36 +1992,6 @@ async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifie
 
     embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
     assert embed_input.model_output == model_output
-
-
-@pytest.mark.asyncio
-async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> None:
-    new_observation_id = uuid.uuid4()
-    side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
-    mocks = _WorkflowMocks(
-        activity_results={
-            create_observation_activity: CreateObservationOutput(
-                observation_id=new_observation_id,
-                was_created=True,
-                scanner_type=ScannerType.SUMMARIZER,
-            ),
-            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
-            upload_video_to_gemini_activity: UploadedVideo(
-                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
-            ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_with_facets()),
-        },
-        activity_errors={embed_observation_activity: side_effect_error},
-    )
-
-    with pytest.raises(ApplicationError, match="embedding kafka down"):
-        await _run_workflow(_build_inputs(session_id="sess-sum-fail"), mocks)
-
-    called = [fn for fn, _ in mocks.activity_calls]
-    assert emit_observation_event_activity not in called
-    assert mark_observation_succeeded_activity not in called
-    assert mark_observation_failed_activity in called
-    assert cleanup_gemini_file_activity in called
 
 
 def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
@@ -1987,10 +2038,36 @@ class TestWorkflowErrorHelpers:
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
 
+    @parameterized.expand(
+        [
+            ("provider_call_timeout", "call_scanner_provider_activity", True, "provider_transient"),
+            ("upload_timeout", "replay_vision_upload_video_to_gemini_activity", True, "provider_transient"),
+            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, None),
+            ("provider_call_non_timeout", "call_scanner_provider_activity", False, None),
+        ]
+    )
+    def test_activity_timeout_kind_maps_provider_activity_timeouts(
+        self, _label: str, activity_type: str, timed_out: bool, expected: str | None
+    ) -> None:
+        err = ActivityError(
+            "activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type=activity_type,
+            activity_id="a1",
+            retry_state=None,
+        )
+        if timed_out:
+            err.__cause__ = TemporalTimeoutError(
+                "timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[]
+            )
+        else:
+            err.__cause__ = ApplicationError("boom", type="RuntimeError")
+        assert _activity_timeout_kind(err) == expected
 
-_UUID_A = "0193abcd-1234-7e89-9abc-deadbeefcafe"
-_UUID_B = "0193abcd-1234-7e89-9abc-feedface0000"
-_UUID_HALLUCINATED = "0193abcd-1234-7e89-9abc-aaaaaaaaaaaa"
+
+_DURATION_MS = 600_000  # 10-minute recording for the citation tests
 
 
 def _monitor_scanner() -> MonitorScanner:
@@ -2003,120 +2080,85 @@ def _summarizer_scanner() -> SummarizerScanner:
 
 class TestExtractSegments:
     @pytest.mark.parametrize(
-        "text,event_timestamps,expected_plain,expected_segments",
+        "text,expected_plain,expected_segments",
         [
             pytest.param(
-                f"Foo (event_uuid {_UUID_A}) bar",
-                {_UUID_A: 1234},
+                "Foo (t 12) bar",
                 "Foo bar",
-                [
-                    TextSegment(value="Foo"),
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
-                    TextSegment(value=" bar"),
-                ],
+                [TextSegment(value="Foo"), ChipSegment(timestamp_ms=12_000), TextSegment(value=" bar")],
                 id="inline",
             ),
             pytest.param(
-                f"A (event_uuid {_UUID_A}) then B (event_uuid {_UUID_B}) then C.",
-                {_UUID_A: 100, _UUID_B: 200},
+                "A (t 1) then B (t 5) then C.",
                 "A then B then C.",
                 [
                     TextSegment(value="A"),
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=100),
+                    ChipSegment(timestamp_ms=1_000),
                     TextSegment(value=" then B"),
-                    ChipSegment(uuid=_UUID_B, timestamp_ms=200),
+                    ChipSegment(timestamp_ms=5_000),
                     TextSegment(value=" then C."),
                 ],
                 id="multiple",
             ),
             pytest.param(
-                f"X (event_uuid {_UUID_A}) Y (event_uuid {_UUID_HALLUCINATED}) Z.",
-                {_UUID_A: 50},
+                "X (t 50) Y (t 99999) Z.",
                 "X Y Z.",
                 [
                     TextSegment(value="X"),
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=50),
+                    ChipSegment(timestamp_ms=50_000),
                     TextSegment(value=" Y"),
                     TextSegment(value=" Z."),
                 ],
-                id="hallucinated_uuid_dropped",
+                id="out_of_range_dropped",
             ),
             pytest.param(
-                f"(event_uuid {_UUID_A}) was the cause.",
-                {_UUID_A: 0},
+                "(t 0) was the cause.",
                 " was the cause.",
-                [
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=0),
-                    TextSegment(value=" was the cause."),
-                ],
+                [ChipSegment(timestamp_ms=0), TextSegment(value=" was the cause.")],
                 id="citation_at_start",
             ),
             pytest.param(
-                f"It ended (event_uuid {_UUID_A})",
-                {_UUID_A: 999},
+                "It ended (t 30)",
                 "It ended",
-                [
-                    TextSegment(value="It ended"),
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=999),
-                ],
+                [TextSegment(value="It ended"), ChipSegment(timestamp_ms=30_000)],
                 id="citation_at_end",
             ),
             pytest.param(
                 "Nothing to strip.",
-                {_UUID_A: 0},
                 "Nothing to strip.",
                 [TextSegment(value="Nothing to strip.")],
                 id="no_citations",
             ),
-            pytest.param(
-                f"Saw (event_uuid {_UUID_A.upper()}).",
-                {_UUID_A: 42},
-                "Saw.",
-                [
-                    TextSegment(value="Saw"),
-                    ChipSegment(uuid=_UUID_A, timestamp_ms=42),
-                    TextSegment(value="."),
-                ],
-                id="uppercase_uuid_normalized",
-            ),
         ],
     )
-    def test_extract_segments(
-        self,
-        text: str,
-        event_timestamps: dict[str, int],
-        expected_plain: str,
-        expected_segments: list[Segment],
-    ) -> None:
-        plain, segments = _extract_segments(text, event_timestamps)
+    def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
+        plain, segments = _extract_segments(text, _DURATION_MS)
         assert plain == expected_plain
         assert segments == expected_segments
 
 
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
-        finalized = MonitorOutput(
-            verdict="yes", reasoning=f"User retried (event_uuid {_UUID_A}) twice.", confidence=0.9
-        )
-        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 1234})
+        finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
             TextSegment(value="User retried"),
-            ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+            ChipSegment(timestamp_ms=12_000),
             TextSegment(value=" twice."),
         ]
 
     def test_summarizer_uses_summary_field(self) -> None:
-        finalized = SummarizerOutput(title="t", summary=f"They tried X (event_uuid {_UUID_A}).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), {_UUID_A: 7})
+        finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
-        assert any(isinstance(s, ChipSegment) and s.uuid == _UUID_A for s in resolved.summary_segments)
+        assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 0})
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]
@@ -2125,39 +2167,153 @@ class TestResolveCitations:
 # emit_observation_signal_activity
 
 _EMIT_SIGNAL_PATCH = "products.replay_vision.backend.temporal.activities.emit_observation_signal.emit_signal"
+_LOAD_LLM_INPUTS_PATCH = "products.replay_vision.backend.temporal.activities.emit_observation_signal._load_llm_inputs"
 
 
 @pytest.mark.django_db(transaction=True)
 class TestEmitObservationSignalActivity:
+    def _signal(self, confidence: float = 0.8, **overrides) -> SignalFinding:
+        defaults: dict = {
+            "problem_type": "bug",
+            "start_time": 72,
+            "end_time": 78,
+            "url": "https://app.example.com/cart",
+            "description": "Broken checkout CTA on /cart",
+            "confidence": confidence,
+        }
+        defaults.update(overrides)
+        return SignalFinding(**defaults)
+
     def _inputs(
-        self, observation: ReplayObservation, confidence: float = 0.8, **overrides
+        self,
+        observation: ReplayObservation,
+        confidence: float = 0.8,
+        signals: list[SignalFinding] | None = None,
+        **overrides,
     ) -> EmitObservationSignalInputs:
         defaults: dict = {
             "team_id": observation.team_id,
             "observation_id": observation.id,
-            "signal": SignalFinding(description="Broken checkout CTA on /cart", confidence=confidence),
+            "exported_asset_id": 4242,
+            "signals": signals if signals is not None else [self._signal(confidence)],
         }
         defaults.update(overrides)
         return EmitObservationSignalInputs(**defaults)
+
+    def _llm_inputs(self, observation: ReplayObservation) -> ScannerLlmInputs:
+        return ScannerLlmInputs(
+            session_id=observation.session_id,
+            team_id=observation.team_id,
+            events=EventTable(columns=["event"], rows=[["$pageview"]]),
+            distinct_id="user-distinct-99",
+            metadata=SessionMetadata(
+                start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
+                end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
+                duration_seconds=300.0,
+                active_seconds=120.0,
+            ),
+        )
 
     def test_emits_via_the_signals_facade(self) -> None:
         scanner = _make_scanner(emits_signals=True)
         observation = _make_observation(scanner)
 
-        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
+            patch(_LOAD_LLM_INPUTS_PATCH, return_value=self._llm_inputs(observation)),
+        ):
             assert emit_observation_signal_activity(self._inputs(observation)) == 1
 
         assert mock_emit.await_args is not None
         kwargs = mock_emit.await_args.kwargs
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
-        assert kwargs["source_id"] == f"observation:{observation.id}"
+        assert kwargs["source_id"] == f"observation:{observation.id}:0"  # unique per finding (index 0)
         assert kwargs["description"] == "Broken checkout CTA on /cart"
         assert kwargs["weight"] == SIGNAL_WEIGHT
-        assert kwargs["extra"]["scanner_id"] == str(scanner.id)
-        assert kwargs["extra"]["scanner_type"] == "monitor"
-        assert kwargs["extra"]["session_id"] == observation.session_id
-        assert kwargs["extra"]["confidence"] == 0.8
+        extra = kwargs["extra"]
+        assert extra["scanner_id"] == str(scanner.id)
+        assert extra["scanner_type"] == "monitor"
+        assert extra["session_id"] == observation.session_id
+        assert extra["confidence"] == 0.8
+        # Stolen from the session-summaries signal shape:
+        assert extra["problem_type"] == "bug"
+        assert extra["start_time"] == 72
+        assert extra["end_time"] == 78
+        assert extra["url"] == "https://app.example.com/cart"
+        assert extra["exported_asset_id"] == 4242
+        assert extra["distinct_id"] == "user-distinct-99"
+        # These are the *recording* (snapshot) bounds — the REC_T=0 anchor for start_time/end_time.
+        assert extra["recording_start_time"] == "2026-05-12T10:00:00+00:00"
+        assert extra["recording_end_time"] == "2026-05-12T10:05:00+00:00"
+        assert extra["recording_duration"] == 300.0
+        assert extra["recording_active_seconds"] == 120.0
+
+        # The variant is `extra="forbid"`: every emitted key must be declared, or the facade silently
+        # drops the signal (fail-soft to 0). Validate the real payload to pin that contract.
+        ReplayVisionScannerFindingSignalInput.model_validate(
+            {
+                "source_product": kwargs["source_product"],
+                "source_type": kwargs["source_type"],
+                "source_id": kwargs["source_id"],
+                "description": kwargs["description"],
+                "weight": kwargs["weight"],
+                "extra": extra,
+            }
+        )
+
+    def test_emits_without_session_metadata_when_redis_lapsed(self) -> None:
+        # `_load_llm_inputs` returns None if the Redis state expired; emission still succeeds, session fields omitted.
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
+            patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
+        ):
+            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+
+        assert mock_emit.await_args is not None
+        extra = mock_emit.await_args.kwargs["extra"]
+        assert extra["problem_type"] == "bug"
+        assert "recording_start_time" not in extra
+        assert "distinct_id" not in extra
+
+    def test_enrichment_failure_does_not_drop_signals(self) -> None:
+        # A Redis error fetching enrichment (vs. a clean None) must degrade to no-enrichment, not no-emission.
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
+            patch(_LOAD_LLM_INPUTS_PATCH, side_effect=Exception("redis down")),
+        ):
+            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+
+        assert mock_emit.await_args is not None
+        extra = mock_emit.await_args.kwargs["extra"]
+        assert extra["problem_type"] == "bug"
+        assert "recording_start_time" not in extra
+        assert "distinct_id" not in extra
+
+    def test_emits_one_signal_per_finding_with_unique_source_ids(self) -> None:
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+        signals = [self._signal(url="/one"), self._signal(url="/two"), self._signal(confidence=0.2, url="/low")]
+
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
+            patch(_LOAD_LLM_INPUTS_PATCH, return_value=None),
+        ):
+            # Two emitted; the 0.2-confidence finding is below the floor and skipped.
+            assert emit_observation_signal_activity(self._inputs(observation, signals=signals)) == 2
+
+        calls = mock_emit.await_args_list
+        assert [c.kwargs["source_id"] for c in calls] == [
+            f"observation:{observation.id}:0",
+            f"observation:{observation.id}:1",
+        ]
+        assert [c.kwargs["extra"]["url"] for c in calls] == ["/one", "/two"]
 
     @pytest.mark.parametrize("confidence", [0.0, 0.39])
     def test_skips_findings_below_the_confidence_floor(self, confidence: float) -> None:
@@ -2225,7 +2381,16 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
             ),
             call_scanner_provider_activity: ScannerCallOutput(
                 model_output=model_output,
-                signal=SignalFinding(description="Checkout CTA is broken on /cart", confidence=0.8),
+                signals=[
+                    SignalFinding(
+                        problem_type="bug",
+                        start_time=30,
+                        end_time=35,
+                        url="https://app.example.com/cart",
+                        description="Checkout CTA is broken on /cart",
+                        confidence=0.8,
+                    )
+                ],
             ),
             emit_observation_signal_activity: 1,
         },
@@ -2239,8 +2404,9 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signal_activity)
     assert signal_input.observation_id == new_observation_id
-    assert signal_input.signal.description == "Checkout CTA is broken on /cart"
-    assert signal_input.signal.confidence == 0.8
+    assert signal_input.exported_asset_id == 42  # threaded from ensure_session_asset_activity
+    assert signal_input.signals[0].description == "Checkout CTA is broken on /cart"
+    assert signal_input.signals[0].confidence == 0.8
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
@@ -2261,7 +2427,16 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
             ),
             call_scanner_provider_activity: ScannerCallOutput(
                 model_output=model_output,
-                signal=SignalFinding(description="Checkout CTA is broken on /cart", confidence=0.8),
+                signals=[
+                    SignalFinding(
+                        problem_type="bug",
+                        start_time=30,
+                        end_time=35,
+                        url="https://app.example.com/cart",
+                        description="Checkout CTA is broken on /cart",
+                        confidence=0.8,
+                    )
+                ],
             ),
         },
         activity_errors={emit_observation_signal_activity: TimeoutError("start-to-close exceeded")},

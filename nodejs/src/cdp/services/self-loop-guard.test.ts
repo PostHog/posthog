@@ -1,5 +1,14 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { Team } from '../../types'
-import { extractRequestApiKey, isPostHogIngestUrl, isSelfReferentialIngestFetch } from './self-loop-guard'
+import {
+    SELF_LOOP_DEPTH_PROPERTY,
+    extractRequestApiKey,
+    getSelfLoopDepth,
+    injectSelfLoopDepth,
+    isPostHogIngestUrl,
+    isSelfReferentialIngestFetch,
+} from './self-loop-guard'
 
 // Synthetic, non-production values. OWN_TOKEN is the project the destination runs in;
 // OTHER_TOKEN is a different project (legitimate cross-project replication).
@@ -150,6 +159,101 @@ describe('self-loop-guard', () => {
             },
         ])('returns $expected for: $case', ({ args, expected }) => {
             expect(detect(args)).toBe(expected)
+        })
+    })
+
+    describe('getSelfLoopDepth / injectSelfLoopDepth (per-function)', () => {
+        const FN = '019c6797-f409-0000-6b4c-d452176ca3c8'
+        const OTHER_FN = '019d9077-abe4-0000-cd1e-be1d3ab0289f'
+
+        it("stamps this function's depth onto a single-event body, preserving existing properties", () => {
+            const props = parseJSON(
+                injectSelfLoopDepth(captureBody('alpha', { foo: 'bar' }), FN, 3) as string
+            ).properties
+            expect(props.foo).toBe('bar')
+            expect(props[SELF_LOOP_DEPTH_PROPERTY]).toEqual({ [FN]: 3 })
+        })
+
+        it("stamps this function's depth onto every entry of a batch body", () => {
+            const parsed = parseJSON(injectSelfLoopDepth(batchBody(['a', 'b']), FN, 5) as string)
+            expect(parsed.batch.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
+        })
+
+        it("preserves other functions' depths in the map - only its own entry is touched", () => {
+            const seeded = JSON.stringify({
+                api_key: OWN_TOKEN,
+                event: 'alpha',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [OTHER_FN]: 7 } },
+            })
+            expect(
+                parseJSON(injectSelfLoopDepth(seeded, FN, 1) as string).properties[SELF_LOOP_DEPTH_PROPERTY]
+            ).toEqual({
+                [OTHER_FN]: 7,
+                [FN]: 1,
+            })
+        })
+
+        it('round-trips: reads back the depth it stamped for the same function', () => {
+            const props = parseJSON(injectSelfLoopDepth(captureBody('alpha'), FN, 4) as string).properties
+            expect(getSelfLoopDepth(props, FN)).toBe(4)
+        })
+
+        // A seeded array passes a naive object check but JSON.stringify drops the stamped key,
+        // which would let the loop run uncapped. The array must be discarded for a real map.
+        it('replaces a seeded array depth map with a real object that survives serialization', () => {
+            const seeded = JSON.stringify({
+                api_key: OWN_TOKEN,
+                event: 'alpha',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: [1, 2, 3] },
+            })
+            const props = parseJSON(injectSelfLoopDepth(seeded, FN, 1) as string).properties
+            expect(props[SELF_LOOP_DEPTH_PROPERTY]).toEqual({ [FN]: 1 })
+            expect(getSelfLoopDepth(props, FN)).toBe(1)
+        })
+
+        // The cross-block regression: a destination is bounded ONLY by its own re-entries.
+        // A huge depth for a *different* function must read as 0 for ours, so a deep chain of
+        // unrelated functions can never trip the guard for a legitimately-running destination.
+        it.each([
+            { case: 'no depth map at all', properties: {}, expected: 0 },
+            {
+                case: 'a different function deep in the map (cross-block case)',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [OTHER_FN]: 50 } },
+                expected: 0,
+            },
+            { case: 'malformed (non-object) map', properties: { [SELF_LOOP_DEPTH_PROPERTY]: 9 }, expected: 0 },
+            { case: 'this function present', properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [FN]: 6 } }, expected: 6 },
+            // Untrusted input: a project owner can seed these on the event to try to delay the cap.
+            {
+                case: 'a seeded negative depth (bypass attempt) clamps to 0',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [FN]: -999 } },
+                expected: 0,
+            },
+            {
+                case: 'a non-finite depth is ignored',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [FN]: Infinity } },
+                expected: 0,
+            },
+            {
+                case: 'a fractional depth floors to an integer',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: { [FN]: 6.9 } },
+                expected: 6,
+            },
+            {
+                case: 'an array map (bypass attempt) reads as 0',
+                properties: { [SELF_LOOP_DEPTH_PROPERTY]: [] },
+                expected: 0,
+            },
+        ])('getSelfLoopDepth: $case -> $expected', ({ properties, expected }) => {
+            expect(getSelfLoopDepth(properties as Record<string, unknown>, FN)).toBe(expected)
+        })
+
+        it.each([
+            { case: 'unparseable', body: 'not-json{{' },
+            { case: 'empty string', body: '' },
+            { case: 'null', body: null },
+        ])('returns a non-capture body unchanged: $case', ({ body }) => {
+            expect(injectSelfLoopDepth(body, FN, 1)).toBe(body)
         })
     })
 })

@@ -2,15 +2,24 @@ import json
 import datetime
 from typing import Any, TypedDict, Union, cast
 
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import action_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.entity import Entity
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
-from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
+from posthog.models.property.util import extract_tables_and_properties
 from posthog.models.team.team import Team
-from posthog.queries.insight import insight_sync_execute
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import offset_time_series_date_by_interval
 
-from .properties_timeline_event_query import PropertiesTimelineEventQuery
+from products.actions.backend.models.action import Action
 
 
 class PropertiesTimelinePoint(TypedDict):
@@ -26,7 +35,11 @@ class PropertiesTimelineResult(TypedDict):
     effective_date_to: str
 
 
-PROPERTIES_TIMELINE_SQL = """
+# relevant_event_count of each point is the number of events between consecutive changes of the
+# crucial property values. We detect changes with lagInFrame over the ordered event stream, keep only
+# the change points, then use leadInFrame (defaulting to total_events + 1 for the last segment) to
+# measure how many events each segment spans — equivalent to the legacy UNION-ALL sentinel-row trick.
+PROPERTIES_TIMELINE_HOGQL = """
 SELECT
     timestamp,
     properties,
@@ -36,19 +49,27 @@ FROM (
         timestamp,
         properties,
         start_event_number,
-        leadInFrame(start_event_number) OVER (ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+        leadInFrame(start_event_number, 1, total_events + 1) OVER (
+            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING
+        ) AS end_event_number
     FROM (
         SELECT
             timestamp,
-            {actor_properties_column} AS properties,
-            {crucial_property_columns} AS relevant_property_values,
-            lagInFrame(relevant_property_values) OVER (ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
-            row_number() OVER (ORDER BY timestamp ASC) AS start_event_number
-        FROM ({event_query})
+            {actor_properties} AS properties,
+            {crucial_properties} AS relevant_property_values,
+            lagInFrame({crucial_properties}) OVER (
+                ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
+            ) AS previous_relevant_property_values,
+            row_number() OVER (
+                ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS start_event_number,
+            count() OVER () AS total_events
+        FROM events
+        WHERE {where}
     )
-    WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values OR timestamp IS NULL
+    WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values
 )
-WHERE timestamp IS NOT NULL /* Remove sentinel row */
+ORDER BY timestamp ASC
 """
 
 
@@ -79,11 +100,31 @@ class PropertiesTimeline:
 
         return crucial_property_keys
 
+    def _actor_properties_chain(self, filter: PropertiesTimelineFilter) -> list[Union[str, int]]:
+        # Read the actor's properties as frozen on the event (persons-on-events columns), so the
+        # timeline reflects the values at the time of each event rather than current values.
+        if filter.aggregation_group_type_index is None:
+            return ["poe", "properties"]
+        return [f"goe_{filter.aggregation_group_type_index}", "properties"]
+
+    def _entity_expr(self, entity: Entity, team: Team) -> ast.Expr:
+        # Only the entity's event/action identity filters the timeline events — the entity's ad-hoc
+        # property filters are not applied here (they only feed crucial-property-key extraction), matching
+        # the legacy behavior.
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = Action.objects.get(pk=cast(Union[int, str], entity.id), team=team)
+            return action_to_expr(action)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=entity.id),
+        )
+
     def run(
         self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
-            # Search for `offset_time_series_date_by_interval` in the `TrendsActors` class for context on this handling
+            # A single-point range is widened by one interval so the window actually spans some events.
             filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
@@ -94,56 +135,76 @@ class PropertiesTimeline:
                 }
             )
 
-        event_query = PropertiesTimelineEventQuery(
-            filter=filter,
+        query_date_range = QueryDateRange(filter, team)
+        effective_date_from = query_date_range.date_from_param.replace(tzinfo=team.timezone_info)
+        effective_date_to = query_date_range.date_to_param.replace(tzinfo=team.timezone_info)
+
+        crucial_property_keys = sorted(self.extract_crucial_property_keys(filter, team_id=team.pk))
+        actor_properties_chain = self._actor_properties_chain(filter)
+        # Serialize the crucial property values to a single string for change detection. A tuple would
+        # break `lagInFrame`, whose out-of-frame default is an empty tuple that ClickHouse refuses to
+        # compare against a sized tuple.
+        crucial_properties: ast.Expr
+        if crucial_property_keys:
+            crucial_properties = ast.Call(
+                name="toString",
+                args=[
+                    ast.Tuple(exprs=[ast.Field(chain=[*actor_properties_chain, key]) for key in crucial_property_keys])
+                ],
+            )
+        else:
+            crucial_properties = ast.Constant(value="")
+
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["poe", "id"]),
+                right=ast.Constant(value=actor.uuid if isinstance(actor, Person) else actor.group_key),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=effective_date_from),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=effective_date_to),
+            ),
+        ]
+        entity_exprs = [self._entity_expr(entity, team) for entity in filter.entities]
+        if entity_exprs:
+            where_exprs.append(ast.Or(exprs=entity_exprs) if len(entity_exprs) > 1 else entity_exprs[0])
+
+        query = parse_select(
+            PROPERTIES_TIMELINE_HOGQL,
+            placeholders={
+                "actor_properties": ast.Field(chain=actor_properties_chain),
+                "crucial_properties": crucial_properties,
+                "where": ast.And(exprs=where_exprs),
+            },
+        )
+
+        response = execute_hogql_query(
+            query,
             team=team,
-        )
-        event_query_sql, event_query_params = event_query.get_query()
-
-        crucial_property_keys = self.extract_crucial_property_keys(filter, team_id=team.pk)
-        crucial_property_columns, crucial_property_params = get_single_or_multi_property_string_expr(
-            sorted(crucial_property_keys),
-            query_alias=None,
-            table="events",
-            column="person_properties",
-            allow_denormalized_props=True,
-            materialised_table_column="person_properties",
-        )
-
-        actor_properties_column = (
-            "person_properties"
-            if filter.aggregation_group_type_index is None
-            else f"group_{filter.aggregation_group_type_index}_properties"
-        )
-
-        formatted_sql = PROPERTIES_TIMELINE_SQL.format(
-            event_query=event_query_sql,
-            crucial_property_columns=crucial_property_columns,
-            actor_properties_column=actor_properties_column,
-        )
-
-        params = {
-            **event_query_params,
-            **crucial_property_params,
-            "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key,
-        }
-        raw_query_result = insight_sync_execute(
-            formatted_sql,
-            {**params, **filter.hogql_context.values},
             query_type="properties_timeline",
-            team_id=team.pk,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
         )
 
         return PropertiesTimelineResult(
             points=[
                 PropertiesTimelinePoint(
+                    # Returned as a datetime so DRF renders it with a "Z" suffix, matching the legacy shape.
                     timestamp=timestamp,
-                    properties=json.loads(properties),
+                    properties=properties if isinstance(properties, dict) else json.loads(properties),
                     relevant_event_count=relevant_event_count,
                 )
-                for timestamp, properties, relevant_event_count in raw_query_result
+                for timestamp, properties, relevant_event_count in response.results
             ],
-            crucial_property_keys=sorted(crucial_property_keys),
-            effective_date_from=event_query.effective_date_from.isoformat(),
-            effective_date_to=event_query.effective_date_to.isoformat(),
+            crucial_property_keys=crucial_property_keys,
+            effective_date_from=effective_date_from.isoformat(),
+            effective_date_to=effective_date_to.isoformat(),
         )

@@ -346,6 +346,18 @@ impl RawAppleFrame {
         frame
     }
 
+    /// The uploaded dSYM this frame resolves against, identified by the matched
+    /// debug image's `debug_id` (the chunk_id used at upload). None when no
+    /// debug image matches the address, so there is no symbol set to link.
+    pub fn symbol_set_ref(&self, debug_images: &[DebugImage]) -> Option<String> {
+        native::launch_invariant_addr(
+            self.instruction_addr.as_deref(),
+            self.image_addr.as_deref(),
+            debug_images,
+        )
+        .map(|(debug_id, _)| debug_id)
+    }
+
     pub fn frame_id(&self, debug_images: &[DebugImage]) -> String {
         let mut hasher = Sha512::new();
 
@@ -788,6 +800,18 @@ mod test {
             image_type: None,
             arch: None,
         }
+    }
+
+    #[test]
+    fn symbol_set_ref_is_matched_debug_id() {
+        let frame = frame_at(0x100004000, 0x100000000);
+        let images = [image_at("dsym-uuid-1", 0x100000000)];
+        assert_eq!(
+            frame.symbol_set_ref(&images),
+            Some("dsym-uuid-1".to_string())
+        );
+        // No matching debug image -> no symbol set to link.
+        assert_eq!(frame.symbol_set_ref(&[]), None);
     }
 
     #[test]

@@ -1,4 +1,5 @@
-import { UUIDT } from '../../utils/utils'
+import { UUIDT } from '~/common/utils/utils'
+
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
 import { SAMPLE_GLOBALS, createHogFunction } from './fixtures'
 

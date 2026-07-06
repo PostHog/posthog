@@ -9,7 +9,7 @@ export class CleartextKeyStore implements KeyStore {
         return Promise.resolve()
     }
 
-    generateKey(_sessionId: string, _teamId: number): Promise<SessionKey> {
+    generateKey(_sessionId: string, _teamId: number, _retentionDays: number): Promise<SessionKey> {
         return Promise.resolve({
             plaintextKey: Buffer.alloc(0),
             encryptedKey: Buffer.alloc(0),

@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { DetectiveHog, ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+
+import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -26,9 +28,15 @@ const CHECKLIST = [
 
 function NotSeeingIt(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
+    const { requestVerificationLink } = useActions(verifyEmailLogic)
+    const { uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const [open, setOpen] = useState(false)
     const [checked, setChecked] = useState<boolean[]>([])
     const allChecked = CHECKLIST.every((_, i) => checked[i])
+    // Like legacy: the resend (and support) stay gated behind the checklist so they can't be spammed.
+    const gateReason = !allChecked
+        ? `Confirm the checks above (${checked.filter(Boolean).length}/${CHECKLIST.length})`
+        : undefined
 
     return (
         <>
@@ -41,7 +49,7 @@ function NotSeeingIt(): JSX.Element {
             </button>
             {open && (
                 <div className="PaperDesk__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                    <p className="m-0 mb-2.5 font-semibold text-primary">Before we escalate, three quick checks:</p>
+                    <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
                             <label key={i} className="flex items-start gap-2.5">
@@ -60,23 +68,35 @@ function NotSeeingIt(): JSX.Element {
                             </label>
                         ))}
                     </div>
-                    <LemonButton
-                        size="large"
-                        center
-                        className="mt-3"
-                        fullWidth
-                        disabledReason={
-                            !allChecked ? `Contact support (${checked.filter(Boolean).length}/3 checked)` : undefined
-                        }
-                        onClick={() =>
-                            openSupportForm({
-                                kind: 'bug',
-                                target_area: 'login',
-                            })
-                        }
-                    >
-                        Contact support
-                    </LemonButton>
+                    <div className="mt-3 flex flex-col gap-2">
+                        {uuid && (
+                            <LemonButton
+                                type="primary"
+                                size="large"
+                                center
+                                fullWidth
+                                loading={newlyRequestedVerificationLinkLoading}
+                                disabledReason={gateReason}
+                                onClick={() => requestVerificationLink(uuid)}
+                            >
+                                Resend email
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            size="large"
+                            center
+                            fullWidth
+                            disabledReason={gateReason}
+                            onClick={() =>
+                                openSupportForm({
+                                    kind: 'bug',
+                                    target_area: 'login',
+                                })
+                            }
+                        >
+                            Contact support
+                        </LemonButton>
+                    </div>
                 </div>
             )}
         </>
@@ -84,7 +104,7 @@ function NotSeeingIt(): JSX.Element {
 }
 
 function VerifyEmail(): JSX.Element {
-    const { view, uuid, user } = useValues(verifyEmailLogic)
+    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -144,6 +164,7 @@ function VerifyEmail(): JSX.Element {
                                     size="large"
                                     center
                                     fullWidth
+                                    loading={newlyRequestedVerificationLinkLoading}
                                     onClick={() => requestVerificationLink(uuid)}
                                 >
                                     Email me a new link
@@ -201,35 +222,14 @@ function VerifyEmail(): JSX.Element {
                 }
             >
                 <div className="flex flex-col items-center text-center">
-                    <DetectiveHog className="block w-auto mx-auto h-28" />
+                    <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         Check your inbox
                     </h1>
-                    <p className="PaperDesk__sub mt-2 mb-2.5 text-sm text-secondary text-center text-pretty">
-                        We sent a verification link to
+                    <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                        We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
                     </p>
-                    {user?.email && (
-                        <span className="mb-4 inline-block py-1 px-2.5 font-mono text-sm font-regular text-primary bg-[#fbfbf9] border border-[#e0e1d9] rounded">
-                            {user.email}
-                        </span>
-                    )}
-                    <p className="PaperDesk__sub mt-0 mb-4 text-sm text-secondary text-center text-pretty">
-                        Click the link inside and you're in. The link is valid for 24 hours.
-                    </p>
-                    {uuid && (
-                        <LemonButton
-                            type="primary"
-                            size="large"
-                            center
-                            fullWidth
-                            onClick={() => requestVerificationLink(uuid)}
-                        >
-                            Resend email
-                        </LemonButton>
-                    )}
-                    <div className="mt-3.5">
-                        <NotSeeingIt />
-                    </div>
+                    <NotSeeingIt />
                 </div>
             </PaperDeskCard>
         </PaperDeskScene>

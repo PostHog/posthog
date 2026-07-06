@@ -1,8 +1,4 @@
-/**
- * Product manifest for engineering_analytics.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
+/** Product manifest for engineering_analytics: scenes, routes, URLs, and navigation. */
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +12,7 @@ export const manifest: ProductManifest = {
         EngineeringAnalytics: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsScene'),
             projectBased: true,
-            name: 'CI analytics',
+            name: 'Engineering analytics',
             layout: 'app-container',
             description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
@@ -29,27 +25,78 @@ export const manifest: ProductManifest = {
             description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
             iconType: 'health',
         },
+        EngineeringAnalyticsWorkflowRun: {
+            import: () => import('./frontend/scenes/WorkflowRunDetailScene'),
+            projectBased: true,
+            name: 'Workflow run',
+            layout: 'app-container',
+            description: 'A single workflow run: status, duration, branch, and the attributed pull request.',
+            iconType: 'health',
+        },
+        EngineeringAnalyticsWorkflowRuns: {
+            import: () => import('./frontend/scenes/WorkflowRunsScene'),
+            projectBased: true,
+            name: 'Workflow runs',
+            layout: 'app-container',
+            description: "A single workflow's recent runs across the connected repo.",
+            iconType: 'health',
+        },
+        EngineeringAnalyticsAuthor: {
+            import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
+            projectBased: true,
+            name: 'Author',
+            layout: 'app-container',
+            description: "One author's pull requests — a filtered view for finding work, not a ranking.",
+            iconType: 'health',
+        },
     },
+    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
+    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
+    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+        '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
-        '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+        '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+        '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
         ],
+        '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+            'EngineeringAnalyticsWorkflowRun',
+            'engineeringAnalyticsWorkflowRun',
+        ],
+        '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+            'EngineeringAnalyticsWorkflowRuns',
+            'engineeringAnalyticsWorkflowRuns',
+        ],
+        '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
-    redirects: {},
+    redirects: {
+        // The author *list* (leaderboards / rankings) stays removed — analytics aggregate at team/repo
+        // level only (see README locked decisions). The per-author page is a filtered PR view, reachable
+        // only via the author links on PR rows, so it keeps its route above.
+        '/engineering-analytics/authors': '/engineering-analytics',
+    },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
+        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+        engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-            `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+        engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+        engineeringAnalyticsAuthor: (handle: string): string =>
+            `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'CI analytics',
+            path: 'Engineering analytics',
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',

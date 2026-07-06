@@ -205,7 +205,7 @@ export function MCPSessionDetail(): JSX.Element {
                         loading={isSelectedSessionGenerating}
                         onClick={() => generateIntent(selectedSession.session_id)}
                     >
-                        {isSelectedSessionGenerating ? 'Thinking…' : "What's the session intent?"}
+                        {isSelectedSessionGenerating ? 'Thinking…' : 'Summarize session intent'}
                     </LemonButton>
                 )}
             </footer>

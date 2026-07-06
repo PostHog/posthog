@@ -19,7 +19,10 @@ jobs:
             deployments: write
         with:
             pr_number: '${{ github.event.pull_request.number }}'
-        secrets: inherit
+        secrets:
+            DIGITAL_OCEAN_HOBBY_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     disable-canary-flags:
         name: Disable feature flags canary

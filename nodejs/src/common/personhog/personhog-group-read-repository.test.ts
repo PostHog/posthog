@@ -1,12 +1,12 @@
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
 import { PersonHogGroupReadRepository } from './personhog-group-read-repository'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const TEAM_ID = 1 as TeamId
 

@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 
-import { parseJSON } from '../../../utils/json-parse'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CdpOutput } from '../../cdp-services'
 import {
@@ -48,6 +48,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
 
@@ -195,6 +196,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -216,6 +218,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -238,6 +241,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -316,7 +320,33 @@ describe('HogInvocationResultsService', () => {
         })
     })
 
-    // Silence unused import linter noise — DateTime is imported for future tests
-    // that exercise queueScheduledAt explicitly.
-    void DateTime
+    describe('first_scheduled_at', () => {
+        it('stamps the original scheduled time onto invocation state on the first running row', async () => {
+            const invocation = createExampleInvocation()
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 0, 0)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            expect(rows[0].first_scheduled_at).toBe(rows[0].scheduled_at)
+            expect(invocation.state.firstScheduledAt).toBe(rows[0].scheduled_at)
+        })
+
+        it('keeps the original first_scheduled_at on the terminal row after a fetch retry reschedules', async () => {
+            const invocation = createExampleInvocation()
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 0, 0)
+            service.queueLifecycleRow(invocation, 'running')
+            const original = invocation.state.firstScheduledAt
+
+            // Simulate a cyclotron fetch retry: queueScheduledAt is overwritten
+            // with a later backoff time before the terminal row is produced.
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 5, 0)
+            service.queueLifecycleRow(invocation, 'succeeded')
+            await service.flush()
+
+            const terminal = parseProducedRows(outputs).find((r) => r.status === 'succeeded')!
+            expect(terminal.first_scheduled_at).toBe(original)
+            expect(terminal.scheduled_at).not.toBe(terminal.first_scheduled_at)
+        })
+    })
 })

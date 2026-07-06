@@ -81,16 +81,16 @@ describe('resolveMode', () => {
         expect(result.useSingleExec).toBe(true)
     })
 
-    it('Claude web/desktop detected via User-Agent stays in tools mode when render-ui is disabled', () => {
-        // A `ClaudeAI` vendor header is unconditionally single-exec, so the render-ui
-        // gate only observably matters on the User-Agent-only path, where the client
-        // isn't otherwise a CLI-mode client.
+    it('Claude web/desktop detected via User-Agent stays single exec even when render-ui is disabled', () => {
+        // Anthropic clients always run in CLI (single-exec) mode, so the Claude-User
+        // user-agent resolves to single-exec regardless of the render-ui flag — the
+        // flag only gates whether the `render-ui` tool itself is advertised.
         const result = resolveMode({
             ...base,
             clientProfile: profile({ userAgent: 'Claude-User' }),
             renderUiFlagEnabled: false,
         })
-        expect(result.useSingleExec).toBe(false)
+        expect(result.useSingleExec).toBe(true)
     })
 
     it('explicit mode=tools wins over Claude UI host even with render-ui enabled', () => {

@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { parseJSON } from '~/utils/json-parse'
 
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
@@ -1117,6 +1117,51 @@ describe('SnappySessionRecorder', () => {
 
             // The active time should be calculated based on events from both windows
             expect(result.activeMilliseconds).toEqual(2000)
+        })
+    })
+
+    describe('Pre-serialized messages (native anonymizer fast path)', () => {
+        it('appends the block lines verbatim and derives counts from the per-event metadata', async () => {
+            // Flag bits mirror rust/replay-anonymizer-node `snapshot.rs`: 1=active 2=click 4=keypress 8=mouse.
+            const t0 = DateTime.fromISO('2025-01-01T01:00:00Z').toMillis()
+            const lines = Buffer.from(
+                `["w1",{"type":4,"timestamp":${t0},"data":{"href":"https://example.com/[redacted]"}}]\n` +
+                    `["w1",{"type":3,"timestamp":${t0 + 1000},"data":{"source":2,"type":2}}]\n` +
+                    `["w1",{"type":3,"timestamp":${t0 + 2000},"data":{"source":5,"text":"****"}}]\n`
+            )
+            const message: ParsedMessageData = {
+                ...createMessage('w1', []),
+                eventsByWindowId: {},
+                eventsRange: { start: DateTime.fromMillis(t0), end: DateTime.fromMillis(t0 + 2000) },
+                preSerialized: {
+                    lines,
+                    events: [
+                        { ts: t0, flags: 0, href: 'https://example.com/[redacted]' },
+                        { ts: t0 + 1000, flags: 1 | 2 | 8 }, // click: active + click + mouse
+                        { ts: t0 + 2000, flags: 1 | 4 }, // input: active + keypress
+                    ],
+                    consoleLogCount: 0,
+                    consoleWarnCount: 0,
+                    consoleErrorCount: 0,
+                },
+            }
+
+            const rawBytesWritten = recorder.recordMessage(message)
+            expect(rawBytesWritten).toBe(lines.length)
+
+            const result = await recorder.end()
+            expect(await readSnappyBuffer(result.buffer)).toBe(lines.toString())
+            expect(result.eventCount).toBe(3)
+            expect(result.clickCount).toBe(1)
+            expect(result.keypressCount).toBe(1)
+            expect(result.mouseActivityCount).toBe(1)
+            expect(result.firstUrl).toBe('https://example.com/[redacted]')
+            expect(result.urls).toEqual(['https://example.com/[redacted]'])
+            expect(result.size).toBe(lines.length)
+            // Two active events 1s apart, then activity times out: one 1000ms active segment.
+            expect(result.activeMilliseconds).toBe(1000)
+            expect(result.startDateTime.toMillis()).toBe(t0)
+            expect(result.endDateTime.toMillis()).toBe(t0 + 2000)
         })
     })
 })

@@ -52,6 +52,7 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
 
     def test_find_case_insensitive_function(self):
         self.assertEqual(self._get_hogql_function("CoAlesce").clickhouse_name, "coalesce")
+        self.assertEqual(self._get_hogql_function("RAND").clickhouse_name, "rand")
 
         self.assertEqual(self._get_hogql_aggregation("SuM").clickhouse_name, "sum")
 

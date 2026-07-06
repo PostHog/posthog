@@ -44,6 +44,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -460,7 +461,10 @@ export function FeatureFlagReleaseConditions({
                                     const targetIndex = group.aggregation_group_type_index
                                     const pluralName = aggregationTargetName(targetIndex)
                                     const singularName = aggregationLabel(
-                                        targetIndex ?? filters.aggregation_group_type_index,
+                                        resolveAggregationGroupTypeIndex(
+                                            targetIndex,
+                                            filters.aggregation_group_type_index
+                                        ),
                                         true
                                     ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined

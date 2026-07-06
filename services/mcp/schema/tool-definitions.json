@@ -30,7 +30,7 @@
         }
     },
     "agent-resolve-resource": {
-        "description": "Fetch an operator playbook — a markdown guide for doing a class of agent-platform operations well. These are the same skills the agent concierge loads; resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown.",
+        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Fetch an agent-platform operator playbook (markdown).",
@@ -324,7 +324,7 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -548,6 +548,20 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-preview-resource": {
+        "description": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview sample rows for a Custom REST source resource",
+        "title": "Preview rows for a Custom REST source resource",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sync-logs": {
         "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
         "category": "Data warehouse",
@@ -579,7 +593,7 @@
         }
     },
     "execute-sql": {
-        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Discover the available tables, views, columns, and their types before querying. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
         "category": "SQL",
         "feature": "sql",
         "summary": "Execute an SQL query.",
@@ -613,6 +627,8 @@
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "feature_flag": "mcp-sql-schema-discovery",
+        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

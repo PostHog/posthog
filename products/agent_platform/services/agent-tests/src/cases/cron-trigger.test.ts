@@ -44,7 +44,7 @@ describe('cron trigger: real e2e', () => {
         const { application, revision } = await c.deployAgent({
             slug: 'cron-digest',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -60,7 +60,7 @@ describe('cron trigger: real e2e', () => {
         })
 
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         // First tick seeds lastTickAt; no firings in (now, now].
         const t0 = new Date('2026-06-01T09:00:00Z')
         const r0 = await cronTick({ ...deps, now: () => t0 }, state)
@@ -114,7 +114,7 @@ describe('cron trigger: real e2e', () => {
         const { application, revision } = await c.deployAgent({
             slug: 'cron-manual',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -155,7 +155,7 @@ describe('cron trigger: real e2e', () => {
         const { revision } = await c.deployAgent({
             slug: 'cron-dedupe',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',

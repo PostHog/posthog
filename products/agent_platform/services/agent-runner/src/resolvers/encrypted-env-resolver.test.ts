@@ -65,7 +65,7 @@ describe('makeEncryptedEnvResolver', () => {
             parent_revision_id: null,
             created_by_id: null,
             bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'x' }),
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
             encrypted_env: encryptedEnv,
         })
         return rev.id

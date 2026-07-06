@@ -1,9 +1,9 @@
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { FeatureEndResult } from '~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder'
 import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { TimestampFormat } from '~/types'
-import { logger } from '~/utils/logger'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { SessionFeatureStoreMetrics } from './metrics'
 

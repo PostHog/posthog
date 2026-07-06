@@ -118,6 +118,31 @@ class TaskDetailDTO:
     updated_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
+    channel: UUID | None = None
+
+
+@dataclass(frozen=True)
+class ChannelDTO:
+    """The HTTP representation of a task channel."""
+
+    id: UUID
+    name: str
+    channel_type: str
+    created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskThreadMessageDTO:
+    """The HTTP representation of one message in a task's thread."""
+
+    id: UUID
+    task: UUID
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+    forwarded_to_agent_at: datetime | None = None
+    forwarded_by: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)
@@ -187,6 +212,7 @@ class StagedArtifactPreparedDTO:
     storage_path: str
     expires_in: int
     presigned_post: dict
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -581,6 +607,14 @@ class SignalReportPrUrlDTO:
 
     report_id: str
     pr_url: str
+
+
+@dataclass(frozen=True)
+class WarmTaskDTO:
+    """The draft Task + warm Run birthed by a Code-app warm request."""
+
+    task_id: UUID
+    run_id: UUID
 
 
 @dataclass(frozen=True)

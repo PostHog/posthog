@@ -28,7 +28,7 @@ Aim each test at a failure mode we actually hit, not a hypothetical.
 The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
 If your test doesn't map to one of them, be skeptical it's worth keeping.
 
-## Don't write it — the four no's
+## Don't write it — the five no's
 
 Most low-value tests fall into one of these. Recognize and skip them.
 
@@ -49,6 +49,11 @@ Most low-value tests fall into one of these. Recognize and skip them.
 4. **Coverage-chasing.**
    Don't add tests to hit a number; an uncovered line is information, not a defect.
    If the only reason to test a branch is the coverage report, the branch probably doesn't need a test — or the code is dead and should be deleted instead.
+
+5. **Cross-language source-scraping.**
+   Never read or regex-parse one language's source from another language's test — a Python test that `Path(...).read_text()`s a `.ts` file and matches `category: '...'`, a TS test that greps a `.py` file, and so on.
+   It couples two trees through a brittle string match that breaks on edits that change nothing about behavior (a rename, a reformat, a moved file, a comment), and it proves nothing about runtime — the two sides never actually run together in the test.
+   If two sides genuinely must agree on a set of values, give them **one source of truth** — a generated artifact or a checked-in data file both import — and assert against that. Otherwise let the drift surface where the two sides really meet (an API contract test, a rendered output, a round-trip), not by scraping the other language's source for strings.
 
 When the answer is "don't write it," the right move is often to **extend an existing test** (add a parameterized case) or **delete code** rather than test it.
 Both shrink the suite's surface.
@@ -86,10 +91,28 @@ Escalating to the next rung is the last resort, not the default.
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
     Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
+- **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
+  A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
+  DRF field validators (`required`, type coercion, `choices`, `min/max`, regex) and `validate_<field>` methods run inside `Serializer(data=...).is_valid()` with no database and no request: field-level validation happens in `to_internal_value`, _before_ the object-level `validate()` that typically needs `self.context`. So an invalid-field case never reaches the DB-touching code.
+  Test the serializer directly and assert on `.errors`:
+
+  ```python
+  class TestTeamValidation(SimpleTestCase):  # no DB — not APIBaseTest
+      def test_sample_rate_too_many_digits(self) -> None:
+          s = TeamSerializer(data={"session_recording_sample_rate": "30001"}, partial=True)
+          assert not s.is_valid()
+          assert s.errors["session_recording_sample_rate"][0].code == "max_digits"
+  ```
+
+  When you push the case matrix down to the serializer, **keep (or add) one DB-backed endpoint test as a wiring guard** — that the viewset actually invokes this serializer, so a bad request is rejected with a 400. The no-DB serializer test proves the validation logic; it does _not_ prove the viewset is wired to that serializer (a refactor that drops the `serializer_class`, skips `is_valid()`, or stops calling `is_valid(raise_exception=True)` would pass every `SimpleTestCase` and still ship a broken endpoint). One endpoint case closes that gap; the matrix stays in the `SimpleTestCase`. For a query serializer instantiated inline (e.g. `Serializer(data=request.query_params).is_valid(raise_exception=True)`), the wiring guard is a bad-query-param → 400 assertion.
+  Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
+
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
+- **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
+  See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
 
 ### Frontend (Jest)
 

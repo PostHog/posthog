@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from posthog.admin.admins.duckgres_server_admin import DuckgresServerAdmin
 from posthog.models import DuckgresServer, Organization, Team
 
-MW = "products.data_warehouse.backend.api.managed_warehouse"
+MW = "products.data_warehouse.backend.presentation.views.managed_warehouse"
 
 
 def _attach_messages(request) -> None:
@@ -92,13 +92,36 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "table_name": "prod_events",
             },
         )
-        with patch(f"{MW}.provision", return_value=Response({"status": "ok"}, status=202)) as mock_provision:
-            self.admin.provision_view(request)
+        body = {"username": "root", "password": "sup3r-secret-pw"}
+        with patch(f"{MW}.provision", return_value=Response(body, status=202)) as mock_provision:
+            response = self.admin.provision_view(request)
 
         mock_provision.assert_called_once_with(
             self.organization.id, "my-warehouse", self.team.id, "prod_events", require_enabled=False
         )
-        assert any("Provisioned managed warehouse" in m for m in _messages(request))
+        # Success renders the credentials once, in the page body...
+        assert response.status_code == 200
+        assert b"sup3r-secret-pw" in response.content
+        # ...and the password must NOT leak into the message framework (it persists
+        # to the session/cookie store).
+        assert all("sup3r-secret-pw" not in m for m in _messages(request))
+
+    def test_provision_failure_surfaces_error_without_rendering_password(self) -> None:
+        request = self._post(
+            "/admin/posthog/duckgresserver/provision/",
+            {
+                "organization_id": str(self.organization.id),
+                "team_id": str(self.team.id),
+                "database_name": "my-warehouse",
+                "table_name": "prod_events",
+            },
+        )
+        with patch(f"{MW}.provision", return_value=Response({"error": "nope"}, status=400)):
+            response = self.admin.provision_view(request)
+
+        # Failures still flash the error and redirect back to the form.
+        assert response.status_code == 302
+        assert any("Failed (status 400): nope" in m for m in _messages(request))
 
     def test_provision_rejects_team_org_mismatch(self) -> None:
         other_org = Organization.objects.create(name="Other")

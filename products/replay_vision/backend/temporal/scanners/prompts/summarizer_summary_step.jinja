@@ -1,0 +1,8 @@
+{% from "_macros.jinja" import cite_in %}Summarize this session.{% if user_prompt %}
+
+Additional context from the team operating the product being recorded:
+{{ user_prompt }}{% endif %}
+
+`title` is a short, plain-text headline, up to 120 characters (citations go in `summary`, not the title). `summary` should be {{ length_guidance }}.
+
+{{ cite_in('summary') }}

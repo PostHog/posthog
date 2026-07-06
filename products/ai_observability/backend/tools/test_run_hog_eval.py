@@ -52,7 +52,7 @@ class TestRunHogEvalTestTool(BaseTest):
             ("length_check", "return length(output) > 0;", True),
         ]
     )
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_compilation_and_execution(self, _name, source, expected_verdict, mock_query):
         mock_response = MagicMock()
         mock_response.results = [_make_event()]
@@ -74,7 +74,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "Compilation error" in result
         assert artifact is None
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_no_events_found(self, mock_query):
         mock_response = MagicMock()
         mock_response.results = []
@@ -86,7 +86,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "No recent AI events" in result
         assert artifact is None
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_runtime_error_handling(self, mock_query):
         mock_response = MagicMock()
         mock_response.results = [_make_event()]
@@ -98,7 +98,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert artifact is None
         assert "Event" in result
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_result_formatting_includes_previews(self, mock_query):
         mock_response = MagicMock()
         mock_response.results = [
@@ -116,7 +116,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "Output:" in result
         assert "Result: PASS" in result
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_null_return_shows_na(self, mock_query):
         mock_response = MagicMock()
         mock_response.results = [_make_event()]
@@ -129,7 +129,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "N/A" in result
         assert "ERROR" not in result
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_runtime_error_shows_error_not_na(self, mock_query):
         mock_response = MagicMock()
         mock_response.results = [_make_event()]
@@ -142,7 +142,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "Result: ERROR" in result
         assert "Result: N/A" not in result
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_ai_metric_event_type(self, mock_query):
         mock_response = MagicMock()
         event_row = [
@@ -160,14 +160,13 @@ class TestRunHogEvalTestTool(BaseTest):
         assert "PASS" in result
         assert "$ai_metric" in result
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
-    def test_heavy_column_remerge_for_stripped_event(self, mock_query):
-        """Post-strip rows have empty `properties.$ai_input` on `events`, but
-        the dedicated `ai_events` table carries the value in the `input`
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
+    def test_heavy_column_remerge_from_ai_events(self, mock_query):
+        """On the shared `events` table `properties.$ai_input` is empty, but the
+        dedicated `ai_events` table carries the value in the native `input`
         column. The tool must re-merge those native columns back into
-        `properties` so the Hog body can read `properties.$ai_input` as
-        before. This test simulates the post-strip shape coming back from
-        the resolver."""
+        `properties` so the Hog body can read `properties.$ai_input`. This test
+        simulates the ai_events row shape coming back from the resolver."""
         from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
         # row[2]: stripped properties (no $ai_input).
@@ -201,7 +200,7 @@ class TestRunHogEvalTestTool(BaseTest):
 
         assert "Result: PASS" in result, f"expected PASS after heavy-merge, got: {result}"
 
-    @patch("products.ai_observability.backend.tools.run_hog_eval.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_query_targets_ai_events(self, mock_query):
         """The constructed SelectQuery must target `posthog.ai_events` — otherwise
         the heavy column slots in the projection are NULL on the events table."""

@@ -39,13 +39,6 @@ describe('funnelPropertyCorrelationLogic', () => {
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
                 ],
-                '/api/projects/:team/groups/property_definitions': {
-                    '0': [
-                        { name: 'industry', count: 2 },
-                        { name: 'name', count: 1 },
-                    ],
-                    '1': [{ name: 'name', count: 1 }],
-                },
             },
             patch: {
                 '/api/environments/:id': async ({ request }) => {

@@ -70,6 +70,64 @@ export function effectiveApprovalType(scope: ApprovalRequest['approver_scope']):
     return 'principal'
 }
 
+/**
+ * Wire shape for an approval row — matches the Django `approvals` serializer and
+ * the frontend `AgentApprovalRequest`. Drops the internal `args_hash` (a Buffer)
+ * and reports a concrete `approver_scope.type`.
+ */
+export interface SerializedApprovalRequest {
+    id: string
+    session_id: string
+    application_id: string
+    team_id: number
+    revision_id: string
+    turn: number
+    tool_call_id: string
+    tool_name: string
+    proposed_args: Record<string, unknown>
+    decided_args: Record<string, unknown> | null
+    assistant_message: AssistantMessageRecord
+    approver_scope: { type: ApprovalType; allow_edit: boolean }
+    state: ApprovalRequestState
+    decision_by: string | null
+    decision_at: string | null
+    decision_reason: string | null
+    dispatch_outcome: { result?: unknown; error?: string } | null
+    created_at: string
+    expires_at: string
+}
+
+/**
+ * Serialize a stored row to the wire shape clients consume. Shared by the
+ * ingress read route (`GET /approvals/:id`) and the runner's `approval_required`
+ * SSE frame so every surface emits an identical shape. Resolves
+ * `approver_scope.type` through `effectiveApprovalType` so legacy rows report a
+ * concrete type instead of `undefined`.
+ */
+export function serializeApprovalRequest(row: ApprovalRequest): SerializedApprovalRequest {
+    return {
+        id: row.id,
+        session_id: row.session_id,
+        application_id: row.application_id,
+        team_id: row.team_id,
+        revision_id: row.revision_id,
+        turn: row.turn,
+        tool_call_id: row.tool_call_id,
+        tool_name: row.tool_name,
+        proposed_args: row.proposed_args,
+        decided_args: row.decided_args,
+        assistant_message: row.assistant_message,
+        approver_scope: { type: effectiveApprovalType(row.approver_scope), allow_edit: row.approver_scope.allow_edit },
+        state: row.state,
+        decision_by: row.decision_by,
+        decision_at: row.decision_at,
+        decision_reason: row.decision_reason,
+        dispatch_outcome: row.dispatch_outcome,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+    }
+}
+
 export interface UpsertApprovalRequestInput {
     id: string
     session_id: string

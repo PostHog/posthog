@@ -10,7 +10,6 @@ from django.conf import settings
 from django.db import models
 from django.db.models.functions import Coalesce
 
-import posthoganalytics
 from natsort import natsorted, ns
 
 from posthog.schema import (
@@ -81,13 +80,14 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -775,7 +775,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=[series.series for series in self.series], user=self.user
+            )
 
         return None
 
@@ -884,7 +886,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
 
     def _team_flag_session_property_pre_aggregation(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "trends-session-property-pre-aggregation",
             str(self.team.uuid),
             groups={
@@ -1148,9 +1150,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
-            if not table_or_view:
-                raise ValueError(f"Table {series.table_name} not found")
-            if table_or_view.columns is None:
+            # A DataWarehouseNode may target a native HogQL table (e.g. a preaggregated table) that has
+            # no warehouse-catalog entry — it's simply not a boolean breakdown field, so fall through.
+            if not table_or_view or table_or_view.columns is None:
                 return False
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value

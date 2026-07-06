@@ -38,7 +38,8 @@ export class PgApprovalStore implements ApprovalStore {
             `INSERT INTO agent_tool_approval_request
                 (id, session_id, application_id, team_id, revision_id, turn,
                  tool_call_id, tool_name, proposed_args, args_hash,
-                 assistant_message, approver_scope, state, created_at, expires_at)
+                 assistant_message, approver_scope, state,
+                 created_at, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb,
                      $12::jsonb, 'queued', NOW(), $13)
              ON CONFLICT (session_id, tool_name, args_hash) WHERE state = 'queued'

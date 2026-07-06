@@ -4,7 +4,8 @@ import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
+import { ParseMessageStepInput, createParseMessageStep, decompressMessageValue } from './parse-message-step'
+import { SessionReplayHeaders } from './validate-headers-step'
 
 const compressWithGzip = promisify(gzip)
 
@@ -82,15 +83,23 @@ describe('createParseMessageStep', () => {
         return { ...message, ...overrides }
     }
 
+    // The validate step guarantees these before parse; they must mirror the message body's
+    // session_id/distinct_id or parse DLQs the message as inconsistent.
+    function createReplayHeaders(overrides: Partial<SessionReplayHeaders> = {}): SessionReplayHeaders {
+        return { token: 'test-token', session_id: 'session-1', distinct_id: 'user-123', ...overrides }
+    }
+
     function createInput(
         partition: number,
         offset: number,
         payload?: string,
         headers?: Record<string, string>,
-        overrides?: Partial<Message>
+        overrides?: Partial<Message>,
+        replayHeaders: SessionReplayHeaders = createReplayHeaders()
     ): ParseMessageStepInput {
         return {
             message: createMessage(partition, offset, payload, headers, overrides),
+            headers: replayHeaders,
         }
     }
 
@@ -205,7 +214,7 @@ describe('createParseMessageStep', () => {
             size: gzippedPayload.length,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders({ session_id: 'session-gzip' }) })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
@@ -213,10 +222,10 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should extract token from headers', async () => {
+    it('should set token from the validated session replay headers', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload, { token: 'my-team-token' })
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ token: 'my-team-token' }))
 
         const result = await step(input)
 
@@ -226,16 +235,36 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should set token to null when not in headers', async () => {
+    it('DLQs when the header session_id does not match the message body', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload)
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ session_id: 'session-2' }))
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect(result.value.parsedMessage.token).toBeNull()
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('session_id_header_body_mismatch')
+        }
+    })
+
+    it('DLQs when the header distinct_id does not match the message body', async () => {
+        const step = createParseMessageStep()
+        const payload = createValidSnapshotPayload('session-1') // body distinct_id is user-123
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ distinct_id: 'someone-else' })
+        )
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('distinct_id_header_body_mismatch')
         }
     })
 
@@ -298,7 +327,7 @@ describe('createParseMessageStep', () => {
             size: 5,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders() })
 
         expect(result.type).toBe(PipelineResultType.DLQ)
         if (result.type === PipelineResultType.DLQ) {
@@ -547,7 +576,15 @@ describe('createParseMessageStep', () => {
             ],
             distinctId: 'user-123',
         })
-        const input = createInput(0, 1, payload)
+        // The header id is already normalized by the validate step; the body carries the raw id.
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ session_id: expectedSessionId })
+        )
 
         const result = await step(input)
 
@@ -555,5 +592,41 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('decompressMessageValue lz4 hardening', () => {
+        const lz4 = require('lz4')
+
+        function lz4Message(value: Buffer): Message {
+            return {
+                value,
+                headers: [{ 'content-encoding': Buffer.from('lz4') }],
+            } as unknown as Message
+        }
+
+        function lz4Frame(payload: Buffer, claimedSize?: number): Buffer {
+            const compressed = Buffer.alloc(lz4.encodeBound(payload.length))
+            const n = lz4.encodeBlock(payload, compressed)
+            const prefix = Buffer.alloc(4)
+            prefix.writeUInt32LE(claimedSize ?? payload.length, 0)
+            return Buffer.concat([prefix, compressed.subarray(0, n)])
+        }
+
+        it('round-trips a valid block', () => {
+            const payload = Buffer.from('{"distinct_id":"d","data":"x"}'.repeat(10))
+            expect(decompressMessageValue(lz4Message(lz4Frame(payload)))).toEqual(payload)
+        })
+
+        it('rejects a size prefix beyond the decompression cap instead of allocating it', () => {
+            const payload = Buffer.from('small')
+            const bomb = lz4Frame(payload, 0xffffffff)
+            expect(() => decompressMessageValue(lz4Message(bomb))).toThrow(/exceeds/)
+        })
+
+        it('rejects a size prefix that does not match the decoded length', () => {
+            const payload = Buffer.from('0123456789'.repeat(20))
+            const lying = lz4Frame(payload, payload.length + 512)
+            expect(() => decompressMessageValue(lz4Message(lying))).toThrow(/decoded/)
+        })
     })
 })

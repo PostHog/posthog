@@ -6,6 +6,7 @@ use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
+use limiters::redis::QuotaResource;
 use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,7 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v1::gateway_provenance as gp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {
@@ -253,18 +255,50 @@ async fn ai_handler_inner(
         }));
     }
 
-    // Step 4: Check quota limiter - drop if over quota
-    // We pass a single-element vec and check if it's filtered out
-    let filtered = state
-        .quota_limiter
-        .check_and_filter(token, vec![event_metadata])
-        .await?;
+    // AI-gateway provenance: a fresh, valid signature marks the event trusted.
+    // Verify here, before the quota limiter, while distinct_id (in the signed tuple)
+    // is known; the outcome gates the limiter below and the stamp/strip before Kafka.
+    // sig + signed_at + request_id ride in headers.
+    // TODO: relocate gateway_provenance out of v1/ now the v0 path uses it too.
+    let gw_sig = gp::parse_signature(&headers);
+    let gw_outcome = match (state.ai_gateway_signing_secret.as_deref(), gw_sig.as_ref()) {
+        (Some(secret), Some(sig)) => gp::verify(
+            secret.as_bytes(),
+            token,
+            &event_metadata.distinct_id,
+            sig,
+            state.timesource.current_time(),
+        ),
+        _ => gp::Provenance::Invalid,
+    };
+    let gw_request_id = gw_sig.map(|s| s.request_id).unwrap_or_default();
+    let gw_trusted = gw_outcome == gp::Provenance::Verified && !gw_request_id.is_empty();
 
-    // If the event was filtered out by quota limiter, return billing limit error
-    let event_metadata = filtered
-        .into_iter()
-        .next()
-        .ok_or(CaptureError::BillingLimit)?;
+    // Step 4: quota limiter. Verified gateway events are wallet-billed, so they're
+    // exempt from the scoped LLM-events quota but still subject to the team's global
+    // Events quota (matching the v1 flow).
+    let event_metadata = if gw_trusted {
+        if state
+            .quota_limiter
+            .is_quota_limited_v1(token, &QuotaResource::Events)
+            .await
+        {
+            return Err(CaptureError::BillingLimit);
+        }
+        event_metadata
+    } else {
+        // We pass a single-element vec and check if it's filtered out
+        let filtered = state
+            .quota_limiter
+            .check_and_filter(token, vec![event_metadata])
+            .await?;
+
+        // If the event was filtered out by quota limiter, return billing limit error
+        filtered
+            .into_iter()
+            .next()
+            .ok_or(CaptureError::BillingLimit)?
+    };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
@@ -348,6 +382,46 @@ async fn ai_handler_inner(
             .and_then(|p| p.as_object_mut())
         {
             insert_blob_urls_into_properties(&uploaded, properties);
+        }
+    }
+
+    // AI-gateway provenance: stamp the trusted marker (overwriting client values) on a
+    // verified event, else strip the whole $ai_gateway* namespace so a forged marker
+    // can't reach billing. The verified metric always fires; the strip metric only fires
+    // when a gateway prop was actually present, so ordinary $ai_* events stay silent.
+    if let Some(event_obj) = parsed.event.as_object_mut() {
+        if gw_trusted {
+            // A verified event was exempted from the LLM-events quota, so it must carry
+            // the stamp or billing would double-count it toward AIO. Guarantee a
+            // properties object here rather than relying on validate_event_structure
+            // having produced one, so the exemption and the stamp can't drift apart.
+            let properties = event_obj
+                .entry("properties")
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if !properties.is_object() {
+                *properties = Value::Object(serde_json::Map::new());
+            }
+            if let Some(properties) = properties.as_object_mut() {
+                gp::stamp_verified(properties, &gw_request_id);
+                counter!(gp::PROVENANCE_METRIC, "reason" => "verified").increment(1);
+            }
+        } else if let Some(properties) = event_obj
+            .get_mut("properties")
+            .and_then(|p| p.as_object_mut())
+        {
+            let before = properties.len();
+            let forged = properties.contains_key(gp::VERIFIED_PROPERTY);
+            gp::strip_gateway(properties);
+            if properties.len() != before {
+                let reason = if forged {
+                    "forged"
+                } else if gw_outcome == gp::Provenance::Stale {
+                    "stale"
+                } else {
+                    "stripped"
+                };
+                counter!(gp::PROVENANCE_METRIC, "reason" => reason).increment(1);
+            }
         }
     }
 

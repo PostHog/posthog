@@ -131,7 +131,7 @@ class TestEngineActivities(BaseTest):
         [
             ("not_found",),
             ("disabled",),
-            ("no_delivery_flow",),
+            ("no_delivery",),
         ]
     )
     def test_validate_reasons(self, case: str) -> None:
@@ -140,10 +140,21 @@ class TestEngineActivities(BaseTest):
         elif case == "disabled":
             action_id = _action(self.team, name="off", enabled=False).id
         else:
-            action_id = _action(self.team, name="noflow").id
+            # No delivery_config → nothing to deliver to → skip.
+            action_id = _action(self.team, name="nodelivery").id
         self.assertEqual(
             act._validate(ValidateVisionActionInputs(vision_action_id=action_id, team_id=self.team.id)), case
         )
+
+    def test_validate_passes_when_delivery_configured(self) -> None:
+        # Regression: the gate used to check the now-vestigial hog_flow_id (always null after the
+        # internal_destination rework), which skipped every action. It must pass when delivery_config is set.
+        action = _action(
+            self.team,
+            name="delivers",
+            delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}],
+        )
+        self.assertIsNone(act._validate(ValidateVisionActionInputs(vision_action_id=action.id, team_id=self.team.id)))
 
     def test_update_run(self) -> None:
         action = _action(self.team)
@@ -274,14 +285,14 @@ async def test_process_skips_when_validate_returns_reason() -> None:
     mocks = _Mocks(
         results={
             act.create_vision_action_run_activity: uuid.uuid4(),
-            act.validate_vision_action_activity: "no_delivery_flow",
+            act.validate_vision_action_activity: "no_delivery",
         }
     )
     await _run_process(_process_inputs(), mocks)
 
     assert act.emit_action_ready_activity not in mocks.calls()
     assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
-    assert _final_error(mocks) == {"skip_reason": "no_delivery_flow"}
+    assert _final_error(mocks) == {"skip_reason": "no_delivery"}
 
 
 @pytest.mark.asyncio

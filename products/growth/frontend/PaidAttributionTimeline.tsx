@@ -5,8 +5,61 @@ import { dayjs } from 'lib/dayjs'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import type { IdentityMatchingLinkApi } from './generated/api.schemas'
-import { normalizedScore, personFromDistinctId } from './identityMatchingUtils'
+import type { IdentityMatchingLinkApi, IdentityMatchingPersonApi } from './generated/api.schemas'
+import {
+    PERSON_CAMPAIGN_FIELDS,
+    hasCampaign,
+    linkPersonDisplay,
+    normalizedScore,
+    personField,
+} from './identityMatchingUtils'
+
+/** Compact one-line campaign descriptor for a person, e.g. "google · cpc · spring_sale" or a referrer. */
+function campaignLabel(person: IdentityMatchingPersonApi | null | undefined): string | null {
+    const parts = [
+        personField(person, 'utm_source'),
+        personField(person, 'utm_medium'),
+        personField(person, 'utm_campaign'),
+    ].filter((value): value is string => value !== null)
+    if (parts.length > 0) {
+        return parts.join(' · ')
+    }
+    return personField(person, 'referring_domain')
+}
+
+function CampaignAttribution({ link }: { link: IdentityMatchingLinkApi }): JSX.Element | null {
+    if (!hasCampaign(link.orphan_person) && !hasCampaign(link.anchor_person)) {
+        return null
+    }
+    const rows = PERSON_CAMPAIGN_FIELDS.map((field) => ({
+        label: field.label,
+        orphan: personField(link.orphan_person, field.key),
+        anchor: personField(link.anchor_person, field.key),
+    })).filter((row) => row.orphan !== null || row.anchor !== null)
+
+    return (
+        <div className="rounded-md bg-bg-light border border-border p-2 text-xs">
+            <div className="grid grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 font-semibold text-tertiary pb-1 mb-1 border-b border-border">
+                <span>Campaign</span>
+                <span>Visitor</span>
+                <span>Person</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+                {rows.map((row) => (
+                    <div key={row.label} className="grid grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-3">
+                        <span className="text-tertiary">{row.label}</span>
+                        <span className="truncate" title={row.orphan ?? undefined}>
+                            {row.orphan ?? <span className="text-muted">—</span>}
+                        </span>
+                        <span className="truncate" title={row.anchor ?? undefined}>
+                            {row.anchor ?? <span className="text-muted">—</span>}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
 
 interface TimelineStep {
     label: string
@@ -76,12 +129,20 @@ function PaidTimelineCard({ link }: { link: IdentityMatchingLinkApi }): JSX.Elem
             <div className="flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                     <div className="text-xs text-tertiary mb-0.5">Anonymous visitor</div>
-                    <PersonDisplay person={personFromDistinctId(link.orphan_distinct_id)} noPopover withIcon="sm" />
+                    <PersonDisplay
+                        person={linkPersonDisplay(link.orphan_person, link.orphan_distinct_id)}
+                        noPopover
+                        withIcon="sm"
+                    />
                 </div>
                 <IconArrowRight className="text-lg text-tertiary shrink-0" />
                 <div className="flex-1 min-w-0">
                     <div className="text-xs text-tertiary mb-0.5">Identified person</div>
-                    <PersonDisplay person={personFromDistinctId(link.anchor_person_key)} noPopover withIcon="sm" />
+                    <PersonDisplay
+                        person={linkPersonDisplay(link.anchor_person, link.anchor_person_key)}
+                        noPopover
+                        withIcon="sm"
+                    />
                 </div>
                 <div className="shrink-0 text-right">
                     <LemonTag type={pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'default'}>{pct}%</LemonTag>
@@ -109,6 +170,9 @@ function PaidTimelineCard({ link }: { link: IdentityMatchingLinkApi }): JSX.Elem
                     </div>
                 </div>
             </div>
+
+            {/* Campaign attribution — the recovered paid touch, plus the identified person's own campaign */}
+            <CampaignAttribution link={link} />
 
             {/* Footer */}
             <div className="flex items-center justify-between pt-2 border-t border-border">
@@ -144,15 +208,39 @@ function PaidAttributionTable({ links }: { links: IdentityMatchingLinkApi[] }): 
             title: 'Anonymous visitor',
             dataIndex: 'orphan_distinct_id',
             render: (_, link) => (
-                <PersonDisplay person={personFromDistinctId(link.orphan_distinct_id)} noPopover withIcon="sm" />
+                <PersonDisplay
+                    person={linkPersonDisplay(link.orphan_person, link.orphan_distinct_id)}
+                    noPopover
+                    withIcon="sm"
+                />
             ),
+        },
+        {
+            title: 'Visitor campaign',
+            key: 'orphan_campaign',
+            render: (_, link) => {
+                const label = campaignLabel(link.orphan_person)
+                return label ? <span className="text-xs">{label}</span> : <span className="text-muted">—</span>
+            },
         },
         {
             title: 'Identified person',
             dataIndex: 'anchor_person_key',
             render: (_, link) => (
-                <PersonDisplay person={personFromDistinctId(link.anchor_person_key)} noPopover withIcon="sm" />
+                <PersonDisplay
+                    person={linkPersonDisplay(link.anchor_person, link.anchor_person_key)}
+                    noPopover
+                    withIcon="sm"
+                />
             ),
+        },
+        {
+            title: 'Person campaign',
+            key: 'anchor_campaign',
+            render: (_, link) => {
+                const label = campaignLabel(link.anchor_person)
+                return label ? <span className="text-xs">{label}</span> : <span className="text-muted">—</span>
+            },
         },
         {
             title: 'Confidence',

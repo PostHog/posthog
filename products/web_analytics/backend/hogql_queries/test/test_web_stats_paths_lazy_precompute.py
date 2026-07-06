@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 import unittest
 from freezegun import freeze_time
@@ -25,11 +26,28 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+
+# Aliased so pytest doesn't collect this `test_`-prefixed helper as a test case.
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    SESSION_FORWARD_PAD_MINUTES,
+    host_filter_expr,
+    test_account_filter_expr as _test_account_filter_expr,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    INSERT_QUERY_TEMPLATE_CAPPED,
+    _breakdown_value_expr,
+    _entry_breakdown_value_expr,
+    _events_session_id_expr,
+    _top_k_ranking_expr,
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -334,16 +352,157 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(include_scroll_depth=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
+    def _set_path_cleaning_rules(self) -> None:
+        self.team.path_cleaning_filters = [
+            {"alias": "/project/<id>", "regex": "\\/project\\/\\d+", "order": 0},
+            {"alias": "/insights/<id>", "regex": "\\/insights\\/[0-9a-zA-Z]+", "order": 1},
+        ]
+        self.team.save()
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_path_cleaning_uses_lazy_path(self):
-        # Path cleaning is applied at READ time, so the precompute is
-        # rule-independent — cleaning rules can change without invalidating
-        # stored rows, and the lazy_computation query_hash doesn't carry the
-        # regex. A path-cleaning query should create a precompute job.
+        # Path cleaning is baked into the precompute at INSERT time, so a
+        # path-cleaning query is still lazy-eligible and creates a precompute job.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(do_path_cleaning=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @parameterized.expand([("breakdown", _breakdown_value_expr), ("entry", _entry_breakdown_value_expr)])
+    def test_path_cleaning_baked_into_insert_expr(self, _name: str, fn):
+        # With team rules + doPathCleaning, the insert breakdown/entry exprs carry
+        # the cleaning regex chain; without it (or without rules) they store raw.
+        self._set_path_cleaning_rules()
+        cleaned = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=True)))
+        raw = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=False)))
+        assert "replaceRegexpAll" in repr(cleaned), f"{fn.__name__} must bake cleaning into the insert"
+        assert "replaceRegexpAll" not in repr(raw), f"{fn.__name__} must store raw paths when cleaning is off"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_path_cleaning_gets_distinct_cache_entry(self):
+        # Cleaning is part of the insert AST now, so doPathCleaning on/off map to
+        # distinct query_hashes / jobs (a rules change spawns a fresh job).
+        self._seed_two_sessions()
+        self._set_path_cleaning_rules()
+        with self._enable_lazy():
+            self._run(self._build_query(do_path_cleaning=False))
+            raw_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(do_path_cleaning=True))
+            cleaned_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert raw_hashes, "expected raw run to create at least one job"
+        assert cleaned_hashes, "expected cleaned run to create at least one job"
+        assert raw_hashes.isdisjoint(cleaned_hashes), (
+            f"doPathCleaning on/off must produce distinct cache keys, got overlap: {raw_hashes & cleaned_hashes}"
+        )
+
+    @parameterized.expand(
+        [
+            # Descending sorts cap by the matching merge metric; default is visitors DESC.
+            ("default_visitors", None, "uniqMerge"),
+            ("views_desc", [WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC], "sumMerge"),
+            ("bounce_desc", [WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC], "avgMerge"),
+            # Ascending sorts are not capped (the "top" is a tied long tail) → store full set.
+            ("visitors_asc", [WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC], None),
+        ]
+    )
+    def test_top_k_ranking_expr_matches_sort(self, _name: str, order_by, expected_metric):
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(order_by=order_by))
+        expr = _top_k_ranking_expr(runner)
+        if expected_metric is None:
+            assert expr is None
+        else:
+            assert expected_metric in repr(expr)
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sort_key_gets_distinct_cache_entry(self):
+        # The cap metric is in the insert AST, so different sort keys map to distinct
+        # capped jobs. This also exercises that the capped insert template parses/builds.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            self._run(
+                self._build_query(order_by=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC])
+            )
+            visitors_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(order_by=[WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC]))
+            views_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert visitors_hashes, "expected visitors-sorted run to create at least one job"
+        assert views_hashes, "expected views-sorted run to create at least one job"
+        assert visitors_hashes.isdisjoint(views_hashes), (
+            f"different sort keys must produce distinct capped jobs, got overlap: {visitors_hashes & views_hashes}"
+        )
+
+    def test_capped_insert_top_level_columns_are_aliased(self):
+        # Regression: the framework's `_build_manual_insert_sql` builds the INSERT
+        # column list from top-level aliases — bare columns raise, silently failing
+        # the capped insert so the tile falls back to raw. Parse the capped template
+        # (the path every descending sort takes) and assert all columns are aliased.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        placeholders: dict = {
+            "events_session_id": _events_session_id_expr(runner),
+            "breakdown_value_expr": _breakdown_value_expr(runner),
+            "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+            "test_account_filter": _test_account_filter_expr(
+                test_account_filters=runner._test_account_filters, team=runner.team
+            ),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            "top_k_metric": _top_k_ranking_expr(runner),
+            "time_window_min": ast.Constant(value="__MIN__"),
+            "time_window_max": ast.Constant(value="__MAX__"),
+        }
+        parsed = parse_select(INSERT_QUERY_TEMPLATE_CAPPED, placeholders=placeholders)
+        assert isinstance(parsed, ast.SelectQuery)
+        assert parsed.select and all(isinstance(e, ast.Alias) for e in parsed.select), (
+            "capped insert top-level columns must all be aliased for _build_manual_insert_sql"
+        )
+
+    def test_capped_insert_caps_per_day_not_per_window(self):
+        # The cap must be computed PER DAY, not over the whole job window. The read path
+        # decomposes a request into daily windows and can serve one of them from a wider
+        # covering job (`filter_overlapping_jobs`), so a path in a single day's top-K must
+        # be stored even if it falls outside the job window's overall top-K — a per-window
+        # cap silently drops it. Guards against a revert to per-window capping.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        placeholders: dict = {
+            "events_session_id": _events_session_id_expr(runner),
+            "breakdown_value_expr": _breakdown_value_expr(runner),
+            "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+            "test_account_filter": _test_account_filter_expr(
+                test_account_filters=runner._test_account_filters, team=runner.team
+            ),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            "top_k_metric": _top_k_ranking_expr(runner),
+            "time_window_min": ast.Constant(value="__MIN__"),
+            "time_window_max": ast.Constant(value="__MAX__"),
+        }
+        parsed = parse_select(INSERT_QUERY_TEMPLATE_CAPPED, placeholders=placeholders)
+
+        rank_windows: list[ast.WindowExpr] = []
+
+        def walk(node: object) -> None:
+            if isinstance(node, ast.WindowFunction) and node.name == "dense_rank" and node.over_expr:
+                rank_windows.append(node.over_expr)
+            if dataclasses.is_dataclass(node) and not isinstance(node, type):
+                for field in dataclasses.fields(node):
+                    walk(getattr(node, field.name, None))
+            elif isinstance(node, list | tuple):
+                for item in node:
+                    walk(item)
+
+        walk(parsed)
+        assert rank_windows, "capped insert must rank breakdowns with a windowed dense_rank()"
+        assert all(w.partition_by and "day_bucket" in str(w.partition_by) for w in rank_windows), (
+            f"the top-K rank must partition by the day bucket, got: {[w.partition_by for w in rank_windows]}"
+        )
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
