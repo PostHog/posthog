@@ -3394,48 +3394,48 @@ class TestGitHubBranches:
         )
         self.github = GitHubIntegration(self.integration)
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_returns_first_page(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_returns_first_page(self, mock_request):
         names = [f"branch-{i}" for i in range(100)]
-        mock_get.return_value = _make_github_branches_response(names, has_next=True)
+        mock_request.return_value = _make_github_branches_response(names, has_next=True)
 
         branches, has_more = self.github.list_branches("org/repo", limit=100, offset=0)
 
         assert branches == names
         assert has_more is True
-        mock_get.assert_called_once()
-        assert "page=1" in mock_get.call_args[0][0]
+        mock_request.assert_called_once()
+        assert "page=1" in mock_request.call_args[0][1]
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_offset_skips_pages(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_offset_skips_pages(self, mock_request):
         """Requesting offset=200 should start fetching from GitHub page 3."""
         page3_names = [f"branch-{i}" for i in range(200, 300)]
-        mock_get.return_value = _make_github_branches_response(page3_names, has_next=True)
+        mock_request.return_value = _make_github_branches_response(page3_names, has_next=True)
 
         branches, has_more = self.github.list_branches("org/repo", limit=100, offset=200)
 
         assert branches == page3_names
         assert has_more is True
-        assert mock_get.call_count == 1
-        assert "page=3" in mock_get.call_args[0][0]
+        assert mock_request.call_count == 1
+        assert "page=3" in mock_request.call_args[0][1]
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_last_page_no_more(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_last_page_no_more(self, mock_request):
         names = [f"branch-{i}" for i in range(50)]
-        mock_get.return_value = _make_github_branches_response(names, has_next=False)
+        mock_request.return_value = _make_github_branches_response(names, has_next=False)
 
         branches, has_more = self.github.list_branches("org/repo", limit=100, offset=0)
 
         assert branches == names
         assert has_more is False
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_spans_two_github_pages(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_spans_two_github_pages(self, mock_request):
         """An offset that doesn't align with per_page=100 requires fetching two GitHub pages."""
         page1_names = [f"branch-{i}" for i in range(100)]
         page2_names = [f"branch-{i}" for i in range(100, 200)]
 
-        mock_get.side_effect = [
+        mock_request.side_effect = [
             _make_github_branches_response(page1_names, has_next=True),
             _make_github_branches_response(page2_names, has_next=False),
         ]
@@ -3446,32 +3446,32 @@ class TestGitHubBranches:
         assert branches == [f"branch-{i}" for i in range(50, 150)]
         # There are still branches 150-199 beyond this window
         assert has_more is True
-        assert mock_get.call_count == 2
+        assert mock_request.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_empty_repo(self, mock_get):
-        mock_get.return_value = _make_github_branches_response([], has_next=False)
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_empty_repo(self, mock_request):
+        mock_request.return_value = _make_github_branches_response([], has_next=False)
 
         branches, has_more = self.github.list_branches("org/repo")
 
         assert branches == []
         assert has_more is False
 
-    @patch("posthog.models.integration.requests.get")
-    def test_list_branches_401_triggers_refresh_and_retry(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_list_branches_401_triggers_refresh_and_retry(self, mock_request):
         unauthorized = MagicMock()
         unauthorized.status_code = 401
 
         names = ["main", "develop"]
         success = _make_github_branches_response(names, has_next=False)
 
-        mock_get.side_effect = [unauthorized, success]
+        mock_request.side_effect = [unauthorized, success]
 
         with patch.object(self.github, "refresh_access_token"):
             branches, has_more = self.github.list_branches("org/repo")
 
         assert branches == names
-        assert mock_get.call_count == 2
+        assert mock_request.call_count == 2
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_branches")
     def test_api_endpoint_passes_search_limit_offset(self, mock_list_cached, client: HttpClient):
@@ -3548,8 +3548,8 @@ class TestGitHubBranches:
 
         assert response.status_code == 400
 
-    @patch("posthog.models.integration.requests.get")
-    def test_get_default_branch_is_cached(self, mock_get):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_get_default_branch_is_cached(self, mock_request):
         from django.core.cache import cache
 
         cache.clear()
@@ -3557,14 +3557,14 @@ class TestGitHubBranches:
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = {"default_branch": "develop"}
-        mock_get.return_value = response
+        mock_request.return_value = response
 
         first = self.github.get_default_branch("org/repo-cache-test")
         second = self.github.get_default_branch("org/repo-cache-test")
 
         assert first == "develop"
         assert second == "develop"
-        assert mock_get.call_count == 1
+        assert mock_request.call_count == 1
 
 
 class TestAnthropicIntegration:

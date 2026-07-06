@@ -612,7 +612,7 @@
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "enum": ["real_time", "every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {
@@ -19726,9 +19726,9 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "description": "Property filters (event, person, and other supported types). Pass an empty array if no filters needed.",
                     "items": {
-                        "$ref": "#/definitions/EventPropertyFilter"
+                        "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
                 }
@@ -21989,6 +21989,7 @@
                 "InforNexus",
                 "Insightful",
                 "Insightly",
+                "Instantly",
                 "Instatus",
                 "Intruder",
                 "Invoiced",
@@ -22290,7 +22291,15 @@
                 "NextdoorAds",
                 "AppLovin",
                 "Baserow",
-                "Plunk"
+                "Plunk",
+                "Dub",
+                "AirOps",
+                "Podium",
+                "Loops",
+                "Redis",
+                "Mercury",
+                "Gojiberry",
+                "Teachable"
             ],
             "type": "string"
         },
@@ -43274,7 +43283,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
+            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
             "type": "string"
         },
         "SlashCommandName": {

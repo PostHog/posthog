@@ -43,6 +43,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_tools",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -81,6 +82,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
     "products.engineering_analytics",
@@ -220,6 +222,7 @@ depends_on = [
     "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -263,6 +266,24 @@ depends_on = [
     "products.cdp",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.demo"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -720,7 +741,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -742,6 +763,8 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
@@ -791,37 +814,22 @@ from = [
     "products.mcp_store",
 ]
 
-# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
-# products, and data_warehouse still import its models, shared types, and temporal
-# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
-# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
-# move behind the facade. Keeps backend:contract-check off package.json (the temporal
-# coupling is permanent). Also hosts the shared warehouse-table test helpers
-# (test.utils, tests.api) that many products' tests use to build warehouse tables.
+# warehouse_sources — all production and non-test consumers route through backend.facade.* now
+# (models/types/sources/pipelines are facade-sealed). The one remaining leak is the core
+# data-import Temporal test suite under posthog/temporal/tests/data_imports/** — hundreds of
+# tests that import the temporal internals directly. tach excludes tests/ dirs so they don't
+# surface as violations, but they still reach internals, and they run in the Django Temporal
+# segment. That's why backend:contract-check stays OFF: the isolated-CI skip would drop that
+# segment on internal changes. The CI win comes instead from the narrowed product matrix in
+# .github/scripts/turbo-discover.js (DATA_IMPORT_SOURCES_ONLY). Sealing this fully means
+# relocating those tests into the product — future work.
 [[interfaces]]
 expose = [
-    "backend\\.models.*",
-    "backend\\.types.*",
     "backend\\.temporal.*",
-    "backend\\.test.*",
-    "backend\\.tests.*",
 ]
 from = [
     "products.warehouse_sources",
 ]
-
-# data_modeling — facade landed; external consumers route through backend.facade.* now.
-# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
-# model-migration) that reference the historical model classes directly and cannot route
-# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
-[[interfaces]]
-expose = [
-    "backend\\.models.*",
-]
-from = [
-    "products.data_modeling",
-]
-
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
 # webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated

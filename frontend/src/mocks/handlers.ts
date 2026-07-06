@@ -99,6 +99,7 @@ function posthogCORSResponse(info: MockResolverInfo): Response {
 export const defaultMocks: Mocks = {
     get: {
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,

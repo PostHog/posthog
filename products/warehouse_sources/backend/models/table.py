@@ -33,16 +33,6 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.sources import (
-    DIRECT_MYSQL_SCHEMA_OPTION,
-    DIRECT_MYSQL_TABLE_OPTION,
-    DIRECT_POSTGRES_CATALOG_OPTION,
-    DIRECT_POSTGRES_SCHEMA_OPTION,
-    DIRECT_POSTGRES_TABLE_OPTION,
-    DIRECT_SNOWFLAKE_CATALOG_OPTION,
-    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
-    DIRECT_SNOWFLAKE_TABLE_OPTION,
-)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -53,7 +43,7 @@ from products.warehouse_sources.backend.models.util import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -208,7 +198,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
         `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
         legacy plain-string column shapes.
+
+        Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL
+        (`created` -> `created_at`, `customer` -> `customer_id`), so `name` is the HogQL-visible name
+        callers surface to users and the AI agent — not the raw synced column. To recover the raw ->
+        visible mapping (e.g. to match canonical descriptions keyed by raw name), call
+        `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
+        hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
             if name in HIDDEN_COLUMNS:
@@ -219,7 +216,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_type = definition or ""
             result.append(
                 {
-                    "name": name,
+                    "name": hogql_by_raw.get(name, name),
                     "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
                     "is_nullable": "Nullable(" in clickhouse_type,
                 }
@@ -508,6 +505,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+        # Deferred: importing data_warehouse's facade at module scope creates an import cycle
+        # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
+        # These direct-query option keys are only needed here, at query-build time.
+        from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_MYSQL_SCHEMA_OPTION,
+            DIRECT_MYSQL_TABLE_OPTION,
+            DIRECT_POSTGRES_CATALOG_OPTION,
+            DIRECT_POSTGRES_SCHEMA_OPTION,
+            DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_SNOWFLAKE_CATALOG_OPTION,
+            DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+            DIRECT_SNOWFLAKE_TABLE_OPTION,
+        )
+
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}

@@ -38,10 +38,12 @@ ROLES=(
   "ops       localhost 9300 posthog"
   "logs      localhost 9500 posthog"
   "ai_events localhost 9100 posthog"
+  "aux       localhost 9200 posthog"
+  "sessions  localhost 9400 posthog"
 )
 
 # Pin to the same chschema build as bin/hclexp; override via repo variable.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-c0affa0}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-deff440}"
 
 # hclexp that can reach ClickHouse on the host's published ports. Prefer a local
 # binary; otherwise a container sharing the host network namespace so localhost

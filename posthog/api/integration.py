@@ -15,7 +15,7 @@ import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -38,6 +38,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -177,9 +178,25 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
 
 
 class GitHubRepoSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    full_name = serializers.CharField()
+    id = serializers.IntegerField(help_text="GitHub repository numeric identifier.")
+    name = serializers.CharField(help_text="Repository short name (without the owner prefix).")
+    full_name = serializers.CharField(help_text="Fully-qualified repository name as 'owner/repo'.")
+    # The fields below come free from GitHub's installation/repositories payload. They are optional so
+    # repositories cached before this change (which stored only id/name/full_name) still validate.
+    private = serializers.BooleanField(required=False, help_text="Whether the repository is private.")
+    default_branch = serializers.CharField(required=False, help_text="The repository's default branch (e.g. 'main').")
+    language = serializers.CharField(
+        required=False, help_text="Primary programming language GitHub detected for the repository."
+    )
+    pushed_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp of the most recent push, useful for sorting by recent activity.",
+    )
+    archived = serializers.BooleanField(required=False, help_text="Whether the repository is archived.")
+    can_push = serializers.BooleanField(
+        required=False,
+        help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
+    )
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -825,6 +842,21 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
+def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
+    """The 429 + Retry-After response for a GitHub rate limit.
+
+    Shared by every GitHub-backed endpoint (integration and user-integration viewsets, signals)
+    so the egress ``GitHubRateLimitError`` maps the same way everywhere instead of surfacing a 500.
+    """
+    response = Response(
+        {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    if exc.retry_after:
+        response["Retry-After"] = str(exc.retry_after)
+    return response
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -869,6 +901,13 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
+        # map them to 429 + Retry-After once here instead of per action.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
         base_permissions = [
@@ -1151,7 +1190,7 @@ class IntegrationViewSet(
         """List the Search Console properties the connected Google account has access to."""
         # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
         # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             google_search_console_session,
             list_sites,
         )
