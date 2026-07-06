@@ -17,7 +17,15 @@ export function parseAnnotatedScreenshot(screenshot: unknown): AnnotatedScreensh
     if (typeof image_b64 !== 'string' || !image_b64 || !Array.isArray(markers)) {
         return null
     }
-    return { imageB64: image_b64, markers: markers as ScreenshotMarker[] }
+    return { imageB64: image_b64, markers: markers.filter(isScreenshotMarker) }
+}
+
+function isScreenshotMarker(marker: unknown): marker is ScreenshotMarker {
+    if (!marker || typeof marker !== 'object') {
+        return false
+    }
+    const { n, kind, count } = marker as Record<string, unknown>
+    return typeof n === 'number' && typeof count === 'number' && (kind === 'rage' || kind === 'click')
 }
 
 function legend(markers: ScreenshotMarker[]): string {

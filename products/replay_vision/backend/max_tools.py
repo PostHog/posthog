@@ -21,7 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.observation_formatting import _EVENT_ID_CITATION_RE, _format_line, _read_output
+from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
 from ee.hogai.tool import MaxTool
@@ -240,7 +240,7 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
             if not isinstance(summary, str) or not summary.strip():
                 continue
             title = output.get("title") if isinstance(output.get("title"), str) else None
-            clean = _EVENT_ID_CITATION_RE.sub("", summary).strip()
+            clean = EVENT_ID_CITATION_RE.sub("", summary).strip()
             prefix = f"{created_at:%Y-%m-%d}"
             lines.append(f"- ({prefix}) {f'{title}: ' if title else ''}{clean}")
 
@@ -491,10 +491,10 @@ class SearchReplayVisionObservationsTool(MaxTool):
             obs = observations.get(observation_id)
             if obs is None:
                 continue
-            output = _read_output(obs)
+            output = read_output(obs)
             if output is None:
                 continue
-            lines.append(_format_line(obs, output, show_scanner=cross_scanner))
+            lines.append(format_line(obs, output, show_scanner=cross_scanner))
             matched_ids.append(observation_id)
 
         if not lines:

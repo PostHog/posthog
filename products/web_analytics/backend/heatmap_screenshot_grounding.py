@@ -11,6 +11,7 @@ screenshot exists for the page, grounding is skipped and the caller degrades to 
 
 import io
 import base64
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -85,10 +86,12 @@ def _fetch_screenshot_bytes(team: "Team", page_url: str) -> tuple[bytes, datetim
         return None
     newest = [snap for snap in ready if snap.heatmap_id == ready[0].heatmap_id]
     snap = min(newest, key=lambda s: abs(s.width - _PREFERRED_WIDTH))
-    return bytes(snap.content), snap.heatmap.created_at
+    content = snap.content
+    assert content is not None
+    return bytes(content), snap.heatmap.created_at
 
 
-def _build_markers(heatmap_data: dict[str, object]) -> list[_Marker]:
+def _build_markers(heatmap_data: Mapping[str, object]) -> list[_Marker]:
     """Top rage clusters then top click hotspots, numbered 1..k. Rage first — it's the priority signal."""
     markers: list[_Marker] = []
     n = 1
@@ -97,7 +100,7 @@ def _build_markers(heatmap_data: dict[str, object]) -> list[_Marker]:
         if not isinstance(points, list):
             continue
         for p in points[:_MAX_MARKERS_PER_KIND]:
-            if not isinstance(p, dict) or not p.get("count"):
+            if not isinstance(p, dict) or not p.get("count") or "pointer_relative_x" not in p or "pointer_y" not in p:
                 continue
             markers.append(
                 _Marker(
@@ -138,7 +141,7 @@ def _annotate(image_bytes: bytes, markers: list[_Marker]) -> bytes:
 
 
 def _prepare(
-    team: "Team", page_url: str, heatmap_data: dict[str, object]
+    team: "Team", page_url: str, heatmap_data: Mapping[str, object]
 ) -> tuple[bytes, list[_Marker], datetime] | None:
     """Sync half: fetch the screenshot and annotate it. None when there's nothing to ground."""
     markers = _build_markers(heatmap_data)

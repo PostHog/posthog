@@ -21,7 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.observation_formatting import _EVENT_ID_CITATION_RE
+from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -173,7 +173,7 @@ def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionAction
         if not isinstance(summary, str) or not summary.strip():
             continue
         title = output.get("title") if isinstance(output.get("title"), str) else None
-        clean = _EVENT_ID_CITATION_RE.sub("", summary).strip()
+        clean = EVENT_ID_CITATION_RE.sub("", summary).strip()
         lines.append(f"- ({created_at:%Y-%m-%d}) {f'{title}: ' if title else ''}{clean}")
 
     return lines

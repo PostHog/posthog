@@ -572,7 +572,11 @@ def _format_website_interactions_report(
         "",
         "## Aggregate heatmap signal — page-level",
         "",
-        heatmap_block,
+        as_untrusted_data(
+            "heatmap_signal",
+            [heatmap_block],
+            source="derived from captured website interactions and page text",
+        ),
         "",
     ]
 

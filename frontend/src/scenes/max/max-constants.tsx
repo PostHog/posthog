@@ -897,7 +897,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     summarize_website_interactions: {
         name: 'Summarize website interactions',
         description:
-            "Summarize how users interact with a page by fusing the aggregate heatmap with Replay Vision's per-session narratives — the numbers and the why",
+            "Summarize website interactions by fusing the aggregate heatmap with Replay Vision's per-session narratives — the numbers and the why",
         product: Scene.WebAnalytics,
         icon: iconForType('web_analytics'),
         displayFormatter: (toolCall) => {

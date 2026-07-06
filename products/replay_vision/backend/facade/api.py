@@ -7,7 +7,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.observation_formatting import _format_line, _read_output
+from products.replay_vision.backend.observation_formatting import format_line, read_output
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -74,10 +74,10 @@ def fetch_page_session_observations(
 
     lines: list[str] = []
     for obs in queryset[:limit]:
-        output = _read_output(obs)
+        output = read_output(obs)
         if output is None:
             continue
-        lines.append(_format_line(obs, output, show_scanner=True))
+        lines.append(format_line(obs, output, show_scanner=True))
 
     if not lines:
         return None
