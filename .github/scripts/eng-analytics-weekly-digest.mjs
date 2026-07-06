@@ -17,14 +17,15 @@
 //     blended would track the week's run-mix, not duration), and to master
 //     specifically because its gating workflows don't supersede-cancel, so
 //     cancelled-run durations barely pollute the percentile there.
-//   - Master failures: the week's default-branch failures grouped error-tracking
-//     style by (workflow, de-sharded failing job) — top offenders by run count.
-//   - Quarantine debt: active / expiring / in-grace / overdue flaky-test quarantines.
 //
-// Still deferred (the one signal the read layer can't compute yet): a fully clean
-// all-branch CI-speed percentile — workflow_health's p50/p95 is over
-// status='completed' with no conclusion filter, so off-master durations are polluted
-// by supersede-cancels. Needs a conclusion='success' duration percentile upstream.
+// Still deferred — signals the read layer can't compute honestly yet:
+//   - A fully clean all-branch CI-speed percentile: workflow_health's p50/p95 is over
+//     status='completed' with no conclusion filter, so off-master durations are
+//     polluted by supersede-cancels. Needs a conclusion='success' percentile upstream.
+//   - Master-failure triage: master_failures groups at (workflow, de-sharded job)
+//     level, which is dominated by rollup gate jobs ("X Tests Pass") and matrix shard
+//     names — not actionable in a digest. Needs a test/suite-level failure aggregate
+//     (over the ci_failure_logs substrate) before it earns a section here.
 //
 // Data caveat: the runs/jobs warehouse tables are webhook-fed and do not backfill a
 // missed window, so a webhook outage undercounts that week's COUNT-based lines (runs,
@@ -35,11 +36,10 @@
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
 const API_KEY = process.env.POSTHOG_API_KEY || ''
-const REPO = process.env.ENG_ANALYTICS_REPO || '' // 'owner/name', for the quarantine line
 // Pin the source when the project has more than one connected GitHub source; otherwise
 // the endpoints default to the oldest, which may not be the repo you mean.
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
-const BRANCH = process.env.ENG_ANALYTICS_BRANCH || 'master' // CI-speed + failure-groups branch
+const BRANCH = process.env.ENG_ANALYTICS_BRANCH || 'master' // CI-speed comparison branch
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C0AS64N6DJL' // #alerts-devex
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
@@ -328,53 +328,6 @@ async function ciSpeedSection(now) {
     return lines.join('\n')
 }
 
-// Master failures — the week's default-branch failures grouped error-tracking style by
-// (workflow, de-sharded failing job), top offenders by failing-run count. failed_job
-// is '' until the job-level source syncs (groups degrade to workflow level). The
-// underlying query caps at 500 failed runs per window, so on a terrible week the total
-// is a floor, not a census.
-async function masterFailuresSection(now) {
-    const [thisWin] = weekWindows(now)
-    const groups = await api('master_failures', { ...thisWin, branch: BRANCH })
-    const header = `*\`${BRANCH}\` failures (last 7d)*`
-    if (groups.length === 0) {
-        return `${header}\n_None._`
-    }
-    const total = groups.reduce((n, g) => n + g.run_count, 0)
-    const multiRepo = new Set(groups.map((g) => `${g.repo.owner}/${g.repo.name}`)).size > 1
-    const top = [...groups].sort((a, b) => b.run_count - a.run_count).slice(0, TOP_N)
-    const lines = [header, `${total} failing runs in ${groups.length} groups. Top:`]
-    for (const g of top) {
-        const repoPrefix = multiRepo ? `${g.repo.owner}/${g.repo.name} ` : ''
-        const signature = g.failed_job ? `${g.workflow_name} / ${g.failed_job}` : g.workflow_name
-        lines.push(`• \`${slackEscape(repoPrefix + signature)}\` — ${g.run_count} runs`)
-    }
-    return lines.join('\n')
-}
-
-// Quarantine debt — flaky tests parked past (or near) their expiry. file.entries spans
-// every lifecycle, so count `active` explicitly rather than calling the total "active".
-async function quarantineSection() {
-    if (!REPO) {
-        return null // no repo configured — nothing to report (distinct from "file missing" below)
-    }
-    const file = await api('quarantine', { repo: REPO })
-    if (!file.available) {
-        return `*Flaky-test quarantine*\n_No quarantine file for ${slackEscape(REPO)}._`
-    }
-    const tally = {}
-    for (const e of file.entries) {
-        tally[e.lifecycle] = (tally[e.lifecycle] || 0) + 1
-    }
-    const count = (lifecycle) => tally[lifecycle] || 0
-    return [
-        '*Flaky-test quarantine*',
-        `• ${count('active')} active, ${count('expiring_soon')} expiring soon, ${count('in_grace')} in grace, ${count(
-            'overdue'
-        )} overdue`,
-    ].join('\n')
-}
-
 // Returns { blocks, succeeded } — succeeded counts sections that produced content, so
 // main can refuse to post (and fail loudly) when every section errored.
 async function buildDigest(now) {
@@ -387,8 +340,6 @@ async function buildDigest(now) {
     const sections = [
         { name: 'Throughput & CI health', run: () => headlineSection(now) },
         { name: 'CI speed', run: () => ciSpeedSection(now) },
-        { name: 'Master failures', run: () => masterFailuresSection(now) },
-        { name: 'Quarantine', run: quarantineSection },
     ]
     const results = await Promise.allSettled(sections.map((s) => s.run()))
     let succeeded = 0
