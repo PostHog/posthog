@@ -304,6 +304,7 @@ pub async fn export_datadog_logs_http(
             _ => match query_params.token.as_deref() {
                 Some(t) if !t.is_empty() => t.to_string(),
                 _ => {
+                    crate::service::count_rejection("datadog_logs", "missing_token");
                     error!("No token provided");
                     return Err((
                         StatusCode::UNAUTHORIZED,
@@ -315,6 +316,7 @@ pub async fn export_datadog_logs_http(
     };
 
     if service.token_dropper.should_drop(&token, "") {
+        crate::service::count_rejection("datadog_logs", "token_dropped");
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid token"})),
@@ -323,13 +325,15 @@ pub async fn export_datadog_logs_http(
 
     tracing::Span::current().record("token", &token);
 
-    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)
+        .inspect_err(|_| crate::service::count_rejection("datadog_logs", "decompress_failed"))?;
 
     let logs: Vec<DatadogLog> = match serde_json::from_slice::<Vec<DatadogLog>>(&body) {
         Ok(logs) => logs,
         Err(_) => match serde_json::from_slice::<DatadogLog>(&body) {
             Ok(log) => vec![log],
             Err(e) => {
+                crate::service::count_rejection("datadog_logs", "decode_failed");
                 error!("Failed to parse Datadog logs: {}", e);
                 return Err((
                     StatusCode::BAD_REQUEST,
@@ -352,12 +356,14 @@ pub async fn export_datadog_logs_http(
         .write(&token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
+        crate::service::count_rejection("datadog_logs", "kafka_error");
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        crate::service::count_ingested_records("datadog_logs", row_count as u64);
         debug!("Successfully sent {} Datadog logs to Kafka", row_count);
     }
 

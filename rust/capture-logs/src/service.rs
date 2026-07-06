@@ -352,6 +352,21 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
+/// Rejections counted by reason at the moment a request is refused — the edge is
+/// the only stage that can see traffic which never reaches Kafka, so this is the
+/// first stop for "my logs aren't showing up".
+pub(crate) fn count_rejection(endpoint: &'static str, reason: &'static str) {
+    metrics::counter!("capture_logs_rejections_total", "endpoint" => endpoint, "reason" => reason)
+        .increment(1);
+}
+
+/// Records accepted and handed to Kafka, per endpoint — the wire-truth volume
+/// before any downstream drop rules or quotas apply.
+pub(crate) fn count_ingested_records(endpoint: &'static str, records: u64) {
+    metrics::counter!("capture_logs_records_ingested_total", "endpoint" => endpoint)
+        .increment(records);
+}
+
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     content_type = %headers.get("content-type")
@@ -375,6 +390,7 @@ pub async fn export_logs_http(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     // The project token must be passed in as a Bearer token in the Authorization header
     if !headers.contains_key("Authorization") && query_params.token.is_none() {
+        count_rejection("logs", "missing_token");
         error!("No token provided");
         return Err((
             StatusCode::UNAUTHORIZED,
@@ -391,6 +407,7 @@ pub async fn export_logs_http(
         {
             Some(token) if !token.is_empty() => token,
             _ => {
+                count_rejection("logs", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -402,6 +419,7 @@ pub async fn export_logs_http(
         match query_params.token {
             Some(ref token) if !token.is_empty() => token,
             _ => {
+                count_rejection("logs", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -411,6 +429,7 @@ pub async fn export_logs_http(
         }
     };
     if service.token_dropper.should_drop(token, "") {
+        count_rejection("logs", "token_dropped");
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": format!("Invalid token")})),
@@ -419,7 +438,8 @@ pub async fn export_logs_http(
 
     tracing::Span::current().record("token", token);
 
-    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)
+        .inspect_err(|_| count_rejection("logs", "decompress_failed"))?;
 
     // Try to decode as Protobuf, if this fails, try JSON.
     // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.
@@ -428,6 +448,7 @@ pub async fn export_logs_http(
         Err(proto_err) => match parse_otel_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
+                count_rejection("logs", "decode_failed");
                 // Write last failed event to a file
                 // To make this super simple, we literally write a single event to /tmp/last_failed_event.txt
                 //
@@ -463,6 +484,7 @@ pub async fn export_logs_http(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
+                        count_rejection("logs", "invalid_record");
                         error!("Failed to create LogRow: {e}");
                         return Err((
                             StatusCode::BAD_REQUEST,
@@ -484,12 +506,14 @@ pub async fn export_logs_http(
         .write(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
+        count_rejection("logs", "kafka_error");
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Internal server error")})),
         ));
     } else {
+        count_ingested_records("logs", row_count as u64);
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
@@ -564,6 +588,7 @@ pub async fn export_traces_http(
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if !headers.contains_key("Authorization") && query_params.token.is_none() {
+        count_rejection("traces", "missing_token");
         error!("No token provided");
         return Err((
             StatusCode::UNAUTHORIZED,
@@ -580,6 +605,7 @@ pub async fn export_traces_http(
         {
             Some(token) if !token.is_empty() => token,
             _ => {
+                count_rejection("traces", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -591,6 +617,7 @@ pub async fn export_traces_http(
         match query_params.token {
             Some(ref token) if !token.is_empty() => token,
             _ => {
+                count_rejection("traces", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -601,6 +628,7 @@ pub async fn export_traces_http(
     };
 
     if service.token_dropper.should_drop(token, "") {
+        count_rejection("traces", "token_dropped");
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid token"})),
@@ -609,13 +637,15 @@ pub async fn export_traces_http(
 
     tracing::Span::current().record("token", token);
 
-    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)
+        .inspect_err(|_| count_rejection("traces", "decompress_failed"))?;
 
     let export_request = match ExportTraceServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
         Err(proto_err) => match parse_otel_traces_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
+                count_rejection("traces", "decode_failed");
                 if let Err(e) =
                     File::create("/tmp/last_failed_trace_event.txt").and_then(|mut file| {
                         file.write_all(token.as_bytes())
@@ -650,6 +680,7 @@ pub async fn export_traces_http(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
+                        count_rejection("traces", "invalid_record");
                         error!("Failed to create TraceRow: {e}");
                         return Err((
                             StatusCode::BAD_REQUEST,
@@ -671,12 +702,14 @@ pub async fn export_traces_http(
         .write_traces(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
+        count_rejection("traces", "kafka_error");
         error!("Failed to send traces to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        count_ingested_records("traces", row_count as u64);
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
 
@@ -741,6 +774,7 @@ pub async fn export_metrics_http(
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if !headers.contains_key("Authorization") && query_params.token.is_none() {
+        count_rejection("metrics", "missing_token");
         error!("No token provided");
         return Err((
             StatusCode::UNAUTHORIZED,
@@ -757,6 +791,7 @@ pub async fn export_metrics_http(
         {
             Some(token) if !token.is_empty() => token,
             _ => {
+                count_rejection("metrics", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -768,6 +803,7 @@ pub async fn export_metrics_http(
         match query_params.token {
             Some(ref token) if !token.is_empty() => token,
             _ => {
+                count_rejection("metrics", "missing_token");
                 error!("No token provided");
                 return Err((
                     StatusCode::UNAUTHORIZED,
@@ -778,6 +814,7 @@ pub async fn export_metrics_http(
     };
 
     if service.token_dropper.should_drop(token, "") {
+        count_rejection("metrics", "token_dropped");
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid token"})),
@@ -786,13 +823,15 @@ pub async fn export_metrics_http(
 
     tracing::Span::current().record("token", token);
 
-    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)
+        .inspect_err(|_| count_rejection("metrics", "decompress_failed"))?;
 
     let export_request = match ExportMetricsServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
         Err(proto_err) => match parse_otel_metrics_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
+                count_rejection("metrics", "decode_failed");
                 if let Err(e) =
                     File::create("/tmp/last_failed_metric_event.txt").and_then(|mut file| {
                         file.write_all(token.as_bytes())
@@ -828,6 +867,7 @@ pub async fn export_metrics_http(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
+                        count_rejection("metrics", "invalid_record");
                         error!("Failed to flatten metric: {e}");
                         return Err((
                             StatusCode::BAD_REQUEST,
@@ -847,12 +887,14 @@ pub async fn export_metrics_http(
         .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
+        count_rejection("metrics", "kafka_error");
         error!("Failed to send metrics to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        count_ingested_records("metrics", row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count
@@ -898,5 +940,130 @@ mod tests {
         let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
 
         assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+}
+
+#[cfg(test)]
+mod rejection_metrics_tests {
+    use super::*;
+    use crate::internal_metrics::InternalMetricsRecorder;
+    use crate::kafka::KafkaSink;
+    use std::collections::HashMap;
+
+    async fn test_service(drop_tokens: &str) -> Service {
+        Service {
+            sink: KafkaSink::for_tests().await,
+            token_dropper: Arc::new(TokenDropper::new(drop_tokens)),
+            max_request_body_size_bytes: 2 * 1024 * 1024,
+        }
+    }
+
+    fn drained(recorder: &InternalMetricsRecorder) -> HashMap<(String, String, String), f64> {
+        recorder
+            .drain_rows(&HashMap::new())
+            .into_iter()
+            .map(|row| {
+                (
+                    (
+                        row.metric_name.clone(),
+                        row.attributes.get("endpoint").cloned().unwrap_or_default(),
+                        row.attributes.get("reason").cloned().unwrap_or_default(),
+                    ),
+                    row.value,
+                )
+            })
+            .collect()
+    }
+
+    // The edge is the only stage that sees rejected traffic; if a rejection
+    // branch stops counting (or mislabels its reason), "where did my logs go"
+    // incidents lose their first diagnostic. Each case drives a real handler.
+    #[test]
+    fn rejection_branches_count_endpoint_and_reason() {
+        let recorder = InternalMetricsRecorder::new();
+        metrics::with_local_recorder(&recorder, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                let service = test_service("dropped-token").await;
+
+                // missing token -> 401
+                let res = export_logs_http(
+                    State(service.clone()),
+                    Query(QueryParams { token: None }),
+                    HeaderMap::new(),
+                    Bytes::new(),
+                )
+                .await;
+                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+                // dropped token -> 401
+                let mut headers = HeaderMap::new();
+                headers.insert("Authorization", "Bearer dropped-token".parse().unwrap());
+                let res = export_logs_http(
+                    State(service.clone()),
+                    Query(QueryParams { token: None }),
+                    headers.clone(),
+                    Bytes::new(),
+                )
+                .await;
+                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+                // undecodable body with a valid token -> 400
+                let mut ok_headers = HeaderMap::new();
+                ok_headers.insert("Authorization", "Bearer good-token".parse().unwrap());
+                let res = export_logs_http(
+                    State(service.clone()),
+                    Query(QueryParams { token: None }),
+                    ok_headers.clone(),
+                    Bytes::from_static(b"not otlp at all"),
+                )
+                .await;
+                assert_eq!(res.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+                // same taxonomy fires per-endpoint: traces + metrics missing token
+                let res = export_traces_http(
+                    State(service.clone()),
+                    Query(QueryParams { token: None }),
+                    HeaderMap::new(),
+                    Bytes::new(),
+                )
+                .await;
+                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
+                let res = export_metrics_http(
+                    State(service.clone()),
+                    Query(QueryParams { token: None }),
+                    HeaderMap::new(),
+                    Bytes::new(),
+                )
+                .await;
+                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
+            });
+        });
+
+        let counts = drained(&recorder);
+        let rej = "capture_logs_rejections_total".to_string();
+        assert_eq!(
+            counts[&(rej.clone(), "logs".into(), "missing_token".into())],
+            1.0
+        );
+        assert_eq!(
+            counts[&(rej.clone(), "logs".into(), "token_dropped".into())],
+            1.0
+        );
+        assert_eq!(
+            counts[&(rej.clone(), "logs".into(), "decode_failed".into())],
+            1.0
+        );
+        assert_eq!(
+            counts[&(rej.clone(), "traces".into(), "missing_token".into())],
+            1.0
+        );
+        assert_eq!(
+            counts[&(rej, "metrics".into(), "missing_token".into())],
+            1.0
+        );
     }
 }
