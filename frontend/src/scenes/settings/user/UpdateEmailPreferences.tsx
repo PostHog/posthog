@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { NotificationSettings, OrganizationBasicType } from '~/types'
 
-import { notificationProjectsLogic } from './notificationProjectsLogic'
+import { NotificationProjectOrgGroup, notificationProjectsLogic } from './notificationProjectsLogic'
 import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
@@ -65,9 +65,23 @@ function ProjectDigestSelector({
     const { userLoading } = useValues(userLogic)
     const { projects, projectsLoading, projectsByOrganization, allProjectIds } = useValues(notificationProjectsLogic)
     const [expanded, setExpanded] = useState(true)
+    // Orgs default to expanded; an entry set to true means the user collapsed that org.
+    const [collapsedOrgs, setCollapsedOrgs] = useState<Record<string, boolean>>({})
 
-    // Only surface the organization each project belongs to when there's more than one to disambiguate.
-    const showOrganization = projectsByOrganization.length > 1
+    // Aggregate the enabled state of an organization's projects to drive its checkbox.
+    const orgSelectionState = (group: NotificationProjectOrgGroup): 'on' | 'off' | 'partial' => {
+        const enabledCount = group.projects.filter((project) => !isTeamDisabled(project.id)).length
+        if (enabledCount === 0) {
+            return 'off'
+        }
+        if (enabledCount === group.projects.length) {
+            return 'on'
+        }
+        return 'partial'
+    }
+
+    const allEnabled = allProjectIds.every((id) => !isTeamDisabled(id))
+    const allDisabled = allProjectIds.every((id) => isTeamDisabled(id))
 
     return (
         <div>
@@ -92,11 +106,12 @@ function ProjectDigestSelector({
                     ) : projects.length === 0 ? (
                         <p className="text-muted text-sm">No projects found in your organizations.</p>
                     ) : (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-3">
                             <div className="flex flex-row items-center gap-4">
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
+                                    disabled={userLoading || allEnabled}
                                     onClick={() => onToggleAllTeams(allProjectIds, true)}
                                 >
                                     Enable for all projects
@@ -104,39 +119,77 @@ function ProjectDigestSelector({
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
+                                    disabled={userLoading || allDisabled}
                                     onClick={() => onToggleAllTeams(allProjectIds, false)}
                                 >
                                     Disable for all projects
                                 </LemonButton>
                             </div>
 
-                            {projectsByOrganization.map((group) => (
-                                <div key={group.organizationId} className="flex flex-col gap-2">
-                                    {showOrganization && <span className="font-medium">{group.organizationName}</span>}
-                                    <div
-                                        className={
-                                            showOrganization ? 'ml-4 flex flex-col gap-2' : 'flex flex-col gap-2'
-                                        }
-                                    >
-                                        {group.projects.map((project) => (
-                                            <LemonCheckbox
-                                                key={`${keyPrefix}-${project.id}`}
-                                                id={`${keyPrefix}-${project.id}`}
-                                                data-attr={`${dataAttrPrefix}_${project.id}`}
-                                                onChange={(checked) => onToggleTeam(project.id, checked)}
-                                                checked={!isTeamDisabled(project.id)}
-                                                disabled={userLoading}
-                                                label={
-                                                    <div className="flex items-center gap-2">
-                                                        <span>{project.name}</span>
-                                                        <LemonTag type="muted">id: {project.id.toString()}</LemonTag>
-                                                    </div>
-                                                }
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
+                            <div className="space-y-2">
+                                {projectsByOrganization.map((group) => {
+                                    const orgState = orgSelectionState(group)
+                                    const isOpen = collapsedOrgs[group.organizationId] !== true
+                                    const orgProjectIds = group.projects.map((project) => project.id)
+                                    return (
+                                        <div key={group.organizationId}>
+                                            <div className="flex items-center gap-2">
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="tertiary"
+                                                    icon={
+                                                        <IconChevronRight
+                                                            className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                                        />
+                                                    }
+                                                    onClick={() =>
+                                                        setCollapsedOrgs((prev) => ({
+                                                            ...prev,
+                                                            [group.organizationId]: isOpen,
+                                                        }))
+                                                    }
+                                                />
+                                                <LemonCheckbox
+                                                    id={`${keyPrefix}-org-${group.organizationId}`}
+                                                    data-attr={`${dataAttrPrefix}_org_${group.organizationId}`}
+                                                    checked={
+                                                        orgState === 'partial' ? 'indeterminate' : orgState === 'on'
+                                                    }
+                                                    disabled={userLoading}
+                                                    onChange={() => onToggleAllTeams(orgProjectIds, orgState === 'off')}
+                                                    label={
+                                                        <span className="font-semibold">{group.organizationName}</span>
+                                                    }
+                                                />
+                                            </div>
+                                            {isOpen && (
+                                                <div className="ml-10 mt-1 space-y-1">
+                                                    {group.projects.map((project) => (
+                                                        <LemonCheckbox
+                                                            key={`${keyPrefix}-${project.id}`}
+                                                            id={`${keyPrefix}-${project.id}`}
+                                                            data-attr={`${dataAttrPrefix}_${project.id}`}
+                                                            onChange={(checked) => onToggleTeam(project.id, checked)}
+                                                            checked={!isTeamDisabled(project.id)}
+                                                            disabled={userLoading}
+                                                            label={
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-muted font-normal">
+                                                                        {project.name}
+                                                                    </span>
+                                                                    <LemonTag type="muted">
+                                                                        id: {project.id.toString()}
+                                                                    </LemonTag>
+                                                                </div>
+                                                            }
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>
