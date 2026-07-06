@@ -115,6 +115,8 @@ Output rules:
   timezone math. Use the provided literals verbatim, even when the prompt names a relative period
   ("today", "this week"); the bounds already encode it. For sub-windows inside the range (e.g. day-over-day
   within the window), bucket with `toStartOfDay(timestamp)` etc., but keep the outer filter on the literals.
+  The one exception is period-over-period growth ("vs last week/yesterday"), which may read back to the
+  "Previous-period start" literal `<compare_start>` — see the growth reference pattern below.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
 
@@ -170,6 +172,23 @@ Hourly distribution to spot spikes:
   WHERE event = '$pageview' AND timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
   GROUP BY hour
   ORDER BY hour
+
+Period-over-period growth (the window vs the equal-length period before it — "this week vs last
+week" for a weekly report, "today vs yesterday" for a daily one). This is the ONLY case that reads
+data before `<start>`: filter the wider `[<compare_start>, <end>)` range and split at `<start>` with
+conditional aggregation. `<compare_start>` is the "Previous-period start" literal from
+<project_context>. Still never `now()`:
+  SELECT
+    event,
+    countIf(timestamp >= toDateTime('<start>')) AS current,
+    countIf(timestamp <  toDateTime('<start>')) AS previous,
+    (current - previous) / nullIf(previous, 0) AS growth_rate
+  FROM events
+  WHERE timestamp >= toDateTime('<compare_start>') AND timestamp < toDateTime('<end>')
+  GROUP BY event
+  HAVING previous > 0 OR current > 0
+  ORDER BY growth_rate DESC
+  LIMIT 50
 
 Events with no data: do NOT write a query for this. The events table only contains events that
 fired, so it cannot enumerate zero-data events. The set of events defined in the project but with

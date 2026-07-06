@@ -234,6 +234,20 @@ class TestComputeReportWindow:
         assert window.start == last
         assert (window.end - window.start) == timedelta(days=10)
 
+    def test_compare_start_is_the_equal_length_prior_period(self) -> None:
+        # Period-over-period reads back exactly the window's own length before start (not window_days),
+        # so a weekly report compares to the prior week and a daily one to the prior day. A 10-day gap
+        # against a 7-day cadence proves it tracks the real window, not the default; a sign/length
+        # regression here silently compares growth against the wrong baseline.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
+
+        assert (window.start - window.compare_start) == (window.end - window.start)
+        assert window.compare_start == datetime(2026, 6, 9, 16, 0, tzinfo=UTC)
+        assert window.compare_start_literal == "2026-06-09 16:00:00"
+
     def test_falls_back_to_window_days_without_prior_delivery(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
@@ -303,6 +317,12 @@ class TestContextBlob(APIBaseTest):
         assert (
             f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
             in blob
+        )
+        # The prior-period anchor for period-over-period growth is injected as its own literal, so the
+        # planner never reaches for `now() - INTERVAL` to build a "vs last week" baseline.
+        assert (
+            f"Previous-period start (for period-over-period comparisons only, project timezone): "
+            f"{window.compare_start_literal}" in blob
         )
         # The relative "last N day(s)" phrasing the planner used to do tz math against is gone.
         assert "Suggested analysis window" not in blob

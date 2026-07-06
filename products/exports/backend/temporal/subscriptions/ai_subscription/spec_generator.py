@@ -80,6 +80,10 @@ class ReportWindow:
     both the planner context and the query filter. HogQL resolves a bare datetime literal against the
     project timezone, so the offset is implied; this also keeps the filter on the stricter, faster
     `toDateTime` path rather than the best-effort parser an offset suffix would force.
+
+    `compare_start` is the equal-length period immediately before the window, so a period-over-period
+    query filters the wider `[compare_start, end)` range and splits at `start`. It's cadence-relative
+    for free: a daily window compares today to yesterday, a weekly one this week to last week.
     """
 
     start: datetime
@@ -92,6 +96,14 @@ class ReportWindow:
     @property
     def end_literal(self) -> str:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def compare_start(self) -> datetime:
+        return self.start - (self.end - self.start)
+
+    @property
+    def compare_start_literal(self) -> str:
+        return self.compare_start.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -307,6 +319,8 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
         f"- Filter timestamps with: timestamp >= toDateTime('{window.start_literal}') "
         f"AND timestamp < toDateTime('{window.end_literal}')",
+        f"- Previous-period start (for period-over-period comparisons only, project timezone): "
+        f"{window.compare_start_literal}",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))
