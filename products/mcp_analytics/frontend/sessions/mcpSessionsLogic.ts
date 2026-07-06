@@ -63,6 +63,36 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
     return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
 }
 
+// A session's loaded tool calls, tagged with which session they belong to and whether more pages
+// exist. Carrying the session id in the value lets the panel tell "the selected session is still
+// loading" from "these are a previous session's calls" with a plain comparison — no separate
+// tracking reducer, and no reliance on the shared loader flag that a concurrent load-more can flip.
+export interface SessionToolCalls {
+    sessionId: string | null
+    calls: MCPToolCallApi[]
+    hasNext: boolean
+}
+
+const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, calls: [], hasNext: false }
+
+// Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
+// untrusted event properties, so encode it — path/query delimiters must not redirect the request to
+// another same-origin endpoint. date_from bounds the scan by the session's start so sessions older
+// than the backend's default lookback still return their calls.
+async function fetchToolCallsPage(
+    projectId: string | number,
+    sessionId: string,
+    sessionStart: string | null | undefined,
+    offset: number
+): Promise<{ calls: MCPToolCallApi[]; hasNext: boolean }> {
+    const response = await mcpAnalyticsSessionsToolCalls(String(projectId), encodeURIComponent(sessionId), {
+        date_from: sessionStart || undefined,
+        limit: TOOL_CALLS_PAGE_SIZE,
+        offset,
+    })
+    return { calls: response.results ?? [], hasNext: response.has_next ?? false }
+}
+
 export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
     connect(() => ({
@@ -79,7 +109,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
-        setToolCallsHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
     loaders(({ values, actions }) => ({
@@ -142,61 +171,41 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             },
         ],
         toolCalls: [
-            [] as MCPToolCallApi[],
+            EMPTY_TOOL_CALLS,
             {
-                // First page for a session. Replaces the list.
+                // First page for a session. Replaces the value, tagged with the session it's for.
                 loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
-                        return []
+                        return EMPTY_TOOL_CALLS
                     }
-                    // session_id comes from untrusted event properties — encode it so path/query
-                    // delimiters can't redirect this request to another same-origin endpoint.
-                    // Pass the session's start as the scan bound so sessions older than the
-                    // backend's default lookback still return their tool calls.
-                    const session = values.sessions.find((s) => s.session_id === sessionId)
-                    const response = await mcpAnalyticsSessionsToolCalls(
-                        String(values.currentProjectId),
-                        encodeURIComponent(sessionId),
-                        { date_from: session?.session_start || undefined, limit: TOOL_CALLS_PAGE_SIZE, offset: 0 }
+                    const page = await fetchToolCallsPage(
+                        values.currentProjectId,
+                        sessionId,
+                        values.selectedSession?.session_start,
+                        0
                     )
                     breakpoint()
-                    actions.setToolCallsHasNext(response.has_next ?? false)
-                    return [...(response.results ?? [])]
+                    return { sessionId, ...page }
                 },
                 // Load more: append the next page at offset = current length.
                 loadMoreToolCalls: async () => {
-                    const sessionId = values.selectedSessionId
+                    const { sessionId, calls } = values.toolCalls
                     if (!values.currentProjectId || !sessionId) {
                         return values.toolCalls
                     }
-                    // Snapshot the list before the await. If the user selects another session while
-                    // this page is in flight, merging against the new session's calls would corrupt
-                    // the list — so offset from the snapshot and drop the page if the selection changed.
-                    const baseCalls = values.toolCalls
-                    const session = values.sessions.find((s) => s.session_id === sessionId)
-                    const response = await mcpAnalyticsSessionsToolCalls(
-                        String(values.currentProjectId),
-                        encodeURIComponent(sessionId),
-                        {
-                            date_from: session?.session_start || undefined,
-                            limit: TOOL_CALLS_PAGE_SIZE,
-                            offset: baseCalls.length,
-                        }
+                    const page = await fetchToolCallsPage(
+                        values.currentProjectId,
+                        sessionId,
+                        values.selectedSession?.session_start,
+                        calls.length
                     )
-                    // Drop the page if the list changed underneath us while it was in flight — a
-                    // session switch (or a switch-and-return) triggers loadToolCalls, which replaces
-                    // toolCalls with a fresh array; appending our stale snapshot then would resurrect
-                    // the previous session's calls. The reference check also catches the X→Y→X case
-                    // that a bare selectedSessionId comparison misses.
-                    if (sessionId !== values.selectedSessionId || values.toolCalls !== baseCalls) {
+                    // If the user switched sessions while this page was loading, drop it — appending
+                    // one session's calls onto another's list would show the wrong data. The backend
+                    // orders by (timestamp, event_id), so pages don't overlap and need no dedupe.
+                    if (sessionId !== values.selectedSessionId) {
                         return values.toolCalls
                     }
-                    actions.setToolCallsHasNext(response.has_next ?? false)
-                    // Dedupe on event_id: offset paging over the backend's non-total timestamp order
-                    // can repeat a row straddling a page boundary, which would also collide React keys.
-                    const seen = new Set(baseCalls.map((call) => call.event_id))
-                    const fresh = (response.results ?? []).filter((call) => !call.event_id || !seen.has(call.event_id))
-                    return [...baseCalls, ...fresh]
+                    return { sessionId, calls: [...calls, ...page.calls], hasNext: page.hasNext }
                 },
             },
         ],
@@ -210,11 +219,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     // session_id comes from untrusted event properties — encode it so path/query
                     // delimiters can't redirect this POST to another same-origin endpoint. Bound the
                     // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
-                    const session = values.sessions.find((s) => s.session_id === sessionId)
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
                         encodeURIComponent(sessionId),
-                        { date_from: session?.session_start || undefined }
+                        { date_from: values.selectedSession?.session_start || undefined }
                     )
                 },
             },
@@ -252,38 +260,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 // Hide "Load more" the moment a reset starts so it isn't shown (disabled,
                 // spinning) during the reset; setHasNext restores it when the page resolves.
                 loadSessions: () => false,
-            },
-        ],
-        toolCallsHasNext: [
-            false,
-            {
-                setToolCallsHasNext: (_, { hasNext }) => hasNext,
-                // Reset when a new session's first page starts loading; setToolCallsHasNext
-                // restores it once that page resolves.
-                loadToolCalls: () => false,
-            },
-        ],
-        // Distinguishes a "Load more" append from the initial per-session load, so the panel
-        // keeps its existing calls (and only the button spins) while the next page fetches.
-        toolCallsLoadingMore: [
-            false,
-            {
-                loadMoreToolCalls: () => true,
-                loadMoreToolCallsSuccess: () => false,
-                loadMoreToolCallsFailure: () => false,
-                loadToolCalls: () => false,
-            },
-        ],
-        // The session whose first page is loading. Drives the skeleton via a session-scoped
-        // selector rather than the shared toolCallsLoading flag — a concurrent "Load more" for a
-        // previously-selected session resolves and flips that shared flag false early, which would
-        // otherwise render the new session's header over the old session's calls.
-        loadingToolCallsSessionId: [
-            null as string | null,
-            {
-                loadToolCalls: (_, sessionId) => sessionId,
-                loadToolCallsSuccess: () => null,
-                loadToolCallsFailure: () => null,
             },
         ],
         intentOverrides: [
@@ -330,13 +306,27 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
                 generatedIntentLoading && generatingSessionId === selectedSessionId,
         ],
-        // True only while the *currently selected* session's first page is loading — decoupled
-        // from the shared toolCallsLoading flag so a concurrent "Load more" for a previously
-        // selected session can't flip it false and flash the wrong session's calls.
-        isSelectedSessionToolCallsLoading: [
-            (s) => [s.loadingToolCallsSessionId, s.selectedSessionId],
-            (loadingToolCallsSessionId, selectedSessionId): boolean =>
-                loadingToolCallsSessionId !== null && loadingToolCallsSessionId === selectedSessionId,
+        // Everything the detail panel needs about the selected session's calls, derived from the
+        // loaded value (tagged with its session) so a previous session's calls never render under
+        // the new session's header. A plain comparison — no shared loader flag a concurrent load
+        // more could flip.
+        selectedSessionToolCalls: [
+            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading],
+            (
+                toolCalls,
+                selectedSessionId,
+                toolCallsLoading
+            ): { calls: MCPToolCallApi[]; hasNext: boolean; loading: boolean; loadingMore: boolean } => {
+                const isCurrent = toolCalls.sessionId === selectedSessionId
+                return {
+                    calls: isCurrent ? toolCalls.calls : [],
+                    hasNext: isCurrent && toolCalls.hasNext,
+                    // First page still loading: the loaded value isn't for the selected session yet.
+                    loading: selectedSessionId !== null && !isCurrent,
+                    // A "Load more" append is in flight for the session already on screen.
+                    loadingMore: isCurrent && toolCallsLoading,
+                }
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

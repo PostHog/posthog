@@ -45,7 +45,7 @@ describe('mcpSessionsLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.selectSession('A')
         }).toDispatchActions(['loadToolCallsSuccess'])
-        expect(logic.values.toolCalls.map((c) => c.event_id)).toEqual(['a1'])
+        expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['a1'])
 
         // "Load more" for A is dispatched but held in flight.
         let resolveAMore: (value: any) => void = () => {}
@@ -60,14 +60,14 @@ describe('mcpSessionsLogic', () => {
             logic.actions.selectSession('B')
         }).toDispatchActions(['loadToolCalls'])
         expect(logic.values.selectedSessionId).toBe('B')
-        expect(logic.values.isSelectedSessionToolCallsLoading).toBe(true)
+        expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
 
         // A's load-more finally resolves. It must neither merge into B's list nor drop B's skeleton.
         await expectLogic(logic, () => {
             resolveAMore({ results: [toolCall('a2')], has_next: false })
         }).toDispatchActions(['loadMoreToolCallsSuccess'])
 
-        expect(logic.values.isSelectedSessionToolCallsLoading).toBe(true)
-        expect(logic.values.toolCalls.map((c) => c.event_id)).not.toContain('a2')
+        expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
+        expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
     })
 })

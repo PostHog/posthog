@@ -20,15 +20,8 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 }
 
 export function MCPSessionDetail(): JSX.Element {
-    const {
-        selectedSession,
-        toolCalls,
-        isSelectedSessionToolCallsLoading,
-        toolCallsHasNext,
-        toolCallsLoadingMore,
-        selectedSessionIntent,
-        isSelectedSessionGenerating,
-    } = useValues(mcpSessionsLogic)
+    const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
+        useValues(mcpSessionsLogic)
     const { generateIntent, loadMoreToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
@@ -46,10 +39,9 @@ export function MCPSessionDetail(): JSX.Element {
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
         : selectedSession.distinct_id || 'unknown'
 
-    // Skeleton the panel only while the *selected* session's first page loads; a "Load more"
-    // append keeps the existing calls and spins just the button. Scoped to the selected session
-    // so a concurrent load-more for a previous session can't drop the skeleton early.
-    const loading = isSelectedSessionToolCallsLoading
+    // The panel's view of the selected session's calls: the list, whether more pages exist, whether
+    // the first page is still loading (skeleton), and whether a "Load more" append is in flight.
+    const { calls: toolCalls, hasNext, loading, loadingMore } = selectedSessionToolCalls
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -191,16 +183,16 @@ export function MCPSessionDetail(): JSX.Element {
                                 </li>
                             ))}
                         </ol>
-                        {toolCallsHasNext ? (
+                        {hasNext ? (
                             <div className="flex justify-center pt-2" data-quill>
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => loadMoreToolCalls()}
-                                    disabled={toolCallsLoadingMore}
+                                    disabled={loadingMore}
                                     data-attr="mcp-session-load-more-tool-calls"
                                 >
-                                    {toolCallsLoadingMore ? <Spinner /> : null}
+                                    {loadingMore ? <Spinner /> : null}
                                     Load more
                                 </Button>
                             </div>
