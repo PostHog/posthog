@@ -240,6 +240,9 @@ class TestPgCDCStreamReaderConfirmPosition:
             reader.confirm_position("0/1234ABCD")
 
         assert cur.execute.call_count == 2
+        # The failed advance aborts the transaction, so the retry must reset it first or real
+        # psycopg raises InFailedSqlTransaction.
+        conn.rollback.assert_called_once()
         conn.commit.assert_called_once()
         conn.close.assert_called_once()
 
