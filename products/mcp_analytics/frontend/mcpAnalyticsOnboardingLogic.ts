@@ -7,6 +7,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { HogQLQueryResponse, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { mcpAnalyticsOnboardingLogicType } from './mcpAnalyticsOnboardingLogicType'
+import { asNumber } from './queryResultParsers'
 
 export type MCPOnboardingState = 'not-instrumented' | 'connected-no-calls' | 'onboarded'
 
@@ -43,7 +44,7 @@ export interface MCPOnboardingSignals {
 // the activity/metrics stage gate. Deliberately no `properties.*` access: event-name +
 // timestamp filters hit the events sort key, so this stays cheap even on projects
 // with millions of MCP events — property-derived stats live in mcpEarlyDataLogic,
-// which only mounts when volume is known to be small.
+// whose queries are time-bounded.
 const ONBOARDING_SIGNAL_QUERY = `
 SELECT
     countIf(event = '$mcp_initialize') > 0 AS has_initialize,
@@ -83,9 +84,6 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 )) as HogQLQueryResponse
                 breakpoint()
                 const row = (response?.results?.[0] as unknown[] | undefined) ?? []
-                // ClickHouse returns booleans as 0/1 and counts possibly stringified; coerce
-                // numerically so a stringified "0" can never read as truthy.
-                const asNumber = (value: unknown): number => Number(value) || 0
                 const toolCallsTotal = asNumber(row[1])
                 return {
                     hasInitialize: asNumber(row[0]) > 0,

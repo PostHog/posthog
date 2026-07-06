@@ -7,6 +7,7 @@ import { ExplorerHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { urls } from 'scenes/urls'
 
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
@@ -35,11 +36,12 @@ function guessHarnessLabel(clientName: string): string {
 }
 
 /**
- * The dashboard's activity stage: answers "what are agents doing with my
- * server?" for projects below the metrics-unlock volume. A plain-language
- * summary instead of KPI tiles, the live feed as the hero, verbatim agent
- * intents, and an instrumentation checklist. Everything is all-time rather
- * than windowed and refreshes live — windowed metrics would be noise here.
+ * The Activity tab: answers "what are agents doing with my server?" — a
+ * plain-language summary instead of KPI tiles, the live feed as the hero, an
+ * AI digest of agent intents, and an instrumentation checklist. It refreshes
+ * live and is the default landing tab for low-volume projects, where the
+ * windowed metrics dashboard would be noise; higher-volume projects land on
+ * the Dashboard tab but can always come here for recency.
  */
 export function MCPAnalyticsActivityDashboard(): JSX.Element {
     return (
@@ -60,7 +62,7 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 }
 
 function SummaryCard(): JSX.Element {
-    const { signals } = useValues(mcpAnalyticsOnboardingLogic)
+    const { signals, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { summary, isRefreshing } = useValues(mcpEarlyDataLogic)
     const { refreshAll } = useActions(mcpEarlyDataLogic)
 
@@ -83,8 +85,15 @@ function SummaryCard(): JSX.Element {
                             ) : null}
                         </h3>
                         <p className="text-muted text-base m-0 mt-1">
-                            This view fills in live as agents use your server. Metrics and trends unlock as usage grows
-                            (~{formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
+                            This view fills in live as agents use your server.
+                            {dashboardStage === 'activity' ? (
+                                <>
+                                    {' '}
+                                    Charts and trends live in the{' '}
+                                    <Link to={urls.mcpAnalyticsDashboard()}>Dashboard tab</Link> — they get meaningful
+                                    as usage grows (~{formatNumber(METRICS_UNLOCK_LIFETIME_CALLS)} calls).
+                                </>
+                            ) : null}
                         </p>
                     </div>
                 </div>
@@ -107,7 +116,7 @@ function LiveActivityCard(): JSX.Element {
     const { recentCalls, recentCallsLoading } = useValues(mcpEarlyDataLogic)
 
     return (
-        <Card title="Live activity" contentClassName="p-0">
+        <Card title="Live activity" className="h-full" contentClassName="p-0">
             {/* Roughly the top 10 rows visible; the rest scroll. */}
             <div className="max-h-[36rem] overflow-y-auto">
                 <LemonTable<EarlyRecentCall>

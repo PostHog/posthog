@@ -35,6 +35,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         // Define routes here
+        '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
@@ -47,6 +48,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         // Define URL helpers here
+        mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',

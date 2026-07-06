@@ -162,7 +162,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # intent summary, so it maps to the write scope. The default read/write action lists don't
     # cover custom @action names, so APIScopePermission would otherwise reject token access.
     scope_object_read_actions = ["list", "retrieve", "tool_calls"]
-    scope_object_write_actions = ["generate_intent"]
+    scope_object_write_actions = ["generate_intent", "intent_digest"]
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination

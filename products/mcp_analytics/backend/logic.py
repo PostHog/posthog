@@ -349,8 +349,8 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0)
 
-    corpus_hash = hashlib.sha1("\n".join(intents).encode()).hexdigest()
-    cache_key = generate_cache_key(f"mcp_intent_digest/{team.pk}/{corpus_hash}")
+    corpus_hash = hashlib.sha256("\n".join(intents).encode()).hexdigest()
+    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest/{corpus_hash}")
     cached = cache.get(cache_key)
     if cached:
         return contracts.IntentDigest(digest=cached, intent_count=len(intents))

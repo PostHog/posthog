@@ -8,6 +8,7 @@ import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsSessionsIntentDigest } from '../generated/api'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
+import { asNumber, asOptionalString } from '../queryResultParsers'
 import { buildActivitySummary } from './activitySummary'
 import { ChecklistItem, EarlyStats, buildChecklist } from './earlyDataChecklist'
 import type { mcpEarlyDataLogicType } from './mcpEarlyDataLogicType'
@@ -57,9 +58,11 @@ const EMPTY_STATS: EarlyStats = {
 }
 
 // These queries read `properties.*`, which decompresses the properties column for every
-// matching row — affordable here only because this logic mounts exclusively in early
-// mode, where lifetime volume is below the graduation threshold by definition. Windows
-// are deliberately all-time: a server with 40 calls last month should still show them.
+// matching row. The activity tab is reachable at any volume, so every aggregate is
+// bounded to 90 days — effectively all-time for the low-volume servers the tab is for,
+// and a hard cap on the scan for high-volume projects that open it.
+const ACTIVITY_WINDOW_SQL = 'timestamp >= now() - INTERVAL 90 DAY'
+
 const EARLY_STATS_QUERY = `
 SELECT
     countIf(event = '$mcp_tool_call') AS total_calls,
@@ -70,7 +73,7 @@ SELECT
     countIf(event = '$mcp_tool_call' AND toString(properties.$mcp_is_error) IN ('true', '1')) AS error_calls,
     countIf(event = '$mcp_missing_capability') AS missing_capability_reports
 FROM events
-WHERE event IN ('$mcp_tool_call', '$mcp_missing_capability')
+WHERE event IN ('$mcp_tool_call', '$mcp_missing_capability') AND ${ACTIVITY_WINDOW_SQL}
 `
 
 const TOP_TOOLS_QUERY = `
@@ -79,7 +82,7 @@ SELECT
     count() AS calls,
     countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
 FROM events
-WHERE event = '$mcp_tool_call' AND properties.$mcp_tool_name IS NOT NULL
+WHERE event = '$mcp_tool_call' AND properties.$mcp_tool_name IS NOT NULL AND ${ACTIVITY_WINDOW_SQL}
 GROUP BY tool
 ORDER BY calls DESC
 LIMIT 5
@@ -90,7 +93,7 @@ SELECT
     properties.$mcp_client_name AS client,
     count() AS calls
 FROM events
-WHERE event = '$mcp_tool_call'
+WHERE event = '$mcp_tool_call' AND ${ACTIVITY_WINDOW_SQL}
 GROUP BY client
 ORDER BY calls DESC
 LIMIT 6
@@ -106,7 +109,7 @@ SELECT
     toFloat(properties.$mcp_duration_ms) AS duration_ms,
     properties.$mcp_client_name AS client_name
 FROM events
-WHERE event = '$mcp_tool_call'
+WHERE event = '$mcp_tool_call' AND ${ACTIVITY_WINDOW_SQL}
 ORDER BY timestamp DESC
 LIMIT 20
 `
@@ -123,9 +126,6 @@ async function runQuery(query: string): Promise<unknown[][]> {
     )) as HogQLQueryResponse
     return (response?.results as unknown[][] | undefined) ?? []
 }
-
-const asNumber = (value: unknown): number => Number(value) || 0
-const asOptionalString = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
 
 // Tool responses are MCP content envelopes; pull out the human-readable text.
 const extractErrorMessage = (raw: unknown): string | null => {

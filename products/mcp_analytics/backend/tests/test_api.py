@@ -441,6 +441,40 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert [c.tool_name for c in page.results] == ["before_window", "in_window"]
 
 
+class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _seed_intent_event(self, intent: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=datetime.now(tz=UTC),
+            properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", "$mcp_intent": intent},
+        )
+
+    def test_no_intents_returns_null_digest_without_llm(self) -> None:
+        with patch.object(intent_generation, "summarize_project_intents") as mock_summarize:
+            result = api.generate_intent_digest(self.team)
+
+        assert result == contracts.IntentDigest(digest=None, intent_count=0)
+        mock_summarize.assert_not_called()
+
+    def test_generates_then_serves_from_cache_for_same_corpus(self) -> None:
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        self._seed_intent_event("compare to last week")
+
+        with patch.object(
+            intent_generation, "summarize_project_intents", return_value="Signup funnel investigation."
+        ) as mock_summarize:
+            first = api.generate_intent_digest(self.team)
+            again = api.generate_intent_digest(self.team)
+
+        assert first.digest == "Signup funnel investigation."
+        assert first.intent_count == 2
+        assert again == first
+        mock_summarize.assert_called_once()
+
+
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
