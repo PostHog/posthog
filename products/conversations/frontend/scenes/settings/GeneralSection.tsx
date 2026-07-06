@@ -31,7 +31,7 @@ export function GeneralSection(): JSX.Element {
                 className="my-8"
                 description={
                     isEnabled
-                        ? 'Master switch, authorized domains, and credentials shared across every support channel.'
+                        ? 'Master switch, channel setup, authorized domains, and credentials shared across every support channel.'
                         : 'Triage, assign, and automate support across in-app widget, email, Slack, Microsoft Teams, and direct API.'
                 }
             >
