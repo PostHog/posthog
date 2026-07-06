@@ -149,6 +149,11 @@ def _resolve_account(team_id: int, account_id: str | None = None, external_id: s
         return None
 
 
+def count_accounts(team_id: int) -> int:
+    """Number of accounts the team has — a cheap data-readiness probe for other products."""
+    return Account.objects.for_team(team_id).count()
+
+
 def search_accounts(
     team_id: int, query: str, user_access_control: "UserAccessControl", limit: int
 ) -> tuple[list[contracts.AccountRef], int]:

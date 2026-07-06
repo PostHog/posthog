@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
@@ -62,6 +63,7 @@ from products.slack_app.backend.api import (
 )
 from products.slack_app.backend.views import (
     slack_app_command_handler,
+    slack_mcp_connected,
     slack_user_link_authorize,
     slack_user_link_callback,
 )
@@ -196,6 +198,26 @@ def integration_connect_redirect(request: HttpRequest, kind: str) -> HttpRespons
     )
     authorize_url = "/api/environments/{}/integrations/authorize/?{}".format(
         project_id, urlencode({"kind": kind, "next": next_path})
+    )
+    return HttpResponseRedirect(authorize_url)
+
+
+def mcp_connect_redirect(request: HttpRequest, template_id: uuid.UUID) -> HttpResponse:
+    """Login-gated entry point for connecting an MCP store server from a Slack message.
+    Bounces into the mcp_store authorize endpoint with a same-origin return URL so the user
+    lands back in Slack after the provider OAuth (see ``slack_mcp_connected``). The callback
+    URL is constructed internally (never taken from the query) so this can't be used as an
+    open redirect; ``state`` is an opaque signed token the return endpoint verifies."""
+    project_id = request.GET.get("project_id") or getattr(request.user, "current_team_id", None)
+    if not project_id or not str(project_id).isdigit():
+        return HttpResponse("Missing or invalid project_id", status=400)
+    state = request.GET.get("state", "")
+    if not state:
+        return HttpResponse("Missing state", status=400)
+    callback_url = "{}/integrations/slack/mcp-connected/?{}".format(settings.SITE_URL, urlencode({"state": state}))
+    authorize_url = "/api/environments/{}/mcp_server_installations/authorize/?{}".format(
+        project_id,
+        urlencode({"template_id": template_id, "install_source": "slack", "posthog_code_callback_url": callback_url}),
     )
     return HttpResponseRedirect(authorize_url)
 
@@ -422,6 +444,8 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
+    path("integrations/connect-mcp/<uuid:template_id>/", login_required(mcp_connect_redirect)),
+    path("integrations/slack/mcp-connected/", slack_mcp_connected, name="slack_mcp_connected"),
     path(
         "shared_dashboard/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),

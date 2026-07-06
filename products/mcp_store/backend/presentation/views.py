@@ -116,9 +116,14 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_posthog_code_callback_url(url: str) -> bool:
-    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a post-OAuth callback URL is safe to redirect to (prevents open redirect):
+    a first-party desktop deep link, or a same-origin URL (the Slack flow returns through a
+    PostHog endpoint that bounces the user back into Slack)."""
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
+        return True
+    site = urlparse(settings.SITE_URL)
+    if parsed.scheme == site.scheme and parsed.netloc and parsed.netloc == site.netloc:
         return True
     if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
@@ -295,10 +300,20 @@ class InstallTemplateSerializer(serializers.Serializer):
 
 class AuthorizeQuerySerializer(serializers.Serializer):
     # Exactly one of template_id / installation_id must be provided.
-    template_id = serializers.UUIDField(required=False)
-    installation_id = serializers.UUIDField(required=False)
-    install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
-    posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    template_id = serializers.UUIDField(required=False, help_text="Catalog template to (re)connect.")
+    installation_id = serializers.UUIDField(required=False, help_text="Existing installation to reconnect.")
+    install_source = serializers.ChoiceField(
+        choices=["posthog", "posthog-code", "slack"],
+        required=False,
+        default="posthog",
+        help_text="Surface the connect flow started from; decides where the user lands after OAuth.",
+    )
+    posthog_code_callback_url = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Post-OAuth return URL for posthog-code (deep link) or slack (same-origin) flows.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         if bool(attrs.get("template_id")) == bool(attrs.get("installation_id")):
@@ -1399,7 +1414,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         error: str | None = None,
         posthog_code_callback_url: str = "",
     ) -> HttpResponse:
-        if install_source == "posthog-code" and posthog_code_callback_url:
+        if install_source in ("posthog-code", "slack") and posthog_code_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
             separator = "&" if "?" in posthog_code_callback_url else "?"
             redirect_url = f"{posthog_code_callback_url}{separator}{urlencode(params)}"

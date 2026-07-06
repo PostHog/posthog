@@ -13,7 +13,10 @@ from __future__ import annotations
 import threading
 import dataclasses
 from collections.abc import Callable
+from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
+from django.core import signing
 from django.db import close_old_connections
 from django.http import HttpResponse
 from django.utils import timezone
@@ -23,6 +26,12 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
+
+from products.mcp_store.backend.facade.api import get_active_installations, list_active_templates
+from products.mcp_store.backend.facade.contracts import TemplateInfo
+
+if TYPE_CHECKING:
+    from slack_sdk.web import SlackResponse
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_persona_onboarding_enabled
@@ -56,10 +65,27 @@ EVENT_STARTED = "slack_persona_onboarding_started"
 EVENT_PERSONA_SELECTED = "slack_persona_onboarding_persona_selected"
 EVENT_FLEET_SHOWN = "slack_persona_onboarding_fleet_shown"
 EVENT_CONNECT_CLICKED = "slack_persona_onboarding_connect_clicked"
+EVENT_MCP_CONNECTED = "slack_persona_onboarding_mcp_connected"
 EVENT_CHANNEL_CONFIGURED = "slack_persona_onboarding_channel_configured"
 EVENT_COMPLETED = "slack_persona_onboarding_completed"
 EVENT_SKIPPED = "slack_persona_onboarding_skipped"
 EVENT_GRANDFATHERED = "slack_persona_onboarding_grandfathered"
+
+# Signed state carried by Connect buttons through the MCP OAuth round-trip; long-lived because
+# the fleet-reveal message can sit unread in a DM for a while before anyone clicks it.
+_CONNECT_STATE_SALT = "slack_app.persona_onboarding.mcp_connect"
+CONNECT_STATE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+
+
+def sign_connect_state(workspace_id: str, slack_user_id: str, readiness_key: str, template_name: str) -> str:
+    payload = {"w": workspace_id, "u": slack_user_id, "k": readiness_key, "t": template_name}
+    return signing.dumps(payload, salt=_CONNECT_STATE_SALT)
+
+
+def unsign_connect_state(state: str) -> dict:
+    """Raises ``django.core.signing.BadSignature`` on tampered or expired state."""
+    return signing.loads(state, salt=_CONNECT_STATE_SALT, max_age=CONNECT_STATE_MAX_AGE_SECONDS)
+
 
 # ============================================================================
 # Persona detection ladder: workspace messages → profile title → (caller asks)
@@ -164,24 +190,23 @@ def detect_persona(slack: SlackIntegration, workspace_id: str, slack_user_id: st
 @dataclasses.dataclass(frozen=True)
 class ConnectableTool:
     term: str  # what to search workspace messages for
-    source_kind: str  # ExternalDataSourceType value, doubles as the ?kind= preselect
-    label: str  # human-facing name
+    server_name: str  # MCP store template name (also the human-facing label)
 
 
-# Kinds must be exact ExternalDataSourceType values (products/warehouse_sources/backend/types.py)
-# so the connect deep link preselects the right connector. Four terms keeps the search budget.
+# Names must match MCP store template names (case-insensitive) so a detected tool can be
+# paired with its Connect button. Four terms keeps the search budget.
 _CONNECTABLE_TOOLS: tuple[ConnectableTool, ...] = (
-    ConnectableTool(term="linear.app", source_kind="Linear", label="Linear"),
-    ConnectableTool(term="zendesk", source_kind="Zendesk", label="Zendesk"),
-    ConnectableTool(term="intercom", source_kind="Intercom", label="Intercom"),
-    ConnectableTool(term="atlassian.net", source_kind="Jira", label="Jira"),
+    ConnectableTool(term="linear.app", server_name="Linear"),
+    ConnectableTool(term="zendesk", server_name="Zendesk"),
+    ConnectableTool(term="intercom", server_name="Intercom"),
+    ConnectableTool(term="atlassian.net", server_name="Jira"),
 )
 _TOOL_HIT_MIN = 3
 
 
 def detect_workspace_tools(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> list[str]:
-    """Source kinds (ExternalDataSourceType values) whose tool shows up in recent public-channel
-    messages. Empty when search is unavailable — the fleet reveal then renders generic gap lines."""
+    """MCP server names whose tool shows up in recent public-channel messages. Empty when
+    search is unavailable — the fleet reveal then renders generic gap lines."""
     if not slack_search.search_available(slack, workspace_id, slack_user_id):
         return []
     action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
@@ -191,12 +216,8 @@ def detect_workspace_tools(slack: SlackIntegration, workspace_id: str, slack_use
     for tool in _CONNECTABLE_TOOLS:
         hits = slack_search.search_messages(slack, action_token=action_token, query=tool.term)
         if len(hits) >= _TOOL_HIT_MIN:
-            detected.append(tool.source_kind)
+            detected.append(tool.server_name)
     return detected
-
-
-def connectable_tool_for_kind(source_kind: str) -> ConnectableTool | None:
-    return next((tool for tool in _CONNECTABLE_TOOLS if tool.source_kind == source_kind), None)
 
 
 # ============================================================================
@@ -204,12 +225,14 @@ def connectable_tool_for_kind(source_kind: str) -> ConnectableTool | None:
 # ============================================================================
 
 
-def source_connect_url(team_id: int, source_kind: str) -> str:
-    return _public_url(f"/project/{team_id}/data-warehouse/new-source?kind={source_kind}")
+def mcp_connect_url(team_id: int, template_id: str, state: str) -> str:
+    """Login-gated browser entry that starts the MCP OAuth connect and returns through Slack."""
+    return _public_url(f"/integrations/connect-mcp/{template_id}/?{urlencode({'project_id': team_id, 'state': state})}")
 
 
-def sources_catalog_url(team_id: int) -> str:
-    return _public_url(f"/project/{team_id}/data-management/sources")
+def mcp_store_url(team_id: int, template_id: str | None = None) -> str:
+    base = f"/project/{team_id}/settings/mcp-servers"
+    return _public_url(f"{base}?{urlencode({'mcp': template_id})}" if template_id else base)
 
 
 def inbox_url(team_id: int) -> str:
@@ -234,7 +257,7 @@ class ScoutSpec:
     title: str
     description: str
     readiness_key: str
-    connectable_sources: tuple[str, ...]  # ExternalDataSourceType values that would feed it
+    recommended_servers: tuple[str, ...]  # MCP store template names whose data would feed it
     gap_line: str  # "works best with …" copy when readiness is False
 
 
@@ -248,8 +271,8 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
                 "heating up toward expansion, tagging the account owner."
             ),
             readiness_key="account_pulse",
-            connectable_sources=("Salesforce", "Hubspot"),
-            gap_line="works best with account data — PostHog customer analytics accounts or a synced CRM.",
+            recommended_servers=("Salesforce", "HubSpot"),
+            gap_line="works best with account data — PostHog customer analytics accounts or a connected CRM.",
         ),
         ScoutSpec(
             skill_name="signals-scout-csm-support-watch",
@@ -259,7 +282,7 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
                 "right before renewal."
             ),
             readiness_key="support_watch",
-            connectable_sources=("Zendesk", "Intercom", "Linear", "Jira", "Freshdesk"),
+            recommended_servers=("Zendesk", "Intercom", "Linear", "Jira", "Freshdesk"),
             gap_line="works best with a ticketing tool.",
         ),
         ScoutSpec(
@@ -269,13 +292,11 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
                 "Watches billing data for failed payments, cancellations, and contraction on the accounts you own."
             ),
             readiness_key="revenue_watch",
-            connectable_sources=("Stripe",),
+            recommended_servers=("Stripe",),
             gap_line="works best with billing data — connect Stripe or PostHog revenue analytics.",
         ),
     ),
 }
-
-_TOOL_LABEL_BY_KIND = {tool.source_kind: tool.label for tool in _CONNECTABLE_TOOLS}
 
 _SUPPORT_SOURCE_KINDS = ("Zendesk", "Intercom", "Linear", "Jira", "Freshdesk")
 _CRM_SOURCE_KINDS = ("Salesforce", "Hubspot")
@@ -302,16 +323,32 @@ def _active_source_kinds(team_id: int) -> set[str]:
     )
 
 
-def check_csm_data_readiness(team_id: int) -> CsmDataReadiness:
+def _connected_mcp_server_names(team_id: int, posthog_user_id: int | None) -> set[str]:
+    """Lowercased names of the user's ready MCP store installations (template + display names)."""
+    if not posthog_user_id:
+        return set()
+    names: set[str] = set()
+    for installation in get_active_installations(team_id, posthog_user_id):
+        for name in (installation.template_name, installation.name):
+            if name:
+                names.add(name.lower())
+    return names
+
+
+def _recommended_server_connected(spec: ScoutSpec, connected_names: set[str]) -> bool:
+    return any(name.lower() in connected_names for name in spec.recommended_servers)
+
+
+def check_csm_data_readiness(team_id: int, posthog_user_id: int | None = None) -> CsmDataReadiness:
     """Per-scout data probes for the fleet reveal + completion copy. Presentation only —
     a probe failure renders as "no data yet", never blocks onboarding."""
     accounts_count = 0
     try:
-        from products.customer_analytics.backend.models.account import (  # noqa: PLC0415 — keeps the customer-analytics stack off the slack import path
-            Account,
+        from products.customer_analytics.backend.facade.api import (  # noqa: PLC0415 — keeps the customer-analytics stack off the slack import path
+            count_accounts,
         )
 
-        accounts_count = Account.objects.for_team(team_id).count()
+        accounts_count = count_accounts(team_id)
     except Exception:
         logger.warning("persona_onboarding_accounts_probe_failed", exc_info=True)
 
@@ -331,10 +368,25 @@ def check_csm_data_readiness(team_id: int) -> CsmDataReadiness:
     except Exception:
         logger.warning("persona_onboarding_sources_probe_failed", exc_info=True)
 
+    mcp_connected: set[str] = set()
+    try:
+        mcp_connected = _connected_mcp_server_names(team_id, posthog_user_id)
+    except Exception:
+        logger.warning("persona_onboarding_mcp_probe_failed", exc_info=True)
+
+    specs_by_key = {spec.readiness_key: spec for spec in PERSONA_SCOUT_CATALOG[PERSONA_CSM]}
+
+    def mcp_ready(readiness_key: str) -> bool:
+        return _recommended_server_connected(specs_by_key[readiness_key], mcp_connected)
+
     return CsmDataReadiness(
-        account_pulse=accounts_count > 0 or any(kind in source_kinds for kind in _CRM_SOURCE_KINDS),
-        support_watch=tickets_exist or any(kind in source_kinds for kind in _SUPPORT_SOURCE_KINDS),
-        revenue_watch="Stripe" in source_kinds,
+        account_pulse=accounts_count > 0
+        or any(kind in source_kinds for kind in _CRM_SOURCE_KINDS)
+        or mcp_ready("account_pulse"),
+        support_watch=tickets_exist
+        or any(kind in source_kinds for kind in _SUPPORT_SOURCE_KINDS)
+        or mcp_ready("support_watch"),
+        revenue_watch="Stripe" in source_kinds or mcp_ready("revenue_watch"),
         accounts_count=accounts_count,
     )
 
@@ -442,7 +494,35 @@ def build_kickoff_blocks(display_name: str, candidate: str | None) -> list[dict]
     return [_section(intro), {"type": "actions", "elements": buttons}]
 
 
-def build_fleet_reveal_blocks(team_id: int, readiness: dict, detected_tools: list[str]) -> list[dict]:
+_MAX_CONNECT_BUTTONS_PER_SCOUT = 3
+
+
+def _connect_button(
+    team_id: int, spec: ScoutSpec, template: TemplateInfo, workspace_id: str, slack_user_id: str
+) -> dict:
+    # Shared-creds OAuth templates connect straight from the browser and return through Slack;
+    # API-key and DCR templates need the store UI, so their button deep-links to the detail panel.
+    if template.connect_via_redirect:
+        state = sign_connect_state(workspace_id, slack_user_id, spec.readiness_key, template.name)
+        url = mcp_connect_url(team_id, template.id, state)
+    else:
+        url = mcp_store_url(team_id, template.id)
+    # Button values are "<readiness_key>:<server|store>": sibling connect buttons must not
+    # collide on value (it doubles as the action_id suffix), and telemetry gets the scout.
+    return _button(
+        f"Connect {template.name}", CONNECT_SOURCE_ACTION_ID, f"{spec.readiness_key}:{template.name}", url=url
+    )
+
+
+def build_fleet_reveal_blocks(
+    team_id: int,
+    readiness: dict,
+    detected_tools: list[str],
+    templates: list[TemplateInfo],
+    workspace_id: str,
+    slack_user_id: str,
+) -> list[dict]:
+    templates_by_name = {template.name.lower(): template for template in templates}
     blocks: list[dict] = [
         _section(
             "Great — I'm going to create a few scouts for you. Scouts are little agents that patrol "
@@ -455,38 +535,40 @@ def build_fleet_reveal_blocks(team_id: int, readiness: dict, detected_tools: lis
         if readiness.get(spec.readiness_key):
             blocks.append(_context("✅ Ready — I can see the data this needs."))
             continue
-        detected_kind = next((kind for kind in detected_tools if kind in spec.connectable_sources), None)
-        # Button values are "<readiness_key>:<kind|catalog>": sibling connect buttons must not
-        # collide on value (it doubles as the action_id suffix), and telemetry gets the scout.
-        if detected_kind:
-            label = _TOOL_LABEL_BY_KIND.get(detected_kind, detected_kind)
+        candidates = [
+            templates_by_name[name.lower()] for name in spec.recommended_servers if name.lower() in templates_by_name
+        ]
+        detected = next(
+            (template for name in detected_tools for template in candidates if template.name.lower() == name.lower()),
+            None,
+        )
+        if detected is not None:
+            candidates = [detected, *[template for template in candidates if template is not detected]]
             blocks.append(
-                _section(f"⚠️ {spec.title} {spec.gap_line} I see you're using {label} — want to connect it now?")
+                _section(f"⚠️ {spec.title} {spec.gap_line} I see you're using {detected.name} — want to connect it now?")
             )
+        else:
+            blocks.append(_context(f"⚠️ {spec.gap_line} Connect one any time — this scout picks it up automatically."))
+        if candidates:
             blocks.append(
                 {
                     "type": "actions",
                     "elements": [
-                        _button(
-                            f"Connect {label}",
-                            CONNECT_SOURCE_ACTION_ID,
-                            f"{spec.readiness_key}:{detected_kind}",
-                            url=source_connect_url(team_id, detected_kind),
-                        )
+                        _connect_button(team_id, spec, template, workspace_id, slack_user_id)
+                        for template in candidates[:_MAX_CONNECT_BUTTONS_PER_SCOUT]
                     ],
                 }
             )
         else:
-            blocks.append(_context(f"⚠️ {spec.gap_line} Connect one any time — this scout picks it up automatically."))
             blocks.append(
                 {
                     "type": "actions",
                     "elements": [
                         _button(
-                            "Browse sources",
+                            "Browse the MCP store",
                             CONNECT_SOURCE_ACTION_ID,
-                            f"{spec.readiness_key}:catalog",
-                            url=sources_catalog_url(team_id),
+                            f"{spec.readiness_key}:store",
+                            url=mcp_store_url(team_id),
                         )
                     ],
                 }
@@ -575,6 +657,7 @@ def build_locked_in_blocks(
     return blocks
 
 
+FLEET_REVEAL_TEXT = "I'm going to create a few scouts for you."
 ENGINEER_COMPLETION_TEXT = (
     "Got it — engineer it is. 🛠️ Mention `@PostHog` in a channel or message me here to hand me a "
     "task — I can investigate your data, dig through errors, and open PRs. If you haven't yet, "
@@ -649,8 +732,8 @@ def _display_name(slack: SlackIntegration, slack_user_id: str) -> str:
         return "there"
 
 
-def _post(ctx: _FlowContext, blocks: list[dict], text: str) -> None:
-    ctx.slack.client.chat_postMessage(
+def _post(ctx: _FlowContext, blocks: list[dict], text: str) -> SlackResponse:
+    return ctx.slack.client.chat_postMessage(
         channel=ctx.state.get("dm_channel_id"),
         thread_ts=ctx.state.get("thread_ts"),
         text=text,
@@ -904,14 +987,76 @@ def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
     ctx = _load_context(payload)
     if ctx is not None:
-        scout_key, _, source_kind = str(action.get("value") or "").rpartition(":")
+        scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
         capture_slack_event(
             ctx.integration,
             EVENT_CONNECT_CLICKED,
             slack_user_id=ctx.slack_user_id,
-            source_kind=source_kind,
+            server_name=server_name,
             scout_readiness_key=scout_key or None,
         )
+
+
+def handle_mcp_connect_return(
+    *,
+    workspace_id: str,
+    slack_user_id: str,
+    readiness_key: str,
+    template_name: str,
+    success: bool,
+    error: str = "",
+) -> str:
+    """Post-OAuth landing for a Connect button: refresh the fleet-reveal message with fresh
+    readiness and return the Slack deep link that sends the user back to the conversation."""
+    row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
+    state = row.onboarding_state if row is not None and isinstance(row.onboarding_state, dict) else None
+    integration = None
+    if state is not None:
+        integration = Integration.objects.filter(id=state.get("integration_id"), kind="slack").first()
+        if integration is not None and integration.integration_id != workspace_id:
+            integration = None
+    if integration is not None:
+        capture_slack_event(
+            integration,
+            EVENT_MCP_CONNECTED,
+            slack_user_id=slack_user_id,
+            server_name=template_name,
+            scout_readiness_key=readiness_key,
+            success=success,
+            error=error or None,
+        )
+        if row is not None and state is not None and success:
+            _refresh_fleet_reveal(integration, row, state, workspace_id, slack_user_id)
+    dm_channel_id = str(state.get("dm_channel_id") or "") if state else ""
+    if dm_channel_id:
+        return f"slack://channel?team={workspace_id}&id={dm_channel_id}"
+    return f"slack://open?team={workspace_id}"
+
+
+def _refresh_fleet_reveal(
+    integration: Integration, row: SlackSettings, state: dict, workspace_id: str, slack_user_id: str
+) -> None:
+    readiness = check_csm_data_readiness(integration.team_id, state.get("posthog_user_id"))
+    state["readiness"] = readiness.as_dict()
+    _save_state(row, state)
+    fleet_ts = state.get("fleet_message_ts")
+    channel_id = state.get("dm_channel_id")
+    if not fleet_ts or not channel_id:
+        return
+    blocks = build_fleet_reveal_blocks(
+        integration.team_id,
+        readiness.as_dict(),
+        state.get("detected_tools") or [],
+        list_active_templates(),
+        workspace_id,
+        slack_user_id,
+    )
+    try:
+        SlackIntegration(integration).client.chat_update(
+            channel=channel_id, ts=fleet_ts, text=FLEET_REVEAL_TEXT, blocks=blocks
+        )
+    except Exception:
+        logger.warning("persona_onboarding_fleet_refresh_failed", exc_info=True)
 
 
 def _handle_persona_select(payload: dict, action: dict) -> None:
@@ -950,18 +1095,29 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
 
     # CSM: reveal the fleet (with per-scout readiness + connect offers), then ask for a channel.
     ctx.row.persona = PERSONA_CSM
-    readiness = check_csm_data_readiness(ctx.integration.team_id)
+    readiness = check_csm_data_readiness(ctx.integration.team_id, ctx.state.get("posthog_user_id"))
     detected_tools = detect_workspace_tools(ctx.slack, ctx.workspace_id, ctx.slack_user_id)
     ctx.state.update(
         {"step": STEP_AWAITING_CHANNEL, "readiness": readiness.as_dict(), "detected_tools": detected_tools}
     )
     ctx.row.onboarding_state = ctx.state
     ctx.row.save(update_fields=["persona", "onboarding_state", "updated_at"])
-    _post(
+    posted = _post(
         ctx,
-        build_fleet_reveal_blocks(ctx.integration.team_id, readiness.as_dict(), detected_tools),
-        "I'm going to create a few scouts for you.",
+        build_fleet_reveal_blocks(
+            ctx.integration.team_id,
+            readiness.as_dict(),
+            detected_tools,
+            list_active_templates(),
+            ctx.workspace_id,
+            ctx.slack_user_id,
+        ),
+        FLEET_REVEAL_TEXT,
     )
+    # Remember the reveal message so the post-OAuth return leg can flip its ⚠️ lines to ✅.
+    if posted and posted.get("ts"):
+        ctx.state["fleet_message_ts"] = posted.get("ts")
+        _save_state(ctx.row, ctx.state)
     _post(ctx, build_channel_prompt_blocks(_can_create_channel(ctx.slack)), "Pick a channel for scout findings.")
     capture_slack_event(
         ctx.integration,

@@ -15,3 +15,18 @@ class ActiveInstallationInfo:
     id: str
     name: str
     proxy_path: str
+    # Catalog template name when the installation came from the store (None for custom installs).
+    template_name: str | None = None
+
+
+@dataclass(frozen=True)
+class TemplateInfo:
+    """An installable MCP server template from the store catalog."""
+
+    id: str
+    name: str
+    auth_type: str
+    icon_key: str
+    # True when a browser GET to the authorize endpoint can complete the connect on its own
+    # (shared-credentials OAuth). API-key and DCR templates need the store UI instead.
+    connect_via_redirect: bool

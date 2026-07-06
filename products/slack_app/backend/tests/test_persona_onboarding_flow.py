@@ -1,7 +1,10 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import Client
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, TemplateInfo
 from products.signals.backend.facade.api import ScoutProvisionResult
 from products.slack_app.backend import api, persona_onboarding
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
@@ -28,6 +32,27 @@ WEBCLIENT = "posthog.models.integration.WebClient"
 
 CSM_SKILL_NAMES = [spec.skill_name for spec in persona_onboarding.PERSONA_SCOUT_CATALOG[persona_onboarding.PERSONA_CSM]]
 DIGEST_START = "products.slack_app.backend.first_patrol.start_first_patrol_digest_workflow"
+
+
+def _template(name: str, *, redirect: bool = True) -> TemplateInfo:
+    return TemplateInfo(
+        id=f"tmpl-{name.lower()}",
+        name=name,
+        auth_type="oauth" if redirect else "api_key",
+        icon_key="",
+        connect_via_redirect=redirect,
+    )
+
+
+ALL_TEMPLATES = [
+    _template("Salesforce"),
+    _template("HubSpot"),
+    _template("Zendesk"),
+    _template("Intercom", redirect=False),
+    _template("Linear"),
+    _template("Jira"),
+    _template("Stripe"),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -264,6 +289,8 @@ class TestPersonaSelection(_FlowTestBase):
         assert state["step"] == persona_onboarding.STEP_AWAITING_CHANNEL
         assert set(state["readiness"]) == {"account_pulse", "support_watch", "revenue_watch", "accounts_count"}
         assert state["detected_tools"] == []
+        # The post-OAuth return leg needs this pointer to flip the reveal's ⚠️ lines to ✅.
+        assert state["fleet_message_ts"] == "111.222"
         assert client.chat_postMessage.call_count == 2
         reveal_blocks, prompt_blocks = (call.kwargs["blocks"] for call in client.chat_postMessage.call_args_list)
         assert persona_onboarding.SCOUTS_DOC_URL in str(reveal_blocks)
@@ -537,10 +564,15 @@ class TestBlockKitActionIdUniqueness:
                 "kickoff_engineer_candidate",
                 lambda: persona_onboarding.build_kickoff_blocks("Pat", persona_onboarding.PERSONA_ENGINEER),
             ),
-            ("fleet_reveal_all_gaps_no_tools", lambda: persona_onboarding.build_fleet_reveal_blocks(1, {}, [])),
             (
-                "fleet_reveal_all_gaps_tools_detected",
-                lambda: persona_onboarding.build_fleet_reveal_blocks(1, {}, ["Salesforce", "Linear", "Stripe"]),
+                "fleet_reveal_all_gaps_no_templates",
+                lambda: persona_onboarding.build_fleet_reveal_blocks(1, {}, [], [], "T1", "U1"),
+            ),
+            (
+                "fleet_reveal_all_gaps_templates_and_tools",
+                lambda: persona_onboarding.build_fleet_reveal_blocks(
+                    1, {}, ["Linear", "Zendesk"], ALL_TEMPLATES, "T1", "U1"
+                ),
             ),
             ("channel_prompt_with_create", lambda: persona_onboarding.build_channel_prompt_blocks(True)),
             ("invite_needed", lambda: persona_onboarding.build_invite_needed_blocks("C1", "posthog-inbox")),
@@ -556,6 +588,106 @@ class TestBlockKitActionIdUniqueness:
         ]
         assert action_ids, "builder emitted no interactive elements — extractor or builder is broken"
         assert len(action_ids) == len(set(action_ids)), f"duplicate action_ids in one message: {action_ids}"
+
+
+class TestFleetRevealConnectButtons:
+    def _buttons_by_label(self, blocks: list[dict]) -> dict[str, dict]:
+        return {
+            element["text"]["text"]: element
+            for block in blocks
+            for element in block.get("elements", [])
+            if isinstance(element, dict) and element.get("type") == "button"
+        }
+
+    def test_connect_buttons_link_into_mcp_connect_flow(self):
+        blocks = persona_onboarding.build_fleet_reveal_blocks(1, {}, ["Zendesk"], ALL_TEMPLATES, WORKSPACE, SLACK_USER)
+        buttons = self._buttons_by_label(blocks)
+
+        zendesk = buttons["Connect Zendesk"]
+        assert "/integrations/connect-mcp/tmpl-zendesk/" in zendesk["url"]
+        query = parse_qs(urlparse(zendesk["url"]).query)
+        assert query["project_id"] == ["1"]
+        payload = persona_onboarding.unsign_connect_state(query["state"][0])
+        assert payload == {"w": WORKSPACE, "u": SLACK_USER, "k": "support_watch", "t": "Zendesk"}
+
+        # API-key templates can't finish from a bare redirect — their button deep-links to the store.
+        intercom = buttons["Connect Intercom"]
+        assert "/settings/mcp-servers?mcp=tmpl-intercom" in intercom["url"]
+
+    def test_without_matching_templates_offers_store_browse(self):
+        blocks = persona_onboarding.build_fleet_reveal_blocks(1, {}, [], [], WORKSPACE, SLACK_USER)
+        buttons = [
+            element
+            for block in blocks
+            for element in block.get("elements", [])
+            if isinstance(element, dict) and element.get("type") == "button"
+        ]
+        assert len(buttons) == len(persona_onboarding.PERSONA_SCOUT_CATALOG[persona_onboarding.PERSONA_CSM])
+        assert all(button["text"]["text"] == "Browse the MCP store" for button in buttons)
+        assert all("/settings/mcp-servers" in button["url"] for button in buttons)
+
+
+class TestCsmReadinessWithMcpInstallations(_FlowTestBase):
+    @parameterized.expand(
+        [
+            ("crm_feeds_account_pulse", "HubSpot", "account_pulse"),
+            ("ticketing_feeds_support_watch", "Jira", "support_watch"),
+            ("billing_feeds_revenue_watch", "Stripe", "revenue_watch"),
+        ]
+    )
+    def test_connected_server_marks_only_its_scout_ready(self, _name, server_name, readiness_key):
+        installation = ActiveInstallationInfo(id="i1", name="My server", proxy_path="/x", template_name=server_name)
+        with patch.object(persona_onboarding, "get_active_installations", return_value=[installation]):
+            readiness = persona_onboarding.check_csm_data_readiness(self.team.id, self.user.id)
+        assert getattr(readiness, readiness_key) is True
+        others = {"account_pulse", "support_watch", "revenue_watch"} - {readiness_key}
+        assert not any(getattr(readiness, key) for key in others)
+
+
+class TestMcpConnectReturn(_FlowTestBase):
+    URL = "/integrations/slack/mcp-connected/"
+
+    def _signed_state(self) -> str:
+        return persona_onboarding.sign_connect_state(WORKSPACE, SLACK_USER, "revenue_watch", "Stripe")
+
+    def _seed_channel_step(self, **extra: object) -> SlackSettings:
+        return self._seed_state(
+            persona_onboarding.STEP_AWAITING_CHANNEL,
+            readiness={"account_pulse": False, "support_watch": False, "revenue_watch": False, "accounts_count": 0},
+            detected_tools=[],
+            fleet_message_ts="42.42",
+            **extra,
+        )
+
+    @patch(WEBCLIENT)
+    def test_success_updates_fleet_message_and_links_back_to_slack(self, mock_webclient):
+        client = self._client(mock_webclient)
+        self._seed_channel_step()
+        stripe = ActiveInstallationInfo(id="i1", name="Stripe", proxy_path="/x", template_name="Stripe")
+        with (
+            patch.object(persona_onboarding, "get_active_installations", return_value=[stripe]),
+            patch.object(persona_onboarding, "list_active_templates", return_value=ALL_TEMPLATES),
+        ):
+            response = Client().get(self.URL, {"state": self._signed_state(), "status": "success"})
+
+        assert response.status_code == 200
+        assert f"slack://channel?team={WORKSPACE}&amp;id={DM_CHANNEL}" in response.content.decode()
+        client.chat_update.assert_called_once()
+        assert client.chat_update.call_args.kwargs["ts"] == "42.42"
+        assert self._row().onboarding_state["readiness"]["revenue_watch"] is True
+
+    @patch(WEBCLIENT)
+    def test_error_status_skips_message_update(self, mock_webclient):
+        client = self._client(mock_webclient)
+        self._seed_channel_step()
+
+        response = Client().get(self.URL, {"state": self._signed_state(), "status": "error", "error": "cancelled"})
+
+        assert response.status_code == 200
+        client.chat_update.assert_not_called()
+
+    def test_invalid_state_rejected(self):
+        assert Client().get(self.URL, {"state": "garbage"}).status_code == 400
 
 
 class TestHomeStartFlow(_FlowTestBase):

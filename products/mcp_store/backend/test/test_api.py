@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -26,6 +27,10 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
             ("http_rejected", "http://example.com/callback", False),
             ("javascript_rejected", "javascript:alert(1)", False),
             ("empty_string", "", False),
+            # Same-origin return URLs carry the Slack flow back through a PostHog endpoint.
+            ("same_origin_allowed", f"{settings.SITE_URL}/integrations/slack/mcp-connected/?state=abc", True),
+            ("site_url_host_lookalike_rejected", f"{settings.SITE_URL.replace('://', '://evil-')}/cb", False),
+            ("site_url_path_on_other_host_rejected", "https://evil.com/integrations/slack/mcp-connected/", False),
         ]
     )
     def test_callback_url_validation(self, _name, url, expected):
@@ -515,6 +520,55 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         location = response["Location"]
         assert location.startswith("posthog-code://oauth/callback?")
         assert "status=success" in location
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_oauth_redirect_slack_uses_same_origin_callback(self, mock_post, _allow):
+        installation = self._create_installation()
+
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        callback_url = f"{settings.SITE_URL}/integrations/slack/mcp-connected/?state=signed-slack-state"
+        state_token = "test-slack-state"
+        self._create_oauth_state(
+            installation,
+            state_token,
+            pkce_verifier="test-verifier",
+            install_source="slack",
+            posthog_code_callback_url=callback_url,
+        )
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "auth-code"},
+        )
+
+        assert response.status_code == 302
+        location = response["Location"]
+        assert location.startswith(callback_url)
+        assert "status=success" in location
+
+    @ALLOW_URL
+    def test_authorize_accepts_slack_install_source(self, _allow):
+        """The Slack Connect buttons are bare browser GETs — the authorize endpoint must take
+        install_source=slack with a same-origin callback and 302 to the provider."""
+        template = self._create_template(url="https://mcp.slack-source.example.com")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {
+                "template_id": str(template.id),
+                "install_source": "slack",
+                "posthog_code_callback_url": f"{settings.SITE_URL}/integrations/slack/mcp-connected/?state=abc",
+            },
+        )
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("https://auth.example.com/authorize?")
+        state_token = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
+        assert row.install_source == "slack"
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
