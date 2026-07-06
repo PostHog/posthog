@@ -755,42 +755,29 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
-    describe('drawAxes — right axis line', () => {
-        const rightX = Math.round(dimensions.plotLeft + dimensions.plotWidth) + 0.5
-
-        it('strokes the right plot edge when rightAxis is set', () => {
-            const ctx = mockCanvasContext()
-            drawAxes(makeDrawContext(ctx, ['a']), { rightAxis: true })
-            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
-            expect(ctx.moveTo).toHaveBeenCalledWith(rightX, dimensions.plotTop)
-            expect(ctx.lineTo).toHaveBeenCalledWith(rightX, baselineY)
-        })
-
-        it('draws only the left + bottom L by default', () => {
-            const ctx = mockCanvasContext()
-            drawAxes(makeDrawContext(ctx, ['a']))
-            expect(ctx.moveTo.mock.calls.some(([x]) => x === rightX)).toBe(false)
-        })
-
+    describe('drawAxes — edge gating', () => {
         it.each([
-            { name: 'x line off', opts: { xLine: false }, xDrawn: false, yDrawn: true, rightDrawn: false },
-            { name: 'y line off', opts: { yLine: false }, xDrawn: true, yDrawn: false, rightDrawn: false },
+            { name: 'default draws the left + bottom L only', opts: {}, x: true, y: true, right: false },
+            { name: 'rightAxis strokes the right edge', opts: { rightAxis: true }, x: true, y: true, right: true },
+            { name: 'x line off', opts: { xLine: false }, x: false, y: true, right: false },
+            { name: 'y line off', opts: { yLine: false }, x: true, y: false, right: false },
             {
                 name: 'right axis follows the y line',
                 opts: { yLine: false, rightAxis: true },
-                xDrawn: true,
-                yDrawn: false,
-                rightDrawn: false,
+                x: true,
+                y: false,
+                right: false,
             },
-        ])('skips disabled edges ($name)', ({ opts, xDrawn, yDrawn, rightDrawn }) => {
+        ])('$name', ({ opts, x, y, right }) => {
             const ctx = mockCanvasContext()
             drawAxes(makeDrawContext(ctx, ['a']), opts)
             const leftX = Math.round(dimensions.plotLeft) + 0.5
+            const rightX = Math.round(dimensions.plotLeft + dimensions.plotWidth) + 0.5
             const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
-            expect(ctx.moveTo.mock.calls.some(([x, y]) => x === leftX && y === dimensions.plotTop)).toBe(yDrawn)
+            expect(ctx.moveTo.mock.calls.some(([mx, my]) => mx === leftX && my === dimensions.plotTop)).toBe(y)
             // The x line ends at the snapped right edge so it meets a right axis line exactly.
-            expect(ctx.lineTo.mock.calls.some(([x, y]) => x === rightX && y === baselineY)).toBe(xDrawn)
-            expect(ctx.moveTo.mock.calls.some(([x]) => x === rightX)).toBe(rightDrawn)
+            expect(ctx.lineTo.mock.calls.some(([lx, ly]) => lx === rightX && ly === baselineY)).toBe(x)
+            expect(ctx.moveTo.mock.calls.some(([mx, my]) => mx === rightX && my === dimensions.plotTop)).toBe(right)
         })
     })
 
