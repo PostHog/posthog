@@ -649,7 +649,9 @@ describe('dataNodeLogic', () => {
             keepDataOnError: true,
         })
         logic.mount()
-        await expectLogic(logic).delay(0).toMatchValues({ response: partial({ results }) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial({ results }) })
 
         // a failing reload should keep the stale rows and set responseError instead of blanking the table
         mockedQuery.mockRejectedValueOnce(new Error('ClickHouse error while executing query'))
@@ -661,7 +663,9 @@ describe('dataNodeLogic', () => {
             }),
             keepDataOnError: true,
         })
-        await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false, response: partial({ results }) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results }) })
         expect(logic.values.responseError).not.toBeNull()
     })
 
@@ -673,7 +677,9 @@ describe('dataNodeLogic', () => {
             query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'] }),
         })
         logic.mount()
-        await expectLogic(logic).delay(0).toMatchValues({ response: partial({ results }) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial({ results }) })
 
         // an aborted/superseded request is a cancellation, not an error - keep the rows, surface nothing
         mockedQuery.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'))
@@ -684,7 +690,9 @@ describe('dataNodeLogic', () => {
                 select: ['*', 'event', 'timestamp', 'person'],
             }),
         })
-        await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false, response: partial({ results }) })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results }) })
         expect(logic.values.responseError).toBeNull()
     })
 })
