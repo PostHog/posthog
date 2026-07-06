@@ -346,8 +346,12 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
         return None
     try:
         started_at = datetime.fromisoformat(input.workflow_start_at)
+        # Temporal start_time is tz-aware UTC; treat a naive value as UTC rather than
+        # letting the aware-naive subtraction raise. Metrics must never fail the boot.
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
         boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000))
-    except ValueError:
+    except (TypeError, ValueError):
         logger.warning("boot_total_unparseable_start_time", workflow_start_at=input.workflow_start_at)
         return None
     record_boot_total_ms(
