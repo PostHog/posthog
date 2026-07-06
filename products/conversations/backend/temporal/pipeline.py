@@ -315,6 +315,7 @@ class SupportReplyWorkflow:
                             confidence=validate_output.confidence,
                             ticket_type=ticket_type,
                             allow_bot_reply=True,
+                            auto_publishable=auto_publishable,
                         ),
                         start_to_close_timeout=timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),

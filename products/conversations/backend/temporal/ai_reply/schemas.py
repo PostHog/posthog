@@ -136,6 +136,9 @@ class PersistReplyInput:
     confidence: float
     ticket_type: str = "how_to"
     allow_bot_reply: bool = False
+    # Frozen snapshot from draft time. A reply drafted with private-note scopes must not become
+    # public if channel settings are flipped before persistence.
+    auto_publishable: bool = False
 
 
 @dataclass

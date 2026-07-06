@@ -25,6 +25,7 @@ async def support_persist_reply_activity(input: PersistReplyInput) -> None:
             input.confidence,
             input.ticket_type,
             input.allow_bot_reply,
+            input.auto_publishable,
         )
 
 
@@ -36,12 +37,13 @@ def _persist_reply_sync(
     confidence: float,
     ticket_type: str = "how_to",
     allow_bot_reply: bool = False,
+    auto_publishable: bool = False,
 ) -> None:
     is_private = True
     # Only how_to replies may be published. diagnostic/account_billing draw on project data and
     # must stay private regardless of the team's ai_reply_modes — guards against stale settings
     # since validation now rejects bot_reply for those types. Controlled by team-level opt-in.
-    if allow_bot_reply and ticket_type in PUBLISHABLE_TICKET_TYPES:
+    if allow_bot_reply and auto_publishable and ticket_type in PUBLISHABLE_TICKET_TYPES:
         ticket = Ticket.objects.select_related("team").filter(team_id=team_id, id=ticket_id).first()
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}

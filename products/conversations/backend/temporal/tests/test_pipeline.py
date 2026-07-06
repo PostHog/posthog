@@ -411,13 +411,34 @@ class TestPersistReplyActivity:
             ),
             (
                 "allow_true_bot_reply_mode",
-                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": True,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
                 {"widget": {"how_to": "bot_reply"}},
                 False,
             ),
             (
+                "draft_private_snapshot_ignores_later_bot_reply",
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": False,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
+                {"widget": {"how_to": "bot_reply"}},
+                True,
+            ),
+            (
                 "allow_true_private_note_mode",
-                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {
+                    "allow_bot_reply": True,
+                    "auto_publishable": False,
+                    "channel_source": "widget",
+                    "ticket_type": "how_to",
+                },
                 {"widget": {"how_to": "private_note"}},
                 True,
             ),
@@ -478,6 +499,7 @@ class TestPersistReplyActivity:
             confidence=0.9,
             ticket_type=call_kwargs["ticket_type"],
             allow_bot_reply=call_kwargs["allow_bot_reply"],
+            auto_publishable=call_kwargs.get("auto_publishable", False),
         )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
