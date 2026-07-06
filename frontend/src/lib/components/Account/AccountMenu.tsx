@@ -315,7 +315,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Hide navigation and focus on content"
                             tooltipPlacement="right"
-                            onClick={toggleZenMode}
+                            onClick={() => toggleZenMode('account_menu')}
                             menuItem
                         >
                             <IconExpand45 />

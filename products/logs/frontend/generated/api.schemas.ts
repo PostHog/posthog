@@ -1091,6 +1091,15 @@ export interface _LogPatternApi {
     examples: string[]
     /** Up to 4 distinct service names this pattern was observed in. */
     services: string[]
+    /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+    sparkline: number[]
+}
+
+export interface _LogsPatternsSparklineBucketApi {
+    /** Bucket start (ISO 8601, inclusive). */
+    start: string
+    /** Bucket end (ISO 8601, exclusive). */
+    end: string
 }
 
 export interface _LogsPatternsResponseApi {
@@ -1104,6 +1113,8 @@ export interface _LogsPatternsResponseApi {
     sampled: boolean
     /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
     sample_coverage_pct: number
+    /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
+    sparkline_buckets: _LogsPatternsSparklineBucketApi[]
 }
 
 /**

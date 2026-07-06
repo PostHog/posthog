@@ -2638,7 +2638,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        source_type_model = ExternalDataSourceType(source_type)
+        try:
+            source_type_model = ExternalDataSourceType(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
@@ -2670,6 +2676,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
+            # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:

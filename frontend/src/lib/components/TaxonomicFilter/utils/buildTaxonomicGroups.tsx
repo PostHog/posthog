@@ -25,6 +25,7 @@ import { pluralize } from 'lib/utils/strings'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -658,6 +659,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+            getIcon: getPersonPropertyDefinitionIcon,
         },
         {
             name: 'Person metadata',

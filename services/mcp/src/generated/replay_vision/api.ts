@@ -26,7 +26,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
@@ -100,6 +100,8 @@ export const VisionScannersCreateParams = /* @__PURE__ */ zod.object({
 
 export const visionScannersCreateBodyNameMax = 255
 
+export const visionScannersCreateBodyDescriptionMax = 1000
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -108,7 +110,11 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(visionScannersCreateBodyNameMax)
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersCreateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
@@ -133,7 +139,9 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersCreateBodySamplingRateMin)
         .max(visionScannersCreateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('* `google` - Google')
@@ -185,6 +193,8 @@ export const VisionScannersPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const visionScannersPartialUpdateBodyNameMax = 255
 
+export const visionScannersPartialUpdateBodyDescriptionMax = 1000
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -194,7 +204,11 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(visionScannersPartialUpdateBodyNameMax)
         .optional()
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
@@ -221,7 +235,9 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersPartialUpdateBodySamplingRateMin)
         .max(visionScannersPartialUpdateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('* `google` - Google')
@@ -302,7 +318,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     recording_subject: zod
         .string()
@@ -372,7 +388,7 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
         scanner_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
