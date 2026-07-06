@@ -183,7 +183,13 @@ describe('IngestionConsumer', () => {
 
     describe('general', () => {
         it('should have the correct config', () => {
-            expect(ingester.consumer.name).toMatchInlineSnapshot(`"analytics-events_plugin_ingestion_test"`)
+            expect(ingester.consumer.name).toMatchInlineSnapshot(`"analytics-main"`)
+            // The group id + topic must reach the Kafka consumer intact — a wrong group id
+            // silently coordinates on the wrong consumer group and misroutes events.
+            expect(ingester.kafkaConsumerConfig).toEqual({
+                groupId: infra.config.INGESTION_CONSUMER_GROUP_ID,
+                topic: infra.config.INGESTION_CONSUMER_CONSUME_TOPIC,
+            })
         })
 
         it('should process a standard event', async () => {

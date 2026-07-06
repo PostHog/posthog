@@ -45,6 +45,8 @@ export interface AnalyticsTestConsumer {
     hogTransformer: HogTransformerService
     /** The overflow redirect service — present only when overflow is enabled for the consumer. */
     overflowRedirectService?: OverflowRedirectService
+    /** The group id + topic the scope handed to the Kafka consumer — the group id drives consumer-group coordination. */
+    kafkaConsumerConfig: { groupId: string; topic: string }
 }
 
 /**
@@ -61,14 +63,20 @@ export async function startAnalyticsTestConsumer(
     overrides?: Partial<AnalyticsConsumerConfig>
 ): Promise<AnalyticsTestConsumer> {
     let capturedHandler: ((messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>) | undefined
-    ;(createKafkaConsumer as jest.Mock).mockImplementation(() => ({
-        connect: (handler: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>) => {
-            capturedHandler = handler
-            return Promise.resolve()
-        },
-        disconnect: () => Promise.resolve(),
-        isHealthy: () => new HealthCheckResultOk(),
-    }))
+    // Capture the group id + topic the scope hands to createKafkaConsumer, so tests can assert the
+    // consumer-group wiring — a wrong group id silently coordinates on the wrong Kafka group.
+    let kafkaConsumerConfig: { groupId: string; topic: string } | undefined
+    ;(createKafkaConsumer as jest.Mock).mockImplementation((cfg: { groupId: string; topic: string }) => {
+        kafkaConsumerConfig = cfg
+        return {
+            connect: (handler: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>) => {
+                capturedHandler = handler
+                return Promise.resolve()
+            },
+            disconnect: () => Promise.resolve(),
+            isHealthy: () => new HealthCheckResultOk(),
+        }
+    })
 
     // The producer may be a mock (unit tests read via mockProducerObserver) or a real one
     // (e2e tests read the produced events back through ClickHouse).
@@ -148,6 +156,9 @@ export async function startAnalyticsTestConsumer(
     if (!capturedHandler) {
         throw new Error('Kafka consumer handler was not captured — did the test jest.mock the kafka consumer module?')
     }
+    if (!kafkaConsumerConfig) {
+        throw new Error('createKafkaConsumer was not called — the scope did not build its Kafka consumer')
+    }
     const handler = capturedHandler
 
     return {
@@ -158,6 +169,7 @@ export async function startAnalyticsTestConsumer(
         groupStore,
         hogTransformer,
         overflowRedirectService,
+        kafkaConsumerConfig,
     }
 }
 
