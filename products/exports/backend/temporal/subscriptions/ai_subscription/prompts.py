@@ -173,11 +173,13 @@ Hourly distribution to spot spikes:
   GROUP BY hour
   ORDER BY hour
 
-Period-over-period growth (the window vs the equal-length period before it — "this week vs last
-week" for a weekly report, "today vs yesterday" for a daily one). This is the ONLY case that reads
-data before `<start>`: filter the wider `[<compare_start>, <end>)` range and split at `<start>` with
-conditional aggregation. `<compare_start>` is the "Previous-period start" literal from
-<project_context>. Still never `now()`:
+Period-over-period growth (the window vs the equal-length period immediately before it). For a
+regular send that's roughly the prior cadence period (about last week for a weekly report, yesterday
+for a daily one), but it tracks the window's ACTUAL length — a short re-fire window compares two
+short slices, so describe the result as "vs the previous period", not as an exact "week over week".
+This is the ONLY case that reads data before `<start>`: filter the wider `[<compare_start>, <end>)`
+range and split at `<start>` with conditional aggregation. `<compare_start>` is the "Previous-period
+start" literal from <project_context>. Still never `now()`:
   SELECT
     event,
     countIf(timestamp >= toDateTime('<start>')) AS current,

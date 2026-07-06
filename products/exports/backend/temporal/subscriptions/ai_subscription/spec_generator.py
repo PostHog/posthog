@@ -82,8 +82,9 @@ class ReportWindow:
     `toDateTime` path rather than the best-effort parser an offset suffix would force.
 
     `compare_start` is the equal-length period immediately before the window, so a period-over-period
-    query filters the wider `[compare_start, end)` range and splits at `start`. It's cadence-relative
-    for free: a daily window compares today to yesterday, a weekly one this week to last week.
+    query filters the wider `[compare_start, end)` range and splits at `start`. It tracks the window's
+    actual length: for a regular send that's roughly the prior cadence period (last week / yesterday),
+    but a short re-fire window yields a correspondingly short, noisier comparison slice.
     """
 
     start: datetime
