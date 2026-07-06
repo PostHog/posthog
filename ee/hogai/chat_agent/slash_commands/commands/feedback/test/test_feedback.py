@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -42,10 +44,11 @@ class TestFeedbackCommand(BaseTest):
         self.assertIn("Please provide your feedback", message.content)
         self.assertIn("/feedback <your feedback>", message.content)
 
-    @patch("ee.hogai.chat_agent.slash_commands.commands.feedback.command.posthoganalytics.capture")
+    @patch("products.posthog_ai.backend.slash_commands.feedback.posthoganalytics.capture")
     async def test_execute_captures_feedback_event(self, mock_capture):
         state = AssistantState(messages=[HumanMessage(content="/feedback This is awesome!")])
-        config: RunnableConfig = {"configurable": {"thread_id": "test-conversation-id", "trace_id": "test-trace-id"}}
+        conversation_id = str(uuid4())
+        config: RunnableConfig = {"configurable": {"thread_id": conversation_id, "trace_id": "test-trace-id"}}
 
         result = await self.command.execute(config, state)
 
@@ -59,7 +62,7 @@ class TestFeedbackCommand(BaseTest):
             event="$ai_feedback",
             properties={
                 "$ai_feedback_text": "This is awesome!",
-                "$ai_session_id": "test-conversation-id",
+                "$ai_session_id": conversation_id,
                 "$ai_trace_id": "test-trace-id",
                 "ai_product": "posthog_ai",
             },

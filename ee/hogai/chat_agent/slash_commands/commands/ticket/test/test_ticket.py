@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -10,6 +11,9 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, HumanMessage
+
+from products.posthog_ai.backend.slash_commands.base import SlashCommandContext
+from products.posthog_ai.backend.slash_commands.ticket import TicketCommand as TicketCommandCore
 
 from ee.hogai.chat_agent.slash_commands.commands.ticket import TicketCommand
 from ee.hogai.utils.types import AssistantState
@@ -47,7 +51,7 @@ class TestTicketCommand(BaseTest):
         assert isinstance(message.content, str)
         return message
 
-    @patch.object(TicketCommand, "_summarize_conversation")
+    @patch.object(TicketCommandCore, "_summarize_conversation")
     async def test_execute_returns_summary(self, mock_summarize):
         mock_summarize.return_value = "Summary of the conversation"
         state = AssistantState(
@@ -105,12 +109,15 @@ class TestTicketCommand(BaseTest):
         )
         self.assertFalse(self.command._is_first_message(state))
 
+    def _core(self) -> TicketCommandCore:
+        return TicketCommandCore(SlashCommandContext(team=self.team, user=self.user, conversation_id=uuid4()))
+
     async def test_is_organization_new_returns_true_for_recent_org(self):
         self.team.organization.created_at = timezone.now() - timedelta(days=30)
         await sync_to_async(self.team.organization.save)()
-        self.assertTrue(await self.command._is_organization_new())
+        self.assertTrue(await self._core()._is_organization_new())
 
     async def test_is_organization_new_returns_false_for_old_org(self):
         self.team.organization.created_at = timezone.now() - timedelta(days=100)
         await sync_to_async(self.team.organization.save)()
-        self.assertFalse(await self.command._is_organization_new())
+        self.assertFalse(await self._core()._is_organization_new())

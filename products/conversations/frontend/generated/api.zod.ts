@@ -72,7 +72,7 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
- * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. A `/usage`, `/feedback`, or `/ticket` command instead executes server-side (no Run, no AI credits) and returns a `slash_command` result. The conversation row is created on first use from the URL id.
  */
 export const conversationsOpenCreateBodyContentMax = 40000
 

@@ -47,6 +47,9 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
     ],
     '_posthog/sandbox_output': [{ sessionId: RUN_ID, stdout: 'ok\n', stderr: '', exitCode: 0 }],
     '_posthog/user_message': [{ content: 'Why did checkout conversion drop last week?' }],
+    '_posthog/assistant_message': [
+        { content: 'Thanks for making PostHog AI better!', _meta: { source: 'slash_command:feedback' } },
+    ],
     '_posthog/usage_update': [
         {
             sessionId: 'sess_a1b2c3',

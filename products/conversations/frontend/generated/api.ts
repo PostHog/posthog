@@ -28,8 +28,8 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
-    SandboxMessageResponseApi,
     SandboxOpenApi,
+    SandboxOpenResponseApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
@@ -185,15 +185,15 @@ export const getConversationsOpenCreateUrl = (projectId: string, conversation: s
 }
 
 /**
- * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. A `/usage`, `/feedback`, or `/ticket` command instead executes server-side (no Run, no AI credits) and returns a `slash_command` result. The conversation row is created on first use from the URL id.
  */
 export const conversationsOpenCreate = async (
     projectId: string,
     conversation: string,
     sandboxOpenApi?: SandboxOpenApi,
     options?: RequestInit
-): Promise<SandboxMessageResponseApi | void> => {
-    return apiMutator<SandboxMessageResponseApi | void>(getConversationsOpenCreateUrl(projectId, conversation), {
+): Promise<SandboxOpenResponseApi | void> => {
+    return apiMutator<SandboxOpenResponseApi | void>(getConversationsOpenCreateUrl(projectId, conversation), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

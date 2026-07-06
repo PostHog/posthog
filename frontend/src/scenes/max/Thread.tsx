@@ -144,6 +144,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
                     <ThreadView virtualized={false} />
                 </BindLogic>
+                <SandboxTicketSurface />
             </div>
         )
     }
@@ -164,6 +165,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 >
                     <ThreadView virtualized={false} />
                 </BindLogic>
+                <SandboxTicketSurface />
             </div>
         )
     }
@@ -340,6 +342,29 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
             <NotFound object="conversation" className="m-0" />
         </div>
     ) : null
+}
+
+/**
+ * The `/ticket` surface for the sandbox runtime, driven by the response-set `sandboxTicketSummary`
+ * reducer (the LangGraph path scans `ThreadMessage`s via `ticketUtils` instead). `prompt` shows the
+ * "describe your issue" input for a first-message ticket; `summary` shows the "Create support ticket"
+ * button pre-filled with the AI summary. Renders below the sandbox thread in both sandbox branches.
+ */
+function SandboxTicketSurface(): JSX.Element | null {
+    const { sandboxTicketSummary, conversationId, traceId } = useValues(maxThreadLogic)
+
+    if (!sandboxTicketSummary || !conversationId) {
+        return null
+    }
+
+    return (
+        <TicketPrompt
+            conversationId={conversationId}
+            traceId={traceId}
+            summary={sandboxTicketSummary.mode === 'summary' ? sandboxTicketSummary.summary : undefined}
+            initialText={sandboxTicketSummary.mode === 'prompt' ? sandboxTicketSummary.initialText : undefined}
+        />
+    )
 }
 
 /**

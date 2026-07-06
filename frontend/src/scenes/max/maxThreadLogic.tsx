@@ -70,6 +70,12 @@ import {
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
 } from 'products/posthog_ai/frontend/api/logics'
+import {
+    SANDBOX_SLASH_COMMANDS,
+    TICKET_FIRST_MESSAGE_MARKER,
+    TICKET_UPGRADE_MARKER,
+    matchSandboxSlashCommand,
+} from 'products/posthog_ai/frontend/api/slashCommands'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
@@ -88,7 +94,7 @@ import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
-import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import { AnySlashCommand, MAX_SLASH_COMMANDS } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
     findPendingClientToolCall,
@@ -112,10 +118,38 @@ export type ThreadMessage = RootAssistantMessage & {
     status: MessageStatus
 }
 
+/**
+ * Response-driven state for the sandbox `/ticket` surface (the LangGraph path scans `ThreadMessage`s
+ * instead). `prompt` shows the "describe your issue" input for a first-message ticket; `summary` shows
+ * the "Create support ticket" button pre-filled with the AI summary. Null hides the surface.
+ */
+export interface SandboxTicketState {
+    mode: 'prompt' | 'summary'
+    summary?: string
+    initialText?: string
+}
+
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
+}
+
+/**
+ * Map a sandbox `/ticket` response to the ticket surface state. The plan-gated reply shows no surface
+ * (just the assistant message); the first-message reply shows the "describe your issue" input; any
+ * other reply is the AI summary, shown with the "Create support ticket" button.
+ */
+function deriveSandboxTicketState(userContent: string, replyContent: string): SandboxTicketState | null {
+    if (replyContent.includes(TICKET_UPGRADE_MARKER)) {
+        return null
+    }
+    if (replyContent.includes(TICKET_FIRST_MESSAGE_MARKER)) {
+        const trimmed = userContent.trim()
+        const arg = trimmed.startsWith('/ticket ') ? trimmed.slice('/ticket '.length).trim() : ''
+        return { mode: 'prompt', initialText: arg || undefined }
+    }
+    return { mode: 'summary', summary: replyContent }
 }
 
 export interface MaxThreadLogicProps {
@@ -211,6 +245,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             [
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
+                'pushLocalAssistantMessage as pushSandboxLocalAssistantMessage',
                 'pushErrorItem as pushSandboxError',
                 'setRunOpening as setSandboxRunOpening',
                 'bootstrapRun as bootstrapSandboxRun',
@@ -261,8 +296,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         resetThread: true,
         finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
-        selectCommand: (command: SlashCommand) => ({ command }),
-        activateCommand: (command: SlashCommand) => ({ command }),
+        selectCommand: (command: AnySlashCommand) => ({ command }),
+        activateCommand: (command: AnySlashCommand) => ({ command }),
+        setSandboxTicketSummary: (ticket: SandboxTicketState | null) => ({ ticket }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         setIsSandboxMode: (isSandboxMode: boolean) => ({ isSandboxMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({
@@ -357,6 +393,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
                 completeThreadGeneration: (state) =>
                     state.map((msg) => (msg.status === 'loading' ? { ...msg, status: 'completed' as const } : msg)),
+            },
+        ],
+
+        sandboxTicketSummary: [
+            null as SandboxTicketState | null,
+            {
+                setSandboxTicketSummary: (_, { ticket }) => ticket,
+                // A new turn dismisses the ticket surface (mirrors the LangGraph "discarded" behavior);
+                // the /ticket response then re-sets it in the streamConversation listener.
+                streamConversation: (state, { streamData, generationAttempt }) =>
+                    generationAttempt === 0 && streamData.content ? null : state,
             },
         ],
 
@@ -679,7 +726,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // `is_sandbox` flag and let the conversation-create endpoint create it + return the run
             // IDs as JSON (both endpoints return the identical { task_id, run_id, just_created_run }).
             const isExistingSandboxConversation = values.conversation?.agent_runtime === 'sandbox'
-            const isSandboxConversation = isExistingSandboxConversation || !!isSandbox
+            // A registered slash command (/usage, /feedback, /ticket) executes server-side via /open, but
+            // only on a born-sandbox conversation. A not-yet-converted LangGraph conversation — even with
+            // the sandbox toggle on — must route through /stream, where the LangGraph SlashCommandHandlerNode
+            // handles it: a command must never be the message that triggers the LangGraph→sandbox conversion.
+            const messageMatchesSandboxCommand =
+                generationAttempt === 0 && !!streamData.content && matchSandboxSlashCommand(streamData.content) !== null
+            const isSandboxConversation = messageMatchesSandboxCommand
+                ? isExistingSandboxConversation
+                : isExistingSandboxConversation || !!isSandbox
 
             // Echo the human message into whichever thread the renderer actually shows. A sandbox
             // conversation renders runStreamLogic's threadItems (not this logic's thread) and
@@ -734,6 +789,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             // backend resumes that Task's run. Only the first message carries it.
                             ...(values.pendingBindTaskId ? { task_id: values.pendingBindTaskId } : {}),
                         })
+                        // Only the slash-command variant carries `type`, so the `in` check alone
+                        // discriminates — and, unlike a compound condition, narrows the run-handle
+                        // branch below.
+                        if (handle && 'type' in handle) {
+                            // Server-executed slash command — no run to open. Render the reply locally
+                            // (persisted-method frame, so a reload folds identically), drive the /ticket
+                            // surface off the response, and unwind exactly like the null-handle warm path.
+                            actions.pushSandboxLocalAssistantMessage(handle.content)
+                            if (handle.command === '/ticket') {
+                                actions.setSandboxTicketSummary(
+                                    deriveSandboxTicketState(streamData.content ?? '', handle.content)
+                                )
+                            }
+                            actions.setSandboxRunOpening(false)
+                            actions.decrActiveStreamingThreads()
+                            releaseStreamingLock()
+                            return
+                        }
                         if (handle) {
                             // The sent message consumes any in-flight warm — it's now the active run, so
                             // drop the release handle to avoid cancelling the run out from under it.
@@ -1104,7 +1177,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: null,
                     initial_permission_mode: INITIAL_PERMISSION_MODE,
                 })
-                cache.warmRun = warm ? { taskId: warm.task_id, runId: warm.run_id } : null
+                // A warm has no content, so it can never return the slash-command shape — the
+                // `'type' in` check only narrows the union for the type system.
+                cache.warmRun = warm && !('type' in warm) ? { taskId: warm.task_id, runId: warm.run_id } : null
                 cache.prewarmed = true
                 // If the user abandoned the input while this POST was in flight, the blur/empty
                 // release hit the early-exit (nothing was warm yet). Honor it now so the freshly
@@ -1628,6 +1703,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             await api.conversations.appendMessage(conversationId, message)
 
+            // Sandbox renders runStreamLogic's threadItems, not this logic's thread — echo the
+            // confirmation there (persisted-method frame, folds identically on reload) and clear the
+            // ticket surface. addMessage would land in the LangGraph thread the ThreadView never shows.
+            if (values.conversation?.agent_runtime === 'sandbox') {
+                actions.pushSandboxLocalAssistantMessage(message)
+                actions.setSandboxTicketSummary(null)
+                return
+            }
+
             actions.addMessage({
                 type: AssistantMessageType.Assistant,
                 content: message,
@@ -2130,15 +2214,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
                 conversation: Conversation | null
-            ): SlashCommand[] => {
-                // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
+            ): AnySlashCommand[] => {
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+
+                // The sandbox runtime has its own surface registry (the three server-executed commands);
+                // the LangGraph path keeps the full set (its `hiddenInSandbox` field never applies here).
+                if (isSandboxRuntime) {
+                    return SANDBOX_SLASH_COMMANDS.filter(
+                        (command) =>
+                            command.name.toLowerCase().startsWith(question.toLowerCase()) &&
+                            (!command.requiresIdle || !threadLoading)
+                    )
+                }
 
                 return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
+                        // Retained for LangGraph correctness; the sandbox arm above never reaches here.
                         (!command.hiddenInSandbox || !isSandboxRuntime)
                 )
             },

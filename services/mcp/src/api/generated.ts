@@ -48143,6 +48143,26 @@ export namespace Schemas {
       task_id?: string;
     }
 
+    /**
+     * Alternate 200 shape for `POST /conversations/{id}/open/` — a slash command executed
+     * server-side, with no Run provisioned. The `type` discriminant tells it apart from the run handle.
+     */
+    export interface SlashCommandResultResponse {
+      /** Discriminator — always `slash_command` for this shape. */
+      type: string;
+      /** The slash command that ran, e.g. `/usage`. */
+      command: string;
+      /** The rendered assistant reply, as markdown. */
+      content: string;
+      /**
+         * Echo of the request trace id, if provided.
+         * @nullable
+         */
+      trace_id: string | null;
+    }
+
+    export type SandboxOpenResponse = SandboxMessageResponse | SlashCommandResultResponse;
+
     export interface SavedHeatmapListResponse {
       results: HeatmapScreenshotResponse[];
       /** Total number of saved heatmaps matching the filters. */

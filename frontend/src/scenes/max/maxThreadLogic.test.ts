@@ -3456,6 +3456,77 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('sandbox slash commands', () => {
+        const sandboxConversation = { ...MOCK_CONVERSATION, agent_runtime: 'sandbox' as const }
+        const langgraphConversation = { ...MOCK_CONVERSATION, agent_runtime: 'langgraph' as const }
+
+        it('short-circuits a command on a born-sandbox conversation: renders locally, no SSE, lock unwound', async () => {
+            logic.actions.setConversation(sandboxConversation)
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue({
+                type: 'slash_command',
+                command: '/usage',
+                content: '## PostHog AI usage',
+                trace_id: null,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, content: '/usage', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['pushSandboxHumanMessage', 'pushSandboxLocalAssistantMessage'])
+
+            expect(openSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, expect.objectContaining({ content: '/usage' }))
+            // The lock is unwound synchronously (null-handle warm path), i.e. no SSE stream was opened.
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+            const stream = runStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
+            expect(
+                stream.values.threadItems.some(
+                    (item) => item.type === 'assistant_message' && item.text === '## PostHog AI usage'
+                )
+            ).toEqual(true)
+        })
+
+        it('routes a command on a not-yet-converted LangGraph conversation to /stream, never /open', async () => {
+            logic.actions.setConversation(langgraphConversation)
+            // Mocked so a routing regression can't reach the network; the assertion below proves it stays unused.
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(null)
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: '/usage', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['completeThreadGeneration'])
+
+            // The command must reach the LangGraph SlashCommandHandlerNode via /stream, never trigger the
+            // /open sandbox conversion.
+            expect(openSpy).not.toHaveBeenCalled()
+            expect(streamSpy).toHaveBeenCalled()
+        })
+
+        it('stores a /ticket summary response in sandboxTicketSummary', async () => {
+            logic.actions.setConversation(sandboxConversation)
+            const summary = 'PostHog AI Support Ticket Summary:\n\n**Issue:** funnel shows no data.'
+            jest.spyOn(api.conversations, 'open').mockResolvedValue({
+                type: 'slash_command',
+                command: '/ticket',
+                content: summary,
+                trace_id: null,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, content: '/ticket', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['setSandboxTicketSummary'])
+
+            expect(logic.values.sandboxTicketSummary).toEqual({ mode: 'summary', summary })
+        })
+    })
+
     describe('sandbox streaming lock', () => {
         const sandboxRunResponse = {
             task_id: 'task-1',

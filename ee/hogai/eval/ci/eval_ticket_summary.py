@@ -8,10 +8,11 @@ from langchain_core.messages import (
     SystemMessage,
 )
 
-from ee.hogai.chat_agent.slash_commands.commands.ticket.prompts import (
+from products.posthog_ai.backend.slash_commands.ticket_prompts import (
     SUPPORT_SUMMARIZER_SYSTEM_PROMPT,
     SUPPORT_SUMMARIZER_USER_PROMPT,
 )
+
 from ee.hogai.llm import MaxChatAnthropic
 
 from ..base import MaxPublicEval

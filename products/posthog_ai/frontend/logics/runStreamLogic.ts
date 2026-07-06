@@ -1106,6 +1106,21 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (method === '_posthog/assistant_message') {
+            // A synthetic assistant turn (server-executed slash command reply / ticket confirmation),
+            // injected outside the agent stream. Folds to the same item whether pushed live or replayed
+            // from the log — must sit before the `_posthog/*` catch-all, which drops unknown methods.
+            const assistantText = extractUserMessageText(params.content as string | unknown[] | undefined)
+            if (assistantText) {
+                items.push({
+                    id: `assistant-local-${bubbleSeq++}`,
+                    type: 'assistant_message',
+                    text: assistantText,
+                    complete: true,
+                })
+            }
+            continue
+        }
         if (method?.startsWith('_posthog/')) {
             // run_started, usage_update, resources_used, sdk_session, sandbox_output, … — no thread item.
             continue
@@ -1345,6 +1360,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
         markTurnComplete: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
+        /**
+         * Injects a synthetic assistant turn (a server-executed slash command reply, or a ticket
+         * confirmation) as a `_posthog/assistant_message` log frame. Uses the persisted method — not a
+         * `_client/*` variant — so the live push and a reload's log replay fold to the identical
+         * `assistant_message` item; the short-circuit path never bootstraps the S3 history, so no dedupe.
+         */
+        pushLocalAssistantMessage: (content: string) => ({ content }),
         /**
          * Open a run optimistically before its real id exists: flips the thread to the provisioning
          * indicator and, when a first message is given, renders it immediately as the human bubble. The
@@ -2530,6 +2552,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     entry: {
                         type: 'notification',
                         notification: { method: '_client/error', params: { message: errorMessage, variant } },
+                    },
+                    source: 'client',
+                },
+            ])
+        },
+        pushLocalAssistantMessage: ({ content }) => {
+            // Append the persisted `_posthog/assistant_message` method (not a `_client/*` variant) so a
+            // later reload folds the S3-replayed frame to the identical item.
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_posthog/assistant_message', params: { content } },
                     },
                     source: 'client',
                 },

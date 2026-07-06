@@ -395,10 +395,15 @@ def format_usage_message(
     free_tier_credits: int,
     conversation_start: Optional[datetime] = None,
     usage_period: Optional[AiUsagePeriod] = None,
+    include_conversation_line: bool = True,
 ) -> str:
     """
     Format the usage information into a user-friendly message with a compact layout
     and a simple progress bar against the free tier for the current team_id.
+
+    `include_conversation_line` is False on the sandbox runtime, where per-conversation
+    attribution is structurally unavailable (no `$ai_session_id` is stamped), so the
+    "Current conversation" line is omitted rather than always showing 0.
     """
     remaining = free_tier_credits - period_credits
     used = period_credits
@@ -430,7 +435,8 @@ def format_usage_message(
     if ga_cap_active:
         period_label += f" (since {ga_launch_date.strftime('%Y-%m-%d')})"
 
-    lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
+    if include_conversation_line:
+        lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
     lines.append(f"{period_label}: {period_credits:,} credits\n")
     lines.append(f"**Free tier limit**: {free_tier_credits:,} credits\n")
 

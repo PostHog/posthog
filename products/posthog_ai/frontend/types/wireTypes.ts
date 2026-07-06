@@ -259,6 +259,15 @@ export interface PosthogUserMessageParams {
     content?: string | unknown[]
 }
 
+/**
+ * A synthetic assistant turn injected outside the agent stream — a server-executed slash command
+ * reply (`/usage`, `/feedback`, `/ticket`) or a ticket confirmation. Persisted to the run log so a
+ * live push and a reload fold to the identical `assistant_message` thread item.
+ */
+export interface PosthogAssistantMessageParams {
+    content?: string | unknown[]
+}
+
 export interface PosthogUsageTokens {
     inputTokens?: number
     outputTokens?: number
@@ -395,6 +404,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/progress': PosthogProgressParams
     '_posthog/sandbox_output': PosthogSandboxOutputParams
     '_posthog/user_message': PosthogUserMessageParams
+    '_posthog/assistant_message': PosthogAssistantMessageParams
     '_posthog/usage_update': PosthogUsageUpdateParams
     '_posthog/status': PosthogStatusParams
     '_posthog/compact_boundary': PosthogCompactBoundaryParams

@@ -1,20 +1,20 @@
 from uuid import uuid4
 
-import posthoganalytics
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
 
+from products.posthog_ai.backend.slash_commands.feedback import FeedbackCommand as FeedbackCommandCore
+
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.chat_agent.slash_commands.commands.base import build_slash_command_context
 from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class FeedbackCommand(SlashCommand):
-    """
-    Handles the /feedback slash command.
-    Captures user feedback about their PostHog AI experience.
-    """
+    """LangGraph adapter for `/feedback` — extracts the feedback text from the thread and delegates
+    the capture to the shared core."""
 
     def get_feedback_content(self, state: AssistantState) -> str | None:
         """Extract the feedback text from the last human message."""
@@ -28,32 +28,6 @@ class FeedbackCommand(SlashCommand):
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         feedback_content = self.get_feedback_content(state)
-
-        if not feedback_content:
-            return PartialAssistantState(
-                messages=[
-                    AssistantMessage(
-                        content="Please provide your feedback for PostHog AI. Usage: `/feedback <your feedback>`",
-                        id=str(uuid4()),
-                    )
-                ]
-            )
-
-        conversation_id = config.get("configurable", {}).get("thread_id")
-        trace_id = config.get("configurable", {}).get("trace_id")
-
-        # Capture feedback event
-        posthoganalytics.capture(
-            distinct_id=str(self._user.distinct_id),
-            event="$ai_feedback",
-            properties={
-                "$ai_feedback_text": feedback_content,
-                "$ai_session_id": conversation_id,
-                "$ai_trace_id": trace_id,
-                "ai_product": "posthog_ai",
-            },
-        )
-
-        return PartialAssistantState(
-            messages=[AssistantMessage(content="Thanks for making PostHog AI better!", id=str(uuid4()))]
-        )
+        context = build_slash_command_context(self._team, self._user, config)
+        content = await FeedbackCommandCore(context).execute(feedback_content or "")
+        return PartialAssistantState(messages=[AssistantMessage(content=content, id=str(uuid4()))])

@@ -6861,13 +6861,24 @@ const api = {
                 /** Bind a brand-new sandbox conversation to an existing Task, resuming its run on the first message. */
                 task_id?: string
             }
-        ): Promise<{
-            task_id: string
-            run_id: string
-            trace_id: string | null
-            run_status: 'queued' | 'in_progress'
-            just_created_run: boolean
-        } | null> {
+        ): Promise<
+            | {
+                  task_id: string
+                  run_id: string
+                  trace_id: string | null
+                  run_status: 'queued' | 'in_progress'
+                  just_created_run: boolean
+              }
+            // A `/usage`, `/feedback`, or `/ticket` command executes server-side (no Run provisioned) and
+            // returns this shape instead, discriminated by `type: 'slash_command'`.
+            | {
+                  type: 'slash_command'
+                  command: string
+                  content: string
+                  trace_id: string | null
+              }
+            | null
+        > {
             const response = await api.createResponse(
                 new ApiRequest().conversation(conversationId).withAction('open').assembleFullUrl(),
                 data

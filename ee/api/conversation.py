@@ -2,7 +2,7 @@ import time
 import uuid
 import asyncio
 from collections.abc import AsyncGenerator, Iterable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -12,7 +12,7 @@ import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -57,9 +57,16 @@ from products.posthog_ai.backend.context_wrapper import (
 )
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.slash_commands.base import SlashCommandContext
+from products.posthog_ai.backend.slash_commands.registry import SlashCommandResult, match_slash_command
+from products.posthog_ai.backend.slash_commands.transcripts import RunLogTranscriptSource
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
+
+if TYPE_CHECKING:
+    from products.posthog_ai.backend.slash_commands.base import BaseSlashCommand
+    from products.tasks.backend.models import TaskRun
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -273,6 +280,17 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
     just_created_run = serializers.BooleanField(
         help_text="True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run."
     )
+
+
+class SlashCommandResultResponseSerializer(serializers.Serializer):
+    """Alternate 200 shape for `POST /conversations/{id}/open/` — a slash command executed
+    server-side, with no Run provisioned. The `type` discriminant tells it apart from the run handle."""
+
+    # Plain CharField (not ChoiceField) so drf-spectacular emits no colliding `type` enum.
+    type = serializers.CharField(help_text="Discriminator — always `slash_command` for this shape.")
+    command = serializers.CharField(help_text="The slash command that ran, e.g. `/usage`.")
+    content = serializers.CharField(help_text="The rendered assistant reply, as markdown.")
+    trace_id = serializers.CharField(allow_null=True, help_text="Echo of the request trace id, if provided.")
 
 
 @extend_schema(tags=["max"])
@@ -678,7 +696,12 @@ class ConversationViewSet(
     @extend_schema(
         request=SandboxOpenSerializer,
         responses={
-            200: SandboxMessageResponseSerializer,
+            200: PolymorphicProxySerializer(
+                component_name="SandboxOpenResponse",
+                serializers=[SandboxMessageResponseSerializer, SlashCommandResultResponseSerializer],
+                # No shared discriminator field (the run handle carries no `type`), so emit a plain oneOf.
+                resource_type_field_name=None,
+            ),
             204: OpenApiResponse(description="Warm request that provisioned nothing (pool full / released)."),
             400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
         },
@@ -686,23 +709,44 @@ class ConversationViewSet(
             "Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, "
             "processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, "
             "warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the "
-            "frontend opens SSE against. The conversation row is created on first use from the URL id."
+            "frontend opens SSE against. A `/usage`, `/feedback`, or `/ticket` command instead executes "
+            "server-side (no Run, no AI credits) and returns a `slash_command` result. The conversation row "
+            "is created on first use from the URL id."
         ),
     )
     @action(detail=True, methods=["POST"], url_path="open")
     def open(self, request: Request, *args, **kwargs):
-        # Both warming and messaging launch a Run, so gate both on the AI-credit quota.
-        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+        serializer = SandboxOpenSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+
+        content = serializer.validated_data.get("content")
+        command_match = match_slash_command(content) if isinstance(content, str) and content.strip() else None
+
+        # A slash command costs nothing (no Run, no AI credits) — `/usage` is exactly what an over-quota
+        # user runs — so gate on the quota only for a normal turn or a warm, and only before any row is
+        # created so a quota-limited request never leaves an orphaned conversation.
+        if command_match is None and is_team_limited(
+            self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )
-        serializer = SandboxOpenSerializer(data=request.data, context=self.get_serializer_context())
-        serializer.is_valid(raise_exception=True)
 
         conversation, created = self._get_or_create_sandbox_conversation(
             request, bind_task=serializer.validated_data.get("task_id")
         )
-        has_content = bool(serializer.validated_data.get("content"))
+
+        if command_match is not None:
+            # Only genuine sandbox conversations (existing rows, or brand-new rows born sandbox) run a
+            # command here. A reopened, not-yet-converted LangGraph conversation is rejected without
+            # converting — the frontend routes its commands through `/stream`, where the LangGraph
+            # SlashCommandHandlerNode handles them natively. Runs before the title-set so a first-message
+            # command never becomes the conversation title.
+            if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+                raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+            return self._execute_slash_command(request, conversation, command_match, serializer.validated_data)
+
+        has_content = bool(content)
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
 
         # Sandbox-only endpoint. A converting LangGraph thread is still LANGGRAPH here (the flip happens
@@ -717,6 +761,85 @@ class ConversationViewSet(
         return self._route_sandbox_message(
             request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp, created=created
         )
+
+    def _execute_slash_command(
+        self,
+        request: Request,
+        conversation: Conversation,
+        command_match: "tuple[type[BaseSlashCommand], str]",
+        validated_data: dict,
+    ) -> Response:
+        """Run a `/usage`/`/feedback`/`/ticket` command server-side and return its rendered reply.
+
+        No Run is provisioned and no AI credits are spent. When a Run already exists the turn is
+        appended to its ACP log (best-effort) so a reload rehydrates it; the very first interaction
+        has no Run and is answered ephemerally.
+        """
+        user = cast(User, request.user)
+        command_cls, arg = command_match
+        raw_trace_id = validated_data.get("trace_id")
+        trace_id = str(raw_trace_id) if raw_trace_id is not None else None
+
+        run = conversation.current_run
+        context = SlashCommandContext(
+            team=self.team,
+            user=user,
+            conversation_id=conversation.id,
+            trace_id=trace_id,
+            # The sandbox passes no billing context; get_ai_usage_period falls back to the org period.
+            billing_context=None,
+            # Sandbox generations never stamp $ai_session_id, so per-conversation attribution is 0.
+            conversation_attribution_available=False,
+        )
+        transcript_source = RunLogTranscriptSource(run) if run is not None else None
+        command = command_cls(context, transcript_source)
+        content = asgi_async_to_sync(command.execute)(arg)
+
+        self._persist_slash_command_turn(conversation, run, command.name, validated_data["content"], content)
+
+        return Response(
+            SlashCommandResult(command=command.name, content=content, trace_id=trace_id).model_dump(),
+            status=status.HTTP_200_OK,
+        )
+
+    def _persist_slash_command_turn(
+        self,
+        conversation: Conversation,
+        run: "TaskRun | None",
+        command_name: str,
+        user_text: str,
+        assistant_content: str,
+    ) -> None:
+        """Append the command turn (`_posthog/user_message` + `_posthog/assistant_message`) to the Run's
+        ACP log so it rehydrates on the next history bootstrap. Best-effort: `append_log` is an
+        S3-only read-modify-write without locking (accepted-risk, same as `sandbox_followup_log_failed`),
+        and there is no Run to persist to on the very first interaction."""
+        if run is None:
+            return
+        source = f"slash_command:{command_name.lstrip('/')}"
+        entries = [
+            {
+                "notification": {
+                    "method": "_posthog/user_message",
+                    "params": {"content": user_text, "_meta": {"source": source}},
+                }
+            },
+            {
+                "notification": {
+                    "method": "_posthog/assistant_message",
+                    "params": {"content": assistant_content, "_meta": {"source": source}},
+                }
+            },
+        ]
+        try:
+            run.append_log(entries)
+        except Exception as e:
+            logger.warning(
+                "sandbox_slash_command_log_failed",
+                conversation_id=str(conversation.id),
+                run_id=str(run.id),
+                error=str(e),
+            )
 
     def _get_or_create_sandbox_conversation(
         self, request: Request, *, bind_task: uuid.UUID | None = None
@@ -900,6 +1023,28 @@ class ConversationViewSet(
 
         content = serializer.validated_data["content"]
         message = AssistantMessage(content=content, id=str(uuid.uuid4()))
+
+        # The sandbox runtime stores turns in the Run's ACP log, not the LangGraph checkpointer — an
+        # `aupdate_state` write there would be invisible. Append a `_posthog/assistant_message` frame so
+        # a ticket confirmation rehydrates on reload (mirrors `_persist_slash_command_turn`).
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            run = conversation.current_run
+            if run is not None:
+                entry = {
+                    "notification": {
+                        "method": "_posthog/assistant_message",
+                        "params": {"content": content, "_meta": {"source": "ticket_confirmation"}},
+                    }
+                }
+                try:
+                    run.append_log([entry])
+                except Exception as e:
+                    logger.warning(
+                        "sandbox_append_message_log_failed",
+                        conversation_id=str(conversation.id),
+                        error=str(e),
+                    )
+            return Response({"id": message.id}, status=status.HTTP_201_CREATED)
 
         async def append_to_state():
             user = cast(User, request.user)

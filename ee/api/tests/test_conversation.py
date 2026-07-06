@@ -2075,3 +2075,119 @@ class TestConversationCreateRuntime(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         m_routing.assert_not_called()
+
+
+class TestConversationSandboxSlashCommands(APIBaseTest):
+    """Server-side slash command short-circuit in `ConversationViewSet.open`."""
+
+    FEEDBACK_CAPTURE = "products.posthog_ai.backend.slash_commands.feedback.posthoganalytics.capture"
+
+    def _sandbox_conversation(self, **kwargs) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            **kwargs,
+        )
+
+    def _open(self, conversation_id, content: str):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+            {"content": content, "trace_id": str(uuid.uuid4())},
+            format="json",
+        )
+
+    @patch(FEEDBACK_CAPTURE)
+    def test_command_short_circuits_without_provisioning_a_run(self, mock_capture):
+        conversation = self._sandbox_conversation()
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            response = self._open(conversation.id, "/feedback amazing")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["type"], "slash_command")
+        self.assertEqual(body["command"], "/feedback")
+        self.assertEqual(body["content"], "Thanks for making PostHog AI better!")
+        m_session.assert_not_called()
+        mock_capture.assert_called_once()
+
+    @patch("ee.api.conversation.is_team_limited", return_value=True)
+    @patch(
+        "products.posthog_ai.backend.slash_commands.usage.UsageCommand.execute",
+        new_callable=AsyncMock,
+        return_value="## PostHog AI usage",
+    )
+    def test_usage_command_bypasses_the_quota_gate(self, _mock_execute, _mock_quota):
+        conversation = self._sandbox_conversation()
+        response = self._open(conversation.id, "/usage")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["command"], "/usage")
+
+    @patch(FEEDBACK_CAPTURE)
+    def test_first_message_command_creates_ephemeral_row_without_title_or_run(self, _mock_capture):
+        conversation_id = str(uuid.uuid4())
+        with patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True):
+            response = self._open(conversation_id, "/feedback great")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversation = Conversation.objects.get(id=conversation_id)
+        # First-message command must not become the title, and must provision no run.
+        self.assertIsNone(conversation.title)
+        self.assertIsNone(conversation.task_id)
+
+    def test_command_on_langgraph_conversation_rejected_without_converting(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+            status=Conversation.Status.IDLE,
+            title="A chat",
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self._open(conversation.id, "/usage")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_session.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.LANGGRAPH)
+        self.assertIsNone(conversation.task_id)
+
+    @patch(FEEDBACK_CAPTURE)
+    def test_command_appends_turn_to_run_log_when_run_exists(self, _mock_capture):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        task.create_run(mode="interactive")
+        conversation = self._sandbox_conversation(task=task)
+
+        with patch.object(TaskRun, "append_log") as m_append:
+            response = self._open(conversation.id, "/feedback great")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_append.assert_called_once()
+        entries = m_append.call_args[0][0]
+        self.assertEqual(
+            [entry["notification"]["method"] for entry in entries],
+            ["_posthog/user_message", "_posthog/assistant_message"],
+        )
+        self.assertEqual(entries[0]["notification"]["params"]["content"], "/feedback great")
+        self.assertEqual(entries[1]["notification"]["params"]["content"], "Thanks for making PostHog AI better!")
+
+    @patch(FEEDBACK_CAPTURE)
+    def test_command_is_ephemeral_when_no_run_exists(self, _mock_capture):
+        conversation = self._sandbox_conversation()
+        with patch.object(TaskRun, "append_log") as m_append:
+            response = self._open(conversation.id, "/feedback great")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_append.assert_not_called()

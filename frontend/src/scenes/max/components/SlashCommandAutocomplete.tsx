@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 
 import { maxThreadLogic } from '../maxThreadLogic'
-import { MAX_SLASH_COMMANDS, SlashCommand } from '../slash-commands'
+import { AnySlashCommand, MAX_SLASH_COMMANDS } from '../slash-commands'
 
 interface SlashCommandAutocompleteProps {
     onClose: () => void
@@ -14,8 +14,8 @@ interface SlashCommandAutocompleteProps {
 }
 
 const convertSlashCommandToMenuItem = (
-    command: SlashCommand,
-    onActivate: (command: SlashCommand) => void,
+    command: AnySlashCommand,
+    onActivate: (command: AnySlashCommand) => void,
     active: boolean
 ): LemonMenuItem => ({
     key: command.name,
@@ -75,7 +75,7 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
         <LemonMenu
             matchWidth
             items={filteredCommands
-                .map((command: SlashCommand, index: number) =>
+                .map((command: AnySlashCommand, index: number) =>
                     convertSlashCommandToMenuItem(command, activateCommand, index === activeItemIndex)
                 )
                 .concat([

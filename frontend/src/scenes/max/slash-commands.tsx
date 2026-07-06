@@ -4,6 +4,8 @@ import { FeatureFlagKey } from 'lib/constants'
 
 import { SlashCommandName } from '~/queries/schema/schema-assistant-messages'
 
+import { SurfaceSlashCommand } from 'products/posthog_ai/frontend/api/slashCommands'
+
 export { SlashCommandName }
 
 export interface SlashCommand {
@@ -21,6 +23,14 @@ export interface SlashCommand {
      */
     hiddenInSandbox?: boolean
 }
+
+/**
+ * A slash command from either registry: the LangGraph `MAX_SLASH_COMMANDS` (name typed as the
+ * `SlashCommandName` enum) or the sandbox `SANDBOX_SLASH_COMMANDS` surface registry (name a plain
+ * string). The shared consumers (`filteredCommands`, `selectCommand`/`activateCommand`,
+ * `SlashCommandAutocomplete`) accept either.
+ */
+export type AnySlashCommand = SlashCommand | SurfaceSlashCommand
 
 export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     {

@@ -795,6 +795,39 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('_posthog/assistant_message rendering', () => {
+        // A live short-circuit push and a reload's log replay must fold to the byte-identical item —
+        // same method, so `foldLogToThread` produces the same id/text/complete either way.
+        const EXPECTED = {
+            id: 'assistant-local-0',
+            type: 'assistant_message',
+            text: '## PostHog AI usage',
+            complete: true,
+        }
+
+        it('renders a live pushLocalAssistantMessage as a completed assistant item', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushLocalAssistantMessage('## PostHog AI usage')
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([EXPECTED])
+        })
+
+        it('folds a replayed _posthog/assistant_message frame to the identical item', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/assistant_message', { content: '## PostHog AI usage' }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([EXPECTED])
+        })
+    })
+
     describe('_posthog/user_message rendering', () => {
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
             const frames: StoredLogEntry[] = [
