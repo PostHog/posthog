@@ -101,17 +101,21 @@ jobs:
         name: Agent Proxy CI Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.agent-proxy.result }}" == "failure" ]]; then
-                    echo "Agent Proxy checks failed."
+                  if [[ "${{ needs.agent-proxy.result }}" != "success" && "${{ needs.agent-proxy.result }}" != "skipped" ]]; then
+                    echo "Agent Proxy checks did not succeed (result: ${{ needs.agent-proxy.result }})."
                     exit 1
                   fi
 
