@@ -86,7 +86,8 @@ resp = github_request(
 It's **token-agnostic** (installation token, user token, PAT, or PostHog's shared token) and stateless.
 The generic `EgressClient` base owns the gate → request → record algorithm and the priority-based denial semantics (CRITICAL proceeds even when the budget is spent — GitHub's own 429 is the backstop; sheddable lanes raise `EgressBudgetExhausted`); `GitHubClient` fills the domain hooks.
 Response handling — what to do on a 403/429 — stays with the caller: `raise_if_github_rate_limited` / `GitHubRateLimitError` (GitHub's own 429, the reactive twin of our `EgressBudgetExhausted`) live in `github/transport.py` for callers that want to raise-and-retry.
-The model-coupled `GitHubIntegrationBase` is a _consumer_ of this, not the general path.
+The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
+Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
 ## The one identity rule
 

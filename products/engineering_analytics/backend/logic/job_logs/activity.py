@@ -67,7 +67,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
-    if not await acquire_github_installation(installation_id):
+    if not await acquire_github_installation(installation_id, source="job_logs"):
         # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
         raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)

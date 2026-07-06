@@ -30,6 +30,7 @@ from posthog.models import OrganizationMembership
 from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
 from products.customer_analytics.backend.facade.contracts import (
     AccountNotebookView,
+    AccountNoteView,
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
@@ -265,6 +266,23 @@ class AccountNotebookSerializer(DataclassSerializer):
             "last_modified_at",
             "last_modified_by",
         ]
+
+
+class AccountNoteSerializer(DataclassSerializer):
+    """A team-wide account note — an internal notebook linked to a Customer analytics account."""
+
+    short_id = serializers.CharField(read_only=True, help_text="URL-safe short ID of the notebook.")
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="Title of the note.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the note was created.")
+    last_modified_at = serializers.DateTimeField(read_only=True, help_text="When the note was last modified.")
+    account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
+    account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
+
+    class Meta:
+        dataclass = AccountNoteView
+        ref_name = "AccountNote"
+        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):

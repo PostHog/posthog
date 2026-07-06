@@ -238,7 +238,11 @@ function BoxPlotInner<Meta = unknown>({
             }
 
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, orientation: 'vertical' })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    orientation: 'vertical',
+                })
             }
 
             for (const s of coloredSeries) {

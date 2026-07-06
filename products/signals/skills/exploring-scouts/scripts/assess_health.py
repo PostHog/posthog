@@ -5,7 +5,7 @@
 Pure formatter — no network I/O. Answers the "is my scout actually working / earning
 its cost?" question, which (unlike a single-run report or a point-in-time fleet survey)
 needs reasoning across a *window* of runs. Judges each scout on the five dimensions from
-the exploring-scouts health playbook: cadence adherence, success rate, emit rate,
+the exploring-scouts health playbook: cadence adherence, success rate, report rate,
 run duration, and memory growth.
 
 Inputs (`call --json` payloads saved to a file):
@@ -82,20 +82,13 @@ def minutes_between(a: str | None, b: str | None) -> float | None:
     return (y - x).total_seconds() / 60.0
 
 
-def quiet_or_emit(summary: str | None) -> str:
-    """Heuristic read of emit-vs-quiet from a run's prose summary (no emit flag exists).
+def run_wrote(run: dict) -> bool:
+    """Whether the run produced output, read off the run row's structured fields.
 
-    'EMITTED NOTHING' / 'nothing to emit' = quiet. A bare 'emitted' may describe a PRIOR
-    run, so it is ambiguous — counted as a maybe, never as a confirmed emit.
+    `emitted_report_ids` / `edited_report_ids` are the report output; `emitted_count`
+    only tallies legacy signal-channel findings (always 0 on current scouts).
     """
-    if not summary:
-        return "unknown"
-    low = summary.lower()
-    if "emitted nothing" in low or "nothing to emit" in low or "did not emit" in low:
-        return "quiet"
-    if "emitted" in low:
-        return "maybe"
-    return "quiet"
+    return bool(run.get("emitted_report_ids") or run.get("edited_report_ids") or run.get("emitted_count"))
 
 
 def pct(num: int, den: int) -> str:
@@ -154,7 +147,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     expected = (int(span_min / interval) + 1) if interval and span_min > 0 else None
     adherence = pct(n, expected) if expected else "-"
 
-    emit_like = sum(1 for r in runs if quiet_or_emit(r.get("summary")) == "maybe")
+    wrote = sum(1 for r in runs if run_wrote(r))
     # Two different stalenesses — keep them apart. `last_run_at` is the coordinator's DISPATCH
     # stamp (advanced the moment a child is enqueued, before any worker runs it); the newest
     # observed run row's `started_at` is when a run actually EXECUTED. A fresh `last_run_at`
@@ -177,7 +170,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
         "name": name, "runs": n, "completed": completed, "failed": failed, "timeouts": timeouts,
         "success_pct": pct(completed, n), "median_dur": median_dur, "median_gap": median_gap,
         "interval": interval, "adherence": adherence, "stalls": stalls,
-        "emit_like": emit_like, "emit_pct": pct(emit_like, n), "mem_count": mem_count,
+        "wrote": wrote, "wrote_pct": pct(wrote, n), "mem_count": mem_count,
         "stale_min": stale_min, "dispatch_stale_min": dispatch_stale_min,
         "run_stale_min": run_stale_min, "dispatch_run_gap_min": dispatch_run_gap_min,
     }
@@ -201,10 +194,10 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
         dur = f"{s['median_dur']}m" if s["median_dur"] is not None else "-"
         runs_cell = f"{s['runs']}" + (f" ({s['failed']}F)" if s["failed"] else "")
         mem = "n/a" if s["mem_count"] is None else (str(s["mem_count"]) if s["mem_count"] else "0")
-        body.append([s["name"], runs_cell, s["success_pct"], s["emit_pct"],
+        body.append([s["name"], runs_cell, s["success_pct"], s["wrote_pct"],
                      f"{gap}/{interval}", s["adherence"], dur, mem])
 
-    L += table(["scout", "runs", "ok", "emit*", "gap/ival", "adher", "med", "mem"], body)
+    L += table(["scout", "runs", "ok", "wrote", "gap/ival", "adher", "med", "mem"], body)
     L += [""]
 
     flags: list[str] = []
@@ -233,9 +226,10 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
     L += ["", "-" * 78, " column key", "-" * 78,
           " runs      runs in the window; (NF) = N of them failed",
           " ok        success rate — % of runs that reached a clean 'completed' status",
-          " emit*     emit rate — % of runs whose summary reads like it emitted. HEURISTIC",
-          "           on the prose: can over-count when a summary recaps a PRIOR run's",
-          "           emit. Confirm signal-to-noise against inbox-reports-list.",
+          " wrote     report rate — % of runs that wrote or edited an inbox report (from",
+          "           emitted_report_ids / edited_report_ids on the run row; legacy",
+          "           signal-channel emits count too). Most healthy scouts write rarely —",
+          "           judge signal-to-noise against the report statuses in inbox-reports-list.",
           " gap/ival  median gap between consecutive run starts / the configured",
           "           run_interval_minutes. gap well above ival = the scout is being skipped.",
           " adher     cadence adherence — runs observed / runs expected across the window",

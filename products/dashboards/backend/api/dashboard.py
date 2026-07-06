@@ -2391,7 +2391,8 @@ class DashboardsViewSet(
         return sse_streaming_response(
             async_tile_stream_generator()
             if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(lambda: async_tile_stream_generator())
+            else async_to_sync(lambda: async_tile_stream_generator()),
+            endpoint="dashboard_tile_stream",
         )
 
     def _get_layout_size_from_request(self, request: Request) -> str:

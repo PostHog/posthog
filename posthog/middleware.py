@@ -566,7 +566,9 @@ class QueryTimeCountingMiddleware:
         if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
             return True
         try:
-            return resolve(path).func.__name__ == "home"
+            # Frontend page loads resolve to either the `home` view (unauthenticated routes)
+            # or its `home_with_region_redirect` wrapper (the authenticated catch-all).
+            return resolve(path).func.__name__ in ("home", "home_with_region_redirect")
         except Exception:
             return False
 
@@ -609,11 +611,13 @@ class EnvironmentsRedirectMiddleware:
 
     Gated by the `api-environments-redirect` feature flag, evaluated locally per request
     (no network call, no flag events) — turning the flag off disables the redirect
-    instantly without a deploy or restart. If the flag can't be evaluated (missing,
-    local evaluation unavailable, SDK disabled) the redirect stays OFF. Whether or not
-    the redirect is enabled, redirectable /api/environments/* responses carry
-    `Deprecation`, `Sunset`, and `Link` headers announcing the successor path to
-    integrators.
+    instantly without a deploy or restart. The flag is bucketed on the team/project id
+    from the path (see _flag_distinct_id), so a percentage rollout redirects that
+    fraction of teams (0% off, 100% on) rather than flipping the whole instance at once.
+    If the flag can't be evaluated (missing, local evaluation unavailable, SDK disabled)
+    the redirect stays OFF. Whether or not the redirect is enabled, redirectable
+    /api/environments/* responses carry `Deprecation`, `Sunset`, and `Link` headers
+    announcing the successor path to integrators.
     """
 
     ENVIRONMENTS_PREFIX = "/api/environments"
@@ -637,7 +641,7 @@ class EnvironmentsRedirectMiddleware:
         location = f"{target_path}?{query_string}" if query_string else target_path
 
         response: HttpResponse
-        if self._redirect_enabled():
+        if self._redirect_enabled(self._flag_distinct_id(path)):
             response = HttpResponseTemporaryRedirectPreserveMethod(location)
         else:
             response = self.get_response(request)
@@ -650,13 +654,28 @@ class EnvironmentsRedirectMiddleware:
         return response
 
     @classmethod
-    def _redirect_enabled(cls) -> bool:
-        # only_evaluate_locally keeps this off the network on every request; a constant
-        # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
+    def _flag_distinct_id(cls, path: str) -> str:
+        # Bucket the flag on the team/project id already present in the path so the
+        # redirect can roll out incrementally per team (0% off, 100% on, anything
+        # between = that fraction of teams, stable per team). Paths without a numeric
+        # id here (@current, keyless) can't name a team without resolving auth — this
+        # middleware runs pre-auth — so they fall back to the constant id and ride the
+        # global switch. Purely string work: no DB query, no session read, no lookups.
+        remainder = path[len(cls.ENVIRONMENTS_PREFIX) :].strip("/")
+        team_id = remainder.split("/", 1)[0] if remainder else ""
+        if team_id.isdigit():
+            return f"{cls.FEATURE_FLAG_DISTINCT_ID}:team:{team_id}"
+        return cls.FEATURE_FLAG_DISTINCT_ID
+
+    @classmethod
+    def _redirect_enabled(cls, distinct_id: Optional[str] = None) -> bool:
+        # only_evaluate_locally keeps this off the network on every request; a per-team
+        # distinct id lets a percentage rollout bucket by team instead of flipping the
+        # whole instance at once (see _flag_distinct_id).
         return bool(
             posthoganalytics.feature_enabled(
                 cls.FEATURE_FLAG_KEY,
-                cls.FEATURE_FLAG_DISTINCT_ID,
+                distinct_id or cls.FEATURE_FLAG_DISTINCT_ID,
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )

@@ -11,8 +11,8 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
-import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
