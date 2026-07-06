@@ -122,6 +122,21 @@ export class PluginServer implements NodeServer {
             cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
+        // Only pods that actually execute email actions need the SES Valkey pool
+        // that backs the shared MX-verdict cache. Opening it fleet-wide when the
+        // kill switch is on would burn idle connections against a Valkey sized for
+        // the SES rate limiter's workload.
+        const executesEmailActions = !!(
+            capabilities.cdpCyclotronWorkerHogFlow ||
+            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
+            capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailLegacyPg
+        )
+        const emailValidationValkey =
+            needsCdp && executesEmailActions && this.config.CDP_EMAIL_MX_VALIDATION_ENABLED
+                ? createSesRateLimiterValkeyPool(this.config, 'email-mx-validation')
+                : null
+
         // Build typed deps objects for consumers
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
@@ -136,6 +151,7 @@ export class PluginServer implements NodeServer {
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
+                  emailValidationValkey,
               }
             : undefined
 

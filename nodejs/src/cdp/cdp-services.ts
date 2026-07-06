@@ -41,7 +41,6 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
-import { createSesRateLimiterValkeyPool } from './services/rate-limiter/rate-limiter-valkey-pool'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
@@ -144,10 +143,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
-        | 'SES_RATE_LIMITER_VALKEY_HOST'
-        | 'SES_RATE_LIMITER_VALKEY_PORT'
-        | 'SES_RATE_LIMITER_VALKEY_PASSWORD'
-        | 'SES_RATE_LIMITER_VALKEY_TLS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
@@ -183,6 +178,13 @@ export interface CdpCoreServicesDeps {
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
+    /**
+     * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
+     * capabilities actually execute email actions (hogflow/email cyclotron workers).
+     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
+     * open connections against the SES Valkey instance.
+     */
+    emailValidationValkey: RedisV2 | null
 }
 
 /**
@@ -435,12 +437,10 @@ export function createCdpCoreServices(
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
-    // limiter, separate pool). Pool is only opened when validation is enabled, so
-    // the kill switch also releases the Valkey connections.
-    const emailValidationValkey = config.CDP_EMAIL_MX_VALIDATION_ENABLED
-        ? createSesRateLimiterValkeyPool(config, 'email-mx-validation')
-        : null
-    const emailValidationService = new EmailValidationService(config, emailValidationValkey)
+    // limiter, separate pool). The pool is created by the server only on pods
+    // whose capabilities execute email actions; everywhere else this is null
+    // and EmailValidationService degrades to the local cache + DNS.
+    const emailValidationService = new EmailValidationService(config, deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(
