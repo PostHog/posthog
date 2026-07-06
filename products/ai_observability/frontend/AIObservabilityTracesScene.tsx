@@ -46,10 +46,17 @@ export function AIObservabilityTraces(): JSX.Element {
     const { applyUrlState, setShouldFilterSupportTraces } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
+    const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const baseContext = useTracesQueryContext()
     const context: QueryContext<DataTableNode> = {
         ...baseContext,
+        ...(appliedSearchTerm
+            ? {
+                  emptyStateHeading: 'No traces matched your search',
+                  emptyStateDetail: 'Try a different search term, date range, or filters.',
+              }
+            : {}),
         customActions: <TracesOptionsMenu key="traces-options-menu" />,
     }
 
@@ -69,15 +76,16 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining three URL-synced fields into a single
+                    // Batch the remaining URL-synced fields into a single
                     // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of three.
+                    // one URL change instead of several.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
                             dateTo: query.source.dateRange?.date_to || null,
                             shouldFilterTestAccounts: query.source.filterTestAccounts || false,
                             propertyFilters: query.source.properties || [],
+                            searchQuery: query.source.searchTerm || '',
                             currentDateFilter: dateFilter,
                             currentPropertyFilters,
                         })

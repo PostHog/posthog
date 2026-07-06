@@ -46026,6 +46026,10 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
+                "searchTerm": {
+                    "description": "Free-text search over generation input/output content, matched case-insensitively against the ai_events table. Only content within the ai_events retention window (30 days by default) is searchable.",
+                    "type": "string"
+                },
                 "showColumnConfigurator": {
                     "type": "boolean"
                 },

@@ -37,6 +37,15 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
+# Bounds the trace-ID set the search semijoin broadcasts to the events shards.
+# Recency-ordered, so matches beyond the cap only go missing on deep pages or
+# when other filters discard most candidates.
+SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
+
+
+def _escape_like_pattern(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 class TracesQueryDateRange(QueryDateRange):
     """
@@ -92,59 +101,60 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset=self.query.offset,
         )
 
+    def _build_trace_ids_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Calculate max number of events needed with current offset and limit
+        limit_value = self.paginator.limit
+        offset_value = self.paginator.offset
+        pagination_limit = limit_value + offset_value + 1
+
+        # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+        # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+        # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+        # order but the main query re-sorts them differently, so OFFSET-based slicing
+        # produces overlapping or missing traces across pages.
+        order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
+
+        # The HAVING clause enforces the same overlap semantics as the post-filter
+        # in `_map_results` (a trace counts if any of its events overlap the user
+        # window). Without it, the LIMIT runs over the buffered window — so for a
+        # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
+        # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
+        # which the post-filter then drops, producing an empty page.
+        return parse_select(
+            f"""
+            SELECT
+                groupArray(trace_id) as trace_ids,
+                min(first_ts) as min_timestamp,
+                max(last_ts) as max_timestamp
+            FROM (
+                SELECT
+                    properties.$ai_trace_id as trace_id,
+                    min(timestamp) as first_ts,
+                    max(timestamp) as last_ts
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND {{conditions}}
+                GROUP BY trace_id
+                HAVING min(timestamp) <= {{unbuffered_date_to}}
+                   AND max(timestamp) >= {{unbuffered_date_from}}
+                ORDER BY {order_clause}
+                LIMIT {{limit}}
+            )
+            """,
+            placeholders={
+                "conditions": self._get_subquery_filter(),
+                "limit": ast.Constant(value=pagination_limit),
+                "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
+                "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
+            },
+        )
+
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
         with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
-            # Calculate max number of events needed with current offset and limit
-            limit_value = self.paginator.limit
-            offset_value = self.paginator.offset
-            pagination_limit = limit_value + offset_value + 1
-
-            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
-            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
-            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
-            # order but the main query re-sorts them differently, so OFFSET-based slicing
-            # produces overlapping or missing traces across pages.
-            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
-
-            # The HAVING clause enforces the same overlap semantics as the post-filter
-            # in `_map_results` (a trace counts if any of its events overlap the user
-            # window). Without it, the LIMIT runs over the buffered window — so for a
-            # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
-            # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
-            # which the post-filter then drops, producing an empty page.
-            trace_ids_query = parse_select(
-                f"""
-                SELECT
-                    groupArray(trace_id) as trace_ids,
-                    min(first_ts) as min_timestamp,
-                    max(last_ts) as max_timestamp
-                FROM (
-                    SELECT
-                        properties.$ai_trace_id as trace_id,
-                        min(timestamp) as first_ts,
-                        max(timestamp) as last_ts
-                    FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND {{conditions}}
-                    GROUP BY trace_id
-                    HAVING min(timestamp) <= {{unbuffered_date_to}}
-                       AND max(timestamp) >= {{unbuffered_date_from}}
-                    ORDER BY {order_clause}
-                    LIMIT {{limit}}
-                )
-                """,
-            )
-
             trace_ids_result = execute_hogql_query(
                 query_type="TracesQuery_TraceIds",
-                query=trace_ids_query,
-                placeholders={
-                    "conditions": self._get_subquery_filter(),
-                    "limit": ast.Constant(value=pagination_limit),
-                    "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
-                    "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
-                },
+                query=self._build_trace_ids_query(),
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
@@ -527,7 +537,49 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 )
             )
 
+        search_filter = self._get_search_filter()
+        if search_filter is not None:
+            exprs.append(search_filter)
+
         return ast.And(exprs=exprs)
+
+    def _get_search_filter(self) -> ast.Expr | None:
+        """The content columns exist only in ai_events (stripped from the shared
+        events table at ingestion), so there is no events fallback and no routing
+        through query_ai_events. ai_events is a satellite cluster, hence GLOBAL IN:
+        a plain IN would re-execute the subquery on every events shard.
+        """
+        search_term = (self.query.searchTerm or "").strip()
+        if not search_term:
+            return None
+
+        pattern = ast.Constant(value=f"%{_escape_like_pattern(search_term)}%")
+        with self.timings.measure("search_filter"):
+            search_subquery = parse_select(
+                """
+                SELECT trace_id
+                FROM posthog.ai_events
+                WHERE event IN ('$ai_generation', '$ai_embedding')
+                  AND timestamp >= {date_from}
+                  AND timestamp <= {date_to}
+                  AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
+                GROUP BY trace_id
+                ORDER BY max(timestamp) DESC
+                LIMIT {candidate_limit}
+                """,
+                placeholders={
+                    "date_from": self._date_range.date_from_as_hogql(),
+                    "date_to": self._date_range.date_to_as_hogql(),
+                    "pattern": pattern,
+                    "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
+                },
+            )
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Field(chain=["properties", "$ai_trace_id"]),
+            right=search_subquery,
+        )
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
