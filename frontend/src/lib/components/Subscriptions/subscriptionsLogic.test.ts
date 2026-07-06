@@ -137,4 +137,35 @@ describe('subscriptionsLogic', () => {
             aiSubscriptionsLoading: false,
         })
     })
+
+    // An unauthenticated mount (expired session, mid-logout) must resolve the loaders successfully
+    // rather than dispatching a *Failure action, whose global onFailure handler reports the
+    // ApiError to error tracking. Asserting Success-not-Failure is what distinguishes the swallow
+    // from a re-throw; the resulting [] value is identical either way (kea-loaders keeps the default).
+    it.each([401, 403])('swallows %s on mount instead of failing the loaders', async (status) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/2': fixtureInsightResponse(2),
+                '/api/environments/:team_id/insights': () => [status, { detail: 'Unauthenticated' }],
+                '/api/environments/:team_id/subscriptions': () => [status, { detail: 'Unauthenticated' }],
+            },
+        })
+
+        logic = subscriptionsLogic({
+            insightShortId: Insight2,
+        })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSubscriptionsSuccess', 'loadAiSubscriptionsSuccess'])
+            .toNotHaveDispatchedActions(['loadSubscriptionsFailure', 'loadAiSubscriptionsFailure'])
+            .toMatchValues({
+                subscriptions: [],
+                aiSubscriptions: [],
+            })
+    })
 })

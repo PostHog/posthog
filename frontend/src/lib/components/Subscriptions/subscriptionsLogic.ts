@@ -1,7 +1,7 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -13,6 +13,12 @@ import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
 import { SubscriptionBaseProps } from './utils'
+
+// The subscriptions loaders fire on mount, which can happen during an unauthenticated moment
+// (expired session, mid-logout, a view rendered without a valid session). Swallow 401/403 so
+// the mount resolves quietly instead of surfacing an uncaught auth-expiry error.
+const isUnauthenticatedError = (error: unknown): boolean =>
+    error instanceof ApiError && (error.status === 401 || error.status === 403)
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionsLogic']),
@@ -41,13 +47,20 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
 
                 breakpoint?.()
 
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
-                const response = await api.subscriptions.list({
-                    dashboardId: props.dashboardId,
-                    insightId: insightId,
-                })
-                breakpoint?.()
-                return response.results
+                try {
+                    const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                    const response = await api.subscriptions.list({
+                        dashboardId: props.dashboardId,
+                        insightId: insightId,
+                    })
+                    breakpoint?.()
+                    return response.results
+                } catch (error) {
+                    if (isUnauthenticatedError(error)) {
+                        return []
+                    }
+                    throw error
+                }
             },
         },
         // AI subscriptions are project-scoped (not tied to a specific insight/dashboard), so they're
@@ -60,9 +73,18 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                     return []
                 }
                 breakpoint?.()
-                const response = await api.subscriptions.list({ resourceType: SubscriptionResourceTypes.AiPrompt })
-                breakpoint?.()
-                return response.results
+                try {
+                    const response = await api.subscriptions.list({
+                        resourceType: SubscriptionResourceTypes.AiPrompt,
+                    })
+                    breakpoint?.()
+                    return response.results
+                } catch (error) {
+                    if (isUnauthenticatedError(error)) {
+                        return []
+                    }
+                    throw error
+                }
             },
         },
     })),
