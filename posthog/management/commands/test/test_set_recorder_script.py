@@ -7,7 +7,6 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.sampling import sample_on_property
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -106,7 +105,15 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Sample rate must be between 0.0 and 1.0" in str(cm.exception)
 
     def test_sampling_is_consistent(self):
-        teams = [Team.objects.create(organization=self.organization, name=f"Team {i}") for i in range(100)]
+        # Pin the team IDs the command samples on. Relying on auto-increment IDs makes this flaky:
+        # the sampling hash clumps across consecutive IDs and the starting ID drifts between CI runs
+        # (the DB is reused), so a run of 100 IDs is almost always nearly-all or nearly-none sampled.
+        # These IDs are spread across the hash space so exactly half fall under a 0.5 rate; the golden
+        # values below are precomputed offline from the sampling hash, not re-derived from it at runtime.
+        base, step = 10_000_000, 100_003
+        team_ids = [base + i * step for i in range(100)]
+        for team_id in team_ids:
+            Team.objects.create(id=team_id, organization=self.organization, name=f"Team {team_id}")
 
         call_command(
             "set_recorder_script",
@@ -114,19 +121,15 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        # The command must update exactly the teams that sample_on_property selects for this rate.
-        # Deriving the expected set from the same function keeps the test deterministic regardless of
-        # which auto-increment IDs the teams happen to receive (a fixed statistical band flakes because
-        # the hash clumps across consecutive IDs and the starting ID drifts between CI runs).
-        expected_ids = {team.id for team in teams if sample_on_property(str(team.id), 0.5)}
-        team_ids = [team.id for team in teams]
         updated_ids = set(
             Team.objects.filter(id__in=team_ids, extra_settings__has_key="recorder_script").values_list(
                 "id", flat=True
             )
         )
 
-        assert updated_ids == expected_ids
+        assert len(updated_ids) == 50
+        assert 10_700_021 in updated_ids  # hashes below the 0.5 threshold
+        assert 10_100_003 not in updated_ids  # hashes above the 0.5 threshold
 
     def test_bulk_updates_in_batches(self):
         # Use bulk_create with a shared project to avoid 2500 individual
