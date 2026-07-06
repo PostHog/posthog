@@ -30,6 +30,9 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -1989,18 +1992,18 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
             # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
-            content_snapshot["ai_report"] = "# Weekly report"
-            content_snapshot["ai_report_diagnostics"] = [
+            content_snapshot[AI_REPORT_SNAPSHOT_KEY] = "# Weekly report"
+            content_snapshot[AI_REPORT_DIAGNOSTICS_KEY] = [
                 {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None},
                 {
                     "description": "adoption",
                     "hogql": "SELECT bad",
                     "ok": False,
                     "error_type": "ResolutionError",
-                    "error_message": scrubbed_error_message,
+                    "human_readable_error": scrubbed_error_message,
                 },
             ]
-            content_snapshot["ai_report_prompt"] = "Weekly growth recap"
+            content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -2027,13 +2030,13 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data["change_summary"] is None
             # The query-derived report and diagnostics are scrubbed per-field; the generated HogQL
             # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
-            assert data["ai_report"] is None
-            assert data["ai_report_diagnostics"] is None
+            assert data[AI_REPORT_SNAPSHOT_KEY] is None
+            assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert generated_hogql not in str(data)
             assert scrubbed_error_message not in str(data)
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
-            assert data["ai_report_prompt"] == "Weekly growth recap"
+            assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -2042,9 +2045,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
-            assert row["ai_report"] is None
-            assert row["ai_report_diagnostics"] is None
-            assert row["ai_report_prompt"] == "Weekly growth recap"
+            assert row[AI_REPORT_SNAPSHOT_KEY] is None
+            assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
             assert scrubbed_error_message not in str(row)
         else:
@@ -2053,16 +2056,16 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             if is_ai:
                 # A query-access caller on an AI delivery legitimately receives the report and the
                 # diagnostics (including the generated HogQL) — the intended debugging surface.
-                assert data["ai_report"] == "# Weekly report"
-                assert data["ai_report_diagnostics"][0]["hogql"] == generated_hogql
+                assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
                 # The safe error message on the failed step is part of the query-access debugging surface.
-                assert data["ai_report_diagnostics"][1]["error_message"] == scrubbed_error_message
-                assert data["ai_report_prompt"] == "Weekly growth recap"
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
+                assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
-                assert "ai_report" not in data["content_snapshot"]
-                assert "ai_report_diagnostics" not in data["content_snapshot"]
-                assert "ai_report_prompt" not in data["content_snapshot"]
+                assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
+                assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
@@ -2072,9 +2075,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             (
                 "report_prompt_and_diagnostics",
                 {
-                    "ai_report": "# Report",
-                    "ai_report_prompt": "Weekly growth recap",
-                    "ai_report_diagnostics": [
+                    AI_REPORT_SNAPSHOT_KEY: "# Report",
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY: "Weekly growth recap",
+                    AI_REPORT_DIAGNOSTICS_KEY: [
                         {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
                     ],
                 },
@@ -2083,9 +2086,9 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
             ),
             # Deliveries created before prompt/diagnostics snapshotting only carry the report.
-            ("report_without_prompt", {"ai_report": "# Report"}, "# Report", None, None),
+            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None),
             ("absent_keys", {}, None, None, None),
-            ("non_string_values", {"ai_report": 123, "ai_report_prompt": ""}, None, None, None),
+            ("non_string_values", {AI_REPORT_SNAPSHOT_KEY: 123, AI_REPORT_PROMPT_SNAPSHOT_KEY: ""}, None, None, None),
         ]
     )
     def test_delivery_exposes_ai_report_fields(
@@ -2098,12 +2101,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
-        assert data["ai_report"] == expected_report
-        assert data["ai_report_prompt"] == expected_prompt
-        assert data["ai_report_diagnostics"] == expected_diagnostics
+        assert data[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert data[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
         # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
         # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
-        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
             assert ai_key not in data["content_snapshot"]
         # The list endpoint serves the delivery history table, so it must expose the same fields.
         list_response = self.client.get(
@@ -2111,10 +2114,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert list_response.status_code == status.HTTP_200_OK, list_response.json()
         row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
-        assert row["ai_report"] == expected_report
-        assert row["ai_report_prompt"] == expected_prompt
-        assert row["ai_report_diagnostics"] == expected_diagnostics
-        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+        assert row[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert row[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
             assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):

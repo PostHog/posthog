@@ -92,7 +92,7 @@ def _all_queries_failed_notice(total_steps: int) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
     return (
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
-        "Check the subscription's delivery history in PostHog for the generated queries and errors.\n\n"
+        "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
 
 
@@ -137,7 +137,7 @@ class QueryStepDiagnostic:
     error_type: Optional[str]
     # Human-readable failure reason, populated only for the query-structure error classes whose messages
     # are safe to surface (see _safe_error_message). None on success and for internal errors (type-only).
-    error_message: Optional[str] = None
+    human_readable_error: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -370,7 +370,7 @@ async def _run_steps(
                 hogql=current_hogql,
                 ok=False,
                 error_type=type_name,
-                error_message=_safe_error_message(last_exc) if last_exc is not None else None,
+                human_readable_error=_safe_error_message(last_exc) if last_exc is not None else None,
             ),
         )
 

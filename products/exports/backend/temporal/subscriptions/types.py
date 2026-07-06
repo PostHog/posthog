@@ -26,7 +26,7 @@ AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 
 # `SubscriptionDelivery.content_snapshot` keys for the AI report. The markdown and prompt can
 # exceed Temporal's ~2 MiB payload cap, so they travel through Postgres by reference rather than
-# on the wire (the same pattern insight snapshots use). These live here — not activities.py — so
+# on the wire (the same pattern insight snapshots use). They live alongside the workflow types so
 # the API serializer can import them without pulling in the LLM delivery stack.
 AI_REPORT_SNAPSHOT_KEY = "ai_report"
 # The prompt that generated the report, captured at generation time so the delivery is reproducible.
@@ -180,11 +180,8 @@ class GenerateAIReportResult:
     the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
     the sub isn't broken) and skips delivery.
 
-    The `*_step_count` / `query_error_types` fields report how many of the AI-generated
-    queries failed to run. The workflow uses them to flag a fully-degraded report (every
-    query failed → recorded FAILED, not COMPLETED) and to attach a human-readable reason.
-    The per-query detail (generated HogQL + error type) lives in the delivery's
-    content_snapshot, kept off the Temporal wire."""
+    The query-failure counts let the workflow flag a fully-degraded report (every query failed →
+    FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""
 
     aborted: bool = False
     skipped: bool = False
@@ -195,8 +192,7 @@ class GenerateAIReportResult:
 
     @property
     def all_queries_failed(self) -> bool:
-        # Every generated query failed → the report computed nothing. The single source of truth for
-        # this "fully degraded" judgement, so callers don't re-derive it from the raw counts.
+        # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
     def failure_error(self) -> dict[str, str]:
@@ -212,6 +208,14 @@ class GenerateAIReportResult:
             "message": f"{subject} failed to run{detail}, so the report could not be computed.",
             "type": "AIReportQueryFailure",
         }
+
+    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, str]]]:
+        # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
+        # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
+        # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
+        if self.all_queries_failed:
+            return DeliveryStatus.FAILED, self.failure_error()
+        return DeliveryStatus.COMPLETED, None
 
 
 @dataclasses.dataclass

@@ -278,7 +278,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # An ExposedHogQLError is safe to surface, so the diagnostic carries the human-readable reason
     # (not just the type) for the delivery viewer to show.
     assert diagnostics[0].error_type == "ExposedHogQLError"
-    assert diagnostics[0].error_message == "bad query"
+    assert diagnostics[0].human_readable_error == "bad query"
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")

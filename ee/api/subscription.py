@@ -1101,7 +1101,7 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     error_type = serializers.CharField(
         allow_null=True, help_text="Exception class name when the query failed; null on success."
     )
-    error_message = serializers.CharField(
+    human_readable_error = serializers.CharField(
         allow_null=True,
         required=False,
         help_text="Human-readable failure reason, present only for query errors safe to surface to the "

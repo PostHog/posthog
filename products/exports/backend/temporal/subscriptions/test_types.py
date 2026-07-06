@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.types import GenerateAIReportResult
+from products.exports.backend.temporal.subscriptions.types import DeliveryStatus, GenerateAIReportResult
 
 
 class TestGenerateAIReportResult:
@@ -53,3 +53,20 @@ class TestGenerateAIReportResult:
     def test_failure_error(self, _name, total: int, error_types: list[str], expected_message: str) -> None:
         result = GenerateAIReportResult(failed_step_count=total, total_step_count=total, query_error_types=error_types)
         assert result.failure_error() == {"message": expected_message, "type": "AIReportQueryFailure"}
+
+    # delivered_status maps a shipped report to the status the workflow records: fully degraded (every query
+    # failed) → FAILED with the failure detail attached; partial or clean → COMPLETED with no generation
+    # error. Guards the workflow's FAILED-vs-COMPLETED wiring against a dropped check or a flipped comparison.
+    @parameterized.expand(
+        [
+            ("all_failed", 2, 2, DeliveryStatus.FAILED, True),
+            ("single_step_failed", 1, 1, DeliveryStatus.FAILED, True),
+            ("partial_stays_completed", 1, 2, DeliveryStatus.COMPLETED, False),
+            ("no_steps_stays_completed", 0, 0, DeliveryStatus.COMPLETED, False),
+        ]
+    )
+    def test_delivered_status(self, _name, failed: int, total: int, expected_status: str, expects_error: bool) -> None:
+        result = GenerateAIReportResult(failed_step_count=failed, total_step_count=total)
+        status, error = result.delivered_status()
+        assert status == expected_status
+        assert error == (result.failure_error() if expects_error else None)
