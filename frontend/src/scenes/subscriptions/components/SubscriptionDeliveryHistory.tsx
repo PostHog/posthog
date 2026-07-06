@@ -128,12 +128,27 @@ function reportDiagnostics(row: SubscriptionDeliveryApi): readonly AIReportQuery
     return row.ai_report_diagnostics ?? []
 }
 
+/** Header label for a query outcome. A failed query shows its specific error type only when we can also
+ * explain it (a message is present, i.e. a resolution/exposed HogQL error); a generic/internal exception
+ * collapses to a plain "Failed" so a cryptic class name like "Exception" never leaks into the header. */
+export function queryStatusLabel(d: Pick<AIReportQueryDiagnosticApi, 'ok' | 'error_type' | 'error_message'>): string {
+    if (d.ok !== false) {
+        return 'OK'
+    }
+    return d.error_message && d.error_type ? d.error_type : 'Failed'
+}
+
+/** Failure reason shown in a failed query's expanded panel: the safe message when we have one, otherwise a
+ * plain internal-error note (we deliberately don't surface internal exception text). Null for a succeeded query. */
+export function queryFailureReason(d: Pick<AIReportQueryDiagnosticApi, 'ok' | 'error_message'>): string | null {
+    if (d.ok !== false) {
+        return null
+    }
+    return d.error_message || 'This query failed to run due to an internal error.'
+}
+
 function queryStatusTag(d: AIReportQueryDiagnosticApi): JSX.Element {
-    return d.ok === false ? (
-        <LemonTag type="danger">{d.error_type || 'Failed'}</LemonTag>
-    ) : (
-        <LemonTag type="success">OK</LemonTag>
-    )
+    return <LemonTag type={d.ok === false ? 'danger' : 'success'}>{queryStatusLabel(d)}</LemonTag>
 }
 
 function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]): string {
@@ -190,7 +205,11 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
                     ),
                     content: (
                         <div className="flex flex-col gap-2">
-                            {d.error_message ? <div className="text-danger">{d.error_message}</div> : null}
+                            {d.ok === false ? (
+                                <div className={d.error_message ? 'text-danger' : 'text-secondary'}>
+                                    {queryFailureReason(d)}
+                                </div>
+                            ) : null}
                             {d.hogql ? (
                                 <CodeSnippet language={Language.SQL} compact>
                                     {d.hogql}
