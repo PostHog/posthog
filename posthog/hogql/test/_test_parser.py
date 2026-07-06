@@ -3104,6 +3104,31 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             self.assertEqual(expr, expected)
 
+        def test_window_function_multi_key_partition_by_no_frame(self):
+            # Cross-backend parity for a window with a multi-key PARTITION BY (comma-separated,
+            # one key a nested property chain) and an ORDER BY but no ROWS/RANGE frame. The other
+            # window tests only use a single PARTITION BY key and always carry a frame, so the
+            # comma-terminated partition_by list without a trailing frame goes otherwise unchecked.
+            query = "SELECT lagInFrame(timestamp) OVER (PARTITION BY person_id, properties.$session_id ORDER BY timestamp) FROM events"
+            expr = self._select(query)
+            expected = ast.SelectQuery(
+                select=[
+                    ast.WindowFunction(
+                        name="lagInFrame",
+                        exprs=[ast.Field(chain=["timestamp"])],
+                        over_expr=ast.WindowExpr(
+                            partition_by=[
+                                ast.Field(chain=["person_id"]),
+                                ast.Field(chain=["properties", "$session_id"]),
+                            ],
+                            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+                        ),
+                    ),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+            self.assertEqual(expr, expected)
+
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
