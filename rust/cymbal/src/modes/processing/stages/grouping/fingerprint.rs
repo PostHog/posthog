@@ -52,6 +52,7 @@ impl ValueOperator for FingerprintGenerator {
         if let Some(rule) = matched_rule {
             let fingerprint = Fingerprint::from_rule(rule);
             input.fingerprint = Some(fingerprint.value);
+            input.fingerprint_version = None;
             input.fingerprint_record = Some(fingerprint.record);
             return Ok(Ok(input));
         }
@@ -69,6 +70,7 @@ fn apply_manual_fingerprint(input: &mut ExceptionProperties) -> Result<(), Unhan
     let Some(fp) = &input.fingerprint else {
         return Err(UnhandledError::Other("Missing manual fingerprint".into()));
     };
+    input.fingerprint_version = None;
     input.fingerprint_record = Some(vec![FingerprintRecordPart::Manual]);
     if fp.len() > 64 {
         let mut hasher = Sha512::default();

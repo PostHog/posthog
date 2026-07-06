@@ -651,6 +651,7 @@ fn resolved_stack_event(source: &str) -> AnyEvent {
 }
 
 fn grouping_rule_bytecode() -> JsonValue {
+    // return properties.test_value = 'test_value'
     json!([
         "_H",
         1,
@@ -708,11 +709,12 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn manual_fingerprint_keeps_custom_value(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event_with_options(
+    let mut input = make_event_with_options(
         vec![make_exception("TypeError", "cannot read property")],
         Some("custom-fingerprint"),
         None,
     );
+    input.properties["$exception_fingerprint_version"] = json!("v1");
 
     let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
     let event = body.first_event().as_ref().unwrap();
@@ -743,6 +745,7 @@ async fn grouping_rule_sets_custom_fingerprint_without_proposed_fingerprint(db: 
     let rule_id = insert_grouping_rule(&db).await;
     let mut input = make_event(vec![make_exception("TypeError", "cannot read property")]);
     input.properties["test_value"] = json!("test_value");
+    input.properties["$exception_fingerprint_version"] = json!("v1");
 
     let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
     let event = body.first_event().as_ref().unwrap();
