@@ -178,11 +178,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     >
     let countedSessions: string[]
 
-    const keyPrefixOf = (op: 'hasSeen' | 'markSeen' | 'isBlocked' | 'blockSessions'): string =>
-        op === 'hasSeen' || op === 'markSeen' ? SEEN_PREFIX : BLOCK_PREFIX
-    const redisOpOf = (op: 'hasSeen' | 'markSeen' | 'isBlocked' | 'blockSessions'): FakeRedisOp =>
-        op === 'hasSeen' || op === 'isBlocked' ? 'mget' : 'exec'
-
     // Rebuilds the real SessionFilter with a given bucket capacity (capacity 0 forces new sessions to be
     // rate-limited, which is the only way blockSessions is exercised), re-applying the counting spy.
     function useBucketCapacity(bucketCapacity: number): void {
@@ -264,20 +259,13 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         } as Message
     }
 
-    async function runBatch(
-        sessionId: string,
-        offset: number,
-        fail?: 'hasSeen' | 'markSeen' | 'isBlocked' | 'blockSessions'
-    ): Promise<void> {
-        if (fail) {
-            redis.failNext(redisOpOf(fail), keyPrefixOf(fail))
-        }
+    async function runBatch(sessionId: string, offset: number): Promise<void> {
         await runSessionReplayPipeline(buildPipeline(), [createMessage(sessionId, offset)])
-        if (fail) {
-            // Guard against a silently-inert fault: the injected op must actually have been called.
-            expect(redis.hasPendingFailure()).toBe(false)
-        }
     }
+
+    // Assert a one-shot fault armed with failNext() actually fired — guards against a silently-inert fault
+    // (wrong op/prefix) that would make a test pass without exercising the failure it claims to.
+    const expectFaultFired = (): void => expect(redis.hasPendingFailure()).toBe(false)
 
     function setUpSessionType(type: SessionType, sessionId: string): void {
         if (type === 'blocked') {
@@ -370,7 +358,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
 
-            await runBatch(type, 1, 'hasSeen')
+            // hasSeen is the MGET on the seen keys; make it throw once on the first batch.
+            redis.failNext('mget', SEEN_PREFIX)
+            await runBatch(type, 1)
+            expectFaultFired()
             await runBatch(type, 2)
 
             expect(timesCountedAsNew(type)).toBe(expected)
@@ -387,7 +378,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
 
-            await runBatch(type, 1, 'markSeen')
+            // markSeen is the pipeline EXEC on the seen keys; make it throw once on the first batch.
+            redis.failNext('exec', SEEN_PREFIX)
+            await runBatch(type, 1)
+            expectFaultFired()
             await runBatch(type, 2)
 
             expect(timesCountedAsNew(type)).toBe(expected)
@@ -406,7 +400,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
 
-            await runBatch(type, 1, 'isBlocked')
+            // isBlocked is the MGET on the block keys; make it throw once on the first batch.
+            redis.failNext('mget', BLOCK_PREFIX)
+            await runBatch(type, 1)
+            expectFaultFired()
             await runBatch(type, 2)
 
             expect(timesCountedAsNew(type)).toBe(expected)
@@ -420,7 +417,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         it('a newly rate-limited session is counted once, dropped locally, but the block is not persisted', async () => {
             useBucketCapacity(0) // force the session to be rate-limited so blockSessions runs
 
-            await runBatch('rate-limited', 1, 'blockSessions')
+            // blockSessions is the pipeline EXEC on the block keys; make it throw once on the first batch.
+            redis.failNext('exec', BLOCK_PREFIX)
+            await runBatch('rate-limited', 1)
+            expectFaultFired()
             await runBatch('rate-limited', 2)
 
             expect(timesCountedAsNew('rate-limited')).toBe(1)
