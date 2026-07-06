@@ -175,6 +175,11 @@ class _SpanAggregationMixin:
         if compare_range is None:
             return self._run_period(self.query_date_range), None
 
+        # Warm the person-scope expansion on this thread before dispatching the workers,
+        # so its personhog RPC + config read happen once rather than racing in both.
+        if self.query.personId:
+            _ = self._person_scope_expr
+
         # Copy contextvars to worker threads so query tags (product/feature) set by the
         # viewset propagate. ThreadPoolExecutor does not inherit contextvars by default.
         primary_ctx = contextvars.copy_context()
@@ -238,9 +243,17 @@ class _SpanAggregationMixin:
                 exprs.append(property_to_expr(resource_filter, team=self.team))
 
         if self.query.personId:
-            exprs.append(person_scope_expr(self.team, self.query.personId))
+            exprs.append(self._person_scope_expr)
 
         return ast.And(exprs=exprs)
+
+    @cached_property
+    def _person_scope_expr(self) -> ast.Expr:
+        # Expanding a personId to its distinct IDs does a personhog RPC plus a
+        # TeamTracingConfig read; neither changes mid-request. Cache it so the two
+        # compare-window threads (see `_run_with_compare`) reuse one expansion instead
+        # of each recomputing it. Only reached when `self.query.personId` is set.
+        return person_scope_expr(self.team, self.query.personId)
 
     # --- subclass hooks ---
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
