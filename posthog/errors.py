@@ -500,8 +500,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     239: ErrorCodeMeta("CANNOT_MUNMAP"),
     240: ErrorCodeMeta("CANNOT_MREMAP"),
     241: ErrorCodeMeta(
+        # Code 241 short-circuits to ClickHouseQueryMemoryLimitExceeded in wrap_clickhouse_query_error,
+        # so the user-facing copy lives on that exception's default_detail, not on user_safe here.
         "MEMORY_LIMIT_EXCEEDED",
-        user_safe="This query ran out of memory before it could finish. Try a shorter date range or narrower filters.",
         category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),
