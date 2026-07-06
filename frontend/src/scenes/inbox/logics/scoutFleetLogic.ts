@@ -12,13 +12,14 @@ import { urls } from 'scenes/urls'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
 import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
     computeFleetSummary,
     computeScoutRollups,
     FleetSummary,
-    getScoutOrigin,
+    prettifyScoutSkillName,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -49,6 +50,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        deleteScout: (configId: string) => ({ configId }),
+        deleteScoutFinished: (configId: string) => ({ configId }),
+        removeScoutConfigLocally: (configId: string) => ({ configId }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
         setExpanded: (expanded: boolean) => ({ expanded }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
@@ -158,13 +162,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // Tracks whether any chat-task kickoff is mid-flight (CTA disabled state).
-        chatTaskRunning: [
-            false,
+        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its prompt, so only the
+        // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
+        runningChatPrompt: [
+            null as string | null,
             {
-                startScoutChatTask: () => true,
-                startScoutChatTaskSuccess: () => false,
-                startScoutChatTaskFailure: () => false,
+                startScoutChatTask: (_, { prompt }) => prompt,
+                startScoutChatTaskSuccess: () => null,
+                startScoutChatTaskFailure: () => null,
             },
         ],
         expanded: [
@@ -187,6 +192,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Optimistic patch; the listener reconciles against the server response.
                 patchScoutConfigLocally: (state, { configId, updates }) =>
                     state?.map((config) => (config.id === configId ? { ...config, ...updates } : config)) ?? state,
+                // Drop a deleted row from the list once the backend confirms removal.
+                removeScoutConfigLocally: (state, { configId }) =>
+                    state?.filter((config) => config.id !== configId) ?? state,
+            },
+        ],
+        // Scouts with a delete request in flight — drives the delete button's loading/disabled state
+        // so a slow request can't be submitted twice from the still-visible row.
+        deletingScoutIds: [
+            [] as string[],
+            {
+                deleteScout: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
+                deleteScoutFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
         // Flips true the first time the runs window loads *successfully* and stays true across the
@@ -266,8 +283,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
-            (scoutConfigs): number =>
-                scoutConfigs?.filter((config) => getScoutOrigin(config.skill_name) === 'custom').length ?? 0,
+            (scoutConfigs): number => scoutConfigs?.filter((config) => config.scout_origin === 'custom').length ?? 0,
         ],
     }),
 
@@ -285,6 +301,66 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     actions.patchScoutConfigLocally(configId, previousConfig)
                 }
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
+            }
+        },
+        deleteScout: async ({ configId }) => {
+            // The reducer above already flags this id, but that value is reactive (for the button)
+            // and can't tell a fresh submit from a duplicate. The cache Set is the non-reactive guard:
+            // a second submit while the first is in flight bails before issuing another request.
+            const inFlight: Set<string> = (cache.deletingScoutIds ??= new Set())
+            if (inFlight.has(configId)) {
+                return
+            }
+            inFlight.add(configId)
+            try {
+                const config = values.scoutConfigs?.find((c) => c.id === configId)
+                if (!config) {
+                    return
+                }
+                const displayName = prettifyScoutSkillName(config.skill_name)
+                // Scout skills are seeded under the canonical (parent/root) team, and the coordinator's
+                // `register_missing_configs` only scans skill rows there — so archive against the canonical
+                // project id, not the raw child-environment team id. Archiving the child team would 404 (the
+                // skill lives on the parent), get swallowed as "already archived" below, and leave a live
+                // skill the coordinator re-seeds. `currentProjectId` mirrors the backend `_canonical_team_id`
+                // (parent_team_id or team_id); it's '@current' until the team loads, which we reject.
+                const canonicalProjectId = teamLogic.values.currentProjectId
+                try {
+                    // Archiving the skill is the permanent off switch: the coordinator won't re-seed a
+                    // tombstoned skill or re-create its config. Only custom scouts are deletable — the UI
+                    // offers canonical ones disable instead, since a deleted canonical scout can't be re-added.
+                    if (config.scout_origin === 'custom') {
+                        // A custom scout's config must never be dropped without first archiving its skill —
+                        // otherwise the coordinator re-seeds the config and the scout runs again. If the
+                        // project can't be resolved to archive, fail here instead of half-deleting (the outer
+                        // catch surfaces the error and reloads, leaving the row intact).
+                        if (typeof canonicalProjectId !== 'number') {
+                            throw new Error('Could not resolve the active project to archive the scout')
+                        }
+                        try {
+                            await llmSkillsNameArchiveCreate(String(canonicalProjectId), config.skill_name)
+                        } catch (error: any) {
+                            // Already archived (e.g. retrying after a partial failure) — fall through to
+                            // clear the leftover config rather than dead-ending on a 404.
+                            if (error?.status !== 404) {
+                                throw error
+                            }
+                        }
+                    }
+                    await api.signalScout.configs.delete(configId)
+                    // Remove only after the backend confirms — deletion is irreversible, so no optimistic
+                    // drop that would have to be re-inserted (and re-sorted) on failure.
+                    actions.removeScoutConfigLocally(configId)
+                    lemonToast.success(`Deleted ${displayName}`)
+                } catch (error: any) {
+                    lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
+                    // A partial failure (skill archived but config delete failed) could desync the list
+                    // from the backend — reload the truth so the row reflects reality.
+                    actions.loadScoutConfigs()
+                }
+            } finally {
+                inFlight.delete(configId)
+                actions.deleteScoutFinished(configId)
             }
         },
         startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {

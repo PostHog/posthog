@@ -36,7 +36,11 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: lifecycle::Handle,
+    /// Lifecycle handle this producer reports liveness to. `None` for a producer
+    /// whose health must not gate the pod (e.g. the non-critical side of a
+    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
+    /// drive a manager component.
+    liveness: Option<lifecycle::Handle>,
 }
 
 /// Emit min/avg/max/stddev plus p50/p90/p95/p99 for an rdkafka window stat
@@ -72,7 +76,9 @@ impl rdkafka::ClientContext for KafkaContext {
         // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy();
+            if let Some(liveness) = &self.liveness {
+                liveness.report_healthy();
+            }
         }
 
         let total_brokers = stats.brokers.len();
@@ -224,7 +230,7 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: lifecycle::Handle,
+        liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -337,7 +343,9 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy();
+            if let Some(liveness) = &liveness {
+                liveness.report_healthy();
+            }
             info!("connected to Kafka brokers");
         };
 
@@ -882,7 +890,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, handle)
+        let sink = KafkaSink::new(config, Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)

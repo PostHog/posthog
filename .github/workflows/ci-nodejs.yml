@@ -543,6 +543,10 @@ jobs:
             - name: Build Node.js workspace dependencies
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            - name: Pre-build Rust ingestion consumer
+              working-directory: rust
+              run: cargo build -p ingestion-consumer
+
             - name: Test Rust ingestion consumer with Node ingestion API
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'

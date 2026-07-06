@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,23 +12,85 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
+import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
     InboxReportCloseMethod,
     InboxReportOpenMethod,
 } from './inboxAnalytics'
-import { isAgentRunReport, isFinishedRunReport } from './inboxMembership'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
-import { INBOX_PIPELINE_STATUS_FILTERS } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { InboxFlatListTabKey, INBOX_STAFF_ONLY_TAB_KEYS, INBOX_TAB_KEYS, InboxTabKey, SignalReport } from './types'
+import {
+    InboxFlatListTabKey,
+    INBOX_STAFF_ONLY_TAB_KEYS,
+    INBOX_TAB_KEYS,
+    InboxTabKey,
+    SignalReport,
+    SignalRun,
+    SignalScoutRunStatus,
+    SignalScoutRunSummary,
+} from './types'
 
-const RUNS_PAGE_SIZE = 200
+// Newest-first scout runs to pull for the Runs tab. The scout-runs endpoint caps at 100 server-side.
+const SCOUT_RUNS_LIMIT = 100
+// Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
+// at 100); passed explicitly so the cap is visible rather than relying on the server default.
+const SIGNAL_TASKS_LIMIT = 100
+// How often the Runs tab refetches while it's open, so live runs update in place.
+const RUNS_POLL_INTERVAL_MS = 5000
 
 const SESSION_ANALYSIS_POLL_INTERVAL_MS = 5000
+
+// `TaskRunStatus` and `SignalScoutRunStatus` enumerate the same run states. This `Record` keyed on the
+// enum makes the relationship exhaustive: a new `TaskRunStatus` value breaks the build here instead of
+// silently rendering as 'queued', so the two type vocabularies can't drift unnoticed.
+const TASK_RUN_STATUS_TO_SCOUT_STATUS: Record<TaskRunStatus, SignalScoutRunStatus> = {
+    [TaskRunStatus.NOT_STARTED]: 'not_started',
+    [TaskRunStatus.QUEUED]: 'queued',
+    [TaskRunStatus.IN_PROGRESS]: 'in_progress',
+    [TaskRunStatus.COMPLETED]: 'completed',
+    [TaskRunStatus.FAILED]: 'failed',
+    [TaskRunStatus.CANCELLED]: 'cancelled',
+}
+
+/**
+ * Merge the Runs tab's two sources — scout runs and signal-pipeline tasks — into one newest-first
+ * `SignalRun[]`. Pure (no I/O) so the merge/sort/normalize contract is unit-testable directly.
+ * Scout runs without a backing `task_id` are dropped (they can't deep-link to a task); signal rows
+ * fall back to the task's own timestamp / a null status when no run exists yet.
+ */
+export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks: Task[]): SignalRun[] {
+    const scoutRows = scoutRuns
+        .filter((run): run is SignalScoutRunSummary & { task_id: string } => !!run.task_id)
+        .map(
+            (run): SignalRun => ({
+                task_id: run.task_id,
+                kind: 'scout',
+                title: run.skill_name,
+                status: run.status,
+                report_id: null,
+                created_at: run.created_at,
+            })
+        )
+    const signalRows = signalTasks.map((task): SignalRun => {
+        const latestStatus = task.latest_run?.status
+        return {
+            task_id: task.id,
+            kind: 'signal',
+            title: task.title,
+            status: latestStatus ? TASK_RUN_STATUS_TO_SCOUT_STATUS[latestStatus] : null,
+            report_id: task.signal_report,
+            created_at: task.latest_run?.created_at ?? task.created_at,
+        }
+    })
+    return [...scoutRows, ...signalRows].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+}
 
 function isInboxTabKey(value: string | undefined): value is InboxTabKey {
     return value !== undefined && (INBOX_TAB_KEYS as string[]).includes(value)
@@ -39,8 +101,8 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
 }
 
 /**
- * Find a report already loaded in one of the mounted per-tab lists (or the staff Runs list),
- * so opening it can render the detail instantly from the list row instead of waiting on a fresh
+ * Find a report already loaded in one of the mounted per-tab lists, so opening it can render the
+ * detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
 // The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
@@ -53,14 +115,10 @@ function clearScratchpadSearch(): void {
     }
 }
 
-function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport | null {
-    const fromRuns = runsReports.find((r) => r.id === id)
-    if (fromRuns) {
-        return fromRuns
-    }
+function findLoadedReport(id: string): SignalReport | null {
     for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
         const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
-        const found = mounted?.values.reports.find((r) => r.id === id)
+        const found = mounted?.values.reports.find((r: SignalReport) => r.id === id)
         if (found) {
             return found
         }
@@ -69,29 +127,19 @@ function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport
 }
 
 /**
- * Position (1-based) and size of the report's list, for `Inbox report opened`. Prefers the active
- * Runs list when it's open, then any mounted flat-tab list that holds the report. Null when the
- * report isn't in a loaded list (e.g. a cold deep-link).
+ * Position (1-based) and size of the report's list, for `Inbox report opened`. Searches the mounted
+ * flat-tab lists for the report. Null when the report isn't in a loaded list (e.g. a cold deep-link).
  */
-function findReportRank(
-    id: string,
-    activeTab: InboxTabKey,
-    runsReports: SignalReport[]
-): { rank: number | null; listSize: number | null } {
-    const lists: SignalReport[][] = []
-    if (activeTab === 'runs') {
-        lists.push(runsReports)
-    }
+function findReportRank(id: string): { rank: number | null; listSize: number | null } {
     for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
         const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
-        if (mounted) {
-            lists.push(mounted.values.reports)
+        const reports = mounted?.values.reports
+        if (!reports) {
+            continue
         }
-    }
-    for (const list of lists) {
-        const idx = list.findIndex((r) => r.id === id)
+        const idx = reports.findIndex((r: SignalReport) => r.id === id)
         if (idx >= 0) {
-            return { rank: idx + 1, listSize: list.length }
+            return { rank: idx + 1, listSize: reports.length }
         }
     }
     return { rank: null, listSize: null }
@@ -132,9 +180,8 @@ interface InboxOpenTracking {
 
 /**
  * Inbox scene orchestrator. Owns the active tab, the selected report (loaded by id),
- * the staff-only project-wide Runs list, and session-analysis. The per-tab report
- * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab),
- * so this logic no longer holds a shared report list.
+ * the project-wide Runs list, and session-analysis. The per-tab report
+ * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab).
  */
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
@@ -172,17 +219,34 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     loaders(() => ({
-        // Staff-only Runs tab: project-wide, UNFILTERED (no reviewer scope / source / priority / search) –
-        // every report whose run is in progress or has concluded.
-        runsResponse: [
-            null as CountedPaginatedResponse<SignalReport> | null,
+        // Runs tab: a newest-first list of scout + signals-pipeline runs, composed from two existing
+        // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
+        // originating report's title). Merged client-side; there is no unified backend "runs" resource
+        // by design. Both endpoints are team-scoped and readable by any member, so the tab is public.
+        signalRunsResponse: [
+            null as SignalRun[] | null,
             {
-                loadRuns: async () => {
-                    return await api.signalReports.list({
-                        status: INBOX_PIPELINE_STATUS_FILTERS.join(','),
-                        ordering: 'status,-updated_at',
-                        limit: RUNS_PAGE_SIZE,
-                    })
+                loadRuns: async (_payload: void, breakpoint) => {
+                    const [scoutResult, signalResult] = await Promise.allSettled([
+                        api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
+                        // `internal: 'all'` so the pipeline's research runs (created internal) are included,
+                        // not just the non-internal implementation/PR runs.
+                        api.tasks.list({
+                            origin_product: OriginProduct.SIGNAL_REPORT,
+                            internal: 'all',
+                            limit: SIGNAL_TASKS_LIMIT,
+                        }),
+                    ])
+                    breakpoint()
+                    // Degrade gracefully: surface whichever source resolved, matching the inbox's other
+                    // fan-out loaders (scoutDetailLogic) so one source's outage doesn't blank the tab.
+                    // Only fail the load if both sources rejected.
+                    if (scoutResult.status === 'rejected' && signalResult.status === 'rejected') {
+                        throw scoutResult.reason
+                    }
+                    const scoutRuns = scoutResult.status === 'fulfilled' ? scoutResult.value : []
+                    const signalTasks = signalResult.status === 'fulfilled' ? signalResult.value.results : []
+                    return mergeSignalRuns(scoutRuns, signalTasks)
                 },
             },
         ],
@@ -273,12 +337,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             ],
         ],
         isStaff: [() => [userLogic.selectors.user], (user): boolean => user?.is_staff ?? false],
-        runsTabReports: [
-            (s) => [s.runsResponse],
-            (runsResponse: CountedPaginatedResponse<SignalReport> | null): SignalReport[] =>
-                (runsResponse?.results ?? []).filter((r) => isAgentRunReport(r) || isFinishedRunReport(r)),
+        signalRuns: [
+            (s) => [s.signalRunsResponse],
+            (signalRunsResponse: SignalRun[] | null): SignalRun[] => signalRunsResponse ?? [],
         ],
-        runsCount: [(s) => [s.runsTabReports], (runsTabReports: SignalReport[]): number => runsTabReports.length],
+        // True only while the first load is in flight (response still null), so the Runs tab shows a
+        // skeleton instead of the empty state before any data lands. A refetch on tab re-open keeps the
+        // already-loaded list visible rather than flashing the skeleton.
+        signalRunsLoading: [
+            (s) => [s.signalRunsResponse, s.signalRunsResponseLoading],
+            (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean): boolean =>
+                signalRunsResponse === null && signalRunsResponseLoading,
+        ],
         selectedReport: [
             (s) => [s.selectedReportResponse],
             (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,
@@ -291,9 +361,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         setActiveTab: ({ tab }) => {
-            // Refresh the project-wide runs list each time the (staff-only) Runs tab opens.
-            if (tab === 'runs' && values.isStaff) {
+            // While the Runs tab is open, refetch on a slow poll so live runs update in place. The
+            // keyed disposable replaces any prior poll and is torn down on tab switch / unmount, and
+            // kea-disposables pauses it while the browser tab is hidden. The refetch is silent (the
+            // skeleton only shows before the first load), so it swaps the list without flicker.
+            if (tab === 'runs') {
                 actions.loadRuns()
+                cache.disposables.add(() => {
+                    const interval = setInterval(() => actions.loadRuns(), RUNS_POLL_INTERVAL_MS)
+                    return () => clearInterval(interval)
+                }, 'runsPoll')
+            } else {
+                cache.disposables.dispose('runsPoll')
             }
         },
         setSelectedReportId: ({ id, openMethod }) => {
@@ -324,7 +403,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setSelectedScoutSkillName(null)
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
-            actions.seedSelectedReport(findLoadedReport(id, values.runsTabReports))
+            actions.seedSelectedReport(findLoadedReport(id))
             actions.loadSelectedReport({ id })
         },
         // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
@@ -336,7 +415,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const { rank, listSize } = findReportRank(report.id, values.activeTab, values.runsTabReports)
+            const { rank, listSize } = findReportRank(report.id)
             captureInboxReportOpened({
                 report,
                 openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
@@ -403,13 +482,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 
-    events(({ actions, values, cache }) => ({
-        afterMount: () => {
-            // Runs is a staff-only (internal) tab; only fetch its list for staff users.
-            if (values.isStaff) {
-                actions.loadRuns()
-            }
-        },
+    events(({ cache }) => ({
+        // The Runs list loads lazily when its tab opens (via the `setActiveTab` listener). There is no
+        // mount pre-fetch, so an inbox visit that never opens Runs doesn't pay for its two requests.
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
@@ -501,7 +576,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return
             }
             cache.inboxListVisited = true
-            // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
+            // Staff-only tabs (Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
                 return

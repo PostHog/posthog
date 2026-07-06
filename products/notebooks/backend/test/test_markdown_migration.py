@@ -93,6 +93,50 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "juheapi" not in markdown
         assert "hideFilters" in markdown
 
+    def test_converts_v1_widget_nodes_with_filters_closed_by_default(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "ZcWG6625"},
+                        "title": "Activation",
+                    },
+                },
+                {
+                    "type": "ph-recording",
+                    "attrs": {
+                        "id": "018b4205-f670-7fa8-928a-040abaaf596d",
+                        "title": "Session replay",
+                    },
+                },
+                {
+                    "type": "ph-insight",
+                    "attrs": {
+                        "id": "legacyInsight",
+                    },
+                },
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "open"},
+                        "edit": True,
+                    },
+                },
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert (
+            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />'
+            in markdown
+        )
+        assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
+        assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
+
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {
             "type": "doc",
@@ -207,6 +251,41 @@ class TestNotebookMarkdownMigration(BaseTest):
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "body"}]}],
         }
         assert not ActivityLog.objects.filter(scope="Notebook", item_id=notebook.short_id).exists()
+
+    @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
+    def test_batches_include_pending_notebooks_without_first_content_node_type(self, mock_publish) -> None:
+        no_content_array = Notebook.objects.create(team=self.team, content={"type": "doc"}, version=1)
+        null_content = Notebook.objects.create(team=self.team, content=None, version=2)
+        Notebook.objects.create(team=self.team, content=build_markdown_notebook_content("done"))
+
+        dry_run_result = migrate_notebooks_to_markdown(
+            user=self.user,
+            team_id=self.team.id,
+            dry_run=True,
+            batch_size=10,
+        )
+
+        assert dry_run_result.pending_before == 2
+        assert dry_run_result.converted == 2
+        assert dry_run_result.pending_after == 2
+
+        with self.captureOnCommitCallbacks(execute=True):
+            apply_result = migrate_notebooks_to_markdown(
+                user=self.user,
+                team_id=self.team.id,
+                dry_run=False,
+                batch_size=10,
+            )
+
+        no_content_array.refresh_from_db()
+        null_content.refresh_from_db()
+
+        assert apply_result.converted == 2
+        assert apply_result.pending_before == 2
+        assert apply_result.pending_after == 0
+        assert no_content_array.content == build_markdown_notebook_content("")
+        assert null_content.content == build_markdown_notebook_content("")
+        assert mock_publish.call_count == 2
 
     @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
     def test_batches_dry_run_and_apply_without_processing_every_pending_notebook(self, mock_publish) -> None:

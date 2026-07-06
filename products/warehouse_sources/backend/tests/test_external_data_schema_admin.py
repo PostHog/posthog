@@ -89,31 +89,26 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 "md5",
                 {"partition_mode": "md5", "partition_count": 72, "partitioning_enabled": True},
                 {"partition_count": "10"},
-                "partition_count_override",
-                10,
-                # The operator's count must land on *_override so it survives the bundled reset;
-                # writing partition_count directly would be wiped and the source would re-derive its own value.
-                {"partition_count": 72},
+                {"partition_mode": "md5", "partition_count": 10, "partition_size": None, "partition_format": None},
             ),
             (
                 "numerical",
                 {"partition_mode": "numerical", "partition_size": 1_000_000, "partitioning_enabled": True},
                 {"partition_size": "5000000"},
-                "partition_size_override",
-                5_000_000,
-                {},
+                {"partition_mode": "numerical", "partition_size": 5_000_000, "partition_count": None},
             ),
         ]
     )
-    def test_repartition_writes_override_key(
+    def test_repartition_queues_pending_target_without_reset(
         self,
         _mode: str,
         initial_config: dict,
         post_data: dict,
-        override_key: str,
-        expected_value: int,
-        extra_config_assertions: dict,
+        expected_pending: dict,
     ) -> None:
+        # In-place repartition writes a `repartition_pending` target consumed by the next run's
+        # pre-extraction activity — it must NOT set reset_pipeline (no source re-pull) or stage *_override
+        # keys (those drove the old reset-resync path).
         schema = self._schema(sync_type_config=initial_config)
 
         with (
@@ -125,11 +120,15 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
         assert response.status_code == 302
         schema.refresh_from_db()
-        assert schema.sync_type_config[override_key] == expected_value
-        assert schema.sync_type_config["reset_pipeline"] is True
-        for key, value in extra_config_assertions.items():
-            assert schema.sync_type_config[key] == value
+        pending = schema.sync_type_config["repartition_pending"]
+        assert pending["trigger_reason"] == "admin"
+        assert pending["attempts"] == 0
+        for key, value in expected_pending.items():
+            assert pending[key] == value
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert "partition_count_override" not in schema.sync_type_config
         mock_start.assert_called_once()
+        assert mock_start.call_args.args[2].billable is False
 
     @parameterized.expand(
         [
@@ -138,8 +137,8 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 {"partition_mode": "md5", "partition_count": 30, "partitioning_enabled": True},
                 {"partition_mode": "datetime", "partitioning_keys": "action_date", "partition_format": "month"},
                 {
-                    "partition_mode_override": "datetime",
-                    "partitioning_keys_override": ["action_date"],
+                    "partition_mode": "datetime",
+                    "partition_keys": ["action_date"],
                     "partition_format": "month",
                 },
             ),
@@ -148,9 +147,9 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 {"partition_mode": "md5", "partition_count": 30, "partitioning_enabled": True},
                 {"partition_mode": "numerical", "partitioning_keys": "id", "partition_size": "1000000"},
                 {
-                    "partition_mode_override": "numerical",
-                    "partitioning_keys_override": ["id"],
-                    "partition_size_override": 1_000_000,
+                    "partition_mode": "numerical",
+                    "partition_keys": ["id"],
+                    "partition_size": 1_000_000,
                 },
             ),
             (
@@ -158,15 +157,14 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 {"partition_mode": "datetime", "partition_format": "month", "partitioning_enabled": True},
                 {"partition_mode": "md5", "partition_count": "10", "partitioning_keys": "record_id,action_date"},
                 {
-                    "partition_mode_override": "md5",
-                    "partition_count_override": 10,
-                    "partitioning_keys_override": ["record_id", "action_date"],
+                    "partition_mode": "md5",
+                    "partition_count": 10,
+                    "partition_keys": ["record_id", "action_date"],
                 },
             ),
             (
-                # md5 without keys must explicitly clear a stale partitioning_keys_override left by a
-                # prior datetime attempt — otherwise it survives the reset and md5 hashes the wrong
-                # column instead of falling back to the table's primary keys.
+                # md5 without keys must not carry a stale partitioning_keys_override from a prior datetime
+                # attempt — otherwise md5 would hash the wrong column instead of the table's primary keys.
                 "to_md5_clears_stale_keys",
                 {
                     "partition_mode": "datetime",
@@ -176,9 +174,9 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 },
                 {"partition_mode": "md5", "partition_count": "10"},
                 {
-                    "partition_mode_override": "md5",
-                    "partition_count_override": 10,
-                    "partitioning_keys_override": None,
+                    "partition_mode": "md5",
+                    "partition_count": 10,
+                    "partition_keys": [],
                 },
             ),
             (
@@ -187,14 +185,13 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 {"partition_mode": "datetime", "partition_format": "month", "partitioning_enabled": True},
                 {"partition_mode": "md5", "partition_count": "10", "partitioning_keys": ["record_id", "action_date"]},
                 {
-                    "partition_mode_override": "md5",
-                    "partition_count_override": 10,
-                    "partitioning_keys_override": ["record_id", "action_date"],
+                    "partition_mode": "md5",
+                    "partition_count": 10,
+                    "partition_keys": ["record_id", "action_date"],
                 },
             ),
             (
-                # In-place format change with the mode unchanged — the merged "repartition" case
-                # that used to be a separate action. No keys needed since the mode isn't changing.
+                # In-place format change with the mode unchanged — keys carry over from the existing scheme.
                 "datetime_in_place_format_change",
                 {
                     "partition_mode": "datetime",
@@ -204,18 +201,19 @@ class TestExternalDataSchemaAdmin(BaseTest):
                 },
                 {"partition_mode": "datetime", "partition_format": "day"},
                 {
-                    "partition_mode_override": "datetime",
+                    "partition_mode": "datetime",
                     "partition_format": "day",
+                    "partition_keys": ["action_date"],
                 },
             ),
         ]
     )
-    def test_change_partition_mode_writes_overrides(
+    def test_change_partition_mode_queues_pending_target(
         self,
         _name: str,
         initial_config: dict,
         post_data: dict,
-        expected_config: dict,
+        expected_pending: dict,
     ) -> None:
         schema = self._schema(sync_type_config=initial_config)
 
@@ -228,10 +226,12 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
         assert response.status_code == 302
         schema.refresh_from_db()
-        for key, value in expected_config.items():
-            assert schema.sync_type_config[key] == value
-        assert schema.sync_type_config["reset_pipeline"] is True
-        # The resync must be non-billable — the operator's reset shouldn't charge the customer.
+        pending = schema.sync_type_config["repartition_pending"]
+        for key, value in expected_pending.items():
+            assert pending[key] == value
+        assert pending["trigger_reason"] == "admin"
+        # In-place: no source re-pull, and the run must be non-billable.
+        assert "reset_pipeline" not in schema.sync_type_config
         mock_start.assert_called_once()
         assert mock_start.call_args.args[2].billable is False
 
@@ -261,8 +261,8 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
         assert response.status_code == 302
         schema.refresh_from_db()
-        # Invalid input must not stage an override or kick off a resync.
-        assert "partition_mode_override" not in schema.sync_type_config
+        # Invalid input must not queue a repartition or kick off a run.
+        assert "repartition_pending" not in schema.sync_type_config
         assert "reset_pipeline" not in schema.sync_type_config
         mock_start.assert_not_called()
 

@@ -63,11 +63,7 @@ from products.signals.backend.scout_harness.config_registry import (
     ensure_scout_category,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    HARNESS_SEEDED_BY,
-    canonical_skill_names,
-    sync_canonical_skills,
-)
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
@@ -767,6 +763,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -885,6 +882,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
                     "safety_explanation": result.safety_explanation,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1306,23 +1304,7 @@ class _ScoutSkillInfo:
     """
 
     description: str
-    origin: str  # "canonical" | "custom" — see `_scout_origin`.
-
-
-def _scout_origin(skill_name: str, metadata: dict | None) -> str:
-    """Classify a scout by who owns its skill row.
-
-    A scout is `canonical` when the harness seeded its skill row (tagged
-    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
-    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
-    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
-    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
-    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
-    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
-    list would.
-    """
-    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
-    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
+    origin: str  # "canonical" | "custom" — see `lazy_seed.scout_skill_origin`.
 
 
 def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSkillInfo]:
@@ -1340,7 +1322,7 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
         "name", "description", "metadata"
     )
     return {
-        name: _ScoutSkillInfo(description=description or "", origin=_scout_origin(name, metadata))
+        name: _ScoutSkillInfo(description=description or "", origin=scout_skill_origin(name, metadata))
         for name, description, metadata in rows
     }
 
@@ -1533,9 +1515,11 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "The run executes asynchronously on the worker and inherits every guard the scheduled "
             "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
             "if the project is over its Signals credits quota or daily run budget (429) or a run for "
-            "this scout is already in progress (409). A manual run does not change the scout's "
-            "schedule or `last_run_at`. A disabled scout can still be run this way (to test before "
-            "enabling). Returns immediately with the workflow id — poll the scout's runs for the result."
+            "this scout is already in progress (409). A manual run counts against the same daily run "
+            "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
+            "project's daily allowance. A manual run does not change the scout's schedule or "
+            "`last_run_at`. A disabled scout can still be run this way (to test before enabling). "
+            "Returns immediately with the workflow id — poll the scout's runs for the result."
         ),
         operation_id="signals_scout_config_run",
     )

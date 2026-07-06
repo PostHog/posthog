@@ -54,6 +54,27 @@ class TestOAuth2Auth(SimpleTestCase):
         # The token is cached for the run — a second request mints nothing new.
         assert _apply_auth(auth) == "Bearer minted-123"
         assert mock_session.return_value.post.call_count == 1
+        # No refresh_token in the response → nothing to write back.
+        assert auth.rotated_refresh_token is None
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_externally_managed_token_never_mints_even_when_expired(self, mock_session):
+        # A single-use refresh token rotates only once, so an integration-backed source seeds a static
+        # bearer with manages_own_token=False: the engine must never re-mint. Even with no known expiry
+        # (so _is_token_expired() reads True), __call__ sends the seeded token as-is (the resource server
+        # 401s — a retryable failure whose retry re-mints up front through the row) instead of consuming
+        # and losing the rotation.
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="cs",
+            grant_type="refresh_token",
+            refresh_token="orig-RT",
+            access_token="seeded-AT",
+            manages_own_token=False,
+        )
+        assert _apply_auth(auth) == "Bearer seeded-AT"
+        mock_session.return_value.post.assert_not_called()
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_refresh_token_grant_body_and_no_in_memory_rotation(self, mock_session):
@@ -72,9 +93,12 @@ class TestOAuth2Auth(SimpleTestCase):
         assert body["grant_type"] == "refresh_token"
         assert body["refresh_token"] == "refresh-orig"
         # The auth object never rotates its in-memory refresh token, even when the response
-        # returns a new one — rotation writeback is a Phase 2 sync-activity concern, not the
-        # auth object's. Mutating it here would silently diverge from the persisted value.
+        # returns a new one — it must keep minting with the original this run. Mutating it here
+        # would silently diverge from the persisted value.
         assert auth.refresh_token == "refresh-orig"
+        # The rotated token is captured separately so a caller holding a DB row can persist it for
+        # the next sync (the rotating-provider writeback this enables — e.g. Calendly).
+        assert auth.rotated_refresh_token == "refresh-rotated"
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_remints_when_expired_and_reuses_when_fresh(self, mock_session):

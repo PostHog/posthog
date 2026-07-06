@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 import math
 import time
+import socket
+import ipaddress
+import threading
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -192,6 +195,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
     # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
     "{:error, :etimedout}",
+    # The connection-refused sibling of "{:error, :etimedout}": Supavisor reaches us fine but the
+    # TCP connect to its upstream backend is refused while the backend is briefly down (failover,
+    # restart, idle cull), surfacing as a ConnectionFailure carrying "{:error, :econnrefused}". This
+    # is distinct from libpq's bare English "Connection refused" (a permanent wrong-host/port
+    # misconfiguration that stays non-retryable, see source.py): here the pooler is reachable and the
+    # source was streaming moments earlier in the same sync, so a fresh reconnect recovers. Match the
+    # Erlang-tuple wording, the stable low-false-positive signal.
+    "{:error, :econnrefused}",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
@@ -217,7 +228,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 #     exhausted or every backend was busy. A slot frees the moment another session returns one.
 # Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
+#
+# Supavisor also surfaces a backend socket that closed mid-session — after the client authenticated
+# — as "Internal error (authenticated): :closed", where ":closed" is the Erlang gen_tcp reason for a
+# peer-closed socket (its DbHandler lost the backend connection to an idle cull, restart, or
+# failover). There's no error code here, so match the full phrase including the ":closed" reason: a
+# fresh reconnect re-establishes a new session — the same transient class. Matching only the
+# "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
+# could be a permanent pooler/protocol failure that should surface immediately, not be retried.
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
+    "edbhandlerexited",
+    "echeckoutretries",
+    "internal error (authenticated): :closed",
+)
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
@@ -549,6 +572,66 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str | None:
+    """Resolve `host` to an IP under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
+
+    psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
+    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved address
+    to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so a stalled
+    or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as long as the
+    OS resolver takes. It never trips `connect_timeout`; the activity instead runs until Temporal's
+    `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a misleading
+    `CancelledError` and burning the whole activity's retry budget. Resolving here and passing the
+    address via `hostaddr` (which makes psycopg skip its own lookup) turns a stalled resolver into a
+    fast, retryable error instead.
+
+    Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
+    already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
+    re-raises that failure) exactly as before and the existing "Name or service not known"
+    classification still applies. Only a resolver that exceeds `timeout` becomes an `OperationalError`;
+    its message deliberately avoids the non-retryable "could not translate host name" /
+    "Name or service not known" fragments because a stalled resolver is usually transient.
+    """
+    if not host or host.startswith("/") or _is_ip_literal(host):
+        return None
+
+    addrinfo: list[Any] = []
+    lookup_error: list[BaseException] = []
+
+    def _lookup() -> None:
+        try:
+            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
+        except BaseException as e:  # noqa: BLE001 — surfaced to the caller below via lookup_error
+            lookup_error.append(e)
+
+    # Daemon thread so a stalled getaddrinfo can be abandoned without blocking worker shutdown or
+    # piling up non-daemon threads — the OS resolver bounds the orphaned lookup on its own.
+    thread = threading.Thread(target=_lookup, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
+    # A genuine resolution failure falls through to None so psycopg connects and re-raises it,
+    # preserving the existing "Name or service not known" classification.
+    if lookup_error:
+        if isinstance(lookup_error[0], OSError):
+            return None
+        raise lookup_error[0]
+    if not addrinfo:
+        return None
+    # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
+    # tuple variants, so coerce to satisfy the str return type).
+    return str(addrinfo[0][4][0])
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -586,6 +669,12 @@ def _connect_to_postgres(
     # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
+    # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
+    # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
+    if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
+        hostaddr = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
+        if hostaddr is not None:
+            kwargs["hostaddr"] = hostaddr
     try:
         return _connect_with_options_fallback(
             host=host,
@@ -2066,7 +2155,13 @@ def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, l
         return False
 
 
-def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_rows_to_sync(
+    cursor: psycopg.Cursor,
+    count_query: sql.Composed,
+    logger: FilteringBoundLogger,
+    *,
+    should_use_incremental_field: bool = False,
+) -> int:
     try:
         _explain_query(cursor, count_query, logger)
         logger.debug(f"Running query: {count_query.as_string()}")
@@ -2083,8 +2178,20 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
-    except psycopg.errors.QueryCanceled:
-        raise
+    except psycopg.errors.QueryCanceled as e:
+        # QueryCanceled means the COUNT was cancelled — usually the statement_timeout, but possibly a
+        # lock_timeout or an admin cancel (we don't inspect which). On incremental syncs re-raise:
+        # this COUNT shares its WHERE with the real chunked read, so a cancellation here predicts the
+        # extraction will hit the same wall — the caller maps it to the actionable "add an index on
+        # your incremental field" message. On full-table syncs the COUNT is a full scan while
+        # extraction streams sequentially via a server cursor, so a cancelled count says nothing
+        # about whether extraction will succeed. Fall back to an unknown total (0) like the sibling
+        # `_get_table_chunk_size` probe rather than failing the whole sync at setup on a best-effort
+        # estimate.
+        if should_use_incremental_field:
+            raise
+        logger.debug(f"_get_rows_to_sync: COUNT cancelled on a full-table sync ({e}). Using 0 as rows to sync")
+        return 0
     except Exception as e:
         # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
         # It shares its FROM/WHERE with the real extraction query, so any genuine problem
@@ -2796,7 +2903,12 @@ def postgres_source(
                                 except Exception as e:
                                     logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                             if rows_to_sync is None:
-                                rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                                rows_to_sync = _get_rows_to_sync(
+                                    cursor,
+                                    count_query,
+                                    logger,
+                                    should_use_incremental_field=should_use_incremental_field,
+                                )
 
                             if _role_subject_to_rls(cursor, schema, table_name, logger):
                                 logger.warning(

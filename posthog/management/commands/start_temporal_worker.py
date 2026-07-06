@@ -184,6 +184,8 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_CANARY_ACTIVITIES,
+    EXPERIMENT_CANARY_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -216,12 +218,10 @@ from products.tasks.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
-from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
-    ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
-    WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    load_all_sources,
 )
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
@@ -272,7 +272,7 @@ _task_queue_specs = [
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
-        + EXPERIMENTS_RECALCULATION_WORKFLOWS
+        + EXPERIMENT_CANARY_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
@@ -289,13 +289,18 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
-        + EXPERIMENTS_RECALCULATION_ACTIVITIES
+        + EXPERIMENT_CANARY_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        EXPERIMENTS_RECALCULATION_WORKFLOWS,
+        EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,

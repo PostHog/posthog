@@ -261,13 +261,15 @@ tools:
             Create a signal source config for the current project, switching an inbox signal source on. A source ties a
             `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay,
             llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid
-            `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened,
-            issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout
-            findings reach the inbox with no config row needed. The only reason to create a
-            `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with
-            `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at
-            most one config per (source_product, source_type) per project; if one already exists, update it instead.
-            Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.
+            `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created,
+            issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability
+            evaluation report findings in the inbox, create `source_product=llm_analytics`,
+            `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox
+            with no config row needed. The only reason to create a `source_product=signals_scout`,
+            `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit`
+            flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product,
+            source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster
+            source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -536,10 +538,12 @@ tools:
         description: >
             Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a
             scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and
-            inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota and
-            409 if a run for this scout is already in progress. A manual run does not change the scout's schedule, and a
-            disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately —
-            poll `signals-scout-runs-list` for the resulting run and its findings.
+            inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its
+            daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against
+            the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
+            in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
+            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
+            Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true

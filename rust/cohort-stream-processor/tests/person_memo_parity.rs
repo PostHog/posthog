@@ -10,7 +10,7 @@ use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, Generation, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
+use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::{LeafTransition, TransitionKind};
 use cohort_stream_processor::store::{CohortStore, StoreConfig};
@@ -336,6 +336,7 @@ async fn run_worker_sequence(
     let sink = CaptureSink::new();
     let tracker = std::sync::Arc::new(OffsetTracker::new());
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn_with_memo(
         PARTITION,
         rx,
@@ -357,7 +358,7 @@ async fn run_worker_sequence(
     for (props, offset, ts) in sequence {
         tracker.mark_dispatched(PARTITION as i32, offset + 1);
         tx.send(vec![ShuffleMessage::Event {
-            event: event(person, props, offset, ts),
+            event: Box::new(event(person, props, offset, ts)),
             cse_offset: offset,
         }])
         .await

@@ -53,10 +53,10 @@ SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=Tru
 # run and the token carries the wizard's scope ceiling. Empty disables cloud wizard runs.
 WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID: str = get_from_env("WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID", "")
 
-# When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
-# end-of-run. When False, no Modal snapshot is taken and resume relies on the
-# git-checkpoint mechanism in the agent server (same path as local-to-cloud handoff).
-# Modal image storage is not EU-compliant, so this is forced off in EU.
+# When True, cloud-to-cloud resume can create legacy Modal filesystem snapshots
+# at end-of-run. Modal filesystem image storage is not EU-compliant, so this is
+# forced off in EU. Directory snapshots are controlled separately by feature flag
+# and may still be created when this setting is False.
 TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     "TASKS_USE_MODAL_RESUME_SNAPSHOTS",
     CLOUD_DEPLOYMENT != "EU",
@@ -112,6 +112,7 @@ BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
 SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
 GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")

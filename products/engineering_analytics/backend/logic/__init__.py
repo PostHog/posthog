@@ -17,11 +17,17 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    RepoOverview,
+    RunFailureLogs,
+    WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
+    WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -31,14 +37,25 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
-from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
+from products.engineering_analytics.backend.logic.queries.ci_failure_logs import (
+    query_ci_failure_logs,
+    query_run_failure_logs,
+)
+from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
+from products.engineering_analytics.backend.logic.queries.pr_cost import (
+    query_author_workflow_costs,
+    query_pr_cost,
+    query_workflow_runner_costs,
+)
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
+from products.engineering_analytics.backend.logic.queries.workflow_run_activity import query_workflow_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_run_list import query_workflow_run_list
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 
@@ -106,12 +123,12 @@ def build_workflow_run_list(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_list(
         curated=curated,
         repo_owner=owner,
@@ -119,6 +136,31 @@ def build_workflow_run_list(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
+    )
+
+
+def build_workflow_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> WorkflowRunActivity:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_run_activity(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
     )
 
 
@@ -129,12 +171,12 @@ def build_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_runner_costs(
         curated=curated,
         repo_owner=owner,
@@ -142,7 +184,21 @@ def build_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
+
+
+def build_author_workflow_costs(
+    *,
+    curated: CuratedGitHubSource,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[WorkflowCost]:
+    if not author.strip():
+        raise ValueError("author is required")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_author_workflow_costs(curated=curated, author=author.strip(), date_from=parsed_from, date_to=parsed_to)
 
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
@@ -169,16 +225,24 @@ def build_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
 
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+def _parse_window(
+    team: Team, date_from: str | None, date_to: str | None, *, default: str
+) -> tuple[datetime, datetime | None]:
+    """Resolve a caller's date window against the team timezone, capping the span at _MAX_WINDOW_DAYS."""
+    parsed_from = _parse_date(team, date_from or default)
+    parsed_to = _parse_date(team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    return parsed_from, parsed_to
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
@@ -190,3 +254,46 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not (owner and name):
         raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     return owner, name
+
+
+def build_repo_overview(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> RepoOverview:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+
+
+def build_master_failures(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[MasterFailureGroup]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        # No branch given: use the repo's default branch as observed in the window.
+        resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
+
+
+def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id)
+
+
+def build_job_aggregates(
+    *,
+    curated: CuratedGitHubSource,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[WorkflowJobAggregate]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_job_aggregates(
+        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+    )

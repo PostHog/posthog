@@ -42,6 +42,10 @@ LEASE_TTL_SECONDS = 300
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
+# Quiet time (no batch inserts or status writes) before lock takeover treats a run as
+# abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
+TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
+
 
 def pending_batch_select_columns(status_alias: str) -> str:
     return f"""
@@ -271,6 +275,19 @@ class BatchQueue:
         group is being processed by its lease holder). This keeps a schema's
         other queued runs from consuming the ``LIMIT`` window ahead of the lease
         claim and starving other schemas' claimable work.
+
+        Per-team fairness: candidates are interleaved round-robin across teams so one
+        team's deep backlog cannot monopolize the ``LIMIT`` window; within a team,
+        oldest-first order (and so per-run ``batch_index`` ordering) is preserved.
+
+        Disjoint windows across pods: groups live-leased by *another* owner are
+        excluded from candidates entirely, not merely dropped at the claim step.
+        Otherwise every pod computes the same top-``LIMIT`` window and groups
+        already owned elsewhere occupy window slots that losing pods can never
+        claim — with enough of them at the head of the queue the whole window is
+        dead weight and fleet concurrency collapses to roughly one window's worth.
+        Own-leased groups stay in the window so a pod can keep draining a group it
+        already holds.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -324,7 +341,20 @@ class BatchQueue:
                                 AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s_busy.job_state = 'executing'
                         )
-                    ORDER BY b.created_at ASC, b.batch_index ASC
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {LEASE_TABLE} l_live
+                            WHERE l_live.team_id = b.team_id
+                                AND l_live.schema_id = b.schema_id
+                                AND l_live.expires_at > now()
+                                AND l_live.owner_token != %(owner)s
+                        )
+                    ORDER BY
+                        row_number() OVER (
+                            PARTITION BY b.team_id ORDER BY b.created_at ASC, b.batch_index ASC
+                        ) ASC,
+                        b.created_at ASC,
+                        b.batch_index ASC
                     LIMIT %(limit)s
                 ),
                 candidate_groups AS (
@@ -624,23 +654,23 @@ class BatchQueue:
     ) -> RunActivitySummary:
         """Check the queue DB for batch activity belonging to a holder's run.
 
-        Returns a summary indicating whether any non-terminal batches exist and
-        the age of the most recent status update. Used by the lock takeover
-        decision matrix to distinguish genuinely stale RUNNING jobs from ones
-        with active consumer processing.
+        Used by the lock takeover decision matrix to distinguish genuinely stale
+        RUNNING jobs from ones the loader still has work for. Unclaimed batches
+        (no status row yet — hence the LEFT JOIN) count as non-terminal, and both
+        batch inserts and status writes count as activity.
         """
-        STALE_THRESHOLD_SECONDS = 30 * 60  # 30 minutes
-
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
                 SELECT
+                    COUNT(*) AS batch_count,
                     COUNT(*) FILTER (
-                        WHERE s.job_state NOT IN ('succeeded', 'failed')
+                        WHERE s.batch_id IS NULL
+                            OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
-                    MAX(s.created_at) AS latest_status_at
+                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
                 FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                 WHERE
                     b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b.job_id = %(job_id)s
@@ -650,15 +680,44 @@ class BatchQueue:
             )
             row = cur.fetchone()
 
-        if row is None or row["latest_status_at"] is None:
+        if row is None or row["batch_count"] == 0 or row["latest_activity_at"] is None:
             return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
         non_terminal_count: int = row["non_terminal_count"]
-        latest_status_at: datetime = row["latest_status_at"]
-        age_seconds = (datetime.now(latest_status_at.tzinfo) - latest_status_at).total_seconds()
+        latest_activity_at: datetime = row["latest_activity_at"]
+        age_seconds = (datetime.now(latest_activity_at.tzinfo) - latest_activity_at).total_seconds()
 
         return RunActivitySummary(
             has_batches=True,
             has_non_terminal=non_terminal_count > 0,
-            is_stale=age_seconds > STALE_THRESHOLD_SECONDS,
+            is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
         )
+
+    @staticmethod
+    def count_batches_for_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+    ) -> int:
+        """Count queue batches enqueued for a job, regardless of status.
+
+        Unlike ``get_run_activity_summary`` (which inner-joins the status view and so
+        reports ``has_batches=False`` for batches the loader hasn't claimed yet), this
+        counts raw batch rows. It lets a caller tell a run that enqueued *nothing* (safe
+        to finalize) apart from one whose batches are merely unclaimed — where the loader
+        still owns completion and failing the job would strand a late load. The pruning
+        window bounds the scan to batches the queue still retains, so a ``0`` here is only
+        trustworthy for jobs newer than ``PARTITION_PRUNING_INTERVAL``.
+        """
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS batch_count
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                """,
+                {"job_id": job_id},
+            )
+            row = cur.fetchone()
+        return int(row["batch_count"]) if row else 0

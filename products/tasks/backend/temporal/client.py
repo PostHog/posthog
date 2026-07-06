@@ -313,6 +313,97 @@ def execute_task_processing_workflow(
         )
 
 
+def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
+    """Mirror ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down."""
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
+        RunSource,
+        parse_run_state,
+    )
+
+    run_source = parse_run_state(task_run.state).run_source
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
+
+
+def redispatch_orphaned_task_run(run_id: str) -> str:
+    """Re-dispatch a run stuck in QUEUED whose create-time on_commit dispatch never fired.
+
+    Idempotent and recover-only: ``ALLOW_DUPLICATE_FAILED_ONLY`` starts a workflow only when
+    none is live for this run, so a run that is already running (row not yet flipped to
+    IN_PROGRESS) is left untouched. Never terminalizes the run — a transient Temporal failure
+    just retries on the next sweep, and the 24h killer remains the only path that fails a run.
+
+    Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
+    (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
+    (owned by the prewarmed reaper), ``skipped_local`` (desktop-driven run, nothing to recover),
+    ``error`` (transient).
+    """
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
+
+    task_run = (
+        TaskRun.objects.select_related("task")  # nosemgrep: celery-task-team-scope-audit
+        .filter(id=run_id, status=TaskRun.Status.QUEUED)
+        .first()
+    )
+    if task_run is None:
+        return "left_queue"
+
+    # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
+    # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
+    # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
+    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    if task_run.environment == TaskRun.Environment.LOCAL:
+        return "skipped_local"
+
+    # Prewarmed runs idle in QUEUED awaiting the user's first message; the dedicated prewarmed
+    # reaper *kills* them if never activated. Recovering one would boot an agent with no prompt
+    # (and re-dispatching without the prewarmed flag would change its boot behaviour), so skip.
+    if isinstance(task_run.state, dict) and task_run.state.get("prewarmed"):
+        return "skipped_prewarmed"
+
+    task = task_run.task
+    task_id = str(task.id)
+    workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+    # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
+    # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.
+    pending = task_run.state.get("pending_dispatch") if isinstance(task_run.state, dict) else None
+    dispatch_params = pending if isinstance(pending, dict) else {}
+    workflow_input = ProcessTaskInput(
+        run_id=run_id,
+        create_pr=dispatch_params.get("create_pr", True),
+        slack_thread_context=dispatch_params.get("slack_thread_context"),
+        posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
+    )
+
+    observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
+    _capture_sandbox_event_ingest_flag(run_id)
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "process-task",
+                workflow_input,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run, outcome="blocked", reason="reconcile_already_running")
+        return "already_running"
+    except Exception as e:
+        observe_task_run_workflow_start(task_run, outcome="failed", reason="reconcile_error")
+        logger.warning(
+            "task_run_reconcile_dispatch_failed",
+            extra={"run_id": run_id, "task_id": task_id, "error": str(e)},
+        )
+        return "error"
+
+    observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
+    logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
+    return "recovered"
+
+
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     _capture_sandbox_event_ingest_flag(run_id)
     client = sync_connect()
@@ -335,6 +426,13 @@ def signal_task_followup_message(workflow_id: str, message: str | None, artifact
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
     asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+
+def signal_agent_text_delta(workflow_id: str, text: str) -> None:
+    """Push text into the live agent-design plan-block stream for a running task."""
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    asyncio.run(handle.signal("agent_text_delta", text))
 
 
 def execute_posthog_code_agent_relay_workflow(

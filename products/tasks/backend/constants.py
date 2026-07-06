@@ -1,10 +1,25 @@
 from typing import Literal, get_args
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+
+SnapshotKind = Literal["filesystem", "directory"]
+SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
+SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
+DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
+# Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
+# REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
+# mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out
+# from under Modal's in-sandbox helpers and kills the sandbox on its first filesystem operation.
+# A snapshot's content layout matches the path it was captured from, so snapshots created for a
+# path outside this allowlist cannot be remapped — they must be invalidated on resume instead.
+DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
+ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS: frozenset[str] = frozenset({DEFAULT_SANDBOX_WORKING_DIR})
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]

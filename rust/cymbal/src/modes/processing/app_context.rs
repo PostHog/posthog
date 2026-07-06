@@ -14,7 +14,6 @@ use crate::{
     core::resolver::build_catalog,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
-    signals::{MaybeSignalClient, SignalClient},
     stages::rate_limiting::RedisRateLimiter,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -57,7 +56,6 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
-    pub signal_client: MaybeSignalClient,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -166,16 +164,6 @@ impl AppContext {
 
         let team_manager = TeamManager::new(config);
 
-        let signal_client = if config.signals_api_base_url.is_empty() {
-            MaybeSignalClient::disabled()
-        } else {
-            info!(
-                "Signal emission enabled, base_url={}",
-                config.signals_api_base_url
-            );
-            MaybeSignalClient::enabled(SignalClient::new(config))
-        };
-
         let symbol_resolver = Arc::new(LocalSymbolResolver::new(
             &config.resolver,
             catalog.clone(),
@@ -212,7 +200,6 @@ impl AppContext {
             issue_buckets_redis_client,
             rate_limiter,
             rate_limiter_enabled_team_ids,
-            signal_client,
             symbol_resolver,
             issue_cache,
             remote_resolution,

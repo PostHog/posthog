@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
+import { urls } from 'scenes/urls'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -51,6 +53,17 @@ export function SourcesList({ action }: { action: JSX.Element }): JSX.Element {
                             </span>
                         }
                         description="PostHog can expose a webhook that you can configure however you need to receive data from a 3rd party with no in-between service necessary"
+                        actions={
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                to={urls.hogFunctionNew('template-source-webhook')}
+                                data-attr="new-event-source"
+                            >
+                                New event source
+                            </LemonButton>
+                        }
                     >
                         <HogFunctionList logicKey="data-pipelines-hog-functions-source-webhook" type="source_webhook" />
                     </SceneSection>

@@ -1,6 +1,11 @@
 import pytest
 from unittest.mock import MagicMock
 
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+)
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate
 
@@ -37,3 +42,69 @@ class TestModalSandboxVmRuntime:
             assert "experimental_options" not in kwargs
         else:
             assert kwargs["experimental_options"] == expected_experimental_options
+
+
+class TestModalSandboxDirectorySnapshotMount:
+    @pytest.mark.parametrize(
+        "mount_path, expect_mounted",
+        [
+            (DEFAULT_SANDBOX_WORKING_DIR, True),
+            # Legacy captures of the system temp dir: re-mounting replaces the live /tmp and
+            # kills Modal's in-sandbox helpers — must never reach mount_image again.
+            ("/tmp", False),
+            # Upstream validation strips a disallowed path; the missing path must not be
+            # re-defaulted into a mount of mismatched content.
+            (None, False),
+        ],
+    )
+    def test_directory_snapshot_mount_guard(self, patched_modal, mocker, mount_path, expect_mounted):
+        snapshot_image = MagicMock()
+        mocker.patch("modal.Image.from_id", return_value=snapshot_image)
+        fake_sandbox = patched_modal.return_value
+        fake_sandbox.exec.return_value.poll.return_value = 0
+
+        sandbox = ModalSandbox.create(
+            SandboxConfig(
+                name="test",
+                template=SandboxTemplate.DEFAULT_BASE,
+                snapshot_external_id="im-dir",
+                snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+                snapshot_mount_path=mount_path,
+            )
+        )
+
+        if expect_mounted:
+            fake_sandbox.mount_image.assert_called_once_with(mount_path, snapshot_image)
+            assert sandbox.config.snapshot_restored is True
+        else:
+            fake_sandbox.mount_image.assert_not_called()
+            assert sandbox.config.snapshot_restored is False
+
+    @pytest.mark.parametrize("snapshot_kind", [SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM])
+    def test_wedged_restore_falls_back_to_base_image(self, patched_modal, mocker, snapshot_kind):
+        snapshot_image = MagicMock()
+        mocker.patch("modal.Image.from_id", return_value=snapshot_image)
+        wedged = MagicMock()
+        wedged.object_id = "sb-wedged"
+        wedged.exec.return_value.poll.return_value = 137
+        fresh = MagicMock()
+        fresh.object_id = "sb-fresh"
+        patched_modal.side_effect = [wedged, fresh]
+
+        sandbox = ModalSandbox.create(
+            SandboxConfig(
+                name="test",
+                template=SandboxTemplate.DEFAULT_BASE,
+                snapshot_external_id="im-snap",
+                snapshot_kind=snapshot_kind,
+                snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+            )
+        )
+
+        if snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
+            wedged.mount_image.assert_called_once_with(DEFAULT_SANDBOX_WORKING_DIR, snapshot_image)
+        else:
+            wedged.mount_image.assert_not_called()
+        wedged.terminate.assert_called_once()
+        assert sandbox.id == "sb-fresh"
+        assert sandbox.config.snapshot_restored is False

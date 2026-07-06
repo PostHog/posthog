@@ -1,0 +1,31 @@
+# napi-rs binding exposing the Rust HogVM to Node for shadow execution of ingestion
+# transformations. Its own [workspace] table keeps it out of the parent rust/ workspace build;
+# build it via the package.json scripts (`pnpm build`) or `cargo build --release` here.
+[workspace]
+
+[package]
+name = "hogvm-node"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+# Makes the napi macros no-ops so `cargo test --features noop` links without a Node host.
+noop = ["napi/noop", "napi-derive/noop"]
+
+[dependencies]
+hogvm = { path = ".." }
+maxminddb = "0.24"
+napi = { version = "2", default-features = false, features = ["napi8", "serde-json"] }
+napi-derive = "2"
+rayon = "1.10"
+serde_json = "1.0"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true

@@ -5,7 +5,7 @@ import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionr
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
-import { BlurJob, ScrubContext, isObject } from './config'
+import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -17,6 +17,9 @@ const CONSOLE_PLUGIN = 'rrweb/console@1'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
+// Diagnostic: log the per-message time breakdown when a message takes longer than this to anonymize.
+const ANON_SLOW_LOG_THRESHOLD_MS = 5000
+
 /**
  * Anonymizes every event in a parsed message in place, then awaits its blur jobs.
  * Fails closed: returns `failed: true` if any event errors, so the caller can drop
@@ -27,8 +30,13 @@ export async function anonymizeParsedMessage(
     parsedMessage: ParsedMessageData
 ): Promise<{ failed: boolean }> {
     const blurJobs: BlurJob[] = []
-    const ctx: ScrubContext = { ...scrubContext, blurJobs }
+    // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
+    const blurCache: BlurCache = new Map()
+    const timing: ScrubTiming = { decompressMs: 0, recompressMs: 0 }
+    const ctx: ScrubContext = { ...scrubContext, blurJobs, blurCache, timing }
 
+    const scrubStart = performance.now()
+    let eventCount = 0
     for (const events of Object.values(parsedMessage.eventsByWindowId)) {
         for (const event of events) {
             try {
@@ -40,10 +48,35 @@ export async function anonymizeParsedMessage(
                 })
                 return { failed: true }
             }
+            eventCount++
         }
     }
+    // scrubMs is synchronous (on the event loop); blurMs is the off-thread sharp work we await.
+    const scrubMs = performance.now() - scrubStart
 
+    const blurStart = performance.now()
     await runBlurJobs(blurJobs)
+    const blurMs = performance.now() - blurStart
+
+    if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
+        logger.warn('🕒', 'anonymize_slow_breakdown', {
+            totalMs: Math.round(scrubMs + blurMs),
+            scrubMs: Math.round(scrubMs),
+            blurMs: Math.round(blurMs),
+            decompressMs: Math.round(timing.decompressMs),
+            recompressMs: Math.round(timing.recompressMs),
+            walkMs: Math.round(scrubMs - timing.decompressMs - timing.recompressMs),
+            events: eventCount,
+            blurJobs: blurJobs.length,
+            sessionId: parsedMessage.session_id,
+            topic: parsedMessage.metadata.topic,
+            partition: parsedMessage.metadata.partition,
+            offset: parsedMessage.metadata.offset,
+            kafkaTimestamp: parsedMessage.metadata.timestamp,
+            rawSize: parsedMessage.metadata.rawSize,
+        })
+    }
+
     // Macrotask break so a batch of messages doesn't scrub fully synchronously and starve the loop.
     await yieldToEventLoop()
     return { failed: false }
