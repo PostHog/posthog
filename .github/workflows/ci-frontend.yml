@@ -625,7 +625,7 @@ jobs:
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs, master push, and merge_group it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4,5,6]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -645,8 +645,9 @@ jobs:
                   SHARD_INDEX: ${{ matrix.chunk }}
                   # Keep shard runtime well under timeout-minutes: the EE suite at 2
                   # shards ran 13-15 min on the 2-worker config and regularly died at
-                  # the 15-min timeout, failing the whole run.
-                  SHARD_COUNT: 4
+                  # the 15-min timeout, failing the whole run. The suite has since grown
+                  # back to ~15 min at 4 shards (chunk 1 timing out), so bump to 6.
+                  SHARD_COUNT: 6
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
