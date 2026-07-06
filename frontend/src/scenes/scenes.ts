@@ -680,6 +680,10 @@ export const redirects: Record<
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
+    // Ingestion warnings moved under data management; keep the old paths working
+    '/ingestion-warnings': urls.ingestionWarnings(),
+    '/settings/ingestion-warnings': urls.ingestionWarnings(),
+    '/pipeline/ingestion-warnings': urls.ingestionWarnings(),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()

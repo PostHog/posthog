@@ -174,4 +174,22 @@ describe('sceneLogic', () => {
             expect(router.values.searchParams).toEqual({ modal: 'feature' })
         })
     })
+
+    // These relocated paths used to dead-end on the 404 scene; guard the redirects that fix that.
+    describe('legacy data management path redirects', () => {
+        it.each([
+            ['/ingestion-warnings', '/data-management/ingestion-warnings'],
+            ['/settings/ingestion-warnings', '/data-management/ingestion-warnings'],
+            ['/pipeline/ingestion-warnings', '/data-management/ingestion-warnings'],
+            ['/data-warehouse', '/data-ops'],
+            ['/data-warehouse/posthog', '/data-management/sources'],
+            ['/data-warehouse/sources', '/data-management/sources'],
+            ['/data-warehouse/settings', '/data-management/sources'],
+            ['/data-warehouse/view', '/sql'],
+        ])('redirects %s to %s', async (from, to) => {
+            router.actions.push(from)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(to)
+        })
+    })
 })

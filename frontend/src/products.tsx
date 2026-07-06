@@ -451,6 +451,11 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse': (): string => urls.dataOps(),
+    '/data-warehouse/posthog': (): string => urls.sources(),
+    '/data-warehouse/sources': (): string => urls.sources(),
+    '/data-warehouse/settings': (): string => urls.sources(),
+    '/data-warehouse/view': (): string => urls.sqlEditor(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics/authors': '/engineering-analytics',

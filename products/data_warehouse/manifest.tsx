@@ -91,6 +91,12 @@ export const manifest: ProductManifest = {
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     },
     redirects: {
+        // Legacy /data-warehouse paths were restructured into data ops, sources, and the SQL editor
+        '/data-warehouse': (): string => urls.dataOps(),
+        '/data-warehouse/posthog': (): string => urls.sources(),
+        '/data-warehouse/sources': (): string => urls.sources(),
+        '/data-warehouse/settings': (): string => urls.sources(),
+        '/data-warehouse/view': (): string => urls.sqlEditor(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
