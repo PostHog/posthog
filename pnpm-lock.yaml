@@ -379,6 +379,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      fzstd:
+        specifier: ^0.1.1
+        version: 0.1.1
       hls.js:
         specifier: ^1.5.7
         version: 1.5.15
@@ -15781,6 +15784,9 @@ packages:
   fuse.js@7.3.0:
     resolution: {integrity: sha512-plz8RVjfcDedTGfVngWH1jmJvBvAwi1v2jecfDerbEnMcmOYUEEwKFTHbNoCiYyzaK2Ws8lABkTCcRSqCY1q4w==}
     engines: {node: '>=10'}
+
+  fzstd@0.1.1:
+    resolution: {integrity: sha512-dkuVSOKKwh3eas5VkJy1AW1vFpet8TA/fGmVA5krThl8YcOVE/8ZIoEA1+U1vEn5ckxxhLirSdY837azmbaNHA==}
 
   gaxios@4.3.3:
     resolution: {integrity: sha512-gSaYYIO1Y3wUtdfHmjDUZ8LWaxJQpiavzbF5Kq53akSzvmVg0RfyOcFDbO1KJ/KCGRFz2qG+lS81F0nkr7cRJA==}
@@ -36794,6 +36800,8 @@ snapshots:
   fuse.js@6.6.2: {}
 
   fuse.js@7.3.0: {}
+
+  fzstd@0.1.1: {}
 
   gaxios@4.3.3(encoding@0.1.13):
     dependencies:

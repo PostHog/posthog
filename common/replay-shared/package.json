@@ -12,6 +12,7 @@
     },
     "dependencies": {
         "fflate": "^0.8.2",
+        "fzstd": "^0.1.1",
         "hls.js": "^1.5.7",
         "posthog-js": "catalog:"
     },
