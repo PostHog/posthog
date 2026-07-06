@@ -856,18 +856,20 @@ from = [
     "products.legal_documents",
 ]
 
-# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
-# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
-# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
-# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
-# shrinking to zero — which is why backend:contract-check stays off for this product.
+# isolation:permanent-interface
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to core's
+# ClickHouse schema registry, conftest, the embedding worker, the hogql document_embeddings
+# system table, and frozen ClickHouse migrations. That coupling is outside the import-reroute
+# path — frozen migrations hardcode these import paths and the schema registry owns table DDL —
+# so it can never route through the facade. The marker above declares it permanent rather than a
+# legacy leak, so it does not hold the external seal open. turbo.json keeps these three modules
+# in the contract-check inputs so any change to them still re-runs the Django suite
+# (IsolationChainCheck enforces that). All other core coupling now goes through backend.facade.
 
 [[interfaces]]
 expose = [
     "backend\\.embedding.*",
     "backend\\.indexed_embedding.*",
-    "backend\\.models.*",
-    "backend\\.remote_config.*",
     "backend\\.sql.*",
 ]
 from = [
