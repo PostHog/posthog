@@ -242,6 +242,7 @@ the row lists both.
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
 | onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
+| opinion_stage           | HTTP                        | requests                                                        | ✅                          |
 | orb                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                  | HTTP                        | requests                                                        | ✅                          |
 | openfda                 | HTTP                        | requests                                                        | ✅                          |
@@ -556,7 +557,6 @@ doesn't conflict with concurrent PRs.
 - onepagecrm
 - onesignal
 - open_data_dc
-- opinion_stage
 - opsgenie
 - opuswatch
 - oracle
