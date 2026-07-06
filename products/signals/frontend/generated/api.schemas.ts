@@ -315,10 +315,10 @@ export interface ErrorTrackingSignalExtraApi {
 }
 
 export interface PgAnalyzeIssueReferenceApi {
-    kind: string | null
-    name: string | null
-    url: string | null
-    queryText: string | null
+    kind?: string | null
+    name?: string | null
+    url?: string | null
+    queryText?: string | null
 }
 
 export interface PgAnalyzeIssueSignalExtraApi {
