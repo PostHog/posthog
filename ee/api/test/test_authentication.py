@@ -457,7 +457,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     def test_can_login_with_idp_initiated_saml(self, _name: str, relay_state: str | None) -> None:
         # IdP-initiated assertions don't carry the OrganizationDomain UUID in RelayState, so we
         # route to the tenant via the assertion's <Issuer> instead of rejecting it as "Invalid
-        # RelayState". The fixture's Issuer matches the org domain's saml_entity_id.
+        # RelayState". The fixture's Issuer matches the linked IdP config's saml_entity_id.
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         with open(

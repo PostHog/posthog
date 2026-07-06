@@ -112,8 +112,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         is how we route an assertion to the right tenant. IdP-initiated logins don't: the IdP
         either omits RelayState (Azure AD) or sends its own value (e.g. an app URL). When the
         RelayState doesn't map to a verified domain, recover the tenant from the Response's
-        <Issuer> (the IdP entity ID, stored as `saml_entity_id`) and inject a RelayState so the
-        rest of the flow — including signature validation — proceeds unchanged.
+        <Issuer> (the IdP entity ID, stored on the linked `IdentityProviderConfig` as
+        `saml_entity_id`) and inject a RelayState so the rest of the flow — including signature
+        validation — proceeds unchanged.
         """
         data = self.strategy.request_data()
         saml_response = data.get("SAMLResponse")
@@ -128,10 +129,11 @@ class MultitenantSAMLAuth(SAMLAuth):
             return
 
         # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous match —
-        # never guess which tenant an unsolicited assertion belongs to.
+        # never guess which tenant an unsolicited assertion belongs to. The IdP config is the
+        # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
         matches = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(saml_entity_id=issuer)
+            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
         )
         if len(matches) != 1:
             if len(matches) > 1:
