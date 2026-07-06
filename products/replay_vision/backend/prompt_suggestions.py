@@ -388,6 +388,9 @@ def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
             execute_summarize_session,
         )
 
+        # Count before executing: a failing cold run still spends budget, so the model can't
+        # retry expensive summaries past the cap.
+        state.summaries_used += 1
         team = Team.objects.get(pk=state.scanner.team_id)
         summary_json = async_to_sync(execute_summarize_session)(
             session_id=session_id,
@@ -395,9 +398,10 @@ def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
             team=team,
             custom_tags={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
         )
+    else:
+        state.summaries_used += 1
     from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier  # noqa: PLC0415
 
-    state.summaries_used += 1
     return {"session_id": session_id, "summary": SingleSessionSummaryStringifier(summary_json).stringify_session()}
 
 
@@ -453,7 +457,7 @@ def _generate_agentic(
     response = _model_call(client, convo, tool_config, team_id=scanner.team_id, distinct_id=distinct_id)
     for _ in range(_MAX_TOOL_ROUNDS):
         calls = list(getattr(response, "function_calls", None) or [])
-        if not calls:
+        if not calls or not getattr(response, "candidates", None):
             break
         convo.append(response.candidates[0].content)  # carries thought signatures across the round-trip
         for call in calls:
