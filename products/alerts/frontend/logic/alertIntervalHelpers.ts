@@ -37,6 +37,19 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     return HIGH_FREQUENCY_INTERVALS.includes(interval)
 }
 
+const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
+    [AlertCalculationInterval.REAL_TIME]: 'Real time',
+    [AlertCalculationInterval.EVERY_15_MINUTES]: 'Every 15 minutes',
+    [AlertCalculationInterval.HOURLY]: 'Hourly',
+    [AlertCalculationInterval.DAILY]: 'Daily',
+    [AlertCalculationInterval.WEEKLY]: 'Weekly',
+    [AlertCalculationInterval.MONTHLY]: 'Monthly',
+}
+
+export function alertIntervalDisplayLabel(interval: AlertCalculationInterval | null | undefined): string {
+    return interval ? (INTERVAL_DISPLAY_LABELS[interval] ?? interval) : ''
+}
+
 // Twin of _CADENCE_DURATION_MINUTES / _INTERVAL_DURATION_MINUTES in
 // products/alerts/backend/evaluation/validation.py — keep the two in sync.
 const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
