@@ -51,13 +51,13 @@ class TestRunPreWriteDefensiveCompact:
         # The whole point of the wrapper: a compaction error must never propagate and
         # block the sync — it's captured and logged instead.
         compact = AsyncMock(side_effect=RuntimeError("compaction blew up"))
-        helper = MagicMock(compact_if_fragmented=compact)
+        # Stub the vacuum path to a clean no-op so only the compaction failure is captured.
+        helper = MagicMock(compact_if_fragmented=compact, vacuum_if_stale=AsyncMock(return_value=None))
         logger = MagicMock(aexception=AsyncMock())
 
+        schema = MagicMock(partition_count=5, sync_type_config={})
         with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(
-                helper, MagicMock(partition_count=5), MagicMock(partition_count=None), logger
-            )
+            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
 
         mock_capture.assert_called_once()
         logger.aexception.assert_awaited_once()

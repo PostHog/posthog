@@ -1,3 +1,4 @@
+import django.db.models.manager
 import django.db.models.deletion
 from django.db import migrations, models
 
@@ -40,9 +41,13 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
+                "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(fields=["schema", "created_at"], name="dwh_oom_schema_created_idx"),
                 ],
             },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
         ),
     ]
