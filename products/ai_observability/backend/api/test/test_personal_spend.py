@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from posthog.test.base import (
     APIBaseTest,
@@ -193,6 +193,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         input_tokens: int = 100000,
         output_tokens: int = 500,
         event_name: str = "$ai_generation",
+        timestamp: datetime | None = None,
     ) -> None:
         props: dict = {
             "$ai_total_cost_usd": cost,
@@ -204,11 +205,15 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         }
         if tool is not None:
             props["$ai_tools_called"] = tool
+        kwargs: dict = {}
+        if timestamp is not None:
+            kwargs["timestamp"] = timestamp
         _create_event(
             event=event_name,
             team=self.team,
             distinct_id=self.user.distinct_id or self.user.email,
             properties=props,
+            **kwargs,
         )
 
     @snapshot_clickhouse_queries
@@ -223,6 +228,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["by_product"] == {"items": [], "truncated": False}
         assert body["by_tool"] == {"items": [], "truncated": False}
         assert body["by_model"] == {"items": [], "truncated": False}
+        assert body["by_day"] == {"items": [], "truncated": False}
         assert body["top_traces"] == {"items": [], "truncated": False}
 
     def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
@@ -339,9 +345,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # 4 fetchers run once (summary, by_product, by_tool, by_model). top_traces is
-        # deprecated and returned empty without a query.
-        assert mock_exec.call_count == 4
+        # 5 fetchers run once (summary, by_product, by_tool, by_model, by_day). top_traces
+        # is deprecated and returned empty without a query.
+        assert mock_exec.call_count == 5
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
@@ -399,6 +405,40 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Each tool drove half of the scoped spend.
         assert rows["Bash"]["share_of_scoped"] == 0.5
         assert rows["Read"]["share_of_scoped"] == 0.5
+
+    def test_by_day_groups_spend_per_utc_day_scoped_to_product(self) -> None:
+        earlier = timezone.now() - timedelta(days=2)
+        self._create_generation(cost=1.0, trace_id="old-1", timestamp=earlier)
+        self._create_generation(cost=0.5, trace_id="old-2", timestamp=earlier)
+        self._create_generation(cost=2.0, trace_id="today")
+        # Same day as `earlier` but another product — must not leak into the scoped series.
+        self._create_generation(ai_product="background_agents", cost=99.0, timestamp=earlier)
+        flush_persons_and_events()
+
+        response = self.client.get(ENDPOINT_OK)
+        by_day = response.json()["by_day"]
+        assert by_day["truncated"] is False
+        rows = by_day["items"]
+        assert len(rows) == 2
+        # Ordered by day ascending, not by cost.
+        assert rows[0]["day"] == earlier.date().isoformat()
+        assert rows[0]["event_count"] == 2
+        assert rows[0]["cost_usd"] == 1.5
+        assert rows[1]["day"] == timezone.now().date().isoformat()
+        assert rows[1]["event_count"] == 1
+        assert rows[1]["cost_usd"] == 2.0
+
+    def test_by_day_ignores_request_limit(self) -> None:
+        self._create_generation(cost=1.0, trace_id="a", timestamp=timezone.now() - timedelta(days=3))
+        self._create_generation(cost=2.0, trace_id="b", timestamp=timezone.now() - timedelta(days=2))
+        self._create_generation(cost=3.0, trace_id="c", timestamp=timezone.now() - timedelta(days=1))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=1")
+        body = response.json()
+        # by_model honors the limit; by_day returns the full series regardless.
+        assert len(body["by_day"]["items"]) == 3
+        assert body["by_day"]["truncated"] is False
 
 
 class TestPersonalSpendNonSessionAuth(APIBaseTest):

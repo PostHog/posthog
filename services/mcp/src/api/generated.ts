@@ -43079,6 +43079,22 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _DayBreakdownRow {
+      /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+      day: string;
+      /** Number of $ai_generation + $ai_embedding events on this day for the scoped product. */
+      event_count: number;
+      /** Total cost in USD on this day for the scoped product. */
+      cost_usd: number;
+    }
+
+    export interface _DayBreakdown {
+      /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
+      items: _DayBreakdownRow[];
+      /** Always false. A time series truncated by cost would be meaningless, so `by_day` is not subject to `limit` — the window is already capped at 90 days. */
+      truncated: boolean;
+    }
+
     export interface _TopTraceRow {
       /**
          * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -43115,6 +43131,8 @@ export namespace Schemas {
       by_tool: _ToolBreakdown;
       /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
       by_model: _ModelBreakdown;
+      /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
+      by_day: _DayBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }

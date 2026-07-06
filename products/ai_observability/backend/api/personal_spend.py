@@ -203,6 +203,14 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model.")
 
 
+class _DayBreakdownRowSerializer(serializers.Serializer):
+    day = serializers.DateField(help_text="UTC calendar day the events fall on (`toDate(timestamp)`).")
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
+    )
+    cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
+
+
 class _TopTraceRowSerializer(serializers.Serializer):
     trace_id = serializers.CharField(
         allow_null=True,
@@ -277,6 +285,22 @@ class _TopTracesSerializer(serializers.Serializer):
     )
 
 
+class _DayBreakdownSerializer(serializers.Serializer):
+    items = _DayBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC day that has events, ordered by day ascending. Days with no events are "
+            "omitted — zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Always false. A time series truncated by cost would be meaningless, so `by_day` is not "
+            f"subject to `limit` — the window is already capped at {MAX_WINDOW_DAYS} days."
+        )
+    )
+
+
 class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     """Structured personal LLM spend analysis for the requesting user."""
 
@@ -286,6 +310,9 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
+    by_day = _DayBreakdownSerializer(
+        help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
+    )
     top_traces = _TopTracesSerializer(
         help_text=(
             "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
@@ -529,6 +556,54 @@ def _fetch_by_model(
     return _truncate(rows, limit)
 
 
+def _fetch_by_day(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str, Any]:
+    query = parse_select(
+        """
+        SELECT
+            toDate(timestamp) AS day,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY day
+        ORDER BY day ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit`: truncating a time series by cost makes no sense, and the
+            # window cap already bounds the row count. +2 covers partial days at both edges.
+            "limit": ast.Constant(value=MAX_WINDOW_DAYS + 2),
+        },
+        team=team,
+        query_type="PersonalSpendByDay",
+    )
+    rows = [
+        {
+            "day": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+        }
+        for row in (result.results or [])
+    ]
+    return {"items": rows, "truncated": False}
+
+
 class PersonalSpendViewSet(viewsets.ViewSet):
     """
     Returns the requesting user's personal LLM spend analysis across PostHog products.
@@ -593,10 +668,10 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
             "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
-            "query param is required and scopes the tool / model / trace breakdowns to a single "
+            "query param is required and scopes the tool / model / day / trace breakdowns to a single "
             f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
-            "always returned for cross-product visibility. Use `refresh=true` to bypass the "
-            "5-minute response cache."
+            "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
+            "series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
     )
@@ -648,6 +723,7 @@ class PersonalSpendViewSet(viewsets.ViewSet):
                 "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
                 "by_tool": by_tool,
                 "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+                "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
                 # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
                 # existing consumers don't crash while they remove the rendering. Drop the field
                 # entirely once no consumer reads it.
