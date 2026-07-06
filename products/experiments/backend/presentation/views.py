@@ -502,6 +502,7 @@ class EnterpriseExperimentsViewSet(
             experiment,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -544,6 +545,7 @@ class EnterpriseExperimentsViewSet(
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)

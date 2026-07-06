@@ -18659,6 +18659,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
     }
 
     /**
@@ -31099,6 +31101,7 @@ export namespace Schemas {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiment` - Experiment
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -31117,6 +31120,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
+      Experiment: 'experiment',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -42049,6 +42053,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiment` - Experiment
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
@@ -48661,6 +48666,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -52942,6 +52949,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiment` - Experiment
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply

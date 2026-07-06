@@ -16,7 +16,6 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -75,14 +74,18 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
-# Gates the (log-only for now) experiment-end -> cleanup-PR trigger; enable it per-project in the app.
-EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
+# Teams allowed to auto-open flag-cleanup PRs when an experiment ends (internal dogfood). Gated in
+# code, not a PostHog feature flag: a server-side trigger can't be reliably gated by a flag.
+EXPERIMENT_CLEANUP_ALLOWED_TEAM_IDS = {2}
+# Repository the cleanup PR is opened against. Hardcoded for the dogfood; auto-detection comes later.
+EXPERIMENT_CLEANUP_REPOSITORY = "PostHog/posthog"
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -1695,6 +1698,7 @@ class ExperimentService:
         *,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -1713,60 +1717,69 @@ class ExperimentService:
         experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_ended(experiment, request=request)
+        self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
 
-    def _log_cleanup_pr_preview(self, experiment: Experiment) -> None:
-        """Behind a team feature flag, log the cleanup-PR instructions we would open (no PR yet).
+    def _maybe_open_cleanup_pr(self, experiment: Experiment, open_cleanup_pr: bool) -> None:
+        """When opted in (the checkbox) and the team is allowlisted, open a draft PR that removes the
+        experiment's feature-flag code, via the Tasks engine.
 
-        Log-only first step of the experiment-end -> cleanup-PR feature: lets us see, on real
-        experiments, whether the trigger fires and whether the generated instructions look right,
-        before wiring up the coding agent. Never raises — a preview must not break ending an experiment.
+        Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
+        break ending an experiment.
         """
         try:
-            enabled = posthoganalytics.feature_enabled(
-                EXPERIMENT_CLEANUP_PR_FLAG,
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                group_properties={"project": {"id": str(self.team.id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
             conclusion = experiment.conclusion or ""
-            if not enabled or not conclusion:
+            if not open_cleanup_pr or experiment.team_id not in EXPERIMENT_CLEANUP_ALLOWED_TEAM_IDS or not conclusion:
                 return
 
             flag_key = experiment.get_feature_flag_key()
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
-            # Build the prompt to catch render errors on real data, but don't log its body: it
-            # embeds the experiment name and full instructions, and these logs are exported widely.
-            # The structured fields below are enough to confirm the trigger fired and the decision.
-            title, _ = build_cleanup_prompt(experiment, flag_key, plan)
+            title, description = build_cleanup_prompt(experiment, flag_key, plan)
+            team = experiment.team
+            user_id = self.user.id
+            experiment_id = experiment.id
+
+            def _open() -> None:
+                try:
+                    tasks_facade.create_and_run_task(
+                        team=team,
+                        title=title,
+                        description=description,
+                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENT,
+                        user_id=user_id,
+                        repository=EXPERIMENT_CLEANUP_REPOSITORY,
+                        create_pr=True,
+                        interaction_origin="experiments",
+                        ai_stage="implementation",
+                    )
+                except Exception:
+                    logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
+
+            transaction.on_commit(_open)
             logger.info(
-                "experiment_cleanup_pr_preview",
+                "experiment_cleanup_pr_requested",
                 experiment_id=experiment.id,
                 team_id=experiment.team_id,
                 flag_key=flag_key,
-                conclusion=conclusion,
                 keep_variant=plan.keep_variant,
                 remove_variants=plan.remove_variants,
                 confident=plan.confident,
-                pr_title=title,
             )
         except Exception:
-            logger.exception("experiment_cleanup_pr_preview_failed", experiment_id=experiment.id)
+            logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
 
     def _report_experiment_ended(
         self,
         experiment: Experiment,
         *,
         request: Any | None = None,
+        open_cleanup_pr: bool = False,
     ) -> None:
         if request is None:
             return
 
-        self._log_cleanup_pr_preview(experiment)
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
@@ -1912,6 +1925,7 @@ class ExperimentService:
         release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -1989,7 +2003,7 @@ class ExperimentService:
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
         )
         if was_running:
-            self._report_experiment_ended(experiment, request=request)
+            self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
 
