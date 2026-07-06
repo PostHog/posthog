@@ -116,9 +116,7 @@ export function AlertIntervalRow({
                         <Tooltip
                             title={
                                 <>
-                                    This is the interval the insight is <b>grouped by</b>, so it can't be set per alert.
-                                    To change it, edit and save the insight — that changes the insight everywhere it's
-                                    used.
+                                    Set by the insight's <b>grouped by</b> interval. Edit the insight to change it.
                                 </>
                             }
                         >
