@@ -1,15 +1,5 @@
-"""Parent workflow for the surfacing-score export sweep.
-
-Per daily tick (driven by `schedule.py`):
-    1. `list_export_partitions_activity` checks the export is configured and
-       plans the (day × hash bucket) fan-out over the re-export window.
-    2. All partitions are dispatched via `asyncio.gather`; each
-       `export_scores_partition_activity` is fully self-contained
-       (fetch + pseudonymize + Parquet + S3 put inside one activity).
-
-Failed partitions don't fail the tick — deterministic object keys mean the
-next daily run (or the re-export window) rewrites them.
-"""
+"""Daily tick: plan the (day × hash bucket) fan-out, export all partitions in parallel.
+Failed partitions don't fail the tick — deterministic keys mean the next run rewrites them."""
 
 from __future__ import annotations
 
@@ -42,8 +32,6 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn(name=WORKFLOW_NAME)
 class ExportSurfacingScoresWorkflow(PostHogWorkflow):
-    """One daily tick of the score export."""
-
     inputs_cls = ExportScoresSweepInputs
     inputs_optional = True
 

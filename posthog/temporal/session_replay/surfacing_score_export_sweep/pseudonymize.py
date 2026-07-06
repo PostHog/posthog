@@ -1,12 +1,6 @@
-"""Python mirror of the session replay ML mirror's pseudonymization.
-
-The Node.js ingester (`nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/
-pseudonymize.ts` + `pseudonym-key.ts`) is the source of truth; this module
-must produce byte-identical pseudonyms from the same key, or exported scores
-won't join onto the mirrored replay dataset. Same key resolution too:
-KMS-wrapped key in prod, plaintext env for local dev, pinned fingerprint so a
-rotated key can't silently re-map the id space.
-"""
+"""Python port of the ML mirror's pseudonymization (`nodejs/.../ml-mirror/pseudonymize.ts`
++ `pseudonym-key.ts`). Must stay byte-identical, same key and env vars, or exported
+scores stop joining onto the mirrored dataset."""
 
 from __future__ import annotations
 
@@ -31,25 +25,19 @@ KEY_FINGERPRINT_ENV_VAR = "SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT"
 
 
 class PseudonymKeyNotConfiguredError(RuntimeError):
-    """Neither the KMS-wrapped key nor the plaintext dev secret is set."""
+    pass
 
 
 class PseudonymKeyFingerprintMismatchError(RuntimeError):
-    """The resolved key doesn't match the pinned fingerprint."""
+    pass
 
 
 def pseudonymize(secret: bytes, namespace: str, value: str) -> str:
-    """Deterministic, non-reversible pseudonym for an identifier.
-
-    Byte-identical to the Node implementation: HMAC-SHA256 over the
-    length-prefixed namespace + value, hex, truncated to 32 chars.
-    """
     message = f"{len(namespace)}:{namespace}:{value}".encode()
     return hmac.new(secret, message, hashlib.sha256).hexdigest()[:32]
 
 
 def pseudonym_key_fingerprint(secret: bytes) -> str:
-    """Non-reversible fingerprint of the key — safe to log, pins the id space to one key."""
     return hmac.new(secret, b"pseudonym-key-fingerprint:v1", hashlib.sha256).hexdigest()[:16]
 
 
@@ -71,12 +59,8 @@ def _kms_decrypt(ciphertext_base64: str, region: str) -> bytes:
 
 
 def resolve_pseudonym_key() -> bytes:
-    """Resolve the HMAC key once per process: KMS-wrapped ciphertext preferred, plaintext env for dev.
-
-    Fails closed when no key is configured, or when the pinned fingerprint
-    doesn't match — a rotated/incorrect key would re-map every id and the
-    exported scores would join onto nothing.
-    """
+    """KMS-wrapped key preferred, plaintext env for dev. Fails closed on a missing key
+    or a pinned-fingerprint mismatch — a rotated key would re-map the id space."""
     global _SECRET
     with _SECRET_LOCK:
         if _SECRET is not None:
@@ -99,8 +83,7 @@ def resolve_pseudonym_key() -> bytes:
         expected = os.environ.get(KEY_FINGERPRINT_ENV_VAR)
         if expected and expected != fingerprint:
             raise PseudonymKeyFingerprintMismatchError(
-                f"pseudonym key fingerprint mismatch (resolved {fingerprint}, expected {expected}) — "
-                "refusing to export: a rotated/incorrect key would re-map ids away from the ML mirror dataset"
+                f"pseudonym key fingerprint mismatch (resolved {fingerprint}, expected {expected})"
             )
 
         logger.info(

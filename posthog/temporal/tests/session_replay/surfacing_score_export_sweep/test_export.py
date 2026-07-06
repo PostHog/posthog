@@ -1,10 +1,4 @@
-"""Unit tests for the surfacing-score export sweep.
-
-The pseudonym golden vectors were generated with the Node.js source of truth
-(`nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/pseudonymize.ts` /
-`pseudonym-key.ts`): if the Python construction drifts by a single byte,
-exported scores stop joining onto the ML mirror dataset.
-"""
+# Golden vectors generated from the Node source of truth (nodejs/.../ml-mirror/pseudonymize.ts).
 
 import io
 from datetime import UTC, date, datetime

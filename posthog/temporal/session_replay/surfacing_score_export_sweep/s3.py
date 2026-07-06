@@ -1,10 +1,5 @@
-"""Object-key layout and upload helper for the score export dataset.
-
-Mirrors the ML mirror's Parquet store (`block-metadata-parquet-store.ts`)
-layout — `{prefix}/dt=YYYY-MM-DD/part-*.parquet` in the same bucket — except
-the part name is deterministic per (chunk, of_chunks) instead of
-per-writer-unique, because re-runs are meant to overwrite.
-"""
+"""Object-key layout and upload helper — same `{prefix}/dt=.../part-*.parquet` layout as the
+ML mirror's Parquet store, but with deterministic part names so re-runs overwrite."""
 
 from __future__ import annotations
 

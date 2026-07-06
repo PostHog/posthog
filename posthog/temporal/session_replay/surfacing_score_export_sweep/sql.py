@@ -1,24 +1,16 @@
 """ClickHouse statement for the surfacing-score export sweep."""
 
-# Hardcoded like the scoring sweep — source of truth lives in
-# `posthog/session_recordings/sql/session_replay_event_sql.py`.
 SESSION_REPLAY_EVENTS_TABLE = "session_replay_events"
 
 
 def fetch_scored_sessions_sql(replay_events_table: str = SESSION_REPLAY_EVENTS_TABLE) -> str:
-    """Return the parameterized SELECT for one (day, hash bucket) export slice.
+    """One (day, hash bucket) export slice. Bound parameters: %(of_chunks)s,
+    %(chunk_id)s, %(team_ids)s, %(day_start)s ('YYYY-MM-DD 00:00:00', UTC).
 
-    Bound parameters: %(of_chunks)s, %(chunk_id)s, %(team_ids)s,
-    %(day_start)s ('YYYY-MM-DD 00:00:00', UTC).
-
-    Returns one row per scored session started on that UTC day:
-    `team_id`, `session_id`, `started_at`, `score`.
-
-    The raw-row prefilter prunes on the `min_first_timestamp` ordering key;
-    the +1 day buffer past the day boundary keeps the aggregated `max(...)`
-    correct for sessions whose rows straddle the boundary (the score
-    writeback row sits at session start +1µs, so it is always in-window).
-    The exact day cut lives in HAVING on the aggregated min.
+    The raw-row prefilter prunes on the `min_first_timestamp` ordering key; the
+    +1 day buffer covers boundary-straddling rows, and the exact day cut is in
+    HAVING on the aggregated min (the score writeback row sits at session start
+    +1µs, so it is always in-window).
     """
     return f"""
 SELECT

@@ -1,26 +1,10 @@
-"""Temporal activities for the surfacing-score export sweep.
+"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → pseudonymize → Parquet → S3 put.
 
-Two activities:
-    * `list_export_partitions_activity` — checks the export is configured and
-      plans the (day × hash bucket) fan-out. Cheap.
-    * `export_scores_partition_activity` — runs once per partition; does
-      fetch (CH SELECT) → pseudonymize → Parquet encode → S3 put end to end.
-
-Privacy contract:
-    * Only teams whose organization opted into AI training are exported —
-      the same gate the Node ML mirror applies before mirroring replay data,
-      so scores never land in the ML account for sessions that were never
-      mirrored.
-    * Ids are pseudonymized with the ML mirror's exact HMAC scheme and key,
-      so the exported `session_id`/`team_id` join onto the mirror's
-      `block-metadata` dataset and nothing else.
-
-Idempotency:
-    * Object keys are deterministic per (day, chunk_id, of_chunks), so a
-      retry or the daily re-export window simply overwrites the object.
-    * A partition with no rows still writes an (empty) Parquet object —
-      sessions deleted since the last run within the re-export window are
-      thereby dropped from the dataset rather than left stale.
+Only AI-training opted-in orgs are exported (the ML mirror's gate), with the
+mirror's exact pseudonym scheme, so exported ids join onto `block-metadata`
+and nothing else. Object keys are deterministic, so retries and the re-export
+window overwrite; an empty partition still writes an empty object so deleted
+sessions drop out rather than going stale.
 """
 
 from __future__ import annotations
@@ -70,11 +54,6 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
 logger = structlog.get_logger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-# list_export_partitions_activity                                              #
-# --------------------------------------------------------------------------- #
-
-
 def _disabled_reason() -> str | None:
     if not is_pseudonym_key_configured():
         return "pseudonym key not configured"
@@ -90,7 +69,7 @@ def _disabled_reason() -> str | None:
 
 
 def export_days(today: date) -> list[str]:
-    """UTC days to (re-)export on a tick: complete days only, within the re-export window, never at or before the floor."""
+    """Complete UTC days within the re-export window, never before the floor."""
     first_day = max(EXPORT_FLOOR_DAY, today - timedelta(days=REEXPORT_WINDOW_DAYS))
     days = []
     day = first_day
@@ -116,10 +95,6 @@ async def list_export_partitions_activity(_inputs: ExportScoresSweepInputs) -> L
     logger.info("surfacing_score_export_sweep.partitions_planned", days=len(days), partitions=len(partitions))
     return ListExportPartitionsResult(partitions=partitions)
 
-
-# --------------------------------------------------------------------------- #
-# export_scores_partition_activity                                             #
-# --------------------------------------------------------------------------- #
 
 _PARQUET_SCHEMA = pa.schema(
     [
@@ -167,7 +142,6 @@ def _rows_to_parquet(rows: list[tuple[int, str, datetime, float]], secret: bytes
                 "surfacing_score": float(score),
             }
         )
-    # Cluster a team's sessions together for compression, like the ML mirror's store.
     records.sort(key=lambda r: (r["team_id"], r["session_id"]))
     table = pa.Table.from_pylist(records, schema=_PARQUET_SCHEMA)
     sink = io.BytesIO()
@@ -189,7 +163,6 @@ def _upload(key: str, body: bytes) -> None:
 
 @activity.defn
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
-    """Export one (day, hash bucket) slice of scored sessions, end to end."""
     try:
         secret = await sync_to_async(resolve_pseudonym_key, thread_sensitive=False)()
     except (PseudonymKeyNotConfiguredError, PseudonymKeyFingerprintMismatchError) as e:

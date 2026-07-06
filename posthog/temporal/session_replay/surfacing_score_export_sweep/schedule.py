@@ -1,9 +1,4 @@
-"""Singleton Schedule lifecycle for the daily score export tick.
-
-A single global Schedule per region, same as the scoring sweep: the export
-covers every opted-in team in the region's CH cluster, so there is nothing
-per-team to schedule.
-"""
+"""Singleton per-region Schedule for the daily score export tick."""
 
 from __future__ import annotations
 
@@ -42,7 +37,7 @@ def _build_schedule() -> Schedule:
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
             ExportScoresSweepInputs(),
-            id=WORKFLOW_NAME,  # singleton workflow id; dedupes overlapping ticks
+            id=WORKFLOW_NAME,
             task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
@@ -56,11 +51,7 @@ def _build_schedule() -> Schedule:
 
 
 async def create_surfacing_score_export_sweep_schedule(client: Client) -> None:
-    """Create-or-update the export Schedule using a shared Temporal client.
-
-    Registered in `posthog/temporal/schedule.py`'s deploy-time `schedules` list,
-    so `manage.py schedule_temporal_workflows` upserts it on every deploy.
-    """
+    """Upserted on deploy via `posthog/temporal/schedule.py`'s `schedules` list."""
     schedule = _build_schedule()
     search_attributes = TypedSearchAttributes(
         search_attributes=[SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCHEDULE_TYPE)]
