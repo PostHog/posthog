@@ -657,9 +657,10 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // This is an expected, gracefully-handled outcome: a non-ok / unreachable
+            // uiHost probe just means we surface the config modal below. Record it via
+            // the analytics capture (status + error_type) but do NOT report it as an
+            // error-tracking exception — it would be pure triage noise.
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

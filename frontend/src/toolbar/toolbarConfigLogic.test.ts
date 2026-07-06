@@ -3,7 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
+
+// Keep the real toolbar posthog-js instance (the analytics captures still fire) but spy on
+// the exception-capture helper so we can assert it is NOT called for expected outcomes.
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    ...jest.requireActual('~/toolbar/toolbarPosthogJS'),
+    captureToolbarException: jest.fn(),
+}))
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
 // test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
@@ -344,6 +352,18 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        it('does not report an error-tracking exception when the HEAD check returns a non-ok status', async () => {
+            // A 404 from the reachability probe is an expected, gracefully-handled outcome
+            // (we flip to 'error' so Authenticate opens the config modal). It must not
+            // pollute error tracking as a bare "HTTP 404" exception.
+            ;(captureToolbarException as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureToolbarException).not.toHaveBeenCalled()
         })
     })
 
