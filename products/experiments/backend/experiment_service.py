@@ -1762,7 +1762,7 @@ class ExperimentService:
                         team=team,
                         title=title,
                         description=description,
-                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENT,
+                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
                         user_id=user_id,
                         repository=EXPERIMENT_CLEANUP_REPOSITORY,
                         create_pr=True,

@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                     ("support_queue", "Support Queue"),
                     ("session_summaries", "Session Summaries"),
                     ("posthog_ai", "PostHog AI"),
-                    ("experiment", "Experiment"),
+                    ("experiments", "Experiments"),
                     ("signal_report", "Signal Report"),
                     ("signals_scout", "Signals Scout"),
                     ("support_reply", "Support Reply"),

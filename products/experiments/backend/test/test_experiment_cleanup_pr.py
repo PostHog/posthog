@@ -77,7 +77,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
-            self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENT)
+            self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
             self.assertEqual(kwargs["repository"], "PostHog/posthog")
             self.assertTrue(kwargs["create_pr"])
         else:
