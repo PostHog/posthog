@@ -2167,12 +2167,16 @@ class ExperimentService:
     def reset_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Reset an experiment back to draft state so it can be re-run.
 
-        The feature flag stays unchanged — users continue to see their assigned
-        variants. Only the experiment dates, conclusion, and archived flag are
-        cleared, moving the experiment back to draft state.
+        The feature flag's user-configured targeting stays unchanged — users continue
+        to see their assigned variants. The one exception is a frozen exposure: the
+        machine-added snapshot-cohort narrowing is stripped and the snapshot cohort
+        deleted, because a re-launched experiment would otherwise be born frozen
+        against a stale snapshot and could never enroll anyone.
         """
         if experiment.is_draft:
             raise ValidationError("Experiment is already in draft state.")
+
+        self._clear_frozen_exposure(experiment, request=request)
 
         experiment.start_date = None
         experiment.end_date = None
@@ -2185,6 +2189,46 @@ class ExperimentService:
         self._report_experiment_reset(experiment, request=request)
 
         return experiment
+
+    def _clear_frozen_exposure(self, experiment: Experiment, *, request: Any | None) -> None:
+        """Strip the exposure-freeze narrowing (if any) off the experiment's flag and drop the
+        snapshot cohorts.
+
+        Checks the group stamps rather than ``is_exposure_frozen`` on purpose: stale stamps on a
+        stopped or paused experiment's flag must be cleared too, or the relaunch is born frozen.
+        """
+        if experiment.feature_flag_id is None:
+            return
+        flag = experiment.feature_flag
+        if flag.deleted:
+            return
+        stripped_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+        if stripped_filters == (flag.filters or {}):
+            return
+
+        if request is not None:
+            flag_serializer = FeatureFlagSerializer(
+                flag,
+                data={"filters": stripped_filters},
+                partial=True,
+                context={
+                    "request": request,
+                    "team_id": self.team.id,
+                    "project_id": self.team.project_id,
+                },
+            )
+            flag_serializer.is_valid(raise_exception=True)
+            flag_serializer.save()
+        else:
+            # FeatureFlagSerializer needs a real request for its context; for non-HTTP callers
+            # write directly — flag caches still refresh via model save signals, only the flag's
+            # activity-log entry is skipped.
+            flag.filters = stripped_filters
+            flag.save(update_fields=["filters"])
+
+        flag.refresh_from_db()
+        experiment.feature_flag = flag
+        self._delete_orphaned_snapshot_cohorts(cohort_ids)
 
     def _report_experiment_reset(
         self,
@@ -3129,11 +3173,11 @@ class ExperimentService:
                             Q(feature_flag__active=True) & launched_unfinished & ~exposure_frozen
                         )
                     elif status_enum == ExperimentQueryStatus.PAUSED:
-                        queryset = queryset.filter(
-                            Q(feature_flag__active=False) & launched_unfinished & ~exposure_frozen
-                        )
+                        # Paused takes precedence over frozen (same as Experiment.is_exposure_frozen):
+                        # a deactivated flag serves no one, freeze stamps or not.
+                        queryset = queryset.filter(Q(feature_flag__active=False) & launched_unfinished)
                     elif status_enum == ExperimentQueryStatus.EXPOSURE_FROZEN:
-                        queryset = queryset.filter(launched_unfinished & exposure_frozen)
+                        queryset = queryset.filter(Q(feature_flag__active=True) & launched_unfinished & exposure_frozen)
                     elif status_enum == ExperimentQueryStatus.STOPPED:
                         queryset = queryset.filter(
                             Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)

@@ -47,6 +47,7 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
     confirmFreezeExposure,
+    hasFrozenExposureStamps,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { isExperimentPaused } from '../experimentsLogic'
@@ -131,9 +132,16 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
                         </p>
-                        <p>
-                            The <b>feature flag remains untouched</b>, so variants stay visible to users.
-                        </p>
+                        {hasFrozenExposureStamps(experiment) ? (
+                            <p>
+                                The <b>exposure freeze is removed</b>: the flag serves its original release conditions
+                                again and the snapshot cohort is deleted. Everything else on the flag stays untouched.
+                            </p>
+                        ) : (
+                            <p>
+                                The <b>feature flag remains untouched</b>, so variants stay visible to users.
+                            </p>
+                        )}
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>

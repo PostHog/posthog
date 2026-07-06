@@ -150,6 +150,7 @@ class TestExperimentCRUD(APILicensedTest):
             ("draft", "draft"),
             ("running", "running"),
             ("exposure_frozen", "exposure_frozen"),
+            ("paused", "paused"),
             ("stopped", "stopped"),
             ("complete", "stopped"),
         ]
@@ -202,6 +203,28 @@ class TestExperimentCRUD(APILicensedTest):
             ],
         }
         frozen_flag.save()
+        # A frozen experiment that was then paused (flag deactivated, stamps still on the groups):
+        # paused takes precedence, so it must show up under paused — not under exposure_frozen,
+        # where it would misreport a flag that serves no one as still holding variants.
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Paused frozen experiment",
+                "feature_flag_key": "paused-frozen-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        paused_frozen_flag = FeatureFlag.objects.get(team=self.team, key="paused-frozen-filter-flag")
+        paused_frozen_flag.filters = {
+            **paused_frozen_flag.filters,
+            "groups": [
+                {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                for group in paused_frozen_flag.filters.get("groups", [])
+            ],
+        }
+        paused_frozen_flag.active = False
+        paused_frozen_flag.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
 

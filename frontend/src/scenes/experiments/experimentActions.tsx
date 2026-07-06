@@ -13,6 +13,13 @@ export function canArchiveExperiment(
     return !experiment.archived && hasEnded(experiment)
 }
 
+/** Whether the experiment's flag release groups still carry the exposure-freeze stamps.
+ * Unlike the status check, this also covers paused or stopped experiments whose flag was
+ * frozen earlier — reset clears the stamps in all of those states. */
+export function hasFrozenExposureStamps(experiment: Pick<Experiment, 'feature_flag'>): boolean {
+    return !!experiment.feature_flag?.filters?.groups?.some((group) => group.exposure_frozen === true)
+}
+
 /** Whether an experiment can have its exposure frozen (ignoring permissions). */
 export function canFreezeExposure(
     experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag' | 'holdout_id' | 'holdout'>

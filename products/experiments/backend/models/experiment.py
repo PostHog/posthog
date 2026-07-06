@@ -167,6 +167,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         # the JSONB-containment filter uses in the experiments list endpoint.
         if not self.is_running or self.feature_flag_id is None:
             return False
+        # Paused takes precedence: a deactivated flag serves no one, so reporting "frozen" would
+        # misdescribe the experiment and hide the pause/resume lifecycle (Resume only renders for
+        # paused). The group stamps survive, so resuming lands back in the frozen state.
+        if not self.feature_flag.active:
+            return False
         groups = (self.feature_flag.filters or {}).get("groups", [])
         return any(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
 

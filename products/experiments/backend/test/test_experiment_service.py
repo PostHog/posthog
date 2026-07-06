@@ -3094,6 +3094,9 @@ class TestExperimentService(APIBaseTest):
             ("running_without_marker", "running", False, False),
             ("draft_with_marker", "draft", True, False),
             ("stopped_with_marker", "stopped", True, False),
+            # Paused takes precedence: a deactivated flag serves no one, so "frozen" would
+            # misdescribe the experiment and hide the pause/resume lifecycle in the UI.
+            ("paused_with_marker", "paused", True, False),
         ]
     )
     def test_is_exposure_frozen_property(self, _name: str, state: str, marker: bool, expected: bool) -> None:
@@ -3103,6 +3106,11 @@ class TestExperimentService(APIBaseTest):
             experiment = self._create_ended_experiment(name="Exp Frozen Stopped", feature_flag_key=f"ef-{_name}")
         else:
             experiment = self._create_running_experiment(name="Exp Frozen Running", feature_flag_key=f"ef-{_name}")
+
+        if state == "paused":
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
 
         if marker:
             self._stamp_exposure_frozen_marker(experiment.feature_flag)
@@ -3413,6 +3421,24 @@ class TestExperimentService(APIBaseTest):
 
         assert any(call.args[1] == "experiment exposure frozen" for call in mock_report.call_args_list)
 
+    def test_pause_and_resume_frozen_experiment(self):
+        experiment = self._create_running_experiment(name="Freeze Pause", feature_flag_key="freeze-pause-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        assert frozen.status_label == "exposure_frozen"
+
+        # Pausing a frozen experiment must not wedge it: with the flag deactivated nothing is
+        # served, so "paused" (with a working Resume) is the truthful state — a sticky "frozen"
+        # label would hide the Resume action and leave Pause 400-ing with "already paused".
+        paused = self._service().pause_experiment(frozen, request=self._make_request())
+        assert paused.is_exposure_frozen is False
+        assert paused.status_label == "paused"
+
+        # The freeze stamps survive the roundtrip: resuming lands back in frozen, not running.
+        resumed = self._service().resume_experiment(paused, request=self._make_request())
+        assert resumed.is_exposure_frozen is True
+        assert resumed.status_label == "exposure_frozen"
+
     def test_freeze_exposure_retains_cohort_and_second_freeze_raises(self):
         experiment = self._create_running_experiment(name="Freeze Retain", feature_flag_key="freeze-retain-flag")
 
@@ -3469,6 +3495,35 @@ class TestExperimentService(APIBaseTest):
 
         reset.feature_flag.refresh_from_db()
         assert reset.feature_flag.active is True
+
+    @parameterized.expand(
+        [
+            ("running_frozen",),
+            ("stopped_frozen",),
+        ]
+    )
+    def test_reset_experiment_clears_freeze(self, state: str):
+        experiment = self._create_running_experiment(name=f"Reset {state}", feature_flag_key=f"reset-{state}-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        cohort = Cohort.objects.get(team=self.team, name=f'Exposure snapshot for experiment "Reset {state}"')
+        if state == "stopped_frozen":
+            # Ending intentionally leaves the flag untouched, so the stamps are still on the
+            # groups even though the stopped experiment no longer reports exposure_frozen —
+            # reset must strip them regardless, or the relaunch is born frozen.
+            self._service().end_experiment(frozen, request=self._make_request())
+
+        reset = self._service().reset_experiment(frozen, request=self._make_request())
+
+        # A re-launched experiment must start fresh: left frozen against the stale snapshot,
+        # it could never enroll anyone.
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
 
     def test_reset_draft_experiment_raises(self):
         experiment = self._create_launchable_experiment(name="Reset Draft", feature_flag_key="reset-draft-flag")
