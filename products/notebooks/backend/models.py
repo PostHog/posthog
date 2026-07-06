@@ -191,7 +191,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         DONE = "done", "done"
         FAILED = "failed", "failed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
+    # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
     node_id = models.CharField(max_length=128)
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
