@@ -1,4 +1,5 @@
-import { Component, ComponentMap, ValueOf } from './component'
+import { Component, ComponentMap, ValueOf } from '~/common/scopes/component'
+
 import { EmptyScope } from './empty-scope'
 import { ScopeRunner } from './runner'
 import { Scope } from './scope'

@@ -1,4 +1,4 @@
-import { Component } from '~/ingestion/common/scopes'
+import { Component } from '~/common/scopes/component'
 import { EventSchemaEnforcement } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'

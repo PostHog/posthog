@@ -2,8 +2,8 @@ import { GroupRepository } from '~/common/groups/repositories/group-repository.i
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { Component } from '~/common/scopes/component'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { Component } from '~/ingestion/common/scopes'
 
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from './index'
 

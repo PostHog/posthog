@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { Component } from '~/common/scopes/component'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
-import { Component } from '~/ingestion/common/scopes'
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '~/types'
 
 /** How many unique group types to allow per team */

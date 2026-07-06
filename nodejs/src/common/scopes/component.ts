@@ -11,6 +11,11 @@ export interface Started<T> {
  * component. This lets the scope plumb dependencies (services, pools, config)
  * through a single container without each entry needing to wear a
  * start/stop hat.
+ *
+ * Lives in `common/` (the cdp∩ingestion meeting point) so component classes
+ * outside the ingestion tree can implement the contract without importing
+ * ingestion. The scope machinery that assembles components stays in
+ * `ingestion/common/scopes` and imports this contract.
  */
 export interface Component<T> {
     start(): Promise<Started<T>>
