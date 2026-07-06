@@ -30,6 +30,9 @@ from products.data_warehouse.backend.snowflake_helpers import (
     snowflake_schema_metadata_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.hogql import hogql_fields_and_structure_for_columns
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    filter_dwh_columns_by_enabled_columns,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -48,6 +51,14 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
         columns = postgres_schema_metadata_to_dwh_columns(metadata)
         if not columns:
             return None
+        columns = filter_dwh_columns_by_enabled_columns(
+            columns,
+            schema.enabled_columns,
+            schema.primary_key_columns,
+            schema.incremental_field,
+            # Direct-postgres columns are keyed by raw, case-sensitive source names.
+            normalize=False,
+        )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, postgres_schema, table_name = get_postgres_source_location(
             schema_name=schema.name,
@@ -68,6 +79,14 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
         columns = mysql_schema_metadata_to_dwh_columns(metadata)
         if not columns:
             return None
+        columns = filter_dwh_columns_by_enabled_columns(
+            columns,
+            schema.enabled_columns,
+            schema.primary_key_columns,
+            schema.incremental_field,
+            # Direct-mysql columns are keyed by raw, case-sensitive source names.
+            normalize=False,
+        )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         mysql_schema, table_name = get_mysql_source_location(
             schema_name=schema.name,
@@ -87,6 +106,14 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
         columns = snowflake_schema_metadata_to_dwh_columns(metadata)
         if not columns:
             return None
+        columns = filter_dwh_columns_by_enabled_columns(
+            columns,
+            schema.enabled_columns,
+            schema.primary_key_columns,
+            schema.incremental_field,
+            # Direct-snowflake columns are keyed by raw, case-sensitive source names.
+            normalize=False,
+        )
         fields, _ = hogql_fields_and_structure_for_columns(columns)
         catalog, snowflake_schema, table_name = get_snowflake_source_location(
             schema_name=schema.name,

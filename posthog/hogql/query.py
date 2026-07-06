@@ -548,6 +548,7 @@ class HogQLQueryExecutor:
             self.connection_id,
             user=self.user,
             error_factory=ExposedHogQLError,
+            require_pure_direct=True,
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")

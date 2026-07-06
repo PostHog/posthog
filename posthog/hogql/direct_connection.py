@@ -22,7 +22,7 @@ INVALID_CONNECTION_ID_ERROR = (
 
 
 def get_direct_connection_source(
-    team: "Team", connection_id: str | None, *, user: Optional["User"] = None
+    team: "Team", connection_id: str | None, *, user: Optional["User"] = None, require_pure_direct: bool = False
 ) -> ExternalDataSource | None:
     if not connection_id:
         return None
@@ -46,6 +46,13 @@ def get_direct_connection_source(
     if source is None or not is_direct_capable(source):
         return None
 
+    # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
+    # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
+    # sources have no restricted catalog to bypass; the whole external database is the intended
+    # surface.
+    if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+        return None
+
     if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
         source, required_level="viewer"
     ):
@@ -60,8 +67,9 @@ def get_direct_connection_source_none_or_raise(
     *,
     user: Optional["User"] = None,
     error_factory: Callable[[str], Exception],
+    require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
-    source = get_direct_connection_source(team, connection_id, user=user)
+    source = get_direct_connection_source(team, connection_id, user=user, require_pure_direct=require_pure_direct)
     if connection_id and source is None:
         raise error_factory(INVALID_CONNECTION_ID_ERROR)
     return source
