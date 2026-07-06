@@ -44,29 +44,21 @@ from posthog.utils import relative_date_parse
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
+from products.alerts.backend.evaluation.validation import (
+    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
+    should_default_check_ongoing_interval,
+    validate_alert_config,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 
-def _validate_every_15_minutes_interval(
+def _validate_interval_entitlement(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
     organization,
 ) -> None:
-    if error := AlertConfiguration.every_15_minutes_interval_validation_error(
-        calculation_interval=calculation_interval,
-        organization=organization,
-    ):
-        raise ValidationError({"calculation_interval": [error]})
-
-
-def _validate_real_time_interval(
-    *,
-    calculation_interval: str | AlertCalculationInterval | None,
-    organization,
-) -> None:
-    if error := AlertConfiguration.real_time_interval_validation_error(
+    if error := AlertConfiguration.interval_entitlement_error(
         calculation_interval=calculation_interval,
         organization=organization,
     ):
@@ -634,6 +626,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.instance is None or "threshold" in attrs or "detector_config" in attrs
         )
 
+        # Mirror the UI: a cadence finer than the insight's interval re-checks a frozen completed
+        # bucket, so default the ongoing-bucket check on when it's left unset. Keeps API/MCP-created
+        # alerts consistent with the editor. Only when the caller didn't set it explicitly.
+        # Applied before validate_alert_config so the validated config is the persisted config.
+        if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
+            if should_default_check_ongoing_interval(
+                query=query,
+                config=config,
+                condition=condition,
+                threshold_config=threshold_config,
+                calculation_interval=calculation_interval,
+            ):
+                config = {**config, "check_ongoing_interval": True}
+                attrs["config"] = config
+
         try:
             validate_alert_config(
                 query,
@@ -650,11 +657,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError(str(e))
 
         organization = self.context["get_organization"]()
-        _validate_every_15_minutes_interval(
-            calculation_interval=calculation_interval,
-            organization=organization,
-        )
-        _validate_real_time_interval(
+        _validate_interval_entitlement(
             calculation_interval=calculation_interval,
             organization=organization,
         )
