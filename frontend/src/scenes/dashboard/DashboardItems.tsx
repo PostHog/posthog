@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -15,6 +15,7 @@ import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverl
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -38,6 +39,44 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+
+/**
+ * react-grid-layout re-renders every grid child on each drag/resize mousemove, cloning it with a freshly built
+ * `style` object and freshly created resize-handle `children` even when the tile hasn't moved. Comparing `style`
+ * by value and ignoring handle identity lets untouched tiles bail out of re-rendering, which keeps gestures
+ * tracking the cursor on dashboards with many tiles.
+ */
+function gridTilePropsEqual<P extends Record<string, any>>(prevProps: P, nextProps: P): boolean {
+    const keys = new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])
+    for (const key of keys) {
+        if (key === 'children') {
+            // Resize handles, recreated each render with identical content. A real handle change (toggling
+            // resizability) always comes with a className change, which forces the re-render anyway.
+            continue
+        }
+        if (key === 'style') {
+            if (!objectsEqual(prevProps.style, nextProps.style)) {
+                return false
+            }
+            continue
+        }
+        if (!Object.is(prevProps[key], nextProps[key])) {
+            return false
+        }
+    }
+    return true
+}
+
+const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as unknown as typeof InsightCard
+const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as unknown as typeof DashboardTextItem
+const MemoizedDashboardButtonTileItem = memo(
+    DashboardButtonTileItem,
+    gridTilePropsEqual
+) as unknown as typeof DashboardButtonTileItem
+const MemoizedDashboardWidgetItem = memo(
+    DashboardWidgetItem,
+    gridTilePropsEqual
+) as unknown as typeof DashboardWidgetItem
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -336,7 +375,7 @@ export function DashboardItems(): JSX.Element {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
-    }, [updateLayouts])
+    }, [updateLayouts, containerRef.current.clientHeight, containerRef.current])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -507,7 +546,7 @@ export function DashboardItems(): JSX.Element {
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
                                 return (
-                                    <InsightCard
+                                    <MemoizedInsightCard
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
@@ -540,7 +579,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (text) {
                                 return (
-                                    <DashboardTextItem
+                                    <MemoizedDashboardTextItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -565,7 +604,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (button_tile) {
                                 return (
-                                    <DashboardButtonTileItem
+                                    <MemoizedDashboardButtonTileItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -593,7 +632,7 @@ export function DashboardItems(): JSX.Element {
                                 const refreshState = widgetRefreshStatus[tile.id]
 
                                 return (
-                                    <DashboardWidgetItem
+                                    <MemoizedDashboardWidgetItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
