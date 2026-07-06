@@ -140,7 +140,7 @@ def _post_callback(callback_url: str, callback_token: str, result: dict[str, Any
         method="POST",
     )
     try:
-        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected — url is the backend's
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected — url is the backend's
         # own callback endpoint from the signed run payload, never user-controlled.
         urllib.request.urlopen(request, timeout=_CALLBACK_TIMEOUT_SECONDS)
     except Exception:  # noqa: BLE001 — best-effort; the backend watchdog covers a lost callback
