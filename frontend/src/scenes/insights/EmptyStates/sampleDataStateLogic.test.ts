@@ -18,10 +18,7 @@ describe('sampleDataStateLogic', () => {
 
     // The global is read inside the selector, so it must be in place before the selector first
     // computes (as on real shared pages, where Django injects it before React runs).
-    function mount(currentTeam: unknown, { shared }: { shared?: boolean } = {}): void {
-        if (shared) {
-            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
-        }
+    function mount(currentTeam: unknown): void {
         initKeaTests(false)
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess(currentTeam as any)
@@ -43,7 +40,8 @@ describe('sampleDataStateLogic', () => {
     // `ingested_event`, so it reads as undefined on shared views. Without the isSharedView gate,
     // every empty tile on a real, data-carrying project falsely renders fake sample data.
     it('hides the placeholder on shared views even when ingested_event is absent', async () => {
-        mount({ ...MOCK_DEFAULT_TEAM, ingested_event: undefined }, { shared: true })
+        window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+        mount({ ...MOCK_DEFAULT_TEAM, ingested_event: undefined })
         await expectLogic(logic).toMatchValues({ shouldShowSampleData: false })
     })
 })
