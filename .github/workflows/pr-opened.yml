@@ -1,8 +1,14 @@
 name: Opened PR
 
+# Reusable workflow — called by pr-housekeeping.yml on PR opened/ready_for_review.
+
 on:
-    pull_request:
-        types: [opened, ready_for_review]
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID:
+                required: false
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY:
+                required: false
 
 permissions:
     pull-requests: write

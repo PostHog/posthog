@@ -1,6 +1,6 @@
 name: PR housekeeping
 
-# One dispatch per PR event instead of four. GitHub's run-queue cap
+# One dispatch per PR event instead of eight. GitHub's run-queue cap
 # (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
 # workflows counts once — so folding the small always-fire PR workflows
 # under this parent divides the burst budget every push consumes.
@@ -50,3 +50,32 @@ jobs:
         # secrets: block too.
         # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
         secrets: inherit
+
+    pr-opened:
+        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
+        uses: ./.github/workflows/pr-opened.yml
+        permissions:
+            pull-requests: write
+        secrets:
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+            GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+    resolve-bot-comments:
+        if: github.event.action == 'synchronize'
+        uses: ./.github/workflows/pr-resolve-outdated-bot-comments.yml
+        secrets:
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
+            GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
+
+    migrations-separation:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/ci-migrations-service-separation-check.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    release-plan:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/release.yml
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
