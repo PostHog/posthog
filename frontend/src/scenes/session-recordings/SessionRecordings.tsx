@@ -141,11 +141,20 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
             <LemonBanner
                 type="ai"
                 dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
-                action={{
-                    children: hasReplayVision ? 'Try Replay vision' : 'Join the waitlist',
-                    to: urls.replayVision(),
-                    'data-attr': 'replay-vision-waitlist-banner-cta',
-                }}
+                action={
+                    hasReplayVision
+                        ? {
+                              children: 'Try Replay vision',
+                              to: urls.replayVision(),
+                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                          }
+                        : {
+                              children: 'Join the waitlist',
+                              to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-waitlist-banner',
+                              targetBlank: true,
+                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                          }
+                }
             >
                 Tired of watching replays? Replay vision watches them for you and surfaces what matters.
             </LemonBanner>
