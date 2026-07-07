@@ -4232,7 +4232,7 @@ def list_mentions(
             task_id=mention.task_id,
             task_title=mention.task.title,
             channel_id=mention.task.channel_id,
-            channel_name=mention.task.channel.name if mention.task.channel_id else None,
+            channel_name=mention.task.channel.name if mention.task.channel else None,
             content=mention.message.content,
             created_at=mention.created_at,
             author=_user_basic_info(mention.message.author if mention.message.author_id else None),
