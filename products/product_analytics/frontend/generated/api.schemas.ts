@@ -4073,7 +4073,7 @@ export interface Response25Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response26Api {
+export interface Response27Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4098,7 +4098,7 @@ export interface Response26Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response27Api {
+export interface Response28Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6797,6 +6797,46 @@ export interface TraceQueryApi {
     version?: number | null
 }
 
+export interface SessionQueryResponseApi {
+    columns?: string[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: LLMTraceApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface SessionQueryApi {
+    dateRange?: DateRangeApi | null
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean | null
+    kind?: 'SessionQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    response?: SessionQueryResponseApi | null
+    sessionId: string
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type EndpointsUsageBreakdownApi = (typeof EndpointsUsageBreakdownApi)[keyof typeof EndpointsUsageBreakdownApi]
 
 export const EndpointsUsageBreakdownApi = {
@@ -6954,8 +6994,8 @@ export type DataTableNodeApiResponse =
     | Response23Api
     | Response24Api
     | Response25Api
-    | Response26Api
     | Response27Api
+    | Response28Api
     | null
 
 export interface DataTableNodeApi {
@@ -7061,6 +7101,7 @@ export interface DataTableNodeApi {
         | ExperimentTrendsQueryApi
         | TracesQueryApi
         | TraceQueryApi
+        | SessionQueryApi
         | EndpointsUsageTableQueryApi
         | AccountsQueryApi
     tags?: QueryLogTagsApi | null
@@ -7708,10 +7749,9 @@ export interface InsightBulkRestoreResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type BulkUpdateTagsRequestActionEnumApi =
-    (typeof BulkUpdateTagsRequestActionEnumApi)[keyof typeof BulkUpdateTagsRequestActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const BulkUpdateTagsRequestActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -7728,7 +7768,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: BulkUpdateTagsRequestActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }

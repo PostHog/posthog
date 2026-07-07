@@ -1,5 +1,6 @@
 import uuid
 import dataclasses
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -36,6 +37,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 LOGGER = get_logger(__name__)
+
+# Hard cap on how long a terminal-workflow holder can block takeover on queue
+# activity alone — the backstop when the staleness heuristic is being fooled.
+TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 
 
 @dataclasses.dataclass
@@ -115,8 +120,10 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
     2. Holder workflow terminal + no job row -> take over.
     3. Holder workflow terminal + job terminal -> take over.
     4. Holder workflow terminal + job RUNNING -> consult queue DB:
-       - no batches or all-terminal/stale -> mark job FAILED, take over.
-       - non-terminal batches with recent activity -> fail closed.
+       - no batches, all-terminal, no recent loader progress, or the job has
+         exceeded the max hold -> fail its leftover batches, mark job FAILED,
+         take over.
+       - non-terminal batches with recent loader progress -> fail closed.
     5. Describe error / queue DB error -> fail closed.
     """
     holder = get_v3_pipeline_lock_holder(inputs.team_id, str(inputs.schema_id))
@@ -179,7 +186,7 @@ def _describe_holder_workflow(
                 workflow_run_id=holder_run_id,
             )
             .order_by("-created_at")
-            .only("id", "status", "workflow_id")
+            .only("id", "status", "workflow_id", "created_at")
             .first()
         )
         if holder_job is None or not holder_job.workflow_id:
@@ -222,35 +229,63 @@ def _take_over_stale_running_job(
         return False
 
     try:
-        summary = BatchQueue.get_run_activity_summary(
-            conn,
-            job_id=str(holder_job.id),
-            workflow_run_id=holder,
-        )
-    except Exception as e:
-        logger.warning(
-            "v3_pipeline_lock_takeover_ambiguous",
-            schema_id=str(inputs.schema_id),
-            holder_token=holder,
-            reason="queue_db_query_failed",
-            error=str(e),
-        )
-        capture_exception(e)
-        return False
+        try:
+            summary = BatchQueue.get_run_activity_summary(
+                conn,
+                job_id=str(holder_job.id),
+                workflow_run_id=holder,
+            )
+        except Exception as e:
+            logger.warning(
+                "v3_pipeline_lock_takeover_ambiguous",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="queue_db_query_failed",
+                error=str(e),
+            )
+            capture_exception(e)
+            return False
+
+        # Backstop for a fooled staleness heuristic: a terminal-workflow holder
+        # cannot block takeover on queue activity alone past the max hold.
+        hold_seconds = (datetime.now(UTC) - holder_job.created_at).total_seconds()
+        max_hold_exceeded = hold_seconds > TAKEOVER_MAX_HOLD_SECONDS
+
+        if summary.has_non_terminal and not summary.is_stale and not max_hold_exceeded:
+            # The loader is making progress on this run's batches - don't steal
+            logger.info(
+                "v3_pipeline_lock_takeover_skipped",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="active_consumer",
+                last_status_write_age_seconds=summary.last_status_write_age_seconds,
+                oldest_unclaimed_age_seconds=summary.oldest_unclaimed_age_seconds,
+                hold_seconds=round(hold_seconds, 1),
+            )
+            return False
+
+        # Leftover claimable batches must go terminal before the job is failed:
+        # loaded afterwards they could stale-overwrite newer data or flip the
+        # FAILED job back to COMPLETED via the final-batch sentinel.
+        try:
+            failed_batches = BatchQueue.fail_batches_for_job_sync(
+                conn,
+                job_id=str(holder_job.id),
+                reason=LOCK_TAKEOVER_LATEST_ERROR,
+            )
+        except Exception as e:
+            logger.warning(
+                "v3_pipeline_lock_takeover_ambiguous",
+                schema_id=str(inputs.schema_id),
+                holder_token=holder,
+                reason="queue_batch_fail_failed",
+                error=str(e),
+            )
+            capture_exception(e)
+            return False
     finally:
         conn.close()
 
-    if summary.has_non_terminal and not summary.is_stale:
-        # Consumer is actively processing batches - don't steal
-        logger.info(
-            "v3_pipeline_lock_takeover_skipped",
-            schema_id=str(inputs.schema_id),
-            holder_token=holder,
-            reason="active_consumer",
-        )
-        return False
-
-    # No batches, all terminal, or stale - mark job FAILED and take over
     takeover_logger = structlog.get_logger(__name__).bind(team_id=inputs.team_id)
     try:
         update_external_job_status(
@@ -274,10 +309,14 @@ def _take_over_stale_running_job(
         "v3_pipeline_lock_taking_over",
         schema_id=str(inputs.schema_id),
         holder_token=holder,
-        reason="stale_running_job",
+        reason="max_hold_exceeded" if (max_hold_exceeded and not summary.is_stale) else "stale_running_job",
         holder_job_id=str(holder_job.id),
         has_batches=summary.has_batches,
         is_stale=summary.is_stale,
+        failed_batches=failed_batches,
+        last_status_write_age_seconds=summary.last_status_write_age_seconds,
+        oldest_unclaimed_age_seconds=summary.oldest_unclaimed_age_seconds,
+        hold_seconds=round(hold_seconds, 1),
     )
     return _release_and_acquire(inputs, holder, token)
 

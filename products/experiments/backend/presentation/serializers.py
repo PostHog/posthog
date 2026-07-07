@@ -1000,6 +1000,40 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
     )
+    # Live ClickHouse progress, present only on the GET poll path while the run is in_progress (read from
+    # system.processes by query_id prefix; see get_live_query_progress). build_job_payload omits these keys
+    # entirely for terminal or just-created runs, so they are genuinely optional in the response — NOT
+    # read_only=True, which drf-spectacular would force into the schema's `required` list (making the generated
+    # TypeScript `number | null` instead of the honest `number | null | undefined`). The serializer is
+    # output-only (never .is_valid()), so omitting read_only costs no input-validation safety.
+    running_metrics = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)",
+    )
+    rows_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Rows read so far by the currently-running metric queries (monotonic; the live progress signal)",
+    )
+    estimated_rows_total = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward "
+            "mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal"
+        ),
+    )
+    bytes_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Bytes read so far by the currently-running metric queries",
+    )
+    active_cpu_time = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Active CPU time (microseconds) consumed by the currently-running metric queries",
+    )
 
 
 class RunningTimeBaselineStatsSerializer(serializers.Serializer):

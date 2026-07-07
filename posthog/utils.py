@@ -1075,6 +1075,42 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def _normalize_ip(ip: str) -> Optional[str]:
+    """Strip an optional port and validate; returns None if the result isn't a valid IP."""
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port: [2001:db8::1]:8080 -> 2001:db8::1
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        ip = ip.split(":")[0]
+    return ip if _is_valid_ip_address(ip) else None
+
+
+def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
+    """Client IP validated against the trusted-proxy chain (settings.TRUSTED_PROXIES / TRUST_ALL_PROXIES).
+
+    Unlike get_ip_address, which trusts the left-most X-Forwarded-For value, this accepts the
+    forwarded client IP only when every proxy hop is a trusted proxy — otherwise it returns None.
+    Use it for security decisions so a spoofed X-Forwarded-For header can't dictate the result.
+    """
+    client_ip = request.META.get("REMOTE_ADDR")
+    if getattr(settings, "USE_X_FORWARDED_HOST", False):
+        forwarded_for = [ip.strip() for ip in (request.headers.get("x-forwarded-for") or "").split(",") if ip.strip()]
+        if forwarded_for:
+            closest_proxy = client_ip
+            client_ip = forwarded_for.pop(0)
+            if settings.TRUST_ALL_PROXIES:
+                return _normalize_ip(client_ip)
+            trusted = [p.strip() for p in (settings.TRUSTED_PROXIES or "").split(",") if p.strip()]
+            for proxy in [closest_proxy, *forwarded_for]:
+                normalized = _normalize_ip(proxy) if proxy else None
+                if normalized is None or normalized not in trusted:
+                    return None
+    return _normalize_ip(client_ip) if client_ip else None
+
+
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
     user_agent_str = request.headers.get("user-agent")

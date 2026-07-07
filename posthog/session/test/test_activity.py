@@ -135,6 +135,24 @@ class TestSessionActivity(BaseTest):
         self.assertIsNotNone(row.last_activity)
         self.assertEqual(row.login_method, "password")
 
+    def test_sync_writes_display_metadata_not_security_baseline(self):
+        # The metadata sync owns display fields only; the risk baseline columns are owned by
+        # evaluate_session_risk and must stay untouched here (so a suspicious request can't move them).
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+        request.META["HTTP_USER_AGENT"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_current_session_metadata(request, force=True)
+
+        row = Session.objects.get(session_key=key)
+        self.assertIsNotNone(row.last_activity)  # display metadata written
+        self.assertIsNone(row.latitude)  # security baseline left alone
+        self.assertIsNone(row.country_code)
+        self.assertIsNone(row.ua_signature)
+        self.assertIsNone(row.baseline_at)
+
     def test_sync_metadata_is_throttled(self):
         user = self._make_user()
         key = self._login_session(user)

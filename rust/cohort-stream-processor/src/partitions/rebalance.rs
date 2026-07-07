@@ -198,7 +198,8 @@ mod tests {
     use crate::partitions::{MarkOutcome, OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
     use crate::store::{
-        CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+        Behavioral, BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode,
+        StoreConfig, StoreHandle,
     };
     use crate::workers::MergeWorkerDeps;
     use uuid::Uuid;
@@ -420,25 +421,25 @@ mod tests {
         assert!(!dispatcher.owns(3));
     }
 
-    fn slice_key(partition: u16) -> Stage1Key {
-        Stage1Key {
-            partition_id: partition,
-            team_id: 7,
-            leaf_state_key: LeafStateKey([0xAB; 16]),
-            person_id: Uuid::from_u128(1),
-        }
+    fn slice_key(partition: u16) -> BehavioralKey {
+        BehavioralKey::new(partition, 7, Uuid::from_u128(1), LeafStateKey([0xAB; 16]))
     }
 
     fn seed_slice(store: &CohortStore, partition: u16) {
         store
-            .write_batch(|b| b.put_stage1(&slice_key(partition), b"state"))
+            .write_batch(|b| b.put::<Behavioral>(&slice_key(partition), b"state"))
             .unwrap();
     }
 
     /// Probe whether `partition`'s slice is present without seeding it, so the caller controls seed
     /// ordering relative to a boot reconcile.
     fn present_probe(store: &CohortStore, partition: u16) -> impl Fn() -> bool + '_ {
-        move || store.get_stage1(&slice_key(partition)).unwrap().is_some()
+        move || {
+            store
+                .get_behavioral(&slice_key(partition))
+                .unwrap()
+                .is_some()
+        }
     }
 
     fn seed_and_present(store: &CohortStore, partition: u16) -> impl Fn() -> bool + '_ {
