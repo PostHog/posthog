@@ -78,7 +78,20 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     const queryString = new URLSearchParams(params).toString()
                     const url = `api/environments/${values.currentTeamIdStrict}/health_issues/?${queryString}`
 
-                    return await api.get(url)
+                    try {
+                        return await api.get(url)
+                    } catch (error: unknown) {
+                        // A network-level fetch failure (Safari's "Load failed", Chrome/Firefox's "Failed to
+                        // fetch") surfaces as an ApiError with no HTTP status - the request never completed
+                        // (offline, dropped connection, a navigation cancelling the request, or an extension
+                        // blocking it). That's not a defect on our side, so swallow it quietly and keep the
+                        // current data instead of spawning a junk error tracking issue. Genuine API errors
+                        // (those with a status) still propagate.
+                        if (error instanceof ApiError && error.status === undefined) {
+                            return values.healthIssues
+                        }
+                        throw error
+                    }
                 },
             },
         ],
